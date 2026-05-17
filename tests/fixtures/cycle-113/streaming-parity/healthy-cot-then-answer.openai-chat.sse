@@ -196,6 +196,8 @@ data: {"choices":[{"delta":{"content":"thinking about this step 98\n"},"index":0
 
 data: {"choices":[{"delta":{"content":"thinking about this step 99\n"},"index":0}]}
 
+data: {"choices":[{"delta":{"content":"thinking about this step 100\n"},"index":0}]}
+
 data: {"choices":[{"delta":{"content":"</thinking>"},"index":0}]}
 
 data: {"choices":[{"delta":{"content":"## Finding 1: "},"index":0}]}

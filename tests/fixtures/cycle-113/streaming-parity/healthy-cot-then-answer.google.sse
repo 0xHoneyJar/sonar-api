@@ -196,6 +196,8 @@ data: {"candidates":[{"content":{"parts":[{"text":"thinking about this step 98\n
 
 data: {"candidates":[{"content":{"parts":[{"text":"thinking about this step 99\n"}],"role":"model"},"finishReason":null,"index":0}],"modelVersion":"gemini-1.5-pro-002"}
 
+data: {"candidates":[{"content":{"parts":[{"text":"thinking about this step 100\n"}],"role":"model"},"finishReason":null,"index":0}],"modelVersion":"gemini-1.5-pro-002"}
+
 data: {"candidates":[{"content":{"parts":[{"text":"</thinking>"}],"role":"model"},"finishReason":null,"index":0}],"modelVersion":"gemini-1.5-pro-002"}
 
 data: {"candidates":[{"content":{"parts":[{"text":"## Finding 1: "}],"role":"model"},"finishReason":null,"index":0}],"modelVersion":"gemini-1.5-pro-002"}

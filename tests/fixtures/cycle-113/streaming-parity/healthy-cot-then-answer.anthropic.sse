@@ -296,6 +296,9 @@ event: content_block_delta
 data: {"delta":{"text":"thinking about this step 99\n","type":"text_delta"},"index":0,"type":"content_block_delta"}
 
 event: content_block_delta
+data: {"delta":{"text":"thinking about this step 100\n","type":"text_delta"},"index":0,"type":"content_block_delta"}
+
+event: content_block_delta
 data: {"delta":{"text":"</thinking>","type":"text_delta"},"index":0,"type":"content_block_delta"}
 
 event: content_block_delta

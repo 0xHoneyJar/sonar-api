@@ -296,6 +296,9 @@ event: response.output_text.delta
 data: {"delta":"thinking about this step 99\n","type":"response.output_text.delta"}
 
 event: response.output_text.delta
+data: {"delta":"thinking about this step 100\n","type":"response.output_text.delta"}
+
+event: response.output_text.delta
 data: {"delta":"</thinking>","type":"response.output_text.delta"}
 
 event: response.output_text.delta

@@ -310,7 +310,10 @@ SCENARIOS: tuple = (
             "close + `## Finding 1:` structured-answer marker."
         ),
         tokens=(
-            tuple([f"thinking about this step {i}\n" for i in range(1, 100)])
+            # cycle-113 sprint-168 review-iter2 ADVISORY fix: SDD §6.1
+            # says "100 CoT tokens"; range(1, 101) emits 100 deltas
+            # (range(1, 100) was off-by-one, only 99 tokens).
+            tuple([f"thinking about this step {i}\n" for i in range(1, 101)])
             + ("</thinking>", "## Finding 1: ", "subject matter here")
         ),
         keepalive_count=0,
