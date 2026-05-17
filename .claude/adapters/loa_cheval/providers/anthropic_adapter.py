@@ -24,6 +24,7 @@ from loa_cheval.providers.base import (
     http_post,
     http_post_stream,
 )
+from loa_cheval.streaming import StreamingRecoveryAbort
 from loa_cheval.types import (
     CompletionRequest,
     CompletionResult,
@@ -202,7 +203,34 @@ class AnthropicAdapter(ProviderAdapter):
                 result = parse_anthropic_stream(
                     resp.iter_bytes(),
                     provider=self.provider,
+                    # cycle-113 T1.7: kwargs forward to the streaming
+                    # recovery integration. Defaults pass library
+                    # thresholds through unchanged. Sprint-170 will plumb
+                    # the actual per-model streaming_recovery block from
+                    # model-config.yaml + the reasoning_class flag via
+                    # _get_model_config(body["model"]).
+                    model_data={},
+                    reasoning_class=False,
                 )
+            except StreamingRecoveryAbort as recovery_err:
+                # cycle-113 T1.7 — typed-abort translation per SDD §3.5.
+                # All three abort reasons route via ProviderUnavailableError
+                # (retryable=True) so the cycle-099 within-company chain
+                # walks to the next model. SDD §3.5 originally split the
+                # mapping with InvalidInputError for empty-content + CoT-
+                # exhausted, but that's TERMINAL (retryable=False) — it
+                # would defeat KF-002's chain-walk goal. Corrigendum to
+                # SDD §3.5 tracked alongside the §5.4 corrigendum in
+                # sprint-169 (operator pre-authorized via C113.OP-AUTH-1
+                # `lib-wins` decision class).
+                from loa_cheval.redaction import sanitize_provider_error_message
+                raise ProviderUnavailableError(
+                    self.provider,
+                    sanitize_provider_error_message(
+                        f"streaming recovery aborted: reason={recovery_err.reason} "
+                        f"tokens_before_abort={recovery_err.tokens_before_abort}"
+                    ),
+                ) from recovery_err
             except ProviderStreamError as stream_err:
                 # T3.5 / AC-3.5: SSE buffer + per-event accumulator caps
                 # raise ProviderStreamError; dispatch through T3.1's table

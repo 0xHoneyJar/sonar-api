@@ -7,12 +7,20 @@ frozen for cycle-113 — see operator-approval.md C113.OP-AUTH-1 — so the
 exception lives in a separate module instead.
 
 The exception flows through each provider adapter's existing
-``try / except`` arm and is translated to the appropriate retryable error
-class so the cycle-099 chain-walk mechanism takes over:
+``try / except`` arm and is translated to ``ProviderUnavailableError``
+(retryable=True) so the cycle-099 chain-walk mechanism takes over. All
+three abort reasons route the same way because KF-002's goal is
+"walk to the next model in the chain when the current one degrades":
 
-  * ``empty_content_window``       -> InvalidInputError  (KF-002 class)
-  * ``first_token_deadline``       -> ProviderUnavailableError
-  * ``cot_budget_exhausted``       -> InvalidInputError
+  * ``first_token_deadline``       -> ProviderUnavailableError  (chain-walks)
+  * ``empty_content_window``       -> ProviderUnavailableError  (chain-walks; KF-002 class)
+  * ``cot_budget_exhausted``       -> ProviderUnavailableError  (chain-walks)
+
+(SDD §3.5 prose originally split the mapping with empty-content + CoT
+routing via InvalidInputError. Cycle-113 sprint-168 T1.7 deviation
+applies the chain-walk-consistent mapping per cycle-099 retryable-error
+contract; SDD §3.5 corrigendum tracked alongside the §5.4 corrigendum
+in sprint-169.)
 
 The exception carries the full decision context plus the partial-content
 snapshot the parser had accumulated at the time of the abort, so the
