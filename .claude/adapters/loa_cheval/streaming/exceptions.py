@@ -37,10 +37,12 @@ class StreamingRecoveryAbort(Exception):
     """Raised by a streaming parser when StreamingRecoveryTracker returns
     decision.abort == True.
 
-    The adapter wrapper translates this to the appropriate retryable
-    exception class (`InvalidInputError` for KF-002-class empty-content;
-    `ProviderUnavailableError` for first-token-deadline). The
-    adapter ALSO reconstructs the MODELINV envelope's
+    The adapter wrapper translates this to a retryable
+    ``ProviderUnavailableError`` for ALL three abort reasons so the
+    cycle-099 within-company chain-walks (KF-002 chain-walk contract).
+    See the module docstring for the per-reason mapping rationale.
+
+    The adapter ALSO reconstructs the MODELINV envelope's
     ``streaming_recovery`` field from ``self.{reason,
     tokens_before_abort, config_applied}`` before re-raising.
     """
