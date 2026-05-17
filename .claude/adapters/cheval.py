@@ -1588,6 +1588,9 @@ def cmd_invoke(args: argparse.Namespace) -> int:
                         pricing_snapshot=_modelinv_state["pricing_snapshot"],
                         capability_evaluation=_modelinv_state["capability_evaluation"],
                         chunked_review=_modelinv_state.get("chunked_review"),
+                        # cycle-113 sprint-170 T3.3 (FR-C-1, I-3): propagate
+                        # streaming_recovery on chunked-path too.
+                        streaming_recovery=_modelinv_state.get("streaming_recovery"),
                         verdict_quality=_vq_chunked,
                     )
                 except Exception as _emit_err:  # noqa: BLE001
@@ -2100,6 +2103,15 @@ def cmd_invoke(args: argparse.Namespace) -> int:
                 _modelinv_state["cost_micro_usd"] = _cost
             _result_meta = getattr(_result, "metadata", None) or {}
             _modelinv_state["streaming"] = _result_meta.get("streaming")
+            # cycle-113 sprint-170 T3.3 (FR-C-1, I-3): propagate the
+            # streaming_recovery telemetry from result.metadata to the
+            # MODELINV emit. The parser attaches a complete
+            # {triggered, tokens_before_abort, reason, config_applied}
+            # dict on every streaming invocation (healthy or aborted).
+            # On non-streaming code paths, the field is absent — the
+            # emit_model_invoke_complete kwarg's None default preserves
+            # I-5 (recovery is streaming-only).
+            _modelinv_state["streaming_recovery"] = _result_meta.get("streaming_recovery")
             _modelinv_state["final_model_id"] = _entry_target
             _modelinv_state["transport"] = _entry.adapter_kind
             # cycle-108 sprint-2 T2.J — capture pricing for the successful
@@ -2275,6 +2287,9 @@ def cmd_invoke(args: argparse.Namespace) -> int:
                     pricing_snapshot=_modelinv_state["pricing_snapshot"],
                     capability_evaluation=_modelinv_state["capability_evaluation"],
                     verdict_quality=_vq_envelope,
+                    # cycle-113 sprint-170 T3.3 (FR-C-1, I-3): propagate
+                    # streaming_recovery telemetry to MODELINV envelope.
+                    streaming_recovery=_modelinv_state.get("streaming_recovery"),
                     # Cycle-110 sprint-2b2a — MODELINV v1.4 fields wired into
                     # the production emit. None values are skipped by the
                     # emitter (additive evolution per cycle-109 contract).

@@ -312,7 +312,7 @@
       }
     },
     "streaming_recovery": {
-      "description": "cycle-109 Sprint 4 T4.7 (SDD §5.4.4 / IMP-014). Streaming-with-recovery telemetry: triggered = true when one of the three thresholds (first-token-deadline / empty-content-window / CoT-budget) aborted the stream. tokens_before_abort + reason populated only when triggered = true.",
+      "description": "cycle-109 Sprint 4 T4.7 (SDD §5.4.4 / IMP-014) + cycle-113 sprint-170 T3.1 (FR-C-1, SDD §4.2). Streaming-with-recovery telemetry: triggered = true when one of the three thresholds (first-token-deadline / empty-content-window / CoT-budget) aborted the stream. tokens_before_abort + reason populated only when triggered = true. config_applied (cycle-113 additive) is the snapshot of operator-configured thresholds in effect at call time — populated on EVERY streaming invocation (healthy or aborted) per I-3 so operators can audit threshold-config drift over time. Optional for back-compat with v1.3 readers (cycle-110 forward-compat contract; I-6).",
       "type": "object",
       "additionalProperties": false,
       "required": ["triggered"],
@@ -329,6 +329,28 @@
             { "type": "null" },
             { "enum": ["first_token_deadline", "empty_content_window", "cot_budget_exhausted"] }
           ]
+        },
+        "config_applied": {
+          "description": "cycle-113 sprint-170 T3.1 (FR-C-1). Snapshot of recovery thresholds in effect at call time. Field names match the shipped library API (first_token_deadline_s / empty_content_window_tokens / cot_budget_tokens / reasoning_class) per cycle-113 operator-approved lib-wins naming. May include provider-specific observability extensions (e.g., thoughts_token_count for Google when usageMetadata.thoughtsTokenCount is present).",
+          "type": "object",
+          "properties": {
+            "first_token_deadline_s": { "type": "number", "minimum": 0 },
+            "empty_content_window_tokens": { "type": "integer", "minimum": 1 },
+            "cot_budget_tokens": {
+              "anyOf": [
+                { "type": "null" },
+                { "type": "integer", "minimum": 1 }
+              ]
+            },
+            "reasoning_class": { "type": "boolean" },
+            "thoughts_token_count": {
+              "description": "Google FR-B-3: observability-only post-hoc accounting from usageMetadata.thoughtsTokenCount. Absent when usageMetadata lacks this field (not all Gemini variants report it).",
+              "anyOf": [
+                { "type": "null" },
+                { "type": "integer", "minimum": 0 }
+              ]
+            }
+          }
         }
       }
     },
