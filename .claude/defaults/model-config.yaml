@@ -849,3 +849,28 @@ defaults:
   connect_timeout: 10             # seconds
   read_timeout: 120               # seconds
   write_timeout: 30               # seconds
+
+  # cycle-113 sprint-170 T3.4 (FR-C-2; SDD §5.4) — streaming-recovery thresholds.
+  # Library applies these defaults when per-model `streaming_recovery` blocks
+  # are absent (the cycle-113 default-safe state). Operators can override
+  # per-model under `providers.<p>.models.<m>.streaming_recovery: {...}`.
+  #
+  # Field names match the shipped loa_cheval.streaming.recovery library API
+  # per operator-approved lib-wins naming (C113.OP-AUTH-1):
+  #   - first_token_deadline_s: time-window before abort if no token arrives
+  #     (default 30.0 for non-reasoning; 60.0 for reasoning_class=True)
+  #   - empty_content_window_tokens: abort if first N tokens are all
+  #     empty/whitespace (KF-002 class detection)
+  #   - cot_budget_tokens: abort reasoning-class models that runaway-CoT
+  #     beyond N tokens without visible content (gated on reasoning_class)
+  #
+  # The reasoning_class flag itself is derived per-model from
+  # `providers.<p>.models.<m>.reasoning_class` (additive field; sprint-170
+  # ships this layer documented; per-model population is operator carry
+  # for cycle-114). Until per-model reasoning_class is populated, the
+  # library defaults to reasoning_class=False, which is safe (non-reasoning
+  # thresholds apply, CoT-budget enforcement skipped).
+  streaming_recovery:
+    first_token_deadline_s: 30.0
+    empty_content_window_tokens: 200
+    cot_budget_tokens: 500
