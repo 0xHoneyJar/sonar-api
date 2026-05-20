@@ -40,8 +40,23 @@
   - eRPC internal address for S2: `http://erpc.railway.internal:4000/main/evm/80094`.
   - Residual: temp public smoke-test domain `erpc-production-0437.up.railway.app` — removal
     staged via config patch; if it lingers, remove in Railway dashboard (Settings→Networking).
-- Next: **S2** — re-point `config.mibera.yaml` data source to the eRPC internal URL, then
-  the operator-paired belt deploy + on-chain loan reconciliation.
+- **S2-T1 COMPLETE + review+audit APPROVED** (2026-05-20, `/run sprint-2`) —
+  `config.mibera.yaml` chains[0] data source `hypersync_config` → `rpc`
+  (`http://erpc.railway.internal:4000/main/evm/80094`, `for: sync` — eRPC as primary
+  source, not a HyperSync fallback); `verify-belt-config.js` green; `/review-sprint`
+  "All good (with noted concerns)"; `/audit-sprint` "APPROVED" (0 CRIT/HIGH/MED); both
+  cross-model dissents clean. Ledger: **S2 (170) → in_progress** (NOT completed — T2-T5
+  pending). `COMPLETED` marker scoped to the run's S2-T1 autonomous scope.
+  - **Finding (drift_resolution: code)**: SDD §4.1 / sprint.md S2-T1 say `rpc_config`;
+    installed Envio v3.0.0-alpha.14 schema field is `rpc` (no `rpc_config`). Implemented
+    with the correct `rpc` — SDD §4.1 text should be reconciled `rpc_config`→`rpc`.
+  - **S2-T3 charge** (from review): confirm the belt's sync traffic actually reaches eRPC
+    (retires the `for: sync` HyperSync-disabled assumption — eRPC `info` logs will show
+    belt requests); decide `interval_ceiling: 30000` from observed getLogs behaviour.
+- Next: **S2-T2/T3/T4/T5** — operator-paired (build gate `pnpm codegen` + `tsc`; local
+  dev run — 3 handler-emission queries; belt Railway service + belt Postgres deploy;
+  cold sync + on-chain loan reconciliation). Then **S3** (L4/L5/L6 — gateway,
+  observability, hardening, staged handback).
 
 ## Prior Focus (superseded by r4 re-sprint)
 - indexer-belt-rebuild Sprint 1 COMPLETE (2026-05-20, `/run sprint-1`) —

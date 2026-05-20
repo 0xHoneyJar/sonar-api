@@ -191,7 +191,7 @@ deploy the belt service, and verify the belt emits correct, on-chain-reconciled 
 > SDD r4 §4.1: *"Sprint 1 shipped `config.mibera.yaml` … **r4 changes one thing: the
 > data source.**"*
 
-### S2-T1 — Re-point `config.mibera.yaml` data source to eRPC → **[G1, G3]**
+### S2-T1 — Re-point `config.mibera.yaml` data source to eRPC → **[G1, G3]** ✅ COMPLETE (2026-05-20, review-approved)
 - **Do**: Modify the **existing, Sprint-1-completed** `config.mibera.yaml` — change **one
   thing** (SDD §4.1): replace `hypersync_config` (`https://berachain.hypersync.xyz`) with
   an **`rpc_config`** whose URL is the **eRPC L2 internal URL** from S1-T2. HyperIndex
