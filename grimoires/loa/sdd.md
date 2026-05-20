@@ -3,7 +3,8 @@
 > **Cycle**: indexer-belt-rebuild · **Deployment #1** (the fire fix)
 > **Implements**: `grimoires/loa/prd.md` (r2) · **Build doc**: `grimoires/loa/specs/indexer-belt-rebuild.md`
 > **Date**: 2026-05-19 · **Build construct**: `construct-noether`
-> **Revision**: r2 — integrates the 2026-05-19 3-model Flatline SDD review (see §12).
+> **Revision**: r3 — r2 integrated the Flatline SDD review (§12); r3 adds the
+> stable-gateway recovery model (§9.1) per the 2026-05-19 sprint-phase review.
 > **Grounding**: handler cross-contract analysis (this session) — see §3.2.
 
 ## 1. Overview
@@ -224,22 +225,29 @@ The original incident was a *silent* 404. Concrete requirements:
 
 ## 9. Rollback, Security & Blast Radius
 
-### 9.1 Rollback — fix-forward after the repoint (corrects PRD NFR-2)
+### 9.1 Recovery — stable gateway, not fix-forward (corrects PRD NFR-2; r3)
 
-The PRD called the consumer repoint "one revertible env var." That is **wrong** and is
-corrected here (Flatline SKP-002·830):
+The PRD called the consumer repoint "one revertible env var" — wrong (Flatline
+SKP-002·830). r2 corrected it to "fix-forward"; the sprint-phase review (3 CRITICALs)
+correctly pushed further — fix-forward under outage pressure is not a recovery plan. r3
+resolves it with a **stable gateway**:
 
-- **Before the repoint** — deployment #1 is fully reversible: it is only a new Railway
-  service + new URL. Tear it down and nothing else is affected.
-- **The consumer repoint is the commit point.** The old hosted endpoint is already dead
-  (404). Once a consumer's env var points at the belt endpoint, reverting it points back
-  at a 404 — **there is no working prior state to roll back to**. Recovery after a bad
-  repoint is **fix-forward on the belt**, not revert.
-- **Therefore the repoint is staged**: a consumer repoints **only after** the belt
-  endpoint has passed §6 FR-4 deterministic reconciliation **and** a short soak (synced to
-  head, stable, healthcheck green). Verify exhaustively *before* the one-way step.
-- mibera-honeyroad repoints first (loan UI is the fire); score-api repoints only after its
-  §7 empty-safe audit passes.
+- **Consumers repoint to a stable gateway URL, never the raw Railway service URL.** A
+  lightweight reverse proxy (Railway service or Cloudflare Worker) holds a stable public
+  URL; its upstream target — the current belt's GraphQL endpoint — is a single config
+  value.
+- **The one-way repoint happens once**, to the gateway. Swapping the belt behind it (a new
+  deployment, a rollback to a prior good belt, an emergency target) is then an
+  **operator-controlled upstream change** with zero consumer impact — the structural
+  fallback.
+- **Before the repoint** — deployment #1 is fully reversible (a new Railway service + new
+  URL; tear it down, nothing else affected).
+- **The repoint is staged**: consumers repoint to the gateway only after the belt endpoint
+  passes §6 FR-4 deterministic reconciliation **and** a soak (≥2 h synced-to-head,
+  healthcheck green, sync-lag quiet). mibera-honeyroad first (loan UI is the fire);
+  score-api after its §7 empty-safe audit.
+- **Post-handback recovery**: if the belt degrades, repoint the gateway upstream — fast,
+  operator-controlled, no consumer change, no outage-pressure code fix.
 
 ### 9.2 GraphQL endpoint hardening
 
@@ -273,6 +281,7 @@ Railway env vars. The only irreversible step is the consumer repoint (§9.1) —
 | §3.3 schema reuse | AC-10 |
 | §5.3 `field_selection` structural check passes in CI | AC-11 (new) |
 | §9.2 endpoint rate-limit + complexity cap live | AC-12 (new) |
+| §9.1 stable gateway URL live + upstream-swap verified | AC-13 (new, r3) |
 
 ## 11. Risks & Open Decisions
 
