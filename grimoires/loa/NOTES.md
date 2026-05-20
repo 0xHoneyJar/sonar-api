@@ -130,10 +130,24 @@
       must pin an alpha (16–24) whose package re-exposes a working bin, OR invoke the platform
       binary directly in Railway build/start commands. (HyperSync server is closed-source — no
       self-host; eRPC can't inject response fields — both confirmed by web research.)
-- Next: **adopt the alpha.16+ bump** as the S2-T3/DISS-003 fix (pick a deployable alpha with a
-  working bin; verify a clean end-to-end sync through eRPC, where the per-endpoint rate-limits are
-  absorbed), then the S2-T3 dev-run proof → S2-T4/T5 → S3. Operator is getting expert input via a
-  research prompt before committing the production version.
+- **DISS-003 FIX APPLIED (2026-05-20): pinned `envio@3.0.0-alpha.17`** (expert-endorsed
+  "A-prime"). alpha.17 = PR #998 totalDifficulty fix **+ the alpha.15/16 binary-packaging fix**
+  (resolves the alpha.16 bin caveat — `pnpm envio` works again) **+ below the alpha.23 "New
+  Handlers API" break** (handlers stay unchanged). Validated: `pnpm envio` ✓ · codegen ✓ ·
+  `typecheck:mibera` ✓ · `verify-belt-config` ✓ · `envio start` reaches "Starting indexing"
+  (eventConfigs>0) with no totalDifficulty error. Exact version pin (no caret). config.mibera.yaml
+  unchanged (belt → eRPC; exact start_blocks already set, not genesis). Committed.
+  - **Forward plan (from the expert consult)**: (1) **benchmark eRPC cold-sync** on a 100k–250k
+    block slice — decide if a one-time *bounded* HyperSync+token backfill is needed for the cold
+    sync (then continue sovereign on eRPC, with event-count reconciliation); (2) keep the
+    totalDifficulty shim (PoC) as a *disabled-but-deployable* break-glass only — alpha.17 makes it
+    unnecessary; (3) toward true sovereignty: run our **own Berachain node** behind eRPC (eRPC today
+    = sovereign routing/cache, not sovereign data origin); (4) **stable V3 migration LATER, by
+    EXTRACTION** — migrate the /backing belt to stable's `indexer.onEvent` API first, then the
+    ~30-handler monolith — not a monolith-shock bump.
+- Next: **S2-T3 entity-emission proof** — run the belt through eRPC (per-endpoint rate-limits
+  absorbed) and confirm the 3 §6 handler-emission queries; then S2-T4/T5 (belt Railway deploy +
+  on-chain reconciliation) → S3.
 
 ## Prior Focus (superseded by r4 re-sprint)
 - indexer-belt-rebuild Sprint 1 COMPLETE (2026-05-20, `/run sprint-1`) —
