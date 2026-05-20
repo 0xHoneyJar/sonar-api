@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "active_cycle": "cycle-109-substrate-hardening",
+  "active_cycle": "indexer-belt-rebuild",
   "cycles": [
     {
       "id": "cycle-036",
@@ -1351,9 +1351,44 @@
       "phase": "A of 3 (Activate \u2192 Codify \u2192 Optimize)",
       "sdd": "grimoires/loa/cycles/cycle-112-empirical-model-economy/sdd.md",
       "sprint_plan": "grimoires/loa/cycles/cycle-112-empirical-model-economy/sprint.md"
+    },
+    {
+      "id": "indexer-belt-rebuild",
+      "label": "Indexer Belt Rebuild \u2014 L0-L6 stack (eRPC L2 substrate)",
+      "status": "active",
+      "created": "2026-05-19T00:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "note": "Re-sprint against SDD r4 \u00a712. Belt-config Sprint 1 (config.mibera.yaml + verify-belt-config.js + src/belts/mibera/) was completed pre-ledger-registration on 2026-05-20 and is reused, not re-listed.",
+      "sprints": [
+        {
+          "local_id": 0,
+          "global_id": 168,
+          "label": "S0 \u2014 eRPC Calibration Spike",
+          "status": "planned"
+        },
+        {
+          "local_id": 1,
+          "global_id": 169,
+          "label": "S1 \u2014 Build the eRPC L2 Substrate",
+          "status": "planned"
+        },
+        {
+          "local_id": 2,
+          "global_id": 170,
+          "label": "S2 \u2014 Re-point Mibera Belt to eRPC + Verify",
+          "status": "planned"
+        },
+        {
+          "local_id": 3,
+          "global_id": 171,
+          "label": "S3 \u2014 Gateway / Observability / Hardening / Handback",
+          "status": "planned"
+        }
+      ]
     }
   ],
-  "global_sprint_counter": 167,
+  "global_sprint_counter": 171,
   "bugfix_cycles": [
     {
       "id": "cycle-bug-20260418-i554-00a529",
@@ -1550,5 +1585,5 @@
       "sprint_plan": "grimoires/loa/a2a/bug-20260428-i640-1cc190/sprint.md"
     }
   ],
-  "next_sprint_number": 168
+  "next_sprint_number": 172
 }

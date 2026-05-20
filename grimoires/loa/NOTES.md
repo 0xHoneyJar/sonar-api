@@ -1,10 +1,26 @@
 # Session Notes
 
 ## Current Focus
-- indexer-belt-rebuild **Sprint 1 COMPLETE** (2026-05-20, `/run sprint-1`) —
+- indexer-belt-rebuild **RE-SPRINTED against SDD r4 §12** (2026-05-19, `/sprint-plan`) —
+  `sprint.md` regenerated for the L0–L6 bottom-up stack: **S0** eRPC calibration spike →
+  **S1** build the eRPC L2 substrate (`erpc.yaml` + dedicated Railway service + cache
+  Postgres) → **S2** re-point the Mibera belt to eRPC + verify → **S3** L5 gateway / §7
+  observability / hardening / staged handback. 18 tasks across 4 sprints.
+- The completed belt-config Sprint 1 (`config.mibera.yaml` + `verify-belt-config.js` +
+  `src/belts/mibera/`) is **reused, not redone** — S2-T1 modifies the existing config's
+  data-source key only (`hypersync_config` → `rpc_config` → eRPC). r3's HyperSync data
+  source is retired by r4.
+- Ledger: `indexer-belt-rebuild` cycle registered (was previously unregistered) —
+  4 sprints, global ids 168–171; `active_cycle` set to `indexer-belt-rebuild`. Note:
+  the completed belt-config Sprint 1 predates ledger registration and is not
+  retroactively listed.
+- Next: **S0** — the eRPC calibration spike (operator-paired, half-day; measure the
+  free-RPC + eRPC cold-sync rate, no preset pass/fail).
+
+## Prior Focus (superseded by r4 re-sprint)
+- indexer-belt-rebuild Sprint 1 COMPLETE (2026-05-20, `/run sprint-1`) —
   `config.mibera.yaml` + `verify-belt-config` + belt entrypoint; implement→review→audit
-  all APPROVED (commits 1052125, 8cb08ce, 9a97c1a). Next: **Sprint 2** (Deploy &
-  Handback) — operator-paired, not autonomous.
+  all APPROVED (commits 1052125, 8cb08ce, 9a97c1a).
 
 ## Decisions
 - Installed Loa framework with full configuration matching midi-interface setup
@@ -68,8 +84,5 @@
 
 ## Blockers
 
-- **bd-1ra** — no project git remote. `git remote -v` shows only `loa-upstream →
-  0xHoneyJar/loa.git` (the framework repo). The Sprint 1 draft PR could not be created;
-  work is committed locally on `indexer-belt-rebuild`. To publish: add an `origin`
-  remote for `0xHoneyJar/thj-envio`, then `git push -u origin indexer-belt-rebuild`
-  and open the PR. (Not a Sprint 1 defect — repo setup.)
+None. (bd-1ra resolved 2026-05-20 — `origin` + `upstream` remotes configured;
+`indexer-belt-rebuild` pushed; draft PR #13 open on `0xHoneyJar/sonar-api`.)
