@@ -15,8 +15,13 @@
   the completed belt-config Sprint 1 predates ledger registration and is not
   retroactively listed.
 - S0 COMPLETE (2026-05-20) — free public Berachain RPC + eRPC cold-sync measured
-  (~39k blk/s cold, ~192k warm, 0 rate-limiting; encouraging for H1). S1-T1 COMPLETE —
-  `erpc.yaml` authored + eRPC-v0.0.64-validated.
+  (~39k blk/s cold, ~192k warm, 0 rate-limiting; encouraging for H1).
+- **S1-T1 COMPLETE + review+audit APPROVED** (2026-05-20, `/run sprint-1`) — `erpc.yaml`
+  authored + eRPC-v0.0.64-validated; `/review-sprint` "All good (with noted concerns)";
+  `/audit-sprint` "APPROVED - LETS FUCKING GO" (0 CRITICAL/HIGH/MEDIUM); both cross-model
+  dissents clean. `COMPLETED` marker written (scoped to the run's S1-T1 autonomous scope).
+  Run JACKED_OUT — hands back. Ledger: S0→completed, **S1 (169)→in_progress** (NOT
+  completed — T2-T4 pending).
 - Next: **S1-T2/T3/T4** — operator-paired Railway provisioning (dedicated eRPC service
   + cache Postgres, sizing, smoke-verify). Then S2 (re-point the Mibera belt to eRPC).
 

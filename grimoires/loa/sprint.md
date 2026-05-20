@@ -121,7 +121,7 @@ own cache Postgres — the factory floor every later belt rides for free.
 > SDD §3.1: *"One deploy, all belts. … The cache compounds — Bottom-up gets cheaper as
 > the factory scales."*
 
-### S1-T1 — Author `erpc.yaml` (the L2 config) → **[G2]**
+### S1-T1 — Author `erpc.yaml` (the L2 config) → **[G2]** ✅ COMPLETE (2026-05-20, review-approved)
 - **Do**: Author a single `erpc.yaml` at repo root (SDD §3.2). **Multi-chain-capable but
   Berachain-wired** — one logical project; the **Berachain `80094`** upstream group
   declared, listing the S0-T1-verified endpoint cluster (mixed public + free-tier).
