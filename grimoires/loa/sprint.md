@@ -70,17 +70,17 @@ free-tier accounts), fronted by eRPC caching + hedging, can cold-sync the Mibera
 from block `3837808` to chain head at a usable rate."* There is **no preset threshold** —
 S0 produces a directional rate; the operator judges viability (SDD §11 OD-3).
 
-### S0-T1 — Enumerate + verify the OD-1 Berachain free-RPC cluster
-- **Do**: Enumerate candidate **Berachain `80094`** L1 endpoints — anonymous public
-  endpoints (Chainlist) **and** free-tier accounts (Alchemy / dRPC / etc.). Sign up for
-  the free-tier accounts. For each candidate, verify it serves chain `80094`: confirm
-  `eth_chainId` returns `0x138de` (80094), `eth_blockNumber` returns a plausible head, and
-  probe its `eth_getLogs` block-range limit (Berachain coverage is thinner than
-  Base/Arbitrum — SDD §3.2). Record the verified set + each endpoint's observed
-  `eth_getLogs` limit + which are keyed (need a Railway env var).
-- **Acceptance**: Resolves **OD-1** — a verified list of `≥2` working `80094` endpoints
-  (mixed public + free-tier) recorded as S1's `erpc.yaml` upstream-group input. Keyed
-  endpoints' key-names noted for S1's secrets posture (SDD §10.3).
+### S0-T1 — Enumerate + verify the OD-1 Berachain public-RPC cluster
+- **Do**: Enumerate candidate **Berachain `80094`** L1 endpoints — anonymous public /
+  free-available RPC endpoints (Chainlist + Berachain's documented public RPC).
+  **No free-tier-account signups** (operator decision 2026-05-20). For each candidate,
+  verify it serves chain `80094`: confirm `eth_chainId` returns `0x138de` (80094),
+  `eth_blockNumber` returns a plausible head, and probe its `eth_getLogs` block-range
+  limit (Berachain coverage is thinner than Base/Arbitrum — SDD §3.2). Record the
+  verified set + each endpoint's observed `eth_getLogs` limit.
+- **Acceptance**: Resolves **OD-1** — a verified list of `≥2` working public `80094`
+  endpoints recorded as S1's `erpc.yaml` upstream-group input. (Free-tier accounts
+  remain a deferred fallback if S0-T2 measures public-only as inadequate.)
 - **Deliverable**: `grimoires/loa/spikes/s0-erpc-calibration.md` §"OD-1 endpoint table".
 - **Deps**: none. **Size**: S.
 

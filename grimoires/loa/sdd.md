@@ -81,7 +81,7 @@ L0  chains         ETH · ARB · Zora · OP · Base · Berachain
 | | Layer | Posture |
 |---|---|---|
 | **OWN** — build + operate | L2 eRPC substrate · L3 indexers · L4/L5 APIs/gateway · L2 cache store | full control |
-| **RENT** — data layer, $0 | L1 RPC — public endpoints + free-tier accounts (Alchemy/dRPC/etc.) | the free-only constraint lives **here** |
+| **RENT** — data layer, $0 | L1 RPC — public / free-available endpoints (free-tier accounts = deferred fallback) | the free-only constraint lives **here** |
 | **RENT** — hosting, paid OK | Railway hosting | operator decision 2026-05-20 — optimize for reliability, not minimal cost |
 | **DON'T** (yet) | paid HyperSync · hosted indexers · self-hosted L1 archive nodes | deferred / rejected |
 
@@ -141,12 +141,14 @@ Deployment #1 (do not boil the ocean — §11 OD-4):
   #1 declares the **Berachain `80094`** upstream group only. The schema MUST accommodate
   adding ETH / ARB / Base / OP / Zora upstream groups later as a **purely additive**
   edit (no restructuring) — that is the multi-chain-capability requirement.
-- **Per-chain upstreams = a mixed $0 L1 cluster.** Each chain's group lists multiple
-  zero-cost endpoints — anonymous public endpoints (Chainlist) **and free-tier accounts**
-  (Alchemy / dRPC / etc.; far better `eth_getLogs` limits, still $0) — so eRPC hedges
-  and fails over across the mix (operator decision 2026-05-20, §11 OD-1). Berachain
-  coverage is thinner than Base/Arbitrum — the specific `80094` endpoints + accounts are
-  selected and verified in S0.
+- **Per-chain upstreams = a free public L1 cluster.** Each chain's group lists multiple
+  $0 endpoints — anonymous public / free-available RPC endpoints (Chainlist + the chain's
+  documented public RPC) — so eRPC hedges and fails over across them (operator decision
+  2026-05-20, refined: **no free-tier-account signups**; §11 OD-1). Berachain coverage is
+  thinner than Base/Arbitrum — the specific `80094` endpoints are selected and verified
+  in S0. **Free-tier accounts** (Alchemy / dRPC / etc.; better `eth_getLogs` limits,
+  still $0) are a **deferred fallback** — wired only if S0 measures public-only as
+  inadequate.
 - **Reorg-safe cache policy** — finalized blocks → effectively infinite TTL (immutable
   history); chain-tip / unfinalized blocks → short TTL or cache-bypass. eRPC tracks
   finality natively; the config sets the finality-distance / TTL policy per chain.
@@ -184,10 +186,11 @@ not every belt — but someone pays, and the rate is unknown.
 
 This is **the central hypothesis the pressure test verifies**:
 
-> **H1** — *Free Berachain RPC (public endpoints + free-tier accounts), fronted by eRPC
-> caching + hedging, can cold-sync the Mibera belt from block `3837808` to chain head at
-> a usable rate.* "Usable" is **not** a preset threshold — S0 measures the rate and
-> reports the number; the operator judges viability from it (operator decision 2026-05-20).
+> **H1** — *Free public Berachain RPC, fronted by eRPC caching + hedging, can cold-sync
+> the Mibera belt from block `3837808` to chain head at a usable rate.* "Usable" is
+> **not** a preset threshold — S0 measures the rate and reports the number; the operator
+> judges viability from it (operator decision 2026-05-20). Public-only is the hardest
+> case for H1; free-tier accounts remain a deferred fallback.
 
 H1 is **not hand-waved and not assumed**. The re-sprint opens with the **S0 calibration
 spike** (§11 OD-3) — a half-day experiment that measures the cold-sync throughput of
@@ -577,17 +580,19 @@ inputs):
 **Operator decisions (2026-05-20)** — resolved via AskUserQuestion *before* `/sprint-plan`,
 so the re-sprint generates on answers, not assumptions:
 
-- **RPC access** → eRPC's L1 cluster is **public endpoints + free-tier accounts** — $0,
-  better `eth_getLogs` limits.
+- **RPC access** → eRPC's L1 cluster is **public / free-available endpoints only**
+  (operator 2026-05-20, refined — free-tier-account signups skipped). Free-tier accounts
+  (Alchemy/dRPC) remain a deferred fallback if S0 shows public-only is inadequate.
 - **Hosting cost** → **paid Railway hosting is acceptable**; optimize for reliability.
   The free-only constraint is the L1 data layer, not hosting.
 - **eRPC topology** → **dedicated** Railway service + own cache Postgres.
 - **S0 yardstick** → **none preset**; S0 measures + reports the cold-sync rate, the
   operator judges viability from the number.
 
-- **OD-1 — Free-RPC endpoint/account selection.** RPC *mix* RESOLVED (public + free-tier
-  accounts). The specific **Berachain `80094`** endpoints + free-tier accounts for the
-  eRPC upstream group are enumerated, signed up for, and verified in **S0**.
+- **OD-1 — Free-RPC endpoint selection.** RESOLVED: **public / free-available endpoints
+  only** (free-tier-account signups skipped — operator 2026-05-20). The specific
+  **Berachain `80094`** public endpoints for the eRPC upstream group are enumerated +
+  verified in **S0**. Free-tier accounts are a deferred fallback.
 - **OD-2 — eRPC hosting.** RESOLVED: **dedicated** Railway service + own cache Postgres
   (§3.3). Initial cache-Postgres sizing tuned in **S1**.
 - **OD-3 — Cold-sync throughput (the S0 experiment).** S0 is a half-day calibration
