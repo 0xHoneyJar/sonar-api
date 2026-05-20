@@ -53,10 +53,27 @@
   - **S2-T3 charge** (from review): confirm the belt's sync traffic actually reaches eRPC
     (retires the `for: sync` HyperSync-disabled assumption — eRPC `info` logs will show
     belt requests); decide `interval_ceiling: 30000` from observed getLogs behaviour.
-- Next: **S2-T2/T3/T4/T5** — operator-paired (build gate `pnpm codegen` + `tsc`; local
-  dev run — 3 handler-emission queries; belt Railway service + belt Postgres deploy;
-  cold sync + on-chain loan reconciliation). Then **S3** (L4/L5/L6 — gateway,
-  observability, hardening, staged handback).
+- **S2-T2 COMPLETE — belt build gate green** (2026-05-20, operator-paired):
+  `pnpm verify:belt-config` ✓ · `pnpm codegen:mibera` (scoped, exit 0) ✓ ·
+  `pnpm typecheck:mibera` (exit 0, clean) ✓. Wired as CI — `.github/workflows/belt-build.yml`
+  (3-gate job; AC-11). `package.json` gains `codegen:mibera` + `typecheck:mibera` scripts.
+  - **DISS-002 (S2-T2 finding — sibling of DISS-001)**: belt-scoped `envio codegen` (the
+    DISS-001 fix) generates `generated/` for the 2 Mibera contracts only; a whole-repo
+    `tsc --noEmit` then fails — the 27 non-belt monolith handlers import generated types
+    belt-scoped codegen never produced (~210 errors: TS2305/2724 missing-member + a
+    TS7031 implicit-any cascade). The belt's OWN files (`mibera-*.ts`, `src/belts/mibera/`)
+    were clean. **Resolution (operator decision, 2026-05-20)**: `tsconfig.mibera.json` —
+    a per-belt typecheck config rooted at `src/belts/mibera/`, typechecking only the
+    belt's import closure. Factory invariant: every belt gets a `tsconfig.<belt>.json`
+    (parallels `config.<belt>.yaml` + `src/belts/<belt>/`). AC-3's "`tsc --noEmit` clean"
+    is met as the **belt-scoped** typecheck — whole-repo tsc is structurally incompatible
+    with DISS-001's belt-scoped codegen. SDD §5 / AC-3 to be reconciled to name the
+    belt-scoped gate (drift_resolution: code).
+  - Also resolved an S2-T4 open question: `envio codegen` **does** support `--config`
+    (v3.0.0-alpha.14) — no copy-to-`config.yaml` needed at deploy.
+- Next: **S2-T3/T4/T5** — operator-paired (local dev run — 3 handler-emission queries;
+  belt Railway service + belt Postgres deploy; cold sync + on-chain loan reconciliation).
+  Then **S3** (L4/L5/L6 — gateway, observability, hardening, staged handback).
 
 ## Prior Focus (superseded by r4 re-sprint)
 - indexer-belt-rebuild Sprint 1 COMPLETE (2026-05-20, `/run sprint-1`) —
