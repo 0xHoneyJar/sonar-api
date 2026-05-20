@@ -76,12 +76,19 @@ chains:
     # Earliest belt contract (MiberaCollection @ 3837808); per-contract
     # start_blocks below override this floor.
     start_block: 3837808
-    # Explicit HyperSync endpoint — Envio's auto-discovery on v3.0.0-alpha.14
-    # appears to miss Berachain. Endpoint verified live 2026-05-19:
-    # https://berachain.hypersync.xyz/height → 200. Sprint 2 / S2-T1 (FR-0)
-    # confirms it still serves chain 80094 free; public RPC is the fallback.
-    hypersync_config:
-      url: https://berachain.hypersync.xyz
+    # Data source — the eRPC L2 substrate (SDD r4 §3 / §4.1). r4 retires the
+    # Sprint-1 HyperSync source; the belt indexes Berachain over JSON-RPC through
+    # the shared eRPC proxy at its private Railway address. `for: sync` makes eRPC
+    # the primary data source — historical backfill AND realtime — NOT a HyperSync
+    # fallback (Envio defaults a bare rpc to `fallback` for HyperSync-supported
+    # chains, and Berachain is one). The URL is eRPC's internal Railway domain +
+    # its JSON-RPC route /<project>/<arch>/<chainId>.
+    # Envio v3.0.0-alpha.14's schema field is `rpc` — SDD §4.1 / sprint.md S2-T1
+    # name it `rpc_config`, which does not exist in the installed schema; see the
+    # S2-T1 implementation report for the naming-drift finding.
+    rpc:
+      url: http://erpc.railway.internal:4000/main/evm/80094
+      for: sync
     contracts:
       # Mibera Liquid Backing - Loans, RFV, and marketplace
       - name: MiberaLiquidBacking
