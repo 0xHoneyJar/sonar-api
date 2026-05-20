@@ -37,6 +37,14 @@
   fields repoint to it; `verify-belt-config` refined to compare field_selection/address/
   start_block excluding the `handler:` line (SDD §5.3's actual scope). Formal SDD
   reconciliation deferred (drift_resolution: code).
+- DISS-001 fix CORRECTED (cycle 3, 2026-05-20): the cycle-2 belt entrypoint was
+  necessary but insufficient. Envio's `HandlerLoader.registerAllHandlers` always runs
+  `autoLoadFromSrcHandlers(config.handlers)` — globs the top-level `handlers:` directory
+  (defaults `src/handlers`) and imports every module, independent of the per-contract
+  `handler:` field (verified vs `node_modules/envio/src/HandlerLoader.res.mjs`). Fix:
+  belt entrypoint relocated to `src/belts/mibera/EventHandlers.mibera.ts`;
+  `config.mibera.yaml` gains top-level `handlers: src/belts/mibera`. Factory-model unit
+  is a per-belt directory `src/belts/<belt>/`. Autoload glob scope verified empirically.
 
 ## /ride Results (2026-05-19)
 - Target: thj-envio (freeside-sonar) — THJ Envio HyperIndex V3 indexer

@@ -4,16 +4,20 @@
 # A HyperIndex config scoped to the two Mibera contracts on Berachain. Event ABIs,
 # per-event `field_selection`, addresses and start_blocks are extracted VERBATIM
 # from config.yaml; scripts/verify-belt-config.js mechanically enforces that
-# fidelity (SDD §5.3, PRD FR-1, AC-2 / AC-11). The `handler:` field points at the
-# belt-scoped entrypoint src/EventHandlers.mibera.ts — NOT the monolith barrel
-# src/EventHandlers.ts — so a scoped `envio codegen` build loads only the two belt
-# contracts' handlers (review finding DISS-001). Shared src/handlers logic +
+# fidelity (SDD §5.3, PRD FR-1, AC-2 / AC-11). The top-level `handlers:` key scopes
+# Envio's handler autoload (HandlerLoader.autoLoadFromSrcHandlers globs that
+# directory) to src/belts/mibera/ — whose only file is the belt registration
+# entrypoint — so a scoped `envio codegen` build never imports the other contracts'
+# handler modules (review finding DISS-001). Shared src/handlers logic +
 # schema.graphql are reused unchanged — see grimoires/loa/sdd.md §2-§3.
 name: mibera-belt
+# Scope Envio's handler autoload (HandlerLoader.autoLoadFromSrcHandlers globs this
+# directory) to the belt entrypoint only — see the header note + review DISS-001.
+handlers: src/belts/mibera
 contracts:
   # MiberaLiquidBacking - Liquid backing system (loans, RFV, marketplace for defaulted NFTs)
   - name: MiberaLiquidBacking
-    handler: src/EventHandlers.mibera.ts
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       # Loan lifecycle events
       - event: LoanReceived(uint256 loanId, uint256[] ids, uint256 amount, uint256 expiry)
@@ -59,7 +63,7 @@ contracts:
             - hash
   # MiberaCollection - Transfer tracking for mint activity
   - name: MiberaCollection
-    handler: src/EventHandlers.mibera.ts
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
