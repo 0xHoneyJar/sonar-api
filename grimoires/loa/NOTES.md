@@ -112,9 +112,28 @@
     code) OR a full Envio alpha→stable migration (handler-API rewrite, monolith-wide,
     then re-test) — neither is quick. **HyperSync + a free `ENVIO_API_TOKEN` remains the
     simplest restore for PRD G1.**
-- Next: **operator decision** — HyperSync+token (simple restore) vs the Envio 3.0.0
-  migration vs a custom totalDifficulty shim. DISS-003 invalidates r4's RPC premise
-  as-is. Then S2-T3+ → S3.
+  - **RESOLUTION (2026-05-20, validated): bump Envio alpha.14 → alpha.16 — the sovereign
+    path holds.** Per Envio [#994](https://github.com/enviodev/hyperindex/issues/994) /
+    [#998](https://github.com/enviodev/hyperindex/pull/998) the totalDifficulty parse bug is
+    fixed from **alpha.16**. Tested alpha.16 (invoking the platform binary directly — see bin
+    caveat): codegen clean; **no `eventConfigs=0`** (handler API preserved — the break is only
+    at *stable* 3.0.0, NOT the alphas); and **no totalDifficulty error** on two fresh endpoints.
+    The only remaining error is per-endpoint rate-limiting (Cloudflare 1015 on berachain-apis;
+    QuickNode `-32008` 250/min on berachain.com) — **exactly what eRPC absorbs** (hedge across
+    the 4-endpoint cluster + finalized-block cache). Validated sovereign architecture:
+    **belt → eRPC → free Berachain RPC cluster, on envio alpha.16+** — no HyperSync, no token,
+    no hosted dependency. The ~40-line totalDifficulty-injection shim (PoC proven) is the alpha.14
+    fallback; alpha.16 makes it unnecessary.
+    - **Bin caveat (adoption detail)**: `envio@3.0.0-alpha.16` npm package has NO `bin` field
+      (alpha.14 had `bin: ./bin.js`); pnpm didn't link `envio`, so `pnpm envio` fails. The
+      platform binary lives at `node_modules/.pnpm/envio-darwin-arm64@.../bin/envio`. Adoption
+      must pin an alpha (16–24) whose package re-exposes a working bin, OR invoke the platform
+      binary directly in Railway build/start commands. (HyperSync server is closed-source — no
+      self-host; eRPC can't inject response fields — both confirmed by web research.)
+- Next: **adopt the alpha.16+ bump** as the S2-T3/DISS-003 fix (pick a deployable alpha with a
+  working bin; verify a clean end-to-end sync through eRPC, where the per-endpoint rate-limits are
+  absorbed), then the S2-T3 dev-run proof → S2-T4/T5 → S3. Operator is getting expert input via a
+  research prompt before committing the production version.
 
 ## Prior Focus (superseded by r4 re-sprint)
 - indexer-belt-rebuild Sprint 1 COMPLETE (2026-05-20, `/run sprint-1`) —
