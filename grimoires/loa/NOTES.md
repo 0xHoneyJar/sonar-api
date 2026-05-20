@@ -99,8 +99,22 @@
     across runs; `docker-credential-desktop` missing from envio's PATH (Docker.app bin).
   - **S2-T2's build gate (codegen + belt typecheck + CI) stands** — the verified S2
     checkpoint. S2-T3/T4/T5 blocked pending an architecture decision.
-- Next: **operator architecture decision** (HyperSync+token / eRPC-normalize / Envio
-  version / rethink) — DISS-003 invalidates r4's RPC premise. Then S2-T3+ → S3.
+  - **Salvage investigation (operator chose "salvage eRPC/RPC", 2026-05-20)** — both
+    RPC-salvage routes hit walls: (1) **eRPC does NOT inject `totalDifficulty`** — ran
+    eRPC locally (docker) against the public cluster; its `eth_getBlockByNumber` passes
+    the upstream response through unchanged (no `totalDifficulty`). Not a default feature.
+    (2) **Envio alpha.14 → 3.0.0 stable is a BREAKING bump** — stable's handler-
+    registration API differs; the reused handlers register zero events
+    (`Invalid configuration: Nothing to fetch on chain 80094 … eventConfigs=0`), so the
+    bump can't even reach the `totalDifficulty` stage to confirm a fix. (Pinned
+    `3.0.0-alpha.14`; stable `3.0.0` / next `3.0.1` exist.) Reverted; tree clean.
+    **Net**: salvaging RPC needs EITHER a custom `totalDifficulty`-injection shim (new
+    code) OR a full Envio alpha→stable migration (handler-API rewrite, monolith-wide,
+    then re-test) — neither is quick. **HyperSync + a free `ENVIO_API_TOKEN` remains the
+    simplest restore for PRD G1.**
+- Next: **operator decision** — HyperSync+token (simple restore) vs the Envio 3.0.0
+  migration vs a custom totalDifficulty shim. DISS-003 invalidates r4's RPC premise
+  as-is. Then S2-T3+ → S3.
 
 ## Prior Focus (superseded by r4 re-sprint)
 - indexer-belt-rebuild Sprint 1 COMPLETE (2026-05-20, `/run sprint-1`) —
