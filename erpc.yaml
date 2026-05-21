@@ -54,14 +54,38 @@ database:
         connector: postgres-cache
         ttl: 5s
 
+# ── Rate-limit pacing (S2-T3 finding KF-012) ──────────────────────────────────────────
+# Per-upstream budgets so eRPC paces its OWN outbound rate and never trips the free
+# endpoints' punitive Cloudflare 429 (a multi-minute retry-after that freezes a cold sync —
+# Finding B). ~25 req/s/upstream validated locally (full 17.3M-block cold sync to head in
+# ~5 min, 0 permanent stalls, 162 transient 429s absorbed). TUNE at S2-T4 deploy against
+# the Railway egress IP's real budget — lower if punitive 429s recur, raise to go faster.
+rateLimiters:
+  budgets:
+    - id: bud-apis
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-publicnode
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-official
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-drpc
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-tenderly
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-sentio
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+
 projects:
   - id: main
 
-    # ── Failsafe: hedged requests + retry + timeout (SDD §3.2) ───────────────────────
-    # Hedge — if the chosen upstream is slow, fire a parallel request to another and
-    # take the first answer. eRPC also tracks each upstream's error-rate / latency and
-    # auto-deprioritizes degrading endpoints — the mechanism that makes a cluster of
-    # free public RPCs reliable enough to index on (S0-T2: 0 rate-limiting observed).
+    # ── Failsafe: retry + timeout (SDD §3.2; hedge removed per S2-T3 / KF-012) ────────
+    # eRPC tracks each upstream's error-rate / latency / throttledRate and auto-
+    # deprioritizes degrading endpoints; retry walks to another upstream on a 429/error.
+    # HEDGE REMOVED: under per-upstream rate-limit pacing, hedging fires a SECOND request
+    # whenever the first is slow — i.e. exactly when upstreams are already throttling —
+    # doubling outbound load and deepening the 429 spiral that stalled the S2-T3 cold sync.
+    # Re-add a per-method hedge later for realtime tail latency if a consumer needs it;
+    # the indexer backfill path (the dominant load) does not want it.
     networks:
       - architecture: evm
         evm:
@@ -71,27 +95,44 @@ projects:
             timeout:
               duration: 30s
             retry:
-              maxAttempts: 3
-              delay: 200ms
-            hedge:
-              delay: 1s
-              maxCount: 2
+              maxAttempts: 5
+              delay: 300ms
 
-    # ── L1 upstreams — Berachain 80094 public cluster (S0-T1 verified 2026-05-20) ─────
-    # All anonymous / no-API-key / $0. Observed eth_getLogs block-range caps:
-    # berachain-apis 100k · publicnode 50k · berachain.com 10k · drpc 10k.
-    # NOTE (S0-T2): eRPC's own getLogs maxAllowedRange defaults to 30k. The Envio belt
-    # is configured to request getLogs windows <=30k (S2 belt config), or eRPC's range
-    # is raised — tuned + smoke-verified in S1-T4 / S2.
+    # ── L1 upstreams — Berachain 80094 public cluster (S0-T1 + S2-T3 verified) ────────
+    # All anonymous / no-API-key / $0. getLogs-capable cluster = 5 nodes; berachain-apis
+    # is BLOCK/TX-ONLY (see Finding A below). Each upstream paced by a rateLimitBudget
+    # (defined above). eRPC getLogsMaxAllowedRange defaults to 30k with
+    # getLogsSplitOnError=true, so an oversized getLogs window is auto-split across the cluster.
     upstreams:
+      # FINDING A (KF-012): berachain-apis returns empty [] (HTTP 200) for historical
+      # FILTERED eth_getLogs — a silent lie that eRPC's hedge accepted (eth_getLogs is not in
+      # markEmptyAsErrorMethods because empty is normally legitimate), dropping ~95% of the
+      # belt's logs on cold sync. It is the FASTEST responder, so it won every race. Route it
+      # OFF getLogs but KEEP it for eth_getBlockByNumber / eth_getTransactionByHash / eth_call:
+      # its block/tx capacity is what offloads the getLogs nodes in dense regions (Finding B).
       - id: berachain-apis
         endpoint: https://rpc.berachain-apis.com
+        rateLimitBudget: bud-apis
+        ignoreMethods:
+          - eth_getLogs
       - id: berachain-publicnode
         endpoint: https://berachain-rpc.publicnode.com
+        rateLimitBudget: bud-publicnode
       - id: berachain-official
         endpoint: https://rpc.berachain.com
+        rateLimitBudget: bud-official
       - id: berachain-drpc
         endpoint: https://berachain.drpc.org
+        rateLimitBudget: bud-drpc
+      # Added S2-T3 (research-verified live: no key, archive, getLogs-capable). tenderly has
+      # NO block-range cap (50k-result cap) — the widest getLogs member; sentio is a 10k-block
+      # tier node. Widening 3 → 5 getLogs nodes is the durable half of the Finding B fix.
+      - id: berachain-tenderly
+        endpoint: https://berachain.gateway.tenderly.co
+        rateLimitBudget: bud-tenderly
+      - id: berachain-sentio
+        endpoint: https://berachain.rpc.sentio.xyz
+        rateLimitBudget: bud-sentio
 
     # ── Future belts (SDD §3.2 / OD-4) — ADDITIVE ONLY ───────────────────────────────
     # HoneyJar / Purupuru / Sprawl belts: append their chains' public upstreams here

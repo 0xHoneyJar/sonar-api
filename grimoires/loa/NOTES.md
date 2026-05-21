@@ -145,9 +145,65 @@
     = sovereign routing/cache, not sovereign data origin); (4) **stable V3 migration LATER, by
     EXTRACTION** — migrate the /backing belt to stable's `indexer.onEvent` API first, then the
     ~30-handler monolith — not a monolith-shock bump.
-- Next: **S2-T3 entity-emission proof** — run the belt through eRPC (per-endpoint rate-limits
-  absorbed) and confirm the 3 §6 handler-emission queries; then S2-T4/T5 (belt Railway deploy +
-  on-chain reconciliation) → S3.
+- **S2-T3 EMISSION PROOF — substantively PASS (2026-05-20, operator-paired)**, with two HIGH
+  infrastructure findings surfaced + fixed (config-only). Local run: belt → local eRPC (4 public
+  upstreams) → Berachain; Postgres :5433 / Hasura :8080 (secret "testing"); envio alpha.17.
+  - **3 §6 queries**: ① `MiberaLoan` non-empty ✅ · ② `MiberaTransfer` non-empty ✅ ·
+    ③ `MintActivity{amountPaid>0}` ⚠️ **UNSATISFIABLE BY REALITY** — `max(amountPaid)=0` across
+    all 10,000 mints; **Mibera was a 100% free mint** (belt `amountPaid` matches on-chain tx
+    `value=0` exactly via `eth_getTransactionByHash` — the §5 `value` field PROVABLY flows; there
+    is simply no paid mint to match the predicate). AC-4 substance (both handlers emit correct,
+    contract-scoped data) is MET. **Recommend reconciling the AC**: query 3's "≥1 row amountPaid>0"
+    cannot pass for a free-mint collection — replace with a value-flow check that holds (e.g.
+    assert MintActivity rows exist AND amountPaid is a populated bigint field), or drop the `_gt:0`.
+  - **FINDING A — silent getLogs data loss (HIGH).** `rpc.berachain-apis.com` returns empty `[]`
+    with **HTTP 200** for historical *filtered* `eth_getLogs` (proven 0 logs vs publicnode's
+    9306/176/6/1 across 4 ranges; lies at ALL window sizes incl. 2k; serves blocks fine). eRPC's
+    `markEmptyAsErrorMethods` does **not** include `eth_getLogs`, and eRPC's hedge takes the first
+    non-error answer — so berachain-apis (the FASTEST responder ~85ms) wins the race and its lie is
+    accepted. First cold sync silently dropped ~95% of logs (585 transfers, **0 mints**). Invisible
+    to the DISS-003 "Starting indexing" check — only a data-completeness pass catches it. See KF-012.
+  - **FINDING B — per-IP rate-limit stall (HIGH, coupled to A).** Removing berachain-apis entirely
+    fixed completeness (10,000 mints) but put all block/tx + getLogs load on publicnode → Cloudflare
+    429 with multi-minute `retry-after` → sync froze at block 3,965,807 (0.7%). Root cause = a
+    per-second rate burst spiral in dense regions, NOT a long ban (all upstreams recover in seconds
+    once load stops).
+  - **PROVEN FIX (config-only; sovereign path holds — no HyperSync/token):**
+    1. `berachain-apis` → `ignoreMethods: [eth_getLogs]` (keep it for block/tx load; route it OFF
+       the method it lies on). eRPC `ignoreMethods` empirically verified (isolation test: getLogs →
+       `-32601 method ignored`, chainId/getBlock → OK).
+    2. Widen getLogs cluster 3 → 5: add **tenderly** `https://berachain.gateway.tenderly.co`
+       (no key, archive, NO range cap / 50k-result) + **sentio** `https://berachain.rpc.sentio.xyz`
+       (no key, archive, 10k cap). Research-verified live (the others probed: ankr/swiftnodes/1rpc
+       key-required or dead — see session research output).
+    3. Per-upstream eRPC `rateLimitBudget` (~25 req/s each) to PACE outbound rate under the free
+       endpoints' punitive 429 budget; **drop hedge** (it doubles load under pacing).
+  - **BENCHMARK (definitive, corrected+paced+widened):** full **17.3M-block cold sync to HEAD in
+    ~5 min**; complete data — MiberaTransfer **39,714**, MintActivity **10,000**, MiberaLoan **176**;
+    earliest event now a mint @ 3,838,974 (was a 4.46M secondary). 162 transient 429s, **never
+    stalled**. (Earlier broken/stalled runs: 585 transfers / stall @ 0.7%.)
+  - **Local-only artifacts (NOT committed):** `/tmp/erpc-local.yaml` (memory cache + the fix),
+    `config.mibera.yaml` url/interval edits (REVERTED to committed eRPC-internal URL).
+  - **FIX LANDED + VALIDATED (operator chose "land fix + reconcile", 2026-05-20):** committed
+    `erpc.yaml` edited with the 3 Finding A+B changes — (1) `berachain-apis` `ignoreMethods:[eth_getLogs]`,
+    (2) +tenderly +sentio upstreams (5 getLogs nodes), (3) per-upstream `rateLimitBudget` 25/s + hedge
+    removed. Boot-validated end-to-end: the committed config (postgres cache + new sections) loads
+    "ready", chainId ✓, getLogs deploy-window 9306 ✓. Belt build gate still green (verify / codegen /
+    typecheck:mibera). **NOT committed to git** — awaiting operator review (erpc.yaml is reviewed infra).
+    Caveat: 25/s pacing + ~5-min ETA are LOCAL data points (burned IP, memory cache) — re-validate at
+    S2-T4 against the Railway egress IP.
+  - **S2-T5 / AC-6 RECONCILIATION — PASS ✅ (2026-05-20).** Independently read on-chain
+    `MiberaLiquidBacking` (verified ABI via routescan) at pinned block 21,150,981 (belt's synced head):
+    `backingLoanId()=176` (== belt totalLoansCreated); enumerated `backingLoanDetails(0..175)`, active =
+    `loanedTo != 0x0` (confirmed: repaid loan 0 + defaulted loan 7 both have loanedTo=0). **On-chain
+    active set EXACTLY equals belt active set — both 19 IDs [134,135,136,137,146-155,163,164,165,174,175],
+    only-on-chain=[], only-belt=[].** The belt data is complete AND correct vs chain. (`backingLoanExpired`
+    is a state-MUTATING fn with no outputs — SDD §6 mislabels it as readable; the discriminator is
+    `backingLoanDetails.loanedTo`. Recommend reconciling SDD §6 wording.)
+  - **NEXT:** S2-T4 — deploy belt Railway service + belt Postgres in `freeside-sonar` (e240cdf0); apply
+    the same erpc.yaml fix to the deployed eRPC service (rebuild `Dockerfile.erpc`); validate cold-sync
+    rate-limit tuning on the Railway IP. Then S3 (gateway/observability/handback). Local stack (envio
+    postgres :5433 + Hasura :8080 has the full synced+reconciled dataset; eRPC docker) left disposable.
 
 ## Prior Focus (superseded by r4 re-sprint)
 - indexer-belt-rebuild Sprint 1 COMPLETE (2026-05-20, `/run sprint-1`) —

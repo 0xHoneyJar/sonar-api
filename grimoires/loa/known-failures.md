@@ -65,6 +65,7 @@ actually tried, not just what someone *said* was tried.
 | [KF-008](#kf-008-bridgebuilder-google-api-socketerror-on-large-request-bodies) | RESOLVED-architectural-complete — cycle-103 Sprint 1 unification (review-adapter path) + cycle-104 Sprint 3 T3.4 substrate-replay closure 2026-05-12 (4/4 trials clean at 297/302/317/539KB via cheval httpx). | bridgebuilder Google provider | 4 reproductions + 1 final non-reproduction |
 | [KF-010](#kf-010-cheval-delegate-google-adapter-300s-process-timeout-on-concurrent-bb-runs) | RESOLVED 2026-05-16 (sprint-bug-165, issue #921) | bridgebuilder google + anthropic voices / `deriveTimeoutMs` predicate scope | 6 (single batch, 2026-05-16) |
 | [KF-011](#kf-011-adversarial-reviewsh-malformed-response-on-review-type-prompts-post-kf-002-closure) | **RESOLVED 2026-05-17** (sub-mode (b): parser raw_decode extracts prose-prefixed JSON — PR #933 `d9ec8cb5`; sub-mode (c): route-around via 4-voice fallback chain — PR #934 `ccd510b0`; structural sub-mode (c) Gemini streaming-recovery tracked at issue #935). | adversarial-review.sh review-type — JSON contract layer + Gemini streaming-recovery gap | 2 (initial obs sprint-166 review + repro on parser-fix branch) |
+| [KF-012](#kf-012-free-berachain-rpc-returns-empty-200-on-filtered-eth_getlogs--erpc-silently-drops-indexer-logs) | **RESOLVED-VIA-CONFIG 2026-05-20** (eRPC `ignoreMethods:[eth_getLogs]` on lying upstream + widened getLogs cluster + per-upstream rate-limit pacing; sovereign path preserved) | indexer-belt-rebuild — Mibera belt RPC sync via eRPC | 1 |
 
 ---
 
@@ -821,3 +822,37 @@ work to make the new models reliable. This file is the operational ledger
 of that work — what we've tried, what didn't fix it, what we do today
 instead. Future agents read it at session start so we don't pay the
 re-discovery cost on every cycle.
+
+---
+
+## KF-012: free Berachain RPC returns empty-200 on filtered eth_getLogs → eRPC silently drops indexer logs
+
+**Status**: RESOLVED-VIA-CONFIG 2026-05-20 (eRPC `ignoreMethods: [eth_getLogs]` on the lying upstream + widened getLogs cluster + per-upstream rate-limit pacing). Config-only; sovereign path preserved.
+**Feature**: indexer-belt-rebuild — Mibera belt RPC sync (Envio HyperIndex `rpc` source) through the eRPC L2 substrate over the free Berachain public-RPC cluster.
+**Symptom**: A cold sync completes "successfully" (reaches head, no crash, no totalDifficulty error) but the entity tables are **massively under-populated and non-deterministically incomplete** — e.g. 585 MiberaTransfer + **0 mints** captured when on-chain has ~40k transfers + 10k mints. Headline says "synced to head"; the data is ~95% missing. Invisible to the DISS-003 "Starting indexing / eventConfigs>0" validation — only a data-completeness check (count vs on-chain getLogs ground truth, or AC-6 reconciliation) catches it.
+**First observed**: 2026-05-20 (indexer-belt-rebuild S2-T3 entity-emission proof, operator-paired)
+**Recurrence count**: 1
+**Current workaround**: In eRPC, set `ignoreMethods: [eth_getLogs]` on `rpc.berachain-apis.com` (it serves blocks/tx fine — keep it for those, route it OFF the method it lies on). Widen the getLogs-capable cluster (publicnode + rpc.berachain.com + drpc + tenderly + sentio) and add per-upstream `rateLimitBudget` pacing so the dense-region request burst never trips the free endpoints' punitive Cloudflare 429 (multi-minute `retry-after` that freezes the sync). Result: full 17.3M-block cold sync to head in ~5 min, complete data.
+**Upstream issue**: not filed (free-RPC-provider data-integrity defect + an eRPC design gap, not a Loa framework bug). Candidate eRPC feature request: cross-upstream getLogs result-consistency / quorum, since `markEmptyAsErrorMethods` cannot include `eth_getLogs` (empty is often legitimate).
+**Related visions / lore**: DISS-003 (NOTES.md — the sovereign RPC path); the "substrate validation that passes while data silently degrades" pattern (cf. vision-023/024 fractal-degradation, here at the indexer layer instead of the model-review layer).
+
+### Attempts
+
+| Date | What we tried | Outcome | Evidence |
+|------|---------------|---------|----------|
+| 2026-05-20 | Cold sync belt → eRPC (4 upstreams, hedge on, interval_ceiling 30000) | DID NOT WORK — 585 transfers, 0 mints; earliest captured event was a block-4.46M *secondary* transfer (its mint at ~3.84M was dropped) | Hasura counts; ground-truth getLogs 3837808–3839808 = 3736 logs vs belt 0 |
+| 2026-05-20 | Per-upstream getLogs reliability matrix across 4 ranges | ROOT CAUSE — `berachain-apis` returns 0 logs (HTTP 200) at ALL ranges/sizes incl. 2k, while publicnode/official/drpc return correct counts; berachain-apis is the FASTEST (~85ms) so it wins eRPC's hedge race; eRPC `markEmptyAsErrorMethods` excludes eth_getLogs → lie accepted | `/tmp/getlogs-matrix.mjs` output (session transcript) |
+| 2026-05-20 | Remove berachain-apis entirely; interval_ceiling 10000 | COMPLETENESS FIXED (10,000 mints) but NEW STALL — all load on publicnode → Cloudflare 429 `retry-after ~2900s` → froze at block 3,965,807 (0.7%) | benchmark sample (cum429 561, frozen) |
+| 2026-05-20 | `ignoreMethods:[eth_getLogs]` on berachain-apis (keep for block/tx) + add tenderly+sentio (5 getLogs nodes) + per-upstream rateLimitBudget 25/s + drop hedge | RESOLVED — full cold sync to head (21,150,981) in ~5 min; MiberaTransfer 39,714 / MintActivity 10,000 / MiberaLoan 176; 162 transient 429s, never stalled | benchmark `/tmp/envio-bench2.log` + Hasura counts |
+
+### Reading guide
+
+If a Berachain (or any free-RPC) indexer "syncs to head" but entity counts are way below
+on-chain reality: do NOT trust the green sync. The failure is an upstream returning empty `[]`
+(HTTP 200) for `eth_getLogs` it can't/won't serve, accepted because empty is a legitimate
+getLogs answer (so it's not in `markEmptyAsErrorMethods`) and eRPC's hedge prefers the fast
+empty response. Identify the liar with a per-upstream getLogs matrix vs ground truth, then
+`ignoreMethods:[eth_getLogs]` it (keep it for blocks). Separately, free endpoints rate-limit
+per-IP under dense-region bursts — pace eRPC with per-upstream `rateLimitBudget` and widen the
+getLogs cluster; do NOT just retry harder (that deepens the 429 spiral). Sovereign RPC sync of
+the full chain is viable this way (~5 min) — HyperSync backfill was NOT needed.
