@@ -1,5 +1,12 @@
 # Sprint Status Index
 
+## Cycle indexer-belt-rebuild: Indexer Belt Rebuild — Deployment #1
+
+| Sprint | Global ID | Status | Phase |
+|--------|-----------|--------|-------|
+| Sprint 1 | — | COMPLETED | audit: APPROVED |
+| Sprint 2 | — | PENDING | operator-paired (deploy/ops) — not autonomous |
+
 ## Cycle 041: Vision-Aware Planning — Creative Agency for AI Peers
 
 | Sprint | Global ID | Status | Phase |

@@ -1,0 +1,239 @@
+# erpc.yaml — the L2 eRPC substrate for the freeside-sonar belt factory.
+#
+# eRPC is ONE shared deployment (SDD r4 §3.1) — every belt's HyperIndex points its
+# `rpc_config` at this proxy. It fronts free public RPC with caching + hedging +
+# failover, turning unreliable free endpoints into a data source reliable enough to
+# index on. Built S1; deployed as a dedicated Railway service S1-T2.
+#
+# Multi-chain-capable, Berachain-wired (SDD §3.2 / OD-4): Deployment #1 declares the
+# Berachain 80094 upstream group only. Adding a chain later (ETH / ARB / Base / OP /
+# Zora — for the HoneyJar / Purupuru / Sprawl belts) is a PURELY ADDITIVE edit: append
+# upstreams + a networks[] entry below. eRPC auto-detects each upstream's chain. No
+# existing entry changes, no restructuring.
+#
+# Secrets: NONE inline (SDD §3.2 / §10.3). The cache-Postgres connection string is a
+# Railway environment variable referenced by name. The 4 Berachain endpoints are
+# anonymous public RPC — no API keys (S0-T1 finding).
+#
+# Schema validated against eRPC v0.0.64 (S0 calibration spike, 2026-05-20).
+
+logLevel: info            # S1-T2/T4 verification window — revert to warn for steady state
+
+server:
+  httpHostV4: "0.0.0.0"
+  httpHostV6: "::"        # Railway's edge + private networking reach the container over
+                          # IPv6 — binding IPv4-only yields a 502 (S1-T2 deploy finding).
+  httpPort: 4000
+
+# ── L2 cache — persistent, reorg-safe ────────────────────────────────────────────────
+# eRPC caches finalized blockchain history so re-syncs (a belt redeploy, a DB wipe)
+# replay from cache at memory speed. S0-T2 measured ~4.9x (getLogs) / ~20x (block fetch)
+# cache-warm speedup. The cache compounds across belts on the same chain (SDD §3.1).
+database:
+  evmJsonRpcCache:
+    connectors:
+      - id: postgres-cache
+        driver: postgresql
+        postgresql:
+          # Railway PostgreSQL — connection string injected as a Railway env var
+          # (wired S1-T2). NEVER inline a credential here (SDD §10.3).
+          connectionUri: ${ERPC_DATABASE_URL}
+          table: erpc_json_rpc_cache
+    policies:
+      # Finalized history is immutable → cache with no expiry (ttl: 0).
+      - network: "*"
+        method: "*"
+        finality: finalized
+        connector: postgres-cache
+        ttl: 0
+      # Chain-tip / unfinalized blocks can reorg → short TTL so a reorg cannot serve
+      # stale data for long.
+      - network: "*"
+        method: "*"
+        finality: unfinalized
+        connector: postgres-cache
+        ttl: 5s
+
+# ── Rate-limit pacing (S2-T3 finding KF-012) ──────────────────────────────────────────
+# Per-upstream budgets so eRPC paces its OWN outbound rate and never trips the free
+# endpoints' punitive Cloudflare 429 (a multi-minute retry-after that freezes a cold sync —
+# Finding B). ~25 req/s/upstream validated locally (full 17.3M-block cold sync to head in
+# ~5 min, 0 permanent stalls, 162 transient 429s absorbed). TUNE at S2-T4 deploy against
+# the Railway egress IP's real budget — lower if punitive 429s recur, raise to go faster.
+rateLimiters:
+  budgets:
+    - id: bud-apis
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-publicnode
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-official
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-drpc
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-tenderly
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-sentio
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    # Multi-chain extension (Base/OP/ETH) — per-upstream pacing, same 25 req/s as Berachain.
+    - id: bud-base-publicnode
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-base-tenderly
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-base-drpc
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-base-official
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-op-publicnode
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-op-tenderly
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-op-drpc
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-eth-publicnode
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-eth-tenderly
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+    - id: bud-eth-drpc
+      rules: [{ method: "*", maxCount: 25, period: 1s }]
+
+projects:
+  - id: main
+
+    # ── Failsafe: retry + timeout (SDD §3.2; hedge removed per S2-T3 / KF-012) ────────
+    # eRPC tracks each upstream's error-rate / latency / throttledRate and auto-
+    # deprioritizes degrading endpoints; retry walks to another upstream on a 429/error.
+    # HEDGE REMOVED: under per-upstream rate-limit pacing, hedging fires a SECOND request
+    # whenever the first is slow — i.e. exactly when upstreams are already throttling —
+    # doubling outbound load and deepening the 429 spiral that stalled the S2-T3 cold sync.
+    # Re-add a per-method hedge later for realtime tail latency if a consumer needs it;
+    # the indexer backfill path (the dominant load) does not want it.
+    networks:
+      - architecture: evm
+        evm:
+          chainId: 80094
+        failsafe:
+          - matchMethod: "*"
+            timeout:
+              duration: 30s
+            retry:
+              maxAttempts: 5
+              delay: 300ms
+      # Multi-chain extension (Mibera ecosystem legs) — same failsafe shape as Berachain.
+      - architecture: evm
+        evm:
+          chainId: 8453   # Base
+        failsafe:
+          - matchMethod: "*"
+            timeout:
+              duration: 30s
+            retry:
+              maxAttempts: 5
+              delay: 300ms
+      - architecture: evm
+        evm:
+          chainId: 10     # Optimism
+        failsafe:
+          - matchMethod: "*"
+            timeout:
+              duration: 30s
+            retry:
+              maxAttempts: 5
+              delay: 300ms
+      - architecture: evm
+        evm:
+          chainId: 1      # Ethereum
+        failsafe:
+          - matchMethod: "*"
+            timeout:
+              duration: 30s
+            retry:
+              maxAttempts: 5
+              delay: 300ms
+
+    # ── L1 upstreams — Berachain 80094 public cluster (S0-T1 + S2-T3 verified) ────────
+    # All anonymous / no-API-key / $0. getLogs-capable cluster = 5 nodes; berachain-apis
+    # is BLOCK/TX-ONLY (see Finding A below). Each upstream paced by a rateLimitBudget
+    # (defined above). eRPC getLogsMaxAllowedRange defaults to 30k with
+    # getLogsSplitOnError=true, so an oversized getLogs window is auto-split across the cluster.
+    upstreams:
+      # FINDING A (KF-012): berachain-apis returns empty [] (HTTP 200) for historical
+      # FILTERED eth_getLogs — a silent lie that eRPC's hedge accepted (eth_getLogs is not in
+      # markEmptyAsErrorMethods because empty is normally legitimate), dropping ~95% of the
+      # belt's logs on cold sync. It is the FASTEST responder, so it won every race. Route it
+      # OFF getLogs but KEEP it for eth_getBlockByNumber / eth_getTransactionByHash / eth_call:
+      # its block/tx capacity is what offloads the getLogs nodes in dense regions (Finding B).
+      - id: berachain-apis
+        endpoint: https://rpc.berachain-apis.com
+        rateLimitBudget: bud-apis
+        ignoreMethods:
+          - eth_getLogs
+      - id: berachain-publicnode
+        endpoint: https://berachain-rpc.publicnode.com
+        rateLimitBudget: bud-publicnode
+      - id: berachain-official
+        endpoint: https://rpc.berachain.com
+        rateLimitBudget: bud-official
+      - id: berachain-drpc
+        endpoint: https://berachain.drpc.org
+        rateLimitBudget: bud-drpc
+      # Added S2-T3 (research-verified live: no key, archive, getLogs-capable). tenderly has
+      # NO block-range cap (50k-result cap) — the widest getLogs member; sentio is a 10k-block
+      # tier node. Widening 3 → 5 getLogs nodes is the durable half of the Finding B fix.
+      - id: berachain-tenderly
+        endpoint: https://berachain.gateway.tenderly.co
+        rateLimitBudget: bud-tenderly
+      - id: berachain-sentio
+        endpoint: https://berachain.rpc.sentio.xyz
+        rateLimitBudget: bud-sentio
+
+      # ── Base 8453 (op-stack) — Mibera ecosystem leg. KF-012 getLogs-liar on op-stack is
+      # TIMEOUT/SPARSE-range-based (empty-200 on slow scans); verified 2026-05-21 that
+      # publicnode/tenderly/drpc AGREE (6216 logs) on a dense FriendtechShares range, so the
+      # getLogs cluster is those three. mainnet.base.org (official) is block/tx-ONLY
+      # (ignoreMethods getLogs) — highest sparse-timeout-liar risk + most rate-limited.
+      # llamarpc excluded (returned HTML, not JSON-RPC). Completeness confirmed at reconcile.
+      - id: base-publicnode
+        endpoint: https://base-rpc.publicnode.com
+        rateLimitBudget: bud-base-publicnode
+      - id: base-tenderly
+        endpoint: https://base.gateway.tenderly.co
+        rateLimitBudget: bud-base-tenderly
+      - id: base-drpc
+        endpoint: https://base.drpc.org
+        rateLimitBudget: bud-base-drpc
+      - id: base-official
+        endpoint: https://mainnet.base.org
+        rateLimitBudget: bud-base-official
+        ignoreMethods:
+          - eth_getLogs
+
+      # ── Optimism 10 (op-stack) — Mibera ecosystem leg. getLogs cluster = publicnode +
+      # tenderly (no range cap, verified 640 logs) + drpc. mainnet.optimism.io excluded
+      # (returned "no backend healthy" during verification). OP Mibera contracts are sparse.
+      - id: op-publicnode
+        endpoint: https://optimism-rpc.publicnode.com
+        rateLimitBudget: bud-op-publicnode
+      - id: op-tenderly
+        endpoint: https://optimism.gateway.tenderly.co
+        rateLimitBudget: bud-op-tenderly
+      - id: op-drpc
+        endpoint: https://optimism.drpc.org
+        rateLimitBudget: bud-op-drpc
+
+      # ── Ethereum 1 (geth/erigon — the op-stack getLogs-liar class does NOT apply; lower
+      # risk). getLogs cluster = publicnode + tenderly (verified 457 logs agree) + drpc.
+      # MiladyCollection is dense in the mint era; the full-chain backfill is the heaviest leg.
+      - id: eth-publicnode
+        endpoint: https://ethereum-rpc.publicnode.com
+        rateLimitBudget: bud-eth-publicnode
+      - id: eth-tenderly
+        endpoint: https://mainnet.gateway.tenderly.co
+        rateLimitBudget: bud-eth-tenderly
+      - id: eth-drpc
+        endpoint: https://ethereum.drpc.org
+        rateLimitBudget: bud-eth-drpc
+
+    # ── Future belts (SDD §3.2 / OD-4) — ADDITIVE ONLY ───────────────────────────────
+    # HoneyJar / Purupuru / Sprawl belts: append their chains' public upstreams here
+    # (Arbitrum 42161, Zora 7777777) plus a matching networks[] entry above. No existing
+    # line changes.

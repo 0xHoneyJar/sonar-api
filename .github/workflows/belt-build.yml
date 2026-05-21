@@ -1,0 +1,57 @@
+# belt-build.yml — the Mibera belt build gate (S2-T2, AC-3 + AC-11).
+#
+# Project CI for the freeside-sonar belt factory — distinct from ci.yml, which
+# is the loa-framework template CI. Three gates, in order:
+#
+#   1. verify:belt-config  — the §5.1 config-fidelity check: config.mibera.yaml's
+#      field_selection / address / start_block are byte-identical to config.yaml
+#      (PRD FR-1, AC-2 / AC-11). A belt config that drops a field a handler reads
+#      produces silently-wrong data, not a crash — this makes that unshippable.
+#   2. codegen:mibera      — scoped `envio codegen --config config.mibera.yaml`
+#      (AC-3). The DISS-001 fix: handlers: src/belts/mibera scopes the autoload
+#      glob so codegen generates only the two Mibera contracts.
+#   3. typecheck:mibera    — `tsc -p tsconfig.mibera.json` (AC-3 / DISS-002). The
+#      belt-scoped typecheck: whole-repo tsc fails because the 27 non-belt
+#      monolith handlers import generated types belt-scoped codegen never made;
+#      tsconfig.mibera.json roots the typecheck at the belt's own closure.
+#
+# Factory invariant: each belt gets a job here (codegen:<belt> + typecheck:<belt>).
+
+name: Belt Build Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  mibera-belt:
+    name: Mibera belt — verify · codegen · typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Gate 1 — belt config fidelity (verify-belt-config)
+        run: pnpm verify:belt-config
+
+      - name: Gate 2 — scoped codegen (config.mibera.yaml)
+        run: pnpm codegen:mibera
+
+      - name: Gate 3 — belt-scoped typecheck (tsconfig.mibera.json)
+        run: pnpm typecheck:mibera

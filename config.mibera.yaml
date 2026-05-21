@@ -1,0 +1,339 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+# Mibera belt — Deployment #1 (the fire fix).
+#
+# A HyperIndex config scoped to the two Mibera contracts on Berachain. Event ABIs,
+# per-event `field_selection`, addresses and start_blocks are extracted VERBATIM
+# from config.yaml; scripts/verify-belt-config.js mechanically enforces that
+# fidelity (SDD §5.3, PRD FR-1, AC-2 / AC-11). The top-level `handlers:` key scopes
+# Envio's handler autoload (HandlerLoader.autoLoadFromSrcHandlers globs that
+# directory) to src/belts/mibera/ — whose only file is the belt registration
+# entrypoint — so a scoped `envio codegen` build never imports the other contracts'
+# handler modules (review finding DISS-001). Shared src/handlers logic +
+# schema.graphql are reused unchanged — see grimoires/loa/sdd.md §2-§3.
+name: mibera-belt
+# Scope Envio's handler autoload (HandlerLoader.autoLoadFromSrcHandlers globs this
+# directory) to the belt entrypoint only — see the header note + review DISS-001.
+handlers: src/belts/mibera
+contracts:
+  # MiberaLiquidBacking - Liquid backing system (loans, RFV, marketplace for defaulted NFTs)
+  - name: MiberaLiquidBacking
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      # Loan lifecycle events
+      - event: LoanReceived(uint256 loanId, uint256[] ids, uint256 amount, uint256 expiry)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+      - event: BackingLoanPayedBack(uint256 loanId, uint256 newTotalBacking)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: BackingLoanExpired(uint256 loanId, uint256 newTotalBacking)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: ItemLoaned(uint256 loanId, uint256 itemId, uint256 expiry)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+      - event: LoanItemSentBack(uint256 loanId, uint256 newTotalBacking)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: ItemLoanExpired(uint256 loanId, uint256 newTotalBacking)
+        field_selection:
+          transaction_fields:
+            - hash
+      # Marketplace events
+      - event: ItemPurchased(uint256 itemId, uint256 newTotalBacking)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+      - event: ItemRedeemed(uint256 itemId, uint256 newTotalBacking)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+      - event: RFVChanged(uint256 indexed newRFV)
+        field_selection:
+          transaction_fields:
+            - hash
+  # MiberaCollection - Transfer tracking for mint activity
+  - name: MiberaCollection
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+            - value
+  # ── Mibera ecosystem contracts (Berachain) — extends the belt to the full ecosystem
+  # footprint score-api consumes (grimoires/loa/context/mibera-sovereign-indexer-experiment.md).
+  # Handlers repoint to the belt entrypoint (DISS-001); event-defs verbatim from config.yaml.
+  - name: PaddleFi
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: Mint(address minter, uint256 mintAmount, uint256 mintTokens)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: Pawn(address borrower, uint256[] nftIds)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: LiquidateBorrow(address liquidator, address borrower, uint256 repayAmount, uint256[] nftIds)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: BgtToken
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: QueueBoost(address indexed account, bytes indexed pubkey, uint128 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - input
+  - name: CubBadges1155
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: CandiesMarket1155
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+            - value  # BERA paid → CandiesBacking.amount (handler skips backing when tx.value absent)
+      - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+        field_selection:
+          transaction_fields:
+            - hash
+            - value  # BERA paid → CandiesBacking.amount
+  - name: GeneralMints
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: Minted(address indexed user, uint256 tokenId, string traits)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: TrackedErc721
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Seaport — OpenSea marketplace. Handler filters OrderFulfilled to Mibera (TRACKED_COLLECTIONS)
+  # → MintActivity SALE/PURCHASE (score-api mibera_buyer/seller/sales). Berachain-only in this belt.
+  - name: Seaport
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8,address,uint256,uint256)[] offer, (uint8,address,uint256,uint256,address)[] consideration)
+        field_selection:
+          transaction_fields:
+            - hash
+  # ── Mibera ecosystem contracts (multi-chain) — Base / Optimism / Ethereum legs.
+  # Event-defs verbatim from config.yaml; handlers repoint to the belt entrypoint (DISS-001).
+  # Base (8453)
+  - name: FriendtechShares
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: Trade(address trader, address subject, bool isBuy, uint256 shareAmount, uint256 ethAmount, uint256 protocolEthAmount, uint256 subjectEthAmount, uint256 supply)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: TrackedErc20
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from  # Required for burn tracking
+            - to    # Required for source detection
+  # Optimism (10)
+  - name: MiberaSets
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: MiberaZora1155
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: MirrorObservability
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: WritingEditionPurchased(address indexed clone, uint256 tokenId, address indexed recipient, uint256 price, string message)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Ethereum (1)
+  - name: MiladyCollection
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+chains:
+  # Berachain Mainnet (DO NOT CHANGE THIS ID)
+  - id: 80094
+    # Chain-level floor MUST be <= the earliest per-contract start_block — Envio
+    # alpha.17 rejects any contract whose start_block is below this. Earliest belt
+    # contract is now BgtToken @ 8221 (ecosystem extension); per-contract
+    # start_blocks below override this floor for each contract.
+    start_block: 8221
+    # Data source — the eRPC L2 substrate (SDD r4 §3 / §4.1). r4 retires the
+    # Sprint-1 HyperSync source; the belt indexes Berachain over JSON-RPC through
+    # the shared eRPC proxy at its private Railway address. `for: sync` makes eRPC
+    # the primary data source — historical backfill AND realtime — NOT a HyperSync
+    # fallback (Envio defaults a bare rpc to `fallback` for HyperSync-supported
+    # chains, and Berachain is one). The URL is eRPC's internal Railway domain +
+    # its JSON-RPC route /<project>/<arch>/<chainId>.
+    # Envio v3.0.0-alpha.14's schema field is `rpc` — SDD §4.1 / sprint.md S2-T1
+    # name it `rpc_config`, which does not exist in the installed schema; see the
+    # S2-T1 implementation report for the naming-drift finding.
+    rpc:
+      url: http://erpc.railway.internal:4000/main/evm/80094
+      for: sync
+    contracts:
+      # Mibera Liquid Backing - Loans, RFV, and marketplace
+      - name: MiberaLiquidBacking
+        address:
+          - 0xaa04F13994A7fCd86F3BbbF4054d239b88F2744d # Mibera Liquid Backing
+        start_block: 3971122 # MiberaLiquidBacking deployment
+      # Mibera Collection - NFT transfer tracking for mint activity
+      - name: MiberaCollection
+        address:
+          - 0x6666397dfe9a8c469bf65dc744cb1c733416c420 # Mibera Collection
+        start_block: 3837808 # MiberaCollection deployment
+      - name: PaddleFi
+        address:
+          - 0x242b7126F3c4E4F8CbD7f62571293e63E9b0a4E1 # PaddleFi MIBERA-WBERA vault
+        start_block: 5604652 # PaddleFi deployment
+      - name: BgtToken
+        address:
+          - 0x656b95E550C07a9ffe548Bd4085c72418Ceb1dBa
+        start_block: 8221 # BgtToken deployment
+      - name: CubBadges1155
+        address:
+          - 0x574617ab9788e614b3eb3f7bd61334720d9e1aac # Cub Universal Badges (mainnet)
+        start_block: 1080991 # CubBadges1155 deployment
+      - name: CandiesMarket1155
+        address:
+          - 0x80283fbF2b8E50f6Ddf9bfc4a90A8336Bc90E38F # mibera_drugs / mibera_candies (SilkRoad marketplace)
+          - 0xeca03517c5195f1edd634da6d690d6c72407c40c # mibera_drugs / mibera_candies (secondary)
+        start_block: 3716959 # CandiesMarket secondary deployment (earliest of the 2)
+      - name: GeneralMints
+        address:
+          - 0x048327A187b944ddac61c6e202BfccD20d17c008 # mibera_vm / mibera_shadows
+          - 0x230945E0Ed56EF4dE871a6c0695De265DE23D8D8 # mibera_gif
+        start_block: 4130866 # mibera_vm deployment (earliest GeneralMints on Berachain)
+      - name: TrackedErc721
+        address:
+          - 0x4B08a069381EfbB9f08C73D6B2e975C9BE3c4684 # mibera_tarot / mibera_quiz
+          - 0x86Db98cf1b81E833447b12a077ac28c36b75c8E1 # fracture #1: miparcels
+          - 0x8D4972bd5D2df474e71da6676a365fB549853991 # fracture #2: miladies (Miladies on Berachain)
+          - 0x144B27b1A267eE71989664b3907030Da84cc4754 # fracture #3: mireveal_1_1
+          - 0x72DB992E18a1bf38111B1936DD723E82D0D96313 # fracture #4: mireveal_2_2
+          - 0x3A00301B713be83EC54B7B4Fb0f86397d087E6d3 # fracture #5: mireveal_3_3
+          - 0x419F25C4f9A9c730AAcf58b8401B5b3e566Fe886 # fracture #6: mireveal_4_20
+          - 0x81A27117bd894942BA6737402fB9e57e942C6058 # fracture #7: mireveal_5_5
+          - 0xaaB7b4502251aE393D0590bAB3e208E2d58F4813 # fracture #8: mireveal_6_6
+          - 0xc64126EA8dC7626c16daA2A29D375C33fcaa4C7c # fracture #9: mireveal_7_7
+          - 0x24F4047d372139de8DACbe79e2fC576291Ec3ffc # fracture #10: mireveal_8_8
+          - 0xFc2D7eBFEB2714fCE13CaF234A95dB129ecC43Da # apdao_seat
+        start_block: 4029732 # fracture #1 deployment (earliest TrackedErc721 on Berachain)
+      # Seaport v1.6 — Mibera secondary sales (handler filters OrderFulfilled to Mibera 0x6666).
+      - name: Seaport
+        address:
+          - "0x0000000000000068F116a894984e2DB1123eB395" # Seaport v1.6
+        start_block: 3837808 # MiberaCollection deployment — no relevant Mibera trades before
+
+  # ── Base (8453) — FriendtechShares + TrackedErc20(MiberaMaker333). DATA SOURCE: HyperSync.
+  # friend.tech Trade volume is enormous (event args unindexed → ALL Trades fetched); free
+  # eRPC crawled at ~20 blk/s (effectively won't finish), so this leg uses HyperSync (needs
+  # ENVIO_API_TOKEN) — the break-glass for the dense op-stack backfill (2026-05-21 decision:
+  # we pay a vendor for the one-time dense fill; eRPC cache + free realtime cover the rest).
+  # To return to sovereign realtime later, restore the rpc: block (eRPC route /8453) + resume.
+  #   rpc: { url: http://erpc.railway.internal:4000/main/evm/8453, for: sync }
+  - id: 8453
+    start_block: 2430439 # friend.tech start block (earliest contract; FriendtechShares inherits this floor)
+    contracts:
+      - name: FriendtechShares
+        address:
+          - 0xCF205808Ed36593aa40a44F10c7f7C2F67d4A4d4
+      - name: TrackedErc20
+        address:
+          - 0x120756ccc6f0cefb43a753e1f2534377c2694bb4 # MiberaMaker333
+        start_block: 33657372 # MiberaMaker333 deployment
+
+  # ── Optimism (10) — MiberaSets, MiberaZora1155, MirrorObservability, TrackedErc721 (lore).
+  - id: 10
+    start_block: 107558369 # MirrorObservability deployment (earliest for Mibera articles)
+    rpc:
+      url: http://erpc.railway.internal:4000/main/evm/10
+      for: sync
+    contracts:
+      - name: MiberaSets
+        address:
+          - 0x886d2176d899796cd1affa07eff07b9b2b80f1be
+        start_block: 125031052 # MiberaSets OP deployment
+      - name: MiberaZora1155
+        address:
+          - 0x427a8f2e608e185eece69aca15e535cd6c36aad8 # mibera_zora
+        start_block: 112614910 # MiberaZora1155 OP deployment
+      - name: MirrorObservability
+        address:
+          - 0x4c2393aae4f0ad55dfd4ddcfa192f817d1b28d1f
+      - name: TrackedErc721
+        address:
+          - 0x6b31859e5e32a5212f1ba4d7b377604b9d4c7a60 # lore_1_introducing_mibera
+          - 0x9247edf18518c4dccfa7f8b2345a1e8a4738204f # lore_2_honey_online_offline
+          - 0xb2c7f411aa425d3fce42751e576a01b1ff150385 # lore_3_bera_kali_acc
+          - 0xa12064e3b1f6102435e77aa68569e79955070357 # lore_4_bgt_network_spirituality
+          - 0x6ca29eed22f04c1ec6126c59922844811dcbcdfa # lore_5_initiation_ritual
+          - 0x7988434e1469d35fa5f442e649de45d47c3df23c # lore_6_miberamaker_design
+          - 0x96c200ec4cca0bc57444cfee888cfba78a1ddbd8 # lore_7_miberamaker_design
+
+  # ── Ethereum (1) — MiladyCollection (NftBurn:milady). Densest chain; Milady Transfer
+  # volume is very large → may need bounded HyperSync / paid RPC if eRPC ETA is unacceptable.
+  - id: 1
+    start_block: 13090020 # Milady contract deployment (MiladyCollection inherits this floor)
+    rpc:
+      url: http://erpc.railway.internal:4000/main/evm/1
+      for: sync
+    contracts:
+      - name: MiladyCollection
+        address:
+          - 0x5af0d9827e0c53e4799bb226655a1de152a425a5 # Milady Maker

@@ -1,0 +1,15 @@
+# Dockerfile.gateway — L5 gateway (S3-T1/T2). Caddy reverse proxy + per-IP rate limit.
+#
+# A thin, stable indirection in front of the belt's L4 GraphQL (belt-hasura). The public
+# URL never changes; belt recovery = swap BELT_UPSTREAM (S3-T1 swap procedure), not a
+# consumer code change (R-3). Federation-ready: today one upstream; a 2nd belt is an
+# additive Caddyfile edit (path route or a federation layer behind the same :PORT) — the
+# public URL + GraphQL contract are unchanged (SDD §9.2 / OD-5).
+#
+# Built with the caddy-ratelimit module (per-IP rate limit, S3-T2 / AC-12) via xcaddy.
+FROM caddy:2-builder AS builder
+RUN xcaddy build --with github.com/mholt/caddy-ratelimit
+
+FROM caddy:2
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+COPY Caddyfile /etc/caddy/Caddyfile

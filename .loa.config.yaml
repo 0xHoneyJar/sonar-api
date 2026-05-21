@@ -1534,12 +1534,12 @@ flatline_protocol:
 
   # Models for adversarial review
   models:
-    # Primary model (default: Claude Opus 4.6)
-    primary: "opus"
-    # Secondary model (default: GPT-5.3-Codex)
-    secondary: "gpt-5.3-codex"
-    # Tertiary model (3-model cross-scoring)
-    tertiary: "gemini-3.1-pro-preview"
+    # Primary model — subscription CLI headless (no metered API quota)
+    primary: "claude-headless"
+    # Secondary model — subscription CLI headless (Codex CLI via ChatGPT sign-in)
+    secondary: "codex-headless"
+    # Tertiary model — subscription CLI headless
+    tertiary: "gemini-headless"
 
   # Consensus thresholds (0-1000 scale)
   thresholds:
@@ -1596,12 +1596,12 @@ flatline_protocol:
   # Uses adversarial-review.sh to invoke a second model as dissenter
   code_review:
     enabled: true                 # Cross-model dissent for review-sprint
-    model: "gpt-5.2-codex"       # Dissenter model
+    model: "codex-headless"      # Dissenter model — subscription CLI headless
     timeout_seconds: 60           # Per-call timeout
     budget_cents: 150             # Max cost per review dissent
   security_audit:
     enabled: true                 # Cross-model dissent for audit-sprint
-    model: "gpt-5.2-codex"       # Dissenter model
+    model: "codex-headless"      # Dissenter model — subscription CLI headless
     timeout_seconds: 60           # Per-call timeout
     budget_cents: 150             # Max cost per audit dissent
   stable_anchors:
@@ -1787,12 +1787,18 @@ hounfour:
       auth: "{env:OPENAI_API_KEY}"
       models:
         gpt-5.2:
+          endpoint_family: chat
+          auth_type: http_api
+          dispatch_group: openai-gpt
           capabilities: [chat, tools, function_calling]
           context_window: 128000
           pricing:
             input_per_mtok: 10000000
             output_per_mtok: 30000000
         gpt-5.2-codex:
+          endpoint_family: chat
+          auth_type: http_api
+          dispatch_group: openai-gpt
           capabilities: [chat, tools, function_calling, code]
           context_window: 200000
           pricing:
@@ -1802,12 +1808,18 @@ hounfour:
       auth: "{env:ANTHROPIC_API_KEY}"
       models:
         claude-opus-4-6:
+          endpoint_family: chat
+          auth_type: http_api
+          dispatch_group: anthropic-claude
           capabilities: [chat, tools, function_calling, thinking_traces]
           context_window: 200000
           pricing:
             input_per_mtok: 5000000
             output_per_mtok: 25000000
         claude-sonnet-4-6:
+          endpoint_family: chat
+          auth_type: http_api
+          dispatch_group: anthropic-claude
           capabilities: [chat, tools, function_calling]
           context_window: 200000
           pricing:

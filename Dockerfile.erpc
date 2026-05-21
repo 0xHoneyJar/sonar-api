@@ -1,0 +1,19 @@
+# Dockerfile.erpc — the L2 eRPC substrate image for the freeside-sonar factory.
+#
+# eRPC ships as a prebuilt image but needs to FIND its config. This Dockerfile
+# bakes the audited erpc.yaml (S1-T1 deliverable) into the official eRPC image
+# so the Railway eRPC service runs with no volume mount and no runtime fetch.
+# This file is S1-T2 deployment glue; erpc.yaml itself is the reviewed artifact.
+#
+# Base image pinned by DIGEST to the exact eRPC build validated end-to-end in
+# the S0 calibration spike (eRPC v0.0.64 — ghcr.io/erpc/erpc:latest as of
+# 2026-05-20). Digest-pinning, not :latest, is deliberate: the deployed image
+# is byte-identical to the one S0 measured and S1-T1 schema-validated.
+FROM ghcr.io/erpc/erpc@sha256:862056cee15f82c811e56e33f493b81986439d78585a767f4ea988aa54f48c4c
+
+# eRPC's Cmd (/erpc-server) reads ./erpc.yaml from its WorkingDir /home/nonroot.
+# COPY lands the file root-owned mode 0644 (world-readable) — the container
+# runs as uid 65532 (nonroot) and only needs read access. No CMD override:
+# the base image already runs eRPC, which resolves ${ERPC_DATABASE_URL} from
+# the container environment (wired as a Railway variable, never inlined).
+COPY erpc.yaml /home/nonroot/erpc.yaml

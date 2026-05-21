@@ -162,10 +162,12 @@ contracts:
         field_selection:
           transaction_fields:
             - hash
+            - value  # BERA paid → CandiesBacking.amount (handler skips backing when tx.value absent)
       - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
         field_selection:
           transaction_fields:
             - hash
+            - value  # BERA paid → CandiesBacking.amount
   - name: CubBadges1155
     handler: src/EventHandlers.ts
     events:

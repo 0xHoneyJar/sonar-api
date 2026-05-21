@@ -1,0 +1,30 @@
+# Dockerfile.belt — Mibera belt (Envio HyperIndex) indexer service for Railway (S2-T4).
+#
+# A controlled build so that:
+#  - `envio codegen --config config.mibera.yaml` runs (embeds the committed eRPC
+#    internal URL + generates the belt's bindings), and
+#  - the repo-wide `pnpm build` (= `tsc --build`) NEVER runs — it is structurally
+#    incompatible with belt-scoped codegen (DISS-002); Nixpacks auto-build would
+#    trip it, so we bypass Nixpacks with this Dockerfile.
+#
+# Runtime config (belt Postgres + Hasura endpoint) is injected as Railway env vars
+# (ENVIO_PG_* + HASURA_GRAPHQL_*); see grimoires/loa/runbooks/s2-t4-belt-deploy.md.
+# Data sources: Berachain/Optimism/Ethereum = eRPC (sovereign, baked into config.mibera.yaml);
+# Base = HyperSync (requires ENVIO_API_TOKEN Railway var — friend.tech-volume break-glass).
+# Node >=22 required by envio@3.0.0-alpha.17 (handler autoload uses fs.promises.glob).
+FROM node:22-bookworm-slim
+RUN corepack enable && corepack prepare pnpm@10.11.0 --activate
+WORKDIR /app
+COPY . .
+RUN pnpm install --frozen-lockfile && pnpm envio codegen --config config.mibera.yaml
+ENV TUI_OFF=true
+# Env-gated re-init: steady-state RESUMES from the last checkpoint (safe default).
+# STRICT gate: only the literal ENVIO_RESTART=1 forces a fresh init — ENVIO_RESTART=false/0
+# do NOT wipe (the old `${VAR:+--restart}` form triggered on ANY non-empty value, a
+# destructive footgun). New chains/contracts MUST be seeded via --restart (Envio's
+# isInitialized() checks table existence, not the config hash, so a plain resume silently
+# skips new chains). NOTE the re-init dance (KF-013): a true fresh init crashes the Rust-CLI
+# persisted_state upsert (envio 28P01 bug), so the working sequence is — set ENVIO_RESTART=1
+# → deploy (JS seeds schema + chain_metadata, then crashes) → DELETE ENVIO_RESTART →
+# redeploy → RESUME backfills the seeded chains (resume skips the fatal upsert).
+CMD ["sh", "-c", "if [ \"$ENVIO_RESTART\" = \"1\" ]; then exec pnpm envio start --config config.mibera.yaml --restart; else exec pnpm envio start --config config.mibera.yaml; fi"]

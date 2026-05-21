@@ -1,0 +1,22 @@
+{
+  // tsconfig.mibera.json — belt-scoped typecheck gate for the Mibera belt.
+  //
+  // DISS-002 (S2-T2): the DISS-001 fix scopes `envio codegen` to the belt, so a
+  // `codegen --config config.mibera.yaml` build generates `generated/` for the
+  // two Mibera contracts ONLY. A whole-repo `tsc --noEmit` then fails — the 27
+  // non-belt handler modules of the 39-contract monolith import generated types
+  // that belt-scoped codegen never produced (~210 errors: TS2305/2724 missing
+  // members + a TS7031 implicit-any cascade). Those handlers are not part of the
+  // belt; whole-repo tsc is the wrong gate.
+  //
+  // This config scopes the typecheck to the belt's own dependency closure: tsc
+  // roots at the belt entrypoint dir (src/belts/mibera/) and follows its static
+  // imports — the two Mibera handlers, their src/lib deps, and the Mibera
+  // `generated` types — and never reaches the monolith's other handlers.
+  //
+  // Factory invariant: every belt gets a tsconfig.<belt>.json, parallel to
+  // config.<belt>.yaml and src/belts/<belt>/. Build gate: `tsc -p` this file.
+  // compilerOptions (strict, noImplicitAny, …) are inherited from tsconfig.json.
+  "extends": "./tsconfig.json",
+  "include": ["src/belts/mibera"]
+}

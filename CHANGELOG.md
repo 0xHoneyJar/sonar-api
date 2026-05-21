@@ -5,6 +5,1075 @@ All notable changes to Loa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.157.0] — 2026-05-12 — Multi-Model Live: Cheval Substrate + Within-Company Chains + Voice-Drop
+
+This is a **named milestone release** that bundles the multi-model-stabilization arc spanning cycles 102 → 107 (~3 weeks of work). The framework's three review consumers — **Bridgebuilder (BB)**, **Flatline (FL)**, and **Red-team (RT)** — now route through a single unified provider substrate with within-company fallback chains, voice-drop on chain exhaustion, and the MODELINV v1.1 audit envelope.
+
+### Three architectural shifts
+
+1. **Cycle-103 — Cheval substrate (one HTTP boundary)**. The per-provider Node adapter registry (`adapters/anthropic.ts` + `adapters/openai.ts` + `adapters/google.ts`) was retired. `adapter-factory.ts:46` now unconditionally returns `ChevalDelegateAdapter` (PR #846). Every BB review → `ChevalDelegateAdapter` → `python3 cheval.py` → cheval's `httpx` substrate. Same for Flatline (`call_flatline_chat`) and Red-team (via `model-adapter.sh` shim). One HTTP boundary; provider-side fixes ship once and propagate to every TS/bash consumer.
+
+2. **Cycle-104 — Multi-model stabilization (within-company chains + voice-drop + MODELINV v1.1)**:
+   - **Within-company fallback chains** populated for every primary in `model-config.yaml`. Example: `openai:gpt-5.5-pro → openai:gpt-5.5 → openai:gpt-5.3-codex → openai:codex-headless`. Cheval walks the chain on retryable errors (EmptyContent / RateLimited / ProviderOutage / RetriesExhausted / ContextTooLarge).
+   - **Headless opt-in routing** via `LOA_HEADLESS_MODE` env (4 modes: `prefer-api` / `prefer-cli` / `api-only` / `cli-only`). CLI-only mode operates with zero API keys against the operator's Claude Code / Codex / Gemini CLI subscription quota.
+   - **`kind: cli` adapter routing fix** (T2.11) — closed a 2-layer architecture gap where CLI dispatch was being routed to the HTTP adapter and bombing on `_get_auth_header`. Each `kind: cli` entry now declares `extra.cli_model` to map Loa aliases to real CLI model names.
+   - **Voice-drop wiring** (T2.8) — when a voice's within-company chain exhausts (cheval exit 12 = `CHAIN_EXHAUSTED`), the flatline orchestrator **drops** that voice from consensus instead of substituting another company's model. The cycle-102 T1B.4 cross-company-substitution anti-pattern is structurally retired.
+   - **MODELINV v1.1 audit envelope** with additive `final_model_id`, `transport`, `config_observed`, `models_failed[]` fields. Every cheval invocation emits a signed envelope at `.run/model-invoke.jsonl`.
+
+3. **Cycle-107 — Multi-model activation**. Flipped `hounfour.flatline_routing: false → true` as the framework default. Without this flip, the cycle-104 work was **INERT for FL + RT** — they fell through to the legacy `model-adapter.sh.legacy` path. Live verification this release confirms:
+   - **FL**: 3-model run (Opus + GPT-5.5-pro + Gemini-3.1-pro-preview), 549s, MODELINV envelopes emitted per voice with correct chain population.
+   - **RT**: MODELINV envelope confirmed, cheval audit signature present, legacy path NOT invoked.
+   - **BB**: already live via cycle-103 path; cycle-104 sprint-3 T3.4 verified Google substrate at 297-539KB (KF-008 RESOLVED-architectural-complete).
+
+### Substrate validation (live evidence)
+
+| Replay | Trials | Result |
+|--------|--------|--------|
+| T2.10 KF-003 within-company chain (cycle-104 sprint-2) | 25 (5 sizes × 5 prompts at 30K-80K input) | 25/25 primary success; **0 KF-003 reproductions** — the EMPTY_CONTENT failure class is not reproducible at OpenAI in current deployment with our synthetic corpus. ~$2.50 spent. |
+| T3.4 KF-008 substrate replay (cycle-104 sprint-3) | 4 (297K, 302K, 317K, 539K body sizes) | 4/4 clean; `transport: http`, latencies 16.8-17.8s, no SocketError. KF-008 closed. ~$1 spent. |
+| T1.4 FL live multi-model (cycle-107 sprint-1) | 1 run, 3 voices | All voices' MODELINV envelopes correct; chains populated. |
+| T1.5 RT live cheval-mode (cycle-107 sprint-1) | 1 run | Envelope confirmed. |
+
+### Two supporting infrastructure cycles
+
+- **Cycle-105 — beads_rust migration recovery (KF-005 closure)**. `tools/beads-migration-repair.sh` heals dirty `.beads/beads.db` files via SQLite's canonical recreate-and-swap pattern; transactional + idempotent + backup-before-mutation + post-flight verify + auto-restore on failure. `beads-health.sh --repair` wraps the tool. Pre-commit hook flipped from FAIL → WARN. CI workflow `.github/workflows/beads-health-gate.yml`. **CLAUDE.md Beads-First v1.29.0 claim is now empirically true** (beads works on healthy installs; healable in one command on dirty installs).
+
+- **Cycle-106 — Framework template hygiene (closes #818)**. The framework's own operator history (`grimoires/loa/cycles/`, `NOTES.md`, `a2a/`, `visions/`, `memory/`, `proposals/` per-cycle, `context/`) was tracked in the repo and propagating to downstream consumers via `/update-loa` merges (76 leaked files in `loa-constructs`). Cycle-106 lands a 3-mode zone manifest at `grimoires/loa/zones.yaml` (framework / project / shared), a PreToolUse `zone-write-guard.sh` hook, mount-loa scaffold expansion, and a forward-only migration via `git rm --cached` of 288 files. New operators cloning Loa now get a clean project-zone scaffolding.
+
+### Removed / deprecated
+
+- `LOA_BB_FORCE_LEGACY_FETCH` env var (cycle-104 T2.14). The legacy Node-fetch path it gated was already deleted in cycle-103; the env hatch only produced a guided-rollback error and carried no actual rollback capability.
+
+### Rollback path
+
+Operators who hit a regression can revert `flatline_protocol.code_review.model` swap behavior + the cheval routing in `.loa.config.yaml`:
+
+```yaml
+hounfour:
+  flatline_routing: false   # legacy: revert FL + RT to model-adapter.sh.legacy
+```
+
+BB is unaffected by the flag — it has used `ChevalDelegateAdapter` unconditionally since cycle-103. To rollback BB to pre-cheval state would require a much larger revert.
+
+### Operator action needed post-upgrade
+
+- **Refresh local config**: if your `.loa.config.yaml` had `flatline_routing: false`, flip it to `true` to engage the multi-model work (or accept the new framework default by removing the override).
+- **Refresh pre-commit hook**: run `.claude/scripts/install-beads-precommit.sh --force` to pick up the WARN-not-FAIL behavior for the beads migration bug.
+- **(Optional) Zone manifest**: review `grimoires/loa/zones.yaml` — the framework seeds it with reasonable defaults; you own the instance going forward. Edit per your project's conventions.
+
+### Migration guide
+
+See `docs/migration/v1.157-multimodel-live.md` for full operator-facing details + the activation-flag behavior matrix.
+
+### Architecture Decision Record
+
+See `docs/architecture/ADR-002-multimodel-cheval-substrate.md` for the design rationale (why cheval-as-single-HTTP-boundary, why within-company chains, why voice-drop vs cross-company substitution).
+
+### Cycle PR lineage
+
+- Cycle-103: #846 (cheval unification merged before this milestone)
+- Cycle-104: #849 (sprint-1), #851 (sprint-2), #852 (sprint-3), #853 (T2.9)
+- Cycle-105: #854 (kickoff), #855 (planning), #856 (sprint-1), #857 (sprint-2)
+- Cycle-106: #858 (kickoff), #859 (sprint-1), #860 (sprint-2 + closes #818)
+- Cycle-107: #861 (multi-model activation + live verification)
+
+### Closes
+
+- #843 (unify provider boundary via loa_cheval — implementation complete)
+- #845 (KF-008 BB Google API SocketError — RESOLVED-architectural-complete)
+- #847 (cycle-104 within-company fallback chains + headless mode)
+- #818 (zone-boundary leak — framework's project-state files propagate downstream)
+- #661 (beads_rust 0.2.1 migration NOT NULL constraint — RESOLVED-VIA-WORKAROUND)
+
+### Bundled tags
+
+v1.131.0 → v1.156.0 (26 incremental auto-tags) plus the unreleased semver-bump.sh prerelease-tag fix (#785).
+
+### Fixed (during this milestone)
+
+- `semver-bump.sh` now recognizes prerelease tags (`vX.Y.Z-{alpha,beta,rc}.N`) and increments the prerelease counter type-agnostically. (#785)
+
+## [1.130.0] — 2026-05-06 — Model-registry consolidation, agent-network audit infrastructure, subscription-auth headless adapters
+
+This is a **named milestone release** that bundles 41 incremental tags (v1.110.0 → v1.129.1) into one operator-facing version. Three architectural shifts ship together:
+
+1. **Cycle-099 — model-registry consolidation** (most operator-visible). `.claude/defaults/model-config.yaml` plus `.loa.config.yaml::{model_aliases_extra, skill_models, tier_groups}` becomes the **only authoritative model registry** in the framework. A new FR-3.9 6-stage deterministic resolver replaces ad-hoc lookups across cheval, bridgebuilder, red-team, and persona adapters. Three runtimes (Python canonical + bash twin + TypeScript via codegen) produce **byte-equal canonical-JSON output** on every PR — the cross-runtime-diff CI gate fails any divergence. Operators now have a single config surface for model selection across the framework.
+2. **Cycle-098 — agent-network audit infrastructure**. New L1-L7 audit envelope (hash-chain + Ed25519 signatures), L2 cost-budget enforcer with reconciliation cron, L3 scheduled-cycle template (5-phase chassis: reader → decider → dispatcher → awaiter → logger), signed-mode harness, and audit-snapshot strict-pin verification.
+3. **Subscription-auth cheval transport**. Three new headless adapters (`codex-headless`, `gemini-headless`, `claude-headless`) route cheval calls through CLI subprocesses against the operator's ChatGPT / Google AI / Claude Max subscription quota — no API-key consumption.
+
+**Migration guide**: see `docs/migration/v1.130-cycle-099-model-registry.md` for operator-facing changes. Pre-cycle-099 alias config (legacy `aliases:` block) continues to work via stage 4 of the resolver with a deprecation-warn fallback.
+
+**Architecture Decision Record**: see `docs/architecture/ADR-001-cycle-099-model-registry.md` for the design rationale (why FR-3.9, why Python canonical + bash twin + TS codegen, why 3-way parity gate).
+
+### Added — Cycle-099 Model-Registry Consolidation (Sprint 1 + Sprint 2A through 2D.c)
+
+- **FR-3.9 6-stage deterministic resolver** ([#722](https://github.com/0xHoneyJar/loa/pull/722) → [#741](https://github.com/0xHoneyJar/loa/pull/741)). Stages: S1 explicit `provider:model_id` pin → S2 `skill_models` tag-or-alias → S3 `tier_groups.mappings` lookup → S4 legacy shape (with FR-3.7 deprecation warning) → S5 framework default `agents.<skill>` → S6 `prefer_pro_models` overlay (FR-3.4 gated for legacy shapes). Pure-function `resolve(merged_config, skill, role) → ResolutionResult`. JSON Schema for output at `.claude/data/trajectory-schemas/model-resolver-output.schema.json` (Draft 2020-12, discriminated `oneOf` for resolution-level vs fixture-level errors).
+- **Operator-extension config surface** ([#737](https://github.com/0xHoneyJar/loa/pull/737)). New `.loa.config.yaml::model_aliases_extra` block (operators add custom models without forking framework defaults) + JSON Schema validator at `.claude/scripts/lib/validate-model-aliases-extra.{py,sh}`. Per-skill granularity via `skill_models.<skill>.<role>: <provider:model_id> | <tier-tag> | <alias>`. Tier-group declarations via `tier_groups.mappings.<tier>.<provider>: <alias>` for operator-defined max/cheap/mid/tiny axes. Forbids `auth` field per NFR-Sec-5 (operators reuse provider's existing credential env var). Permissions baseline opt-in via `acknowledge_permissions_baseline: true` per FR-1.4.
+- **Runtime overlay infrastructure** ([#738](https://github.com/0xHoneyJar/loa/pull/738), [#739](https://github.com/0xHoneyJar/loa/pull/739)). Python startup hook (`model-overlay-hook.py`) atomically writes `.run/merged-model-aliases.sh` with shared-then-exclusive flock, SHA256 cache invalidation, monotonic version header, `shlex.quote()` shell-escape, NFS detection blocklist, degraded read-only fallback (NFR-Op-6). Bash adapter sources the overlay file with version-mismatch detection.
+- **Cross-runtime parity infrastructure** ([#735](https://github.com/0xHoneyJar/loa/pull/735), [#741](https://github.com/0xHoneyJar/loa/pull/741)). 12-fixture golden test corpus (12 SDD §7.6.3 scenarios) + 3 byte-equal runners (bash, Python, TypeScript) parsing the same source-of-truth. **3-way cross-runtime-diff CI gate** enforces Python ↔ bash ↔ TS byte-equality on every PR; any divergence blocks merge. TypeScript port generated from canonical Python via Jinja2 codegen (`emit_model_resolver_ts`) with `--check` drift gate + source-hash cross-check.
+- **Centralized endpoint validator** ([#728](https://github.com/0xHoneyJar/loa/pull/728) → [#734](https://github.com/0xHoneyJar/loa/pull/734)). Python canonical + bash wrapper + TS port for SSRF defense. Runtime DNS-rebinding defense via `LockedIP` dataclass (resolve-once + verify-each-redirect, Happy Eyeballs aware). Per-caller allowlists tree-restricted by `realpath`. CDN-CIDR exemptions per SDD §1.9. All 15 production HTTP caller paths funneled through wrapper or explicitly exempt with hardened defaults. Strict CI scanner (`tools/check-no-raw-curl.sh`) blocks future raw curl/wget bypasses.
+- **Codegen reproducibility infrastructure** ([#724](https://github.com/0xHoneyJar/loa/pull/724)). Cross-platform matrix CI (`ubuntu-latest` + `macos-latest`) for codegen drift gate with platform-aware SHA256-pinned yq. Toolchain runbook at `grimoires/loa/runbooks/codegen-toolchain.md`. Verification script `tools/check-codegen-toolchain.sh`.
+- **Schema migration tooling** ([#728](https://github.com/0xHoneyJar/loa/pull/728)). `loa-migrate-model-config.py` CLI for v1 → v2 schema migration with strict JSON Schema validation. Log-redactor (Python canonical + bash twin) for URL userinfo + 6 query-param secret patterns.
+
+### Added — Cycle-098 Agent-Network Audit Infrastructure
+
+- **L1 HITL Jury Panel primitive** ([#693](https://github.com/0xHoneyJar/loa/pull/693)). 3-panelist deterministic-seed jury convening with binding-view selection, full reasoning audit trail, hash-chain envelope at `.claude/data/trajectory-schemas/agent-network-envelope.schema.json` (v1.1.0). Ed25519 signatures with trust-store cutoff for downgrade-attack defense (`[STRIP-ATTACK-DETECTED]`).
+- **L2 Cost-Budget Enforcer** ([#705](https://github.com/0xHoneyJar/loa/pull/705)). Daily token cap with fail-closed semantics under uncertainty (billing-API primary + internal counter fallback + periodic reconciliation cron). 92 tests across severity-first verdict ordering, per-event-type schema registry, signed-mode `.sig` sidecar verification on recovery.
+- **L3 Scheduled-Cycle Template** ([#712](https://github.com/0xHoneyJar/loa/pull/712)). Generic 5-phase autonomous-cycle chassis (reader → decider → dispatcher → awaiter → logger) wrapped in flock + content-addressed idempotency + optional L2 budget gate. `.claude/scripts/lib/scheduled-cycle-lib.sh` library with phase-path allowlist, env-var passthrough whitelist, timeout caps. Closes 3 CRITICALs caught pre-merge: idempotency forgery, path-RCE, lock-symlink. Reference at `.claude/skills/scheduled-cycle-template/`.
+- **Signed-mode harness for L1+L2+L3** ([#716](https://github.com/0xHoneyJar/loa/pull/716)). Test harness validates Ed25519 signature presence + trust-store cutoff + downgrade-attack rejection across all three primitives. Closes [#706](https://github.com/0xHoneyJar/loa/issues/706) + [#713](https://github.com/0xHoneyJar/loa/issues/713).
+- **BB LOW-batch hardening** ([#717](https://github.com/0xHoneyJar/loa/pull/717)). Observer allowlist + audit-snapshot strict-pin + chain-valid fixture helper.
+- **`gpt-review` hook recursion fix + 429 diagnostic surfacing** ([#718](https://github.com/0xHoneyJar/loa/pull/718)). Closes [#711](https://github.com/0xHoneyJar/loa/issues/711).
+
+### Added — Subscription-Auth Cheval Headless Adapters
+
+- **`codex-headless` adapter** ([#727](https://github.com/0xHoneyJar/loa/pull/727)). Routes cheval calls through `codex exec` (OpenAI Codex CLI) instead of HTTP API. Bills against ChatGPT subscription quota; auths via `~/.codex/auth.json` (no `OPENAI_API_KEY` consumed). Reasoning-effort threading (`low | medium | high | xhigh`). Always-on read-only sandbox: `--ephemeral --sandbox read-only --ignore-user-config --skip-git-repo-check`. Forward-compat JSONL parser silently skips unknown event types. 31 unit tests.
+- **`gemini-headless` adapter** ([#727](https://github.com/0xHoneyJar/loa/pull/727)). Routes cheval calls through `gemini -p` (Google Gemini CLI). Bills against personal Google account free quota (60 RPM / 1000 RPD) or Gemini Advanced subscription. Auths via `~/.gemini/settings.json` or env vars. Always-on read-only sandbox: `--approval-mode plan --skip-trust`. Structured JSON output parsing with stats-key fallback. 25 unit tests.
+- **`claude-headless` adapter** ([#727](https://github.com/0xHoneyJar/loa/pull/727)). Routes cheval calls through `claude -p` (Claude Code CLI). Bills against Claude Max / Pro / Team subscription quota. Auths via Claude Code's OAuth-managed credential store. Always-on hermetic posture: `--permission-mode plan --no-session-persistence --tools ""`. **CRITICAL: never passes `--bare`** (which would force `ANTHROPIC_API_KEY` and defeat the subscription-auth purpose) — test suite asserts its absence. Effort threading (`low | medium | high | xhigh | max`). Cache-token metadata threading. 33 unit tests.
+
+### Changed
+
+- **Cycle-095 model currency** (Sprints 1+2 in this release; Sprint 3 deferred to post-soak). gpt-5.5 family reachable through cheval; `reviewer` and `reasoning` aliases default to `openai:gpt-5.5` (cost-safe non-pro); `tiny` tier alias added for Haiku 4.5; `fast-thinker` agent binding upgraded to Gemini 3 fast variant with probe-driven fallback chain. **Backward compatibility**: `gpt-5.3-codex` immutable self-map preserved (operators pinning the legacy ID continue resolving to that exact model — NOT silently retargeted). Operator-side rollback via `LOA_FORCE_LEGACY_ALIASES=1`.
+- **Bridgebuilder model registry codegen** ([#722](https://github.com/0xHoneyJar/loa/pull/722)). `gen-bb-registry.ts` emits `truncation.generated.ts` + `config.generated.ts` from canonical `.claude/defaults/model-config.yaml`. Drift gate (`gen-bb-registry:check`) blocks PR merge on stale codegen.
+- **Adapter migrations** ([#723](https://github.com/0xHoneyJar/loa/pull/723)). `model-resolver.sh` library exposes `resolve_alias` + `resolve_provider_id`. `red-team-model-adapter.sh`, `red-team-code-vs-design.sh`, `model-adapter.sh` all source the resolver instead of maintaining local associative arrays. Lockfile (`model-config.yaml.checksum`) verified by drift gate.
+
+### Fixed
+
+- **Large-payload model-adapter hardening** ([#677](https://github.com/0xHoneyJar/loa/pull/677), sprint-bug-131). 128KB Linux / 256KB macOS curl `MAX_ARG_STRLEN` argv-length crash on large prompts; mitigation via `--data @-` stdin path.
+- **README ↔ `.loa-version.json` drift prevention** ([#685](https://github.com/0xHoneyJar/loa/pull/685), [#686](https://github.com/0xHoneyJar/loa/pull/686)). `sync-readme-version.sh` + CI guard.
+- **Post-merge pipeline GT regen + CHANGELOG cross-scope leak** ([#699](https://github.com/0xHoneyJar/loa/pull/699)). Closes [#697](https://github.com/0xHoneyJar/loa/issues/697).
+- **TIER-1 fix bundle** ([#700](https://github.com/0xHoneyJar/loa/pull/700)). Closes [#674](https://github.com/0xHoneyJar/loa/issues/674) + [#633](https://github.com/0xHoneyJar/loa/issues/633) + [#676](https://github.com/0xHoneyJar/loa/issues/676) ([#634](https://github.com/0xHoneyJar/loa/issues/634) already-fixed).
+- **TIER-2/3 hardening bundle** ([#703](https://github.com/0xHoneyJar/loa/pull/703)). Closes [#636](https://github.com/0xHoneyJar/loa/issues/636) + [#681](https://github.com/0xHoneyJar/loa/issues/681) + [#687](https://github.com/0xHoneyJar/loa/issues/687) + [#691](https://github.com/0xHoneyJar/loa/issues/691) + [#692](https://github.com/0xHoneyJar/loa/issues/692).
+- **Cycle-098 sprint-1.5 hardening** ([#698](https://github.com/0xHoneyJar/loa/pull/698)). Closes [#689](https://github.com/0xHoneyJar/loa/issues/689) + [#690](https://github.com/0xHoneyJar/loa/issues/690) + [#695](https://github.com/0xHoneyJar/loa/issues/695).
+
+### Security
+
+- **15 production HTTP caller paths** now route through the centralized endpoint validator (cycle-099 sprint-1E). DNS rebinding + redirect cross-host + IPv6 zone-id + percent-encoded-dot homograph + obfuscated IPv4 + URL parser-confusion (between Python `urllib.parse` and TS native URL constructor) — all defended at the validator layer.
+- **L1-L7 audit envelope** with Ed25519 signatures + trust-store cutoff + downgrade-attack rejection per cycle-098.
+- **`auth` field forbidden** on `model_aliases_extra` entries per NFR-Sec-5 (operators reuse provider's existing credential env var).
+- **System Zone write protection** (`team-role-guard-write.sh` PreToolUse hook) blocks teammate writes to framework files; lead-only ops in Agent Teams mode.
+- **CI tag pinning** — all GitHub Actions pinned to commit SHA (no `@v4` / `@main`). `npm ci --ignore-scripts` defense against preinstall RCE.
+
+### Deprecated
+
+- **Legacy alias resolution** (cycle-095 `aliases:` block at `.loa.config.yaml` root). Continues to work via FR-3.9 stage 4 with a `[LEGACY-SHAPE-DEPRECATED]` warning emitted on every resolution. Migration to `model_aliases_extra` + `skill_models` + `tier_groups` recommended; see `docs/migration/v1.130-cycle-099-model-registry.md`.
+
+### Tag-level inventory
+
+This rollup spans 41 release tags. Most are auto-generated by the post-merge pipeline (one tag per merged PR). Per-tag inventory available via `git tag --sort=v:refname` between `v1.110.0` and `v1.129.1`. Authoritative per-tag detail at https://github.com/0xHoneyJar/loa/releases.
+
+### Added
+
+- **codex-headless provider adapter** — routes cheval calls through the OpenAI Codex CLI (`codex exec`) instead of the OpenAI HTTP API, so bridgebuilder / spiraling / flatline-review can draw against a ChatGPT subscription quota instead of the `OPENAI_API_KEY` balance. New file `loa_cheval/providers/codex_headless_adapter.py` registered as `type: codex-headless` in `loa_cheval/providers/__init__.py`. Auths via `~/.codex/auth.json` (populated by `codex login` once); no `auth` field required on `ProviderConfig`. Model selection is still `provider:model_id` form (e.g., `codex-headless:gpt-5.5`) — same gpt-5.x line, different transport.
+  - **Reasoning-effort threading**: `low` / `medium` / `high` / `xhigh` (codex CLI ≥ 0.125.0). Resolution precedence: `CompletionRequest.metadata["reasoning_effort"]` → `ModelConfig.extra["reasoning_effort"]` → codex CLI default. Unknown values WARN and fall through.
+  - **Sandbox posture**: `--ephemeral --sandbox read-only --ignore-user-config --skip-git-repo-check` always. The model-router use case is pure inference and must not touch operator files; we never enable workspace-write.
+  - **Forward-compat parser**: `codex exec --json` JSONL stream is parsed for `agent_message` (content), `reasoning` (thinking trace), and `turn.completed.usage` (input / output / reasoning_output_tokens). Unknown event types are silently skipped — codex ships new events frequently and we don't want to brick on additive surface.
+  - **Error classification**: stderr scanned for "rate limit" / "429" → `RateLimitError`; "auth" / "codex login" / "unauthorized" → `ConfigError` with actionable hint; everything else → `ProviderUnavailableError` so cheval's retry/fallback can react. `subprocess.TimeoutExpired` and missing-binary `FileNotFoundError` are typed equivalently.
+  - **Operator config example**:
+    ```yaml
+    hounfour:
+      providers:
+        codex-headless:
+          type: codex-headless
+          read_timeout: 600.0
+          models:
+            gpt-5.5:
+              capabilities: [chat, code]
+              context_window: 400000
+              token_param: max_completion_tokens
+              pricing: { input_per_mtok: 0, output_per_mtok: 0 }  # subscription-billed
+              extra: { reasoning_effort: high }
+      aliases:
+        reviewer: codex-headless:gpt-5.5
+        reasoning: codex-headless:gpt-5.5
+    ```
+  - **Tests**: 31 unit tests in `tests/test_codex_headless_adapter.py` (registry dispatch, command construction, prompt flattening, JSONL parsing, error classification, validate_config + health_check, end-to-end happy path with mocked subprocess). 1 live test gated behind `LOA_CODEX_HEADLESS_LIVE=1`. End-to-end smoke verified locally: `cheval --agent flatline-reviewer --model codex-headless:gpt-5.5 --prompt …` returns response in ~5s with no `OPENAI_API_KEY` consumed (auth via `~/.codex/auth.json`).
+  - **Tool-calling deferred**: v1 forwards `request.messages` flattened into a single prompt with role-prefixed sections (sufficient for the four flatline modes — reviewer / skeptic / scorer / dissenter — which are single-shot). Native function_call_output threading into codex's tool-event stream is out of scope; revisit when an agent binding genuinely needs it.
+
+- **gemini-headless provider adapter** — sibling to codex-headless. Routes cheval calls through the Google Gemini CLI (`gemini -p`) instead of the Generative Language v1beta HTTP API, so any Gemini-tier role (deep-thinker, fast-thinker, flatline-tertiary) can draw against a personal Google account's free quota (60 RPM / 1000 RPD) or a Gemini Advanced subscription instead of `GOOGLE_API_KEY` balance. New file `loa_cheval/providers/gemini_headless_adapter.py` registered as `type: gemini-headless` in `loa_cheval/providers/__init__.py`. Auths via `~/.gemini/settings.json` (populated by interactive `gemini` first-run) OR `GEMINI_API_KEY` / `GOOGLE_GENAI_USE_VERTEXAI` / `GOOGLE_GENAI_USE_GCA` env vars; no `auth` field required on `ProviderConfig`.
+  - **Sandbox posture**: `--approval-mode plan --skip-trust` always — read-only, no shell exec, no file edits. Skip-trust is required because the model-router invocation cwd is rarely in gemini-cli's trusted-folders list, and the CLI silently downgrades approval-mode to `default` (interactive) when trust is missing — that hangs in non-interactive contexts.
+  - **JSON output parsing**: `--output-format json` emits a single `{session_id, response, stats?, error?, warnings?}` object (per gemini-cli `core/src/output/types.ts`). The adapter pulls `response` for content; tokens are extracted from `stats.models[<model_id>].tokens.{prompt, candidates, thoughts, cached}` (gemini's input/output/reasoning/cached aliases). When `stats` is absent, `Usage.source = "estimated"` rather than failing.
+  - **Error classification**: Structured JSON `{error: {type, message, code}}` is preferred over stderr when the CLI emits both. Auth-related strings (`auth method`, `settings.json`, `GEMINI_API_KEY`, `GOOGLE_GENAI_USE_*`, `unauthorized`, `permission_denied`) → `ConfigError` with actionable hint. Quota / rate-limit (`429`, `quota`, `resource_exhausted`) → `RateLimitError`. Everything else → `ProviderUnavailableError`. `subprocess.TimeoutExpired` and missing-binary `FileNotFoundError` typed equivalently.
+  - **Operator config example** (model names match gemini-cli ≥ 0.40.x — bare `gemini-3-pro` / `gemini-3-flash` return ModelNotFoundError 404):
+    ```yaml
+    hounfour:
+      providers:
+        gemini-headless:
+          type: gemini-headless
+          read_timeout: 600.0
+          models:
+            gemini-3.1-pro-preview:
+              capabilities: [chat, thinking_traces]
+              context_window: 1048576
+              pricing: { input_per_mtok: 0, output_per_mtok: 0 }  # subscription-billed
+            gemini-3-flash-preview:
+              capabilities: [chat]
+              context_window: 1048576
+              pricing: { input_per_mtok: 0, output_per_mtok: 0 }
+      aliases:
+        deep-thinker: gemini-headless:gemini-3.1-pro-preview
+        fast-thinker: gemini-headless:gemini-3-flash-preview
+        researcher: gemini-headless:gemini-3.1-pro-preview
+    ```
+  - **Tests**: 25 unit tests in `tests/test_gemini_headless_adapter.py` (registry dispatch, command construction, prompt flattening, JSON parsing — including stats-key fallback for single-model runs, error classification across structured + stderr paths, validate_config + health_check, end-to-end happy path with mocked subprocess). 1 live test gated behind `LOA_GEMINI_HEADLESS_LIVE=1`.
+  - **Tool-calling + image input deferred**: v1 single-shot only, same posture as codex-headless. Gemini-cli's `--image` flag and MCP tool surface are not forwarded.
+
+- **claude-headless provider adapter** — third sibling to codex-headless / gemini-headless. Routes cheval calls through the Claude Code CLI (`claude -p`) instead of the Anthropic Messages HTTP API, so Anthropic-tier roles (opus / sonnet aliases, flatline-reviewer when configured to Claude) draw against a Claude Max / Pro / Team subscription quota instead of `ANTHROPIC_API_KEY` balance. New file `loa_cheval/providers/claude_headless_adapter.py` registered as `type: claude-headless` in `loa_cheval/providers/__init__.py`. Auths via Claude Code's OAuth-managed credential store (populated by `claude /login`); no `auth` field required on `ProviderConfig`.
+  - **Distinct from `claude-code:session`**: the existing `NATIVE_PROVIDER` ("native": "claude-code:session") routes through the in-process Claude Code native runtime and short-circuits cheval entirely. `claude-headless` is a *subprocess* invocation of the `claude` CLI — useful when an agent binding wants subscription-billed Claude calls but doesn't want to (or can't) use the native runtime.
+  - **Sandbox posture**: `--permission-mode plan --no-session-persistence --tools ""` always — read-only, hermetic, no tool execution. Defense in depth: `--tools ""` disables the agent loop's entire tool surface, `--permission-mode plan` forbids edits even if a tool somehow runs.
+  - **Critical: NEVER pass `--bare`.** That flag strips OAuth and forces `ANTHROPIC_API_KEY`, which defeats the subscription-auth purpose of the adapter. The test suite asserts `--bare` is not in the constructed command.
+  - **System-prompt overhead**: by default, Claude Code injects ~14K tokens of agent-persona system prompt into every `-p` call (visible as `cache_creation_input_tokens` on first call, `cache_read_input_tokens` on subsequent calls in the same window). On Max subscription that's quota-cost only. Operators wanting to trim it can pass `system_prompt` (REPLACES default) or `append_system_prompt` (ADDS to default) via `ModelConfig.extra`.
+  - **Effort threading**: `low | medium | high | xhigh | max` (one wider than codex's `xhigh` ceiling). Resolution precedence matches codex pattern: `request.metadata["effort"]` (or `["reasoning_effort"]`) → `ModelConfig.extra["effort"]` (or `["reasoning_effort"]`) → CLI default. Unknown values WARN and fall through.
+  - **Token mapping** from Claude Code's usage block:
+      `usage.input_tokens` → `Usage.input_tokens` (NEW input only, NOT cache)
+      `usage.output_tokens` → `Usage.output_tokens`
+      `usage.cache_read_input_tokens` → `metadata.cache_read_input_tokens`
+      `usage.cache_creation_input_tokens` → `metadata.cache_creation_input_tokens`
+      `total_cost_usd` → `metadata.total_cost_usd` (informational on Max)
+      `permission_denials` → `metadata.permission_denials`
+    Cache tokens are NOT summed into `Usage.input_tokens` — that would double-count for cost accounting since cache reads/writes bill at different rates.
+  - **Model resolution**: Claude Code's CLI accepts both aliases (`sonnet`, `opus`) and full names (`claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`). Unknown aliases silently fall back to a default (observed: `haiku` → `sonnet-4-6` on 2.1.128). The adapter reports the *actual* model used (from `modelUsage` field) in `CompletionResult.model`, not the requested model — so cost ledgers see truth. Operators wanting determinism should pass full model IDs.
+  - **Error classification**: Claude Code's `-p` mode emits structured JSON `{is_error, result, api_error_status}` even on auth failure. Adapter prefers structured diagnostic over stderr. Auth strings (`not logged in`, `/login`, `unauthorized`, `401`, `authentication`, `credential`) → `ConfigError` with `claude /login` hint. Rate-limit / overload (`429`, `529`, `overloaded`, `rate limit`, `quota`) → `RateLimitError`. Else → `ProviderUnavailableError`. `subprocess.TimeoutExpired` and `FileNotFoundError` typed equivalently.
+  - **Operator config example**:
+    ```yaml
+    hounfour:
+      providers:
+        claude-headless:
+          type: claude-headless
+          read_timeout: 600.0
+          models:
+            claude-opus-4-7:
+              capabilities: [chat, tools, function_calling, thinking_traces]
+              context_window: 200000
+              pricing: { input_per_mtok: 0, output_per_mtok: 0 }  # subscription-billed
+              extra: { effort: high }
+            claude-sonnet-4-6:
+              capabilities: [chat, tools, function_calling]
+              context_window: 200000
+              pricing: { input_per_mtok: 0, output_per_mtok: 0 }
+      aliases:
+        opus: claude-headless:claude-opus-4-7
+        cheap: claude-headless:claude-sonnet-4-6
+    ```
+  - **Tests**: 33 unit tests in `tests/test_claude_headless_adapter.py` (registry dispatch, command construction including `--bare` absence assertion, prompt flattening, JSON parsing including cache-token metadata + actual-model-from-modelUsage, error classification across structured + stderr + permission-denial paths, validate_config + health_check, end-to-end happy path). 1 live test gated behind `LOA_CLAUDE_HEADLESS_LIVE=1`. Live smoke confirmed locally: `'Quack'` returned via subscription, 6.9s, no `ANTHROPIC_API_KEY` consumed.
+  - **Tool-calling + image input deferred**: v1 single-shot only, same posture as codex / gemini. Adding tool-call forwarding requires mapping `CompletionRequest.tools` → `--tools` allowlist + parsing tool-call events from `--output-format stream-json`. Operators wanting tools today should use the existing AnthropicAdapter (HTTP API).
+
+- **Cycle-095 — Model Currency** (Sprints 1+2 in this release; Sprint 3 deferred to post-soak) — gpt-5.5 family is now reachable through cheval, the `reviewer` and `reasoning` aliases default to `openai:gpt-5.5` (cost-safe non-pro), `tiny` tier alias added for Haiku 4.5, and the `fast-thinker` agent binding upgraded to Gemini 3 fast variant with probe-driven fallback chain.
+  - **Sprint 1 — routing infrastructure**: `endpoint_family` field on every OpenAI registry entry routes between `/v1/chat/completions` and `/v1/responses`. Migration step + strict validation in same commit (`config/loader.py:_validate_endpoint_family`). `LOA_LEGACY_ENDPOINT_FAMILY_DEFAULT=chat` env-var backstop for operators with custom OpenAI entries. Six-shape `/v1/responses` normalizer (multi-block text, tool/function call, reasoning summary, refusal, empty, truncated) per PRD §3.1 / SDD §5.4. `LOA_FORCE_LEGACY_ALIASES=1` kill-switch restores pre-cycle-095 alias resolution at config-load time (`.claude/defaults/aliases-legacy.yaml` snapshot). Strict-default `UnsupportedResponseShapeError` for unknown shapes; opt-in `responses_unknown_shape_policy: degrade` escape hatch.
+  - **Sprint 2 — alias flips + tiers + guardrails**: `aliases.reviewer` and `aliases.reasoning` flipped from `openai:gpt-5.3-codex` to `openai:gpt-5.5`. `gpt-5.3-codex` immutable self-map in `backward_compat_aliases:` — operators pinning the legacy ID literally continue resolving to that exact model (NOT silently retargeted to gpt-5.5). One-time INFO log emission on first resolution per process per legacy alias. Haiku 4.5 (`claude-haiku-4-5-20251001`) + `tiny` alias. Gemini 3 fast variant (`gemini-3-flash-preview`) + `gemini-3-flash` alias + `fallback_chain: ["google:gemini-2.5-flash"]`. Google adapter `_resolve_active_model` with probe-driven demotion + 300s cooldown hysteresis + WARN-once-per-(primary,fallback)-per-process. Probe-cache trust boundary (file owner UID + mode 0600 — SDD §3.5 SKP-003). FR-5a cost-guardrail primitives: `tier_groups:` schema block (structural; Sprint 3 populates `mappings:`); `metering/budget.py` `check_session_cap_pre`/`_post` with two-phase atomicity (pre-call worst-case estimate + `threading.Lock`); `LOA_PREFER_PRO_DRYRUN` env var + `routing/tier_groups.py` `dryrun_preview` helper.
+  - **Cost impact comparison** (per PRD FR-2 AC):
+    | Alias | Before | After (Sprint 2) | After (Sprint 3 with `prefer_pro_models: true`) |
+    |---|---|---|---|
+    | `reviewer` | gpt-5.3-codex ($1.75/$14.00 per Mtok) | gpt-5.5 ($5.00/$30.00) | gpt-5.5-pro ($30.00/$180.00) |
+    | `reasoning` | gpt-5.3-codex ($1.75/$14.00) | gpt-5.5 ($5.00/$30.00) | gpt-5.5-pro ($30.00/$180.00) |
+    | `tiny` (NEW) | n/a | claude-haiku-4-5-20251001 ($1.00/$5.00) | (unchanged) |
+    | `gemini-3-flash` (NEW) | n/a | gemini-3-flash-preview ($0.15/$0.60) | (unchanged) |
+
+    `output_tokens` for `/v1/responses` calls is INCLUSIVE of `reasoning_tokens` (SDD §5.5) — cost ledger bills on `output_tokens` only; never sum with `reasoning_tokens`. Operators wanting the pro tier should set `tier_groups.max_cost_per_session_micro_usd` first; the 5-10× cost increase is documented behind a mandatory WARN log on flag activation (Sprint 3).
+  - **Multi-process cost-cap semantics**: `max_cost_per_session_micro_usd` is a per-process hard guard, not a distributed lock. Multi-process workflows (parallel `/run`, CI workers) require explicit operator coordination — sum your caps across processes, OR coordinate `trace_id` manually with a shared ledger file via `flock`. Documented in `loa-setup` SKILL example.
+  - **Pricing freshness**: Haiku 4.5 + Gemini 3 fast pricing live-fetched ONCE at sprint execution (2026-04-29) and frozen in YAML. Refresh cadence: quarterly or release-bound — `task pricing-refresh` (TBD) re-runs the live fetch and emits a diff for operator review.
+  - **Backward compatibility (FR-6)**: downstream consumers pinning `gpt-5.3-codex` continue to work via the immutable self-map. Operator-side rollback via `LOA_FORCE_LEGACY_ALIASES=1` (no PR needed). Per-alias pin via `aliases: {reviewer: openai:gpt-5.3-codex}` in `.loa.config.yaml` is also supported.
+  - **Tests**: 600 Python tests pass (was 549 pre-cycle, +51 net). 9-test `cycle095-migration.bats` + 1 new endpoint_family invariant in `model-registry-sync.bats`. New pytest classes: `TestOpenAIResponsesEndpointRouting` (6), `TestOpenAIResponsesNormalization` (7), `TestUnsupportedResponseShape` (2), `TestForceLegacyAliasesRouting`, `TestEndpointFamilyValidation` (7), `TestForceLegacyAliases` (6), `TestReasoningTokensBilling` (3), `TestFallbackChain` (4), `TestProbeCacheTrustBoundary` (2), `TestTierGroupsCostCap` (4), `TestPreferProDryrun` (8), plus `test_haiku.py` (2). All adversarial reviews (gpt-5.3-codex dissent role) clean post-iter-2.
+
+- **Construct onramp + connectivity tooling migration** (cycle-005 L5 + cycle-006 L-migrate, [PR #617](https://github.com/0xHoneyJar/loa/pull/617)) — opt-in path for operators to receive the construct-network tools at mount or via `/loa-setup`, plus relocation of construct connectivity tooling from `loa-constructs` into `loa` proper.
+  - **Mount onramp** (`mount-loa.sh`): three new flags — `--with-constructs`, `--no-constructs`, `--constructs-pack <slug>`. Default behavior is byte-clean for non-construct users; the only mount-time hint fires when constructs aren't already installed AND `LOA_MOUNT_CONSTRUCTS_HINT` isn't `off`. Failure to install the bundle is non-fatal.
+  - **`/loa-setup` Step 5** (`.claude/commands/loa-setup.md`): an optional AskUserQuestion step offering to install the default construct bundle, choose a different pack, or skip. The summary's "Browse packs: /constructs" line is now gated to projects where constructs are actually in use.
+  - **Five new connectivity scripts** in `.claude/scripts/`:
+    - `construct-compose.sh` — composition pipe runner with chain-build-time type compatibility checks (Signal / Verdict / Artifact / Intent / Operator-Model)
+    - `construct-invoke.sh` — paired entry/exit trajectory emission with session_id matching (explicit value-passing recommended; temp-file fallback deprecated and tracked in [#636](https://github.com/0xHoneyJar/loa/issues/636))
+    - `construct-validate.sh` — pre-install / pre-publish manifest linter emitting Verdict-typed findings
+    - `stream-validate.sh` — JSON-Schema validator for the five canonical stream types (full Draft-07 via python3+jsonschema, jq fallback otherwise)
+    - `butterfreezone-construct-gen.sh` — per-pack `CONSTRUCT-README.md` generator, idempotent modulo an opt-in timestamp footer
+  - **Five new schemas** at `.claude/schemas/{signal,verdict,artifact,intent,operator-model}.schema.json` — the typed-stream primitives. All schemas use `additionalProperties: true` so authors can extend.
+  - **One new skill**: `.claude/skills/validating-construct-manifest/` — wraps `construct-validate.sh` with skill metadata.
+  - **94 new BATS tests** across 5 files (`tests/unit/construct-{validate,compose,invoke}.bats`, `tests/unit/stream-validate.bats`, `tests/unit/butterfreezone-construct-gen.bats`) plus 1 opt-in characterization test (`LOA_TEST_DOCUMENT_RACE=1`). Covers happy paths, failure modes, JSON output shape, idempotency, race-resistance under explicit session_id passing.
+  - **Six-iteration kaironic Bridgebuilder review** drove three rounds of hardening: tool-skip guards, strict assertions over permissive escapes, end-to-end schema dogfooding, race-condition mitigation with explicit value-passing as the recommended path. Final iter clean modulo the residual race tracked in [#636](https://github.com/0xHoneyJar/loa/issues/636).
+
+## [1.129.0] — 2026-05-06 — auto-tag (cycle-099 Sprint 2D.c TS port via codegen)
+
+Auto-generated tag from post-merge pipeline. Content rolled into the [1.130.0] named release above. See [PR #741](https://github.com/0xHoneyJar/loa/pull/741) for details.
+
+## [1.110.0] — [1.128.0] — auto-tagged intermediate releases
+
+Forty-one auto-generated tags spanning 2026-05-02 → 2026-05-06, content rolled into the [1.130.0] named release above. Authoritative per-tag detail at [GitHub Releases](https://github.com/0xHoneyJar/loa/releases).
+
+## [1.109.4] — 2026-05-02 — Post-merge workflow scaffold on mount (sprint-bug-130)
+
+### Fixed
+
+- **#669 — Post-merge automation orchestrator scripts shipped without an invoking workflow template** (sprint-bug-130, [PR #671](https://github.com/0xHoneyJar/loa/pull/671)) — downstream consumer repos installing Loa via `mount-loa.sh` (direct) or `mount-submodule.sh` (symlink) had `post_merge.enabled: true` do nothing because `.github/workflows/post-merge.yml` was never scaffolded into the consumer's `.github/workflows/`. For submodule mode specifically, even copy-pasting the workflow failed with `exit-127: No such file or directory: .claude/scripts/classify-pr-type.sh` because `actions/checkout` without `submodules: recursive` left `.claude/scripts/*` as dangling symlinks.
+  - **Single source of truth**: `submodules: recursive` added to all 3 `actions/checkout` steps in `.github/workflows/post-merge.yml` with a workflow-level decision-trail comment block. No-op for direct-mode consumers; required for submodule-mode consumers.
+  - **Idempotent scaffold helper**: `.claude/scripts/lib/scaffold-post-merge-workflow.sh` (new) — sourced from both installers AND the bats test (Bridgebuilder F2/F6 — eliminates three-way duplication; tests now exercise the real production function). Direct mode pulls via `git checkout $LOA_REMOTE_NAME/$LOA_BRANCH`; submodule mode copies from `$SUBMODULE_PATH/.github/workflows/post-merge.yml`. Both modes preserve user-customized workflow on re-mount (`sync_optional_file` semantics).
+  - **12 new bats tests** in `tests/unit/mount-workflow-scaffold.bats` (10 functional + 2 regression guards against re-introducing inline duplicates).
+  - Live verification deferred to next downstream consumer mount.
+
+## [1.109.3] — 2026-05-02 — Bug batch — post-PR + post-merge + portability (sprint-bug-124..129)
+
+### Fixed
+
+- **6-bug batch** ([PR #670](https://github.com/0xHoneyJar/loa/pull/670)) — six independent framework defects landed in one branch with full quality cycle (implement → review → audit → bridgebuilder), 70 new bats tests + 155 adjacent regression tests pass.
+  - **#668 — Post-merge classifier silently classifies cycle PRs as 'other'** (sprint-bug-124) — new `.claude/scripts/classify-merge-pr.sh` wrapper uses merge commit subject as PRIMARY signal (in-tree state, never empty); `gh pr view` failures surface to stderr instead of silently routing to `other`. Delegates classification rules to existing `classify-pr-type.sh` (Issue #550). Workflow no longer re-parses `$GITHUB_OUTPUT` (Bridgebuilder F001 cleanup).
+  - **#664 — `post-pr-state.sh` rejects `bridgebuilder_review` phase** (sprint-bug-125) — one-line addition to `valid_phases` at `post-pr-state.sh:492` plus new `_update_phase` wrapper around 8 sites in `post-pr-orchestrator.sh`. Wrapper always returns 0 (true best-effort under `set -e`). Future taxonomy drift surfaces in workflow log.
+  - **#663 — `post-pr-orchestrator` passes invalid `--phase pr` to flatline-orchestrator (false `flatline_blocker` halt)** (sprint-bug-126) — `pr` added to flatline-orchestrator validator at line 1512 plus new `lib/flatline-exit-classifier.sh` distinguishes validation errors (`halt_reason: flatline_orchestrator_error`) from real flatline blockers (`halt_reason: flatline_blocker`) via stderr pattern-match + exit code.
+  - **#665 — Post-PR Bridgebuilder MEDIUM findings auto-triage to `log_only` without operator visibility** (sprint-bug-127) — new `lib/bridge-mediums-summary.sh` emits `[WARN] N MEDIUM findings logged...` line + structured `.run/post-pr-mediums-summary.json` after `phase_bridgebuilder_review()`. Convergence semantics unchanged (visibility-only patch per triage scope).
+  - **#661 — beads_rust 0.2.1 pre-commit hook fails: NOT NULL constraint failed: dirty_issues.marked_at** (sprint-bug-128) — defensive in-repo workaround. Source-of-truth template at `.claude/scripts/git-hooks/pre-commit-beads` captures stderr and emits structured diagnostic on the upstream signature. Installer at `.claude/scripts/install-beads-precommit.sh`. `beads-health.sh` extended with non-mutating sqlite3 PRAGMA probe → `MIGRATION_NEEDED` on detect. Root cause is upstream `beads_rust 0.2.1`; this fix only improves operator visibility.
+  - **#660 — `mount-submodule.sh --reconcile` silently skips creating missing symlinks on macOS (BSD `realpath` lacks `-m`)** (sprint-bug-129) — new `lib/portable-realpath.sh` probes for `realpath -m` once at source time; 3-layer fallback (GNU `-m` → BSD plain → bash parameter expansion). Reconcile partial-failure now exits non-zero with explicit warn line — CI / downstream automation can detect partial reconcile via exit code.
+
+## [1.109.2] — 2026-05-02 — CHANGELOG backfill — cycle-096 + cycle-097 entries
+
+### Changed
+
+- **Documentation-only release** ([PR #667](https://github.com/0xHoneyJar/loa/pull/667)) — backfilled CHANGELOG entries for v1.109.0 (cycle-096 — AWS Bedrock provider) and v1.109.1 (cycle-097 — quick-win finding remediations) that had been tagged but lacked CHANGELOG documentation. No functional changes.
+
+## [1.109.1] — 2026-05-02 — Cycle-097 — quick-win finding remediations
+
+Five non-blocking findings from cycle-096 sprint-127/sprint-128 review feedback, surfaced by Bridgebuilder review of [PR #662](https://github.com/0xHoneyJar/loa/pull/662) and explicitly deferred to follow-up by the senior reviewer + paranoid auditor. Shipped as [PR #666](https://github.com/0xHoneyJar/loa/pull/666).
+
+### Added
+
+- **NC-9 — reject `providers.bedrock.auth_lifetime: short` at config-load time** (closes Bridgebuilder NC-9). The schema field was documented in SDD §9 NFR-Sec11 for v2 forward compat, but v1 does not implement the rotation-window enforcement code path. Silent acceptance would let operators believe they had rotation enforcement when they did not. Loader now raises `ConfigError` with a pointer to the v2 proposal. Honored values v1: `long` (default), absent. Rejected: `short`, unknown values, non-string types. +6 unit tests in `test_bedrock_compliance_loader.py`.
+- **NC-10 — register `pytest.mark.integration` marker** (closes Bridgebuilder NC-10). `.claude/adapters/pyproject.toml` now declares the marker so `tests/test_bedrock_live.py` stops emitting `PytestUnknownMarkWarning`. Documents the deselect convention: `pytest -m "not integration"` to skip live AWS tests in CI.
+- **NC-5 — `QuotaExceededError` default message includes reset/fallback guidance** (closes Bridgebuilder NC-5). Default error now points operators at the AWS reset cadence (00:00 UTC), the process-restart path to clear the in-process circuit breaker, and the `compliance_profile: prefer_bedrock + fallback_to` failover path. +1 unit test asserting all three guidance fragments.
+- **F002 — BATS mock observability** (closes Bridgebuilder F002). `_CURL_JSON_CALLED` flag added to the bedrock-health-probe BATS mock so tests can prove the probe actually issued the network call rather than relying on stale `RESPONSE_BODY`/`HTTP_STATUS` state. Auth-missing path asserts `_CURL_JSON_CALLED == 0`; AVAILABLE path asserts `== 1`. Prevents silent passing if a refactor breaks the network call.
+- **A1 — plugin guide lessons-learned section** (closes Bridgebuilder A1). New section in `grimoires/loa/proposals/adding-a-provider-guide.md` walks the cycle-096 PRD v1.0→v1.3 and SDD v1.0→v1.2 changelog entries, the discoveries that arrived only via live probes (bare `anthropic.*` IDs rejected, `thinking.type=enabled` rejected, `inputSchema.json` envelope wrapping required), the process patterns that paid off (two-pass Flatline, Sprint 0 G-S0-CONTRACT artifact, Bridgebuilder review), and what the guide cannot anticipate for the next provider. Treats the "≤1-day fifth provider" target as aspirational until cycle-097+ provides empirical data.
+
+### Tests
+
+- 736 Python tests pass (was 732 cycle-096 baseline; +4 net from NC-9 + NC-5 + 3 prior NC-1 regressions). 15 BATS in `bedrock-health-probe.bats` (unchanged count; F002 added 2 assertions to existing tests). Zero regressions.
+
+## [1.109.0] — 2026-05-02 — Cycle-096 — AWS Bedrock provider + provider-plugin hardening
+
+Adds AWS Bedrock as the fifth Loa provider with full Converse API support, plus the cross-cutting plugin-architecture hardening that makes future provider additions a `≤1-day` target. Shipped as [PR #662](https://github.com/0xHoneyJar/loa/pull/662) closing [#652](https://github.com/0xHoneyJar/loa/issues/652).
+
+### Added
+
+- **AWS Bedrock provider** (`.claude/adapters/loa_cheval/providers/bedrock_adapter.py`, 834 lines). Bearer-token auth via `AWS_BEARER_TOKEN_BEDROCK` (no SigV4 in v1; v2 path tracked separately). Supports the `Converse` API for chat + tool-use + thinking-trace, control-plane `ListInferenceProfiles` for health probes. Three Day-1 models live-verified against operator AWS account: `us.anthropic.claude-opus-4-7`, `us.anthropic.claude-sonnet-4-6`, `us.anthropic.claude-haiku-4-5-20251001-v1:0` (the colon-bearing ID exercises URL-encoding in the runtime URL path).
+- **Inference profile namespacing** — `us.anthropic.*` and `global.anthropic.*` only. Bare `anthropic.*` IDs rejected upstream by Bedrock with HTTP 400 ("on-demand throughput unsupported"); the adapter surfaces this as a typed `OnDemandNotSupportedError` with remediation guidance.
+- **Two-layer secret redaction** (SDD §6.4.1, replaces single-pattern v0). PRIMARY: value-based — `register_value_redaction()` registers the live token at config-load time; redaction matches by string equality so even token rotations inside a single session don't leak. SECONDARY: regex `_BEDROCK_API_KEY_PATTERN` (`ABSK[A-Za-z0-9+/=]{36,}`) catches token-shaped strings that arrive without registration. TERTIARY: length-fallback `_BEDROCK_LENGTH_FALLBACK_PATTERN` with structural anchor `(?=[A-Za-z0-9+/=]*[+/=])` requiring at least one base64-distinct char (refined NC-1 from sprint-127 review to avoid over-matching SHA-256 hex strings).
+- **Token age sentinel** (NFR-Sec11) — `.run/bedrock-token-age.json` records first-call timestamp per token (detected via SHA256 last-4 token_hint per NFR-Sec8). Graduated stderr warnings: 60-day silent / 60-80 day info / 80-90 warn-every-100 / 90+ warn-every-call. `auth_lifetime` schema field present; `short` value documented and (sprint-1) silently accepted, (cycle-097 NC-9) now rejected with documented error.
+- **Compliance-aware fallback** (`compliance_profile` + per-model `fallback_to`). 4-step deterministic defaulting rule (SDD §5.6): explicit value wins → `bedrock_only` when only `AWS_BEARER_TOKEN_BEDROCK` set → `prefer_bedrock` when both Bedrock and direct-Anthropic tokens set → `None` when neither. SKP-003 invariant: `prefer_bedrock` requires explicit `fallback_to` mapping on every model (no heuristic name matching). Versioned `fallback_mapping_version` field on each model; loader rejects `prefer_bedrock` without explicit declaration. One-shot migration notice with `bedrock-migration-acked.sentinel` so the warning appears once per fresh checkout, not every process.
+- **Daily-quota circuit breaker** (FR-11) — `threading.Event` `_DAILY_QUOTA_EXCEEDED` is process-scoped + atomic across threads. Detects the AWS daily-quota body pattern in 200 OK responses (`too many tokens per day`, `daily quota`, etc.); subsequent calls fast-fail without hitting the API; operator restarts process to clear OR waits until quota resets (00:00 UTC).
+- **Error taxonomy** (FR-11 / SDD §6.1) — 9 typed errors: `OnDemandNotSupportedError`, `InvalidModelIdentifierError`, `ModelEndOfLifeError`, `EmptyResponseError`, `QuotaExceededError`, `RegionMismatchError`, `ThrottlingError` (retryable), `ServiceUnavailableError` (retryable), `ValidationError`. Classifier branches on body content (e.g., 400 with "provided model identifier is invalid" → `InvalidModelIdentifierError`; 404 with "end of life" → `ModelEndOfLifeError`).
+- **Tool schema wrapping** (FR-1, Probe 3 finding) — Bedrock requires `inputSchema.json` envelope wrapping for tool definitions, distinct from direct-Anthropic which takes the schema directly. Adapter `_transform_tools_to_converse` does the wrap.
+- **Thinking-trace translation** (FR-13, Probe 4 finding) — caller-side `thinking.type=enabled` + `budget_tokens` is rejected by Bedrock-routed Opus 4.7 with HTTP 400. Adapter translates to Bedrock's `additionalModelRequestFields.thinking.type=adaptive` + `output_config.effort` per the discovered contract.
+- **Region resolution chain** (FR-6) — request param → `AWS_BEDROCK_REGION` env → `AWS_REGION` env → provider `region_default` → `us-east-1` fallback. Region-prefix sanity (FR-12): `us.anthropic.*` profile against an `eu-*` region surfaces `RegionMismatchError` rather than 400 from AWS.
+- **Centralized provider parser** (`parse_provider_model_id`) — splits provider:model on FIRST colon, equivalent in Python (`.claude/adapters/loa_cheval/types.py`) and bash (`.claude/scripts/lib-provider-parse.sh`). 51 cross-language equivalence tests in `tests/integration/parser-cross-language.bats` ensure the two implementations stay in lockstep. Generator (`gen-adapter-maps.sh`) preserves colon-bearing aliases through code generation (Phase C fix).
+- **Health probe extension** (FR-8) — `model-health-probe.sh` now supports `--provider bedrock` via `_probe_bedrock` using ListInferenceProfiles control-plane endpoint. Distinguishes auth-class errors (UNKNOWN/auth, not transient) from network/throttle errors. 15 BATS tests in `tests/unit/bedrock-health-probe.bats`.
+- **Plugin guide** (FR-9, `grimoires/loa/proposals/adding-a-provider-guide.md`) — six-edit-site walkthrough using cycle-096 as the worked example: provider registry entry, Python adapter, adapter registry, schema propagation, trust scopes, secret-redaction patterns. Plus auth-modality discussion, compliance-aware fallback patterns, token age tracking, test harness, recurring CI smoke, cost cap discipline, fixture conventions, and (cycle-097 follow-up) lessons-learned section.
+- **Sprint 0 G-S0-CONTRACT artifact** (`tests/fixtures/bedrock/contract/v1.json`) — versioned snapshot of the Bedrock API contract: endpoints, auth modality, request/response shapes, error taxonomy, inference profile namespaces, redaction notes. Source-of-truth for the implementation across 18 commits. Companion probe captures in `tests/fixtures/bedrock/probes/` with documented naming convention (cycle-096 sprint-128 README addition).
+- **CI smoke workflow** (`.github/workflows/bedrock-contract-smoke.yml`, 215 lines) — recurring drift-detection workflow with weekly model rotation, per-run $0.50 + monthly $15 cost caps (pre-flight estimate + post-flight ledger assertion), required-status signal for fork PRs. **Operator action required**: `gh auth refresh -s workflow` then commit the file (current OAuth token lacks `workflow` scope).
+- **Token currency: gpt-5.5 + Haiku 4.5 + Gemini 3 + cost guardrails** — formerly slated as part of cycle-095 (v1.108.0 was the Sprints 1+2 release; cycle-096 layered Bedrock atop the model registry that cycle-095 provided).
+
+### Changed
+
+- **Compliance profile defaulting** (BREAKING for users who pinned `prefer_bedrock` without explicit `fallback_to`) — loader now raises `ConfigError` at startup. Migration: add `fallback_to: <provider>:<model>` to every model entry under a `prefer_bedrock` provider, OR switch to `bedrock_only` (fail-loud, no fallback) OR `none` (silent fallback, opt-in). One-shot migration notice + sentinel file lessens repeated friction.
+- **`hounfour.bedrock.enabled` feature flag** + migration sentinel (SDD §6.7) — Bedrock runtime gated behind explicit opt-in for v1; default off so existing deployments are byte-clean.
+
+### Security
+
+- **F003 fixture hygiene** (Bridgebuilder review) — account ID literal removed from `redaction_notes` prose in `tests/fixtures/bedrock/contract/v1.json`. The very prose explaining redaction had previously contained the literal it claimed to redact. Verified via `git ls-files | xargs grep -l <account_id>` returning empty.
+- **F012 fixture rename** (Bridgebuilder review) — `E3-403-access-check.json` → `E3-404-end-of-life.json`. The fixture was named for the HTTP status the engineer expected, not the status Bedrock actually returns. Filename now honors actuality, not anticipation.
+
+### Tests
+
+- 732 Python tests pass (was 549 pre-cycle, +183 net cycle-096 test additions). 67 + 15 = 82 BATS pass. Live integration: 3/3 against real AWS account. Zero regressions.
+
+### Process
+
+- **Two-pass Flatline review on PRD v1.0→v1.3** caught 5 BLOCKERS + 5 HIGH-CONSENSUS findings (FR-12 region-prefix sanity, FR-13 thinking-trace translation, NFR-Sec8 token-age sentinel, FR-11 daily-quota circuit breaker, NFR-Sec11 token lifecycle controls, compliance_profile 4-step deterministic defaulting). 100% inter-model agreement.
+- **Two-pass Flatline review on SDD v1.0→v1.2** caught 5 BLOCKERS + 5 HIGH-CONSENSUS findings (versioned `fallback_to`, value-based redaction PRIMARY/regex SECONDARY, threading.Event, Sprint 0 G-S0-CONTRACT gate, NFR-Sec11 token lifecycle, §6.7 Bedrock feature flag).
+- **Bridgebuilder review on PR #662** surfaced 12 findings (3 PRAISE, 2 MEDIUM, 6 LOW, 1 SPECULATION). 4 fixture-related (F003 + F011 + F004 + F012) addressed in cycle-096 sprint-2 commit `d139d95`. The remaining 5 LOW + SPECULATION carried to cycle-097 backlog and 5 of those addressed in v1.109.1.
+- **Live probes (Sprint 0 G-S0-2) before any code** — `tests/fixtures/bedrock/contract/v1.json` became the single source of truth across the 18-commit implementation. Future providers should follow the same probe-first pattern.
+
+## [1.102.0] — 2026-04-25 — Cycle-093 stabilization (sprints 1–3A)
+
+Three Tier-1 silent-failure issues closed plus the keystone health-probe foundation. The probe is implemented and tested but not yet wired into runtime — sprint-3B (resilience + CI workflows + runtime integration) and sprint-4 (registry currency + E2E gate) follow.
+
+### Added
+
+- **Provider health-probe foundation** (T2.2 part 1, sprint-3A) — `.claude/scripts/model-health-probe.sh` (1146+ lines) classifies each registered model as `AVAILABLE | UNAVAILABLE | UNKNOWN` against live provider APIs. Three per-provider adapters (OpenAI `/v1/models`, Google `/v1beta/models`, Anthropic `POST /v1/messages` with `max_tokens:1`), explicit state machine, atomic-write JSON cache (`temp + fsync + mv` under `flock`), lock-free reader retry, per-provider PID sentinel for background-probe dedup, hard-stop budget enforcement (10 probes/run, $0.05 cost cap, 120s total / 30s per call — each emits a `budget_hardstop` trajectory event before exit 5), `--canary` non-blocking smoke mode, `LOA_PROBE_LEGACY_BEHAVIOR=1` emergency fallback with mandatory `probe_legacy_bypass` audit-log entry, env-overridable cache/trajectory/audit paths for hermetic testing. 54 BATS tests (45 main + 8 hardstop + 1 iter-3 regression guard).
+- **Spiral harness adversarial wiring** (T1.1, sprint-1, [#605](https://github.com/0xHoneyJar/loa/issues/605)) — `_run_adversarial_dissent` post-hoc dispatch in `spiral-harness.sh::_gate_review`/`_gate_audit`. Closes the silent no-op gap where `flatline_protocol.code_review.enabled: true` was set but no adversarial pass actually ran.
+- **Bridgebuilder dist artifacts now committed** (T1.2, sprint-2, [#607](https://github.com/0xHoneyJar/loa/issues/607)) — un-ignored `.claude/skills/bridgebuilder-review/dist/` and force-added 36 compiled JS/d.ts/map files. Closes the `ERR_MODULE_NOT_FOUND` failure on first invocation in fresh clones.
+- **Dissenter hallucination filter** (T1.3, sprint-2, [#618](https://github.com/0xHoneyJar/loa/issues/618)) — bidirectional token-match semantics in `adversarial-review.sh` that downgrade dissenter findings claiming `{{DOCUMENT_CONTENT}}` tokens absent from the diff. 6 normalization variants + 15 BATS tests. Earns its keep immediately: caught 2 false-positive hallucinations during sprint-3A's own kaironic Bridgebuilder review.
+
+### Fixed
+
+- **SKP-001 — Anthropic ambiguous-4xx → UNKNOWN** (sprint-3A) — `_probe_anthropic` now rejects any `4xx` lacking explicit `model`-field reference instead of misclassifying as `AVAILABLE`. Two paired regression tests enforce the discriminator.
+- **Anthropic `anthropic-version` header on `/v1/messages`** (sprint-3A iter-3, Audit L-1, [PR #624](https://github.com/0xHoneyJar/loa/pull/624)) — `_curl_json` now appends `header = "anthropic-version: 2023-06-01"` to the secure tempfile when `auth_type=x-api-key`. Without this, every live Anthropic probe degraded to `UNKNOWN`. Static-grep BATS regression guard prevents accidental removal.
+- **Google API key no longer in URL query string** (sprint-3A audit M-1) — `_probe_google` switched to header-only auth (`x-goog-api-key`). The previous `?key=` query parameter leaked via `ps aux`, proxy logs, and CDN access logs.
+- **Hermetic test isolation** (sprint-3A Bridgebuilder iter-1 F8/F-002/F-003) — `LOA_TRAJECTORY_DIR` and `LOA_AUDIT_LOG` env-var overrides on the probe; tests point them at `$TEST_DIR`. Prior tests asserted against `$PROJECT_ROOT/.run/` and could false-pass on stale entries.
+- **`adversarial-review-hallucination-filter.bats` portability** (sprint-2 Bridgebuilder iter-2 HIGH) — replaced hard-coded `/home/merlin/Documents/thj/code/loa/...` path with `$BATS_TEST_FILENAME`-relative resolution. Test now portable for other contributors and CI.
+
+### Quality gates
+
+- **53 + 1 new BATS tests** for sprint-3A; 84 existing adversarial-review and hallucination-filter tests pass with no regression.
+- **Bridgebuilder kaironic review**: 4 iterations, ~$0.05 total. Iter-1 found 3 sprint-3A `MEDIUM` (closed). Iter-2 surfaced 1 sprint-2 `HIGH` (hardcoded path, closed). Iter-3 surfaced 1 `BLOCKING` (anthropic-version header, closed). Iter-4 clean (0 findings).
+- **Adversarial cross-model review** (GPT-5.3-codex via `adversarial-review.sh`) on sprint-3A produced 2 findings, both correctly downgraded by the new sprint-2 hallucination filter — meta-validation of T1.3 within the same release.
+
+### Notes
+
+- Probe is **dead code on `main`** until sprint-3B wires it into `model-adapter.sh` runtime. No production behavior change for operators on this release except for closing #605/#607/#618. Operators currently relying on the hand-allowlist behavior remain unaffected.
+- Tracked follow-ups for sprint-3B: bash error UX on unwritable `--cache-path` (audit L-2), dead `_redact_secrets` cleanup (L-3), sed-based BATS test sourcing pattern (structural, project-wide).
+
+## [1.101.0] — 2026-04-19 — Spiral SEED environment gate
+
+### Added
+
+- **`_pre_check_seed` environment-invariant gate** (#575 item 3, [PR #594](https://github.com/0xHoneyJar/loa/pull/594)) — Mirrors existing `_pre_check_implementation` / `_pre_check_review` which validate post-conditions for later phases. The SEED seam had no counterpart — environment invariants only surfaced mid-cycle as confusing `"grimoires/loa/prd.md not found"` errors AFTER discovery had already written to the wrong location. Empirical justification: cycle-084 CWD-mismatch (reviewer subprocess ran in `.loa/` submodule CWD instead of main repo).
+  - **Hard-fail checks**: CWD inside a git work tree, `grimoires/loa/` present from CWD (cycle-084 class), cycle dir (or parent if dir missing) writable.
+  - **Warn checks**: `$SEED_CONTEXT` path exists + readable + non-empty when set. Non-blocking by default.
+  - **Strict mode**: `SPIRAL_PRE_CHECK_SEED_STRICT=true` promotes warnings to errors (useful for CI).
+  - **Wire-up**: `spiral-harness.sh main()` invokes `_pre_check_seed "$CYCLE_DIR"` before Phase 1 Discovery. Failures `exit 1` with the specific FAIL reason on stderr — no silent fallthrough that would waste an LLM invocation.
+  - **Tests**: 14 new BATS (`tests/unit/spiral-pre-check-seed.bats`) covering happy path, each hard-fail class with specific messages, warn cases with non-blocking semantics, strict-mode promotion, trajectory recording, and edge cases.
+
+## [1.99.2] — 2026-04-19 — Spiral SEED failure-ingestion
+
+### Added
+
+- **Prior-cycle failure events fold into next cycle's discovery context** (#575 item 2, [PR #592](https://github.com/0xHoneyJar/loa/pull/592)) — Closes one of the autopoietic-loop gaps identified in @zksoju's three-lens audit. Prior cycles produce observability (`flight-recorder.jsonl`) but next cycle's discovery phase never read it; operators had to hand-curate failure modes into the SEED or (more commonly) not bother, so the same failure patterns recurred. Builds on the #569 dashboard infrastructure — both read flight-recorder, different lens.
+  - **`_find_prior_cycle(current)`** in `spiral-evidence.sh` locates the lexicographically previous cycle dir, skipping incomplete siblings.
+  - **`_summarize_prior_cycle_failures(prior)`** scans the prior flight-recorder for load-bearing events: `CIRCUIT_BREAKER`, `BB_FINDING_STUCK`, `AUTO_ESCALATION`, `REVIEW_FIX_LOOP_EXHAUSTED`, `BUDGET FAIL`, and any phase with `FAIL:` verdict. Emits short markdown bullet list truncated at 2000 chars.
+  - **`_build_seed_failure_prelude(current)`** is the gated entry point: feature flag + prior-cycle lookup + summary composition + `---...---` delimiter wrapping.
+  - **`_phase_discovery`** in `spiral-harness.sh` weaves the prelude into the PRD prompt between the task description and the existing SEED context block.
+  - **Feature flag** (default off, safe rollout): `spiral.seed.include_flight_recorder: true` in `.loa.config.yaml`, or env var `SPIRAL_SEED_INCLUDE_FLIGHT_RECORDER=true`. Enabled operators get the learning loop; existing operators see no behavior change.
+  - **Tests**: 20 new BATS (`tests/unit/spiral-seed-ingestion.bats`) covering predecessor lookup (skip-incomplete, first-cycle-has-no-prior), event extraction (5 categories + clean-cycle + missing-recorder + missing-dir + truncation), and prelude gating (feature-off-default, strict "true" comparison, delimiter wrapper).
+
+## [1.99.1] — 2026-04-19 — Kaironic termination docs
+
+### Changed
+
+- **Name kaironic termination publicly** (#575 item 5, [PR #591](https://github.com/0xHoneyJar/loa/pull/591)) — The `flatline_convergence` stopping condition (cycle-066) was already implemented as "Kaironic signal: plateau reached" in a table cell, but the architectural rarity wasn't called out. Most agentic pipelines have only chronos caps (budget / max iterations / timeout); second-order cybernetic convergence where the loop observes its own findings-rate and halts when signal exhausts is distinctive. Lean into it:
+  - `.claude/skills/spiraling/SKILL.md` Stopping Conditions section now distinguishes chronos (wall-clock caps) from kaironic (signal-exhaustion), marks `flatline_convergence` as the kaironic condition explicitly via a new "Kind" column, and notes no safety floor for the kaironic condition (the system trusts the signal).
+  - `README.md` Spiral Autopoietic Orchestrator section adds a paragraph-length explainer below the Cost optimization note.
+  - No behavior change; docs-only.
+
+## [1.99.0] — 2026-04-19 — Spiral observability dashboard
+
+### Added
+
+- **Spiral observability dashboard — default-on metrics emission** (#569, [PR #589](https://github.com/0xHoneyJar/loa/pull/589)) — Closes the observability gap surfaced by @zkSoju during a live cycle-084 run. Until now, operators had to stand up ad-hoc Monitor wrappers mid-cycle to watch phase transitions, cost, and budget pressure. The flight-recorder exposed raw events; no aggregated view existed.
+  - **`_emit_dashboard_snapshot(current_phase, cycle_dir)`** in `spiral-evidence.sh` aggregates `flight-recorder.jsonl` into operator-friendly snapshots. Appends to `<cycle-dir>/dashboard.jsonl` (append-only journal) and overwrites `<cycle-dir>/dashboard-latest.json` (cheap read pointer).
+  - **Automatic emission at each phase boundary** in `spiral-harness.sh` (START / DISCOVERY / FLATLINE_PRD / ARCHITECTURE / FLATLINE_SDD / PLANNING / IMPLEMENT / FINALIZED). No flag needed — default-on per issue request.
+  - **Schema `spiral.dashboard.v1`** with totals (actions, failures, cost_usd, duration_ms, budget_cap_usd, budget_remaining_usd, fix_loop_events, bb_fix_cycles, circuit_breaks, first/last_action_ts) and per_phase rollup (actions, duration_ms, bytes, cost_usd, failures, first/last_ts grouped by phase).
+  - **`SPIRAL_TOTAL_BUDGET`** exported from harness `main()` so snapshots compute budget remaining without re-reading config.
+  - **`cmd_status` enhanced**: `--json` merges dashboard into state output as `.dashboard`; pretty mode renders "Metrics" block + "Per-phase" table below the existing state/phase/cycle summary.
+  - **Fail-safe**: swallows errors (jq / shell failures cannot break the pipeline); no-op when flight recorder unset or cycle_dir missing.
+  - **Tests**: 18 new BATS tests (`tests/unit/spiral-dashboard.bats`) covering snapshot structure, totals rollup math, budget computation (including non-numeric `SPIRAL_TOTAL_BUDGET` defaulting to 0), per-phase grouping, fix-loop + BB-cycle counters, append-only journal + overwrite-pointer behavior, and `cmd_status --json` integration.
+  - **Deferred** (tracked as follow-ups): context-size-per-phase instrumentation (requires `claude -p` hooks), regression fixtures (known SEED → known cycle outcome, CI-enforced), external sinks (Grafana/Honeycomb/OTEL — hook points exist via `dashboard.jsonl` consumption), background per-N-seconds emission (phase-boundary covers the observable moments).
+
+## [1.98.0] — 2026-04-19 — Bridgebuilder persona discovery + resolution trace
+
+### Added
+
+- **Persona discovery + resolution trace CLI flags** (#396, [PR #588](https://github.com/0xHoneyJar/loa/pull/588)) — Closes the primary DX friction points around Bridgebuilder personas. Previously, operators had no way to list available packs without browsing the filesystem, and the 5-level resolution cascade (CLI flag > config name > config path > repo override > built-in default) was invisible — "which persona is actually active?" required guessing.
+  - **`--list-personas`** — lists built-in packs with H1 titles extracted from each persona file (parses YAML frontmatter, reads first `#` heading), then exits before config resolution so it works even with a broken config.
+  - **`--show-persona-resolution`** — traces the 5-level cascade showing `[active]` (winning level), `[shadow]` (provided but a higher level won), `[skip]` (not provided), or `[missing]` (provided but file not found). Makes the previously-silent Level 4 (repo override) fallthrough visible.
+  - **`readPersonaTitle(name)`**, **`traceResolution(config)`**, **`formatResolutionTrace(steps)`** — exported from `main.ts` so tests and downstream tooling can inspect without invoking the CLI.
+  - **Tests**: 14 new Jest tests (617 → 631 total) covering title extraction with frontmatter stripping, state matrix across L1/L3/L4/L5 (skip/active/shadow/missing), and trace rendering markers.
+  - **Not in scope** (per #396 scope split; follow-ups): warn-instead-of-throw on `persona_path` miss (Level 3 already throws with a clear message; Level 4's silent fallthrough is now visible via `--show-persona-resolution`); run-bridge persona inheritance from bridgebuilder config (separate config refactor).
+
+## [1.97.1] — 2026-04-19 — Bridgebuilder OpenAI codex routing fix
+
+### Fixed
+
+- **Multi-model Bridgebuilder degraded to single-model on codex OpenAI reviews** (#585, [PR #586](https://github.com/0xHoneyJar/loa/pull/586)) — The TypeScript adapter at `.claude/skills/bridgebuilder-review/resources/adapters/openai.ts` hardcoded `/v1/chat/completions` for all OpenAI models. Codex variants (`gpt-5.3-codex` and future codex models) require `/v1/responses` — the chat endpoint returns 404 with "This is not a chat model...". On PR #583, only Gemini produced a review; Anthropic returned 400 (separate billing exhaustion) and OpenAI returned 404. The Python adapter at `.claude/adapters/loa_cheval/providers/openai_adapter.py` (used by Flatline) already had the correct routing split; this PR ports the pattern to the TypeScript adapter.
+  - **Routing**: `isCodexModel(model)` detection (case-insensitive `/codex/i`) → codex to `/v1/responses`, non-codex to `/v1/chat/completions`
+  - **Codex body shape**: `{model, input: "<system>\n\n---\n\n<user>", stream: true}` (single input string, not messages array)
+  - **Codex stream parsing**: `response.output_text.delta` for content, `response.completed` for usage, `response.created` for model fallback; reasoning deltas (`response.reasoning_text.delta`, `response.reasoning_summary_text.delta`) are deliberately ignored by the content accumulator to prevent silent over-translation
+  - **Tests**: 8 new BATS-equivalent Jest tests (5 routing + 3 hardening per Gemini 2.5 Pro HIGH finding on the fix PR itself) locking the URL split, body shape, SSE vocabulary, reasoning-event ignore, 4xx error surface, and 5xx retry policy — 617/617 passing
+  - **Self-verified**: multi-model Bridgebuilder re-run against PR #586 had all 3 models succeed (Anthropic ✓ + OpenAI ✓ + Gemini ✓), 8 findings produced including 1 consensus + 3 disputed + 2 praise
+  - **Dist tracking**: `dist/adapters/openai.{js,js.map,d.ts,d.ts.map}` now committed (matches the precedent already set by `anthropic.js` + `github-cli.js`), so downstream operators get the fix without a local `npm run build`
+  - **Not addressed in this patch**: The Anthropic 400 in the original run was **billing exhaustion** ("Your credit balance is too low"), surfaced by the adapter as generic "API 400". Parsing the Anthropic error envelope for a clearer "credits exhausted" message is a separate UX follow-up.
+
+## [1.97.0] — 2026-04-19 — cycle-088 — Framework Boundary Fixes + Spiral Hardening + Adapter Generator
+
+**Consolidation release rolling up 14 PRs that shipped as auto-patches (v1.94.1 through v1.96.5).** The post-merge automation tagged each non-cycle PR with a patch bump but did not produce a CHANGELOG entry per the classifier's cycle-only rule (see #550 for the classifier fix shipped mid-cycle). This entry consolidates the accumulated work into a single coherent cycle record.
+
+Themes: framework/user-file boundary clarification (#553/#554/#550), CI green restoration (#549), spiral recovery hardening (#545/#546/#568/#570), YAML-driven model adapter maps (vision-011/#548), Flatline model allowlist accuracy (#573/#574), shell safety infrastructure (#555/#563), RFC-061 calibration pack design (#556), and the Flatline simstim + red-team grounding fixes that closed the cycle (#579/#582).
+
+### Fixed
+
+- **Simstim skill documented invalid `--mode hitl`** (#579, [PR #583](https://github.com/0xHoneyJar/loa/pull/583)) — Three Flatline invocations in `.claude/skills/simstim-workflow/SKILL.md` (phases 2/4/6 for PRD/SDD/sprint) used `--mode hitl`, which `flatline-orchestrator.sh` rejects with exit 1. HITL semantics were already delivered by the orchestrator's auto-detection from `.run/simstim-state.json`. Removed the flag from all three invocations. Drive-by: `--help` mode list aligned with validator (`review, red-team, inquiry`).
+- **Red team returned off-target findings on non-AI-domain SDDs** (#582, Option C, [PR #583](https://github.com/0xHoneyJar/loa/pull/583)) — When the red-team domain extractor produces a weak domain string, the attacker model generates attacks from its prior and the primary reviewer scores them all 0, masquerading as "no security findings." Added a fail-closed guard: when ≥80% of scored attacks have `opus_score == 0` and total ≥ 3, the orchestrator halts with exit code 3 and injects `grounding_failure: true`. Threshold + min-count configurable via `red_team.grounding_failure.{opus_zero_threshold, min_attacks}` (defaults 0.8 / 3). Computation extracted to `compute_grounding_stats()` with a source-guard so BATS can exercise the real runtime path dynamically. Option A (domain extractor rewrite) deferred as structural follow-up.
+- **`agent: Plan` blocked Write on write-capable planning skills** (#553, [PR #558](https://github.com/0xHoneyJar/loa/pull/558)) — `designing-architecture` and `planning-sprints` declared `agent: Plan` in SKILL.md frontmatter, but the Plan agent type's tool allowlist excludes `Write`/`Edit`/`NotebookEdit`. The skills produced correct output and then silently refused to persist it — reproducible across multiple downstream repos. Dropped the frontmatter field and shipped `validate-skill-capabilities.sh` with a `WRITE_CAPABLE_AGENTS` allowlist that lints the invariant. Rule documented at `.claude/rules/skill-invariants.md`.
+- **`.loa-version.json` + `CLAUDE.loa.md` markers stale post-merge** (#554, [PR #559](https://github.com/0xHoneyJar/loa/pull/559)) — Version markers weren't refreshed by the post-merge pipeline, causing downstream issue reports to cite historical versions. Shipped `update-loa-bump-version.sh` + integrated Phase 5.6 step that rewrites `.loa-version.json` + `CLAUDE.loa.md` header to the newly-released tag. `.gitattributes` updated with `merge=ours` for `.loa-version.json` to prevent merge noise.
+- **Post-merge classifier regex missed cycle PRs with `cycle-NNN` elsewhere in title** (#550, [PR #560](https://github.com/0xHoneyJar/loa/pull/560)) — Old regex matched only a narrow prefix set, skipping the full CHANGELOG/GT/RTFM/Release pipeline on legitimate cycle PRs whose titles had `cycle-NNN` mid-string. Replaced with `\bcycle-[0-9]+\b` anywhere + extracted the classifier into `classify-pr-type.sh` as the single source of truth sourced by both `post-merge.yml` and `post-merge-orchestrator.sh`.
+- **Shell Tests pre-existing failures on main** (#549, [PR #562](https://github.com/0xHoneyJar/loa/pull/562)) — Triaged 5 test clusters (release-notes, health-check, search-orchestrator, hook-registration, lore-promote) and produced per-cluster fixes to restore green CI.
+- **`git stash -k` silent data loss against pre-commit hooks** (#555, [PR #564](https://github.com/0xHoneyJar/loa/pull/564)) — Pre-commit hooks run their own internal `git stash --keep-index`; when an outer Loa stash overlaps, the stash indexes shift and `pop` lands on the wrong entry. Combined with `| tail -N` / `|| true` output-swallowing patterns, this produced silent data loss that looked like success (reproduced: 4 Edit-tool updates to NOTES.md lost in one operator session). Shipped `stash_with_guard` helper that enforces count-delta invariants (N → N+1 on push, N+1 → N on pop) and surfaces all output. New rule at `.claude/rules/stash-safety.md`.
+- **Spiral REVIEW gate had no fix-loop — retried same broken impl until circuit-breaker** (#545, [PR #565](https://github.com/0xHoneyJar/loa/pull/565)) — Observed in cycle-367687f8de (flight recorder: seq 13 → 19 REVIEW attempts on unchanged impl). Added `_phase_implement_with_feedback` + `_review_fix_loop` mirroring cycle-074's Bridgebuilder fix-loop pattern. Budget-capped by `REVIEW_MAX_ITERATIONS` (default 2).
+- **Spiral cycle failing on implementation budget couldn't be resumed** (#546, MVP, [PR #565](https://github.com/0xHoneyJar/loa/pull/565)) — Added narrow `--resume --force` override on `stopping_condition=quality_gate_failure` terminal state. Refuses other stop-reasons and non-force paths. Option B (`spiral.seed.from_cycle_id` artifact-copy preflight) deferred as a structural follow-up.
+- **Tripwire rollback precheck missed untracked-only changes** (#563, [PR #567](https://github.com/0xHoneyJar/loa/pull/567)) — Precheck compared tracked state only; an untracked file could be silently lost across a rollback window. Added `ls-files --others` check + sourced-vs-executed guard.
+- **Spiral dispatch subprocess didn't receive `SPIRAL_TASK`** (#568, [PR #576](https://github.com/0xHoneyJar/loa/pull/576)) — Export added; state-file fallback introduced in `spiral-simstim-dispatch.sh` with clearer FATAL message pointing at the orchestrator.
+- **Spiral planning-phase timeouts too tight (300s)** (#570, [PR #577](https://github.com/0xHoneyJar/loa/pull/577)) — Made configurable with sensible defaults: `DISCOVERY_TIMEOUT=1200s`, `ARCHITECTURE_TIMEOUT=1200s`, `PLANNING_TIMEOUT=600s`. Added `_validate_timeout_sec` helper.
+- **Flatline allowlist listed phantom Gemini 3 models** (#573/#574, [PR #578](https://github.com/0xHoneyJar/loa/pull/578)) — `gemini-3-flash`, `gemini-3-pro`, `gemini-3.1-pro-preview` passed local allowlist but Google v1beta returned NOT_FOUND at runtime, collapsing any review. Pruned from `VALID_FLATLINE_MODELS` + `.claude/defaults/model-config.yaml`. Added `VALID_MODEL_PATTERNS` forward-compat regex admitting new versions without hand-edit. Agent bindings retargeted: `deep-thinker → gemini-2.5-pro`, `fast-thinker → gemini-2.5-flash`. Re-add Gemini 3 models when vendor confirms v1beta availability (smoke test first).
+
+### Added
+
+- **YAML → bash adapter map generator (vision-011)** (#548, [PR #566](https://github.com/0xHoneyJar/loa/pull/566) + [PR #571](https://github.com/0xHoneyJar/loa/pull/571)) — Four associative arrays (`MODEL_PROVIDERS`, `MODEL_IDS`, `COST_INPUT`, `COST_OUTPUT`) in `.claude/scripts/model-adapter.sh.legacy` are now generated from `.claude/defaults/model-config.yaml` via `gen-adapter-maps.sh`. Eliminates the "forgot to update one of the four maps" bug class that `validate_model_registry()` was invented to catch. PR #566 ships the generator; PR #571 swaps the legacy adapter to `source generated-model-maps.sh`. The YAML is now the single source of truth; pricing normalized to consistent micro-USD per MTok (previously mixed milli-USD for OpenAI/Anthropic and micro-USD for Gemini, a 1000x undercounting bug). New `backward_compat_aliases` section preserves historical IDs (`claude-opus-4.5`, `4.1`, `4.0` etc.) retargeting to the current canonical. Core of vision-011 acceptance criteria shipped; T-PRE / T-CROSS / T-GREP committed test scripts deferred.
+- **RFC-061 v3.1 — Polycentric Model-Calibration Pack design** (#556, [PR #581](https://github.com/0xHoneyJar/loa/pull/581)) — Design doc at `grimoires/loa/proposals/rfc-061-calibration-pack.md`. Progen-inspired YAML instance-first schema, JSON Schema draft-07 authoring surface, protobuf-style field numbering for schema compatibility, RFC 8785 JSON Canonicalization Scheme for signing, golden corpus with stochastic tolerance, cross-provider profile layout (Opus 4.7 + GPT-5.3-codex + Gemini 2.5). Iterated through 3 rounds of Flatline multi-model adversarial review (Opus + GPT-5.3-codex + Gemini 2.5 Pro). Remaining v3.1 blockers are design constraints (LLM-judge circularity, vendor API drift) rather than fixable bugs — acknowledged and ship-as-is. Pack implementation is a multi-cycle follow-up and will be tracked on its own issue when prioritized.
+
+### Deferred / Follow-up
+
+- **#582 Option A** — domain extractor rewrite using first H1 + first paragraph + TF-IDF distinctive terms (Option C fail-closed covers the worst case; Option A improves the common case but is structural).
+- **#546 full scope** — `spiral.seed.from_cycle_id` config + artifact-copy preflight (MVP `--resume --force` shipped).
+- **#548 remaining** — T-PRE (`model-compat-check.sh`), T-CROSS (`cross-runtime-alias-contract.sh`), T-GREP (`model-version-residuals.sh`) committed test scripts + migration playbook.
+- **#556 implementation** — polycentric calibration pack directory scaffold, profile YAMLs, golden corpus generation, LLM-judge harness.
+- **Gemini 3 re-enablement** — when Google confirms `gemini-3-*` availability on v1beta (live smoke test first).
+
+### Testing
+
+BATS suite expanded to cover the new contracts:
+- `flatline-grounding-failure.bats` — 20 tests (12 static + 7 dynamic sourced-function + 1 sourceability) covering ratio math, small-N guard, divide-by-zero, string-"0" handling, and real runtime function calls
+- `simstim-flatline-mode.bats` — 6 tests ensuring SKILL.md/orchestrator consistency (no `--mode hitl` references, valid invocation forms, help/validator parity, runtime rejection with exit 1)
+- `flatline-model-allowlist.bats` — phantom Gemini 3 prune regression guards + forward-compat pattern tests
+- `gen-adapter-maps.bats` — YAML→bash generator + byte-correctness + pricing unit parity + drift detection
+- `spiral-review-fix-loop.bats` — REVIEW→IMPL fix-loop decision table
+- `spiral-resume-force.bats` — 9 cases covering the full `--resume --force` decision matrix
+- `stash-safety.bats` — count-delta invariants on `stash_with_guard`
+- `skill-capabilities.bats` — agent-type vs write-capability invariant lint
+- `post-merge-classifier.bats` — `cycle-NNN` anywhere regression
+- `update-loa-bump.bats` — Phase 5.6 version marker refresh
+- `spiral-resume-force.bats`, `spiral-task-export.bats`, `spiral-phase-timeouts.bats`, `tripwire-handler-rollback.bats` — spiral recovery regression guards
+
+### Issue Tracker
+
+- **Closed** as part of this cycle's scope: #545, #547, #549, #550, #551, #552, #553, #554, #555, #557 (meta-tracker), #563, #568, #570, #573, #574, #579
+- **Partially closed with deferred scope**: #546 (MVP), #548 (core), #556 (RFC), #582 (Option C)
+- **Merged PRs**: #558, #559, #560, #562, #564, #565, #566, #567, #571, #576, #577, #578, #581, #583
+
+## [1.94.0] — 2026-04-17 — Adversarial Review Enforcement Gate
+
+### Added
+
+- **Adversarial review enforcement gate** (#552) — `PreToolUse:Write` hook blocks `*/COMPLETED` marker writes when `flatline_protocol.{code_review,security_audit}.enabled: true` in config but the corresponding `adversarial-{review,audit}.json` artefact is missing or structurally invalid. Closes the silent-skip failure mode where `reviewing-code` / `auditing-security` skills executing inline could bypass Phase 2.5 under token pressure while still writing `COMPLETED`.
+  - **Structural validation** raises bypass cost beyond `touch artefact.json`: the artefact must parse as JSON and contain `.metadata.type` + `.metadata.model` — fields that `adversarial-review.sh` writes on every code path (success, api_failure, malformed_response, skipped_by_config). Empty files and hand-crafted placeholders no longer satisfy the gate.
+  - **CWD-independent config resolution**: walks upward from the sprint directory to locate `.loa.config.yaml` instead of relying on `./` (PreToolUse hooks don't pin CWD; the `./` form silently missed from subagents and worktrees).
+  - **Fail-open on infrastructure faults** (missing `yq`, jq parse errors, malformed config) with stderr warning; **fails closed** when `.loa.config.yaml` cannot be resolved at all — an unresolvable config means enforcement requirements can't be evaluated, which is the silent-skip mode the gate exists to block.
+  - **Trajectory visibility**: `adversarial-review.sh` now emits a trajectory entry with outcome `skipped_by_config` when disabled rather than exiting silently. Absence of reviews becomes observable in the audit trail.
+  - **Test coverage**: `.claude/tests/adversarial-review-gate.test.sh` — 11 cases covering block/allow paths, the structural bypass (`touch`), opt-out env var, yq-missing fail-open, walk-up config discovery, and unresolvable-config fail-closed. All passing.
+  - **Emergency override**: `LOA_ADVERSARIAL_REVIEW_ENFORCE=false` preserved for break-glass scenarios; `LOA_CONFIG_PATH_OVERRIDE` for tests and edge cases.
+
+### Fixed
+
+- **Stale test assertion** (60bdef7) — `tests/unit/gpt-review-hook.bats` referenced the deprecated `gpt-5.2` model; updated to `gpt-5.3-codex` to match the current dissenter default.
+
+## [1.93.0] — 2026-04-17 — Opus 4.7 Top-Review Migration
+
+### Changed
+
+- **Opus 4.7 promoted to top-review default** (cycle-082) — `opus` alias retargeted from `anthropic:claude-opus-4-6` to `anthropic:claude-opus-4-7` across all adapters (bash, Python, TypeScript, YAML). Affects Flatline Protocol primary, Bridgebuilder enriched review, red-team adapter advisor role, spiral advisor/judge. Pricing verified identical to 4.6 ($5/$25 per Mtok input/output); no cost-ledger or budget impact. Sonnet 4.6 executor default unchanged.
+  - **Backward compatibility**: `anthropic:claude-opus-4-6` registry entry retained in `.claude/defaults/model-config.yaml` + `.claude/data/model-permissions.yaml` as a pinnable fallback. Operators who want exact 4.6 behavior (historical baselines, rollback) can pin `opus: "anthropic:claude-opus-4-6"` in their `.loa.config.yaml` overrides; the Python/YAML resolution path will resolve to 4.6. Bash adapter layer retargets all legacy IDs (including `claude-opus-4-6`) to 4.7 for alias ergonomics, per PR #207 precedent.
+  - **Legacy alias retarget flag**: `claude-opus-4.5`, `claude-opus-4-5`, `claude-opus-4.1`, `claude-opus-4-1`, `claude-opus-4.0`, `claude-opus-4-0` (in both dotted and hyphenated forms) now resolve to Opus 4.7 via the bash alias layer. If you relied on a specific legacy model for historical benchmarks or compliance baselines, you MUST pin the canonical provider-prefixed form (`anthropic:claude-opus-4-6` etc.) via `.loa.config.yaml` — aliases are backward-compat convenience, not a reproducibility guarantee.
+  - **Rollback**: `git revert <merge-commit-sha>`. Single-PR, atomic, no state-mutation dependencies. Operators can also pin 4.6 in config as a no-maintainer-action override.
+  - **Deferred**: formal quality-benchmark harness (vision-010), auto-generated bash adapter maps from YAML (vision-011), role-based alias renaming (vision-012).
+
+## [1.92.0] — 2026-04-16 — Shell Hardening & QoL Cycle
+
+Eight PRs (#537–#544) addressing 6 tracked issues plus 2 codebase-wide QoL improvements. This cycle eliminated three classes of shell bugs, added two lint detectors for ongoing prevention, and closed all open spiral-harness reliability bugs.
+
+The central theme: **prevention infrastructure is more valuable than individual fixes.** Every bug fix in this cycle is paired with either a lint rule or a regression test that prevents the class from recurring.
+
+### Fixed
+
+- **Spiral stdout pollution** (#514, PR #537) — `cycle-workspace.sh init` JSON output leaked into `run_single_cycle`'s stdout return channel, terminating spirals after cycle 1 with malformed `stopping_condition: "{"`. One-line redirect + guard comment + 3 BATS tests. Full 18-call-site audit in disposition table.
+- **Harness budget boundary** (#515, PR #538) — Light profile $10 budget hit exactly at REVIEW→AUDIT boundary, blocking the audit quality gate. Three-layer fix: strict-greater comparison (`>` not `>=`), audit reserve ($2 reserved from effective cap for pre-AUDIT phases), raised light profile default from $10 to $12.
+- **Cache-manager secret false positives** (#530, PR #540) — Broad `secret.*[=:]` pattern false-positived on `{secret_scanning: true}`, `kind: Secret`, compound words. Replaced with two specific patterns plus `client_secret` literal. 14 BATS tests.
+- **Red team skipped in submodule mode** (#528, PR #543) — Template paths anchored to `PROJECT_ROOT` instead of `SCRIPT_DIR`. 106-line BATS test. Dispatched via spiral-harness.
+- **Harness silent exit** (#516, PR #544) — Added ERR trap handler (FATAL with LINENO), guarded `_record_action` with `|| true`, brace-group for `wc -c`. 112-line BATS test. Dispatched via spiral-harness.
+- **Vision-lib grep -c fallback** (PR #542) — 7 instances replaced with `awk`.
+
+### Added
+
+- **Shell lint: `grep -c || echo 0` detector** (#531, PR #539) — `.claude/scripts/lint-grep-c-fallback.sh`. 133 sites flagged. WARNING level. `--error`/`--scan-only` modes.
+- **Shell lint: `(( var++ ))` detector** (PR #541) — `.claude/scripts/lint-arithmetic-increment.sh`. 158 sites fixed across 26 scripts.
+
+### Changed
+
+- Light profile default budget: $10 → $12
+- `_check_budget` comparison: `>=` → `>` (phase can start at exact budget)
+
+### Issue Tracker
+
+- **Closed**: #514, #515, #516, #528, #530, #531, #509, #247
+- **Updated**: #443, #396, #310 (scopes narrowed)
+
+## [1.91.7] — 2026-04-16
+
+### Deprecated
+
+- **`/gpt-review` and `/toggle-gpt-review` commands soft-deprecated** (cycle-075 W2c) — scheduled for retirement **no earlier than 2026-07-15** (minimum 3-month runway per [clig.dev](https://clig.dev/#backwards-compatibility) guidance).
+  - Superseded by the **Flatline Protocol** (multi-model adversarial review — Opus + GPT-5.3-codex + optionally Gemini) which is integrated into every planning/review/audit cycle by default. No remaining automated callers.
+  - **Runtime warning** added to `gpt-review-api.sh` — prints a one-shot deprecation notice to stderr on every invocation that does real work. Suppressible via `LOA_SUPPRESS_GPT_REVIEW_DEPRECATION=1` for automation.
+  - **Prominent deprecation headers** added to `.claude/commands/gpt-review.md`, `.claude/commands/toggle-gpt-review.md`, and `.claude/protocols/gpt-review-integration.md`.
+  - **Failing test suites skipped** (`tests/unit/gpt-review-{api,prompts,request}.bats`) via `skip` in `setup()`. Set `LOA_RUN_DEPRECATED_TESTS=1` to attempt anyway. These tests had been broken since shortly after introduction (see cycle-075 triage for the archaeology — the script's original `main()` documented "no config check here" but the tests asserted config-based SKIPPED behavior; the tests were never wired to reality).
+  - **Phantom `context_files` entries removed** from `/plan-and-analyze`, `/architect`, `/sprint-plan`, `/implement` commands. They pointed to `.claude/context/gpt-review-active.md` which was deleted long ago.
+  - **`gpt-review-hook.sh` hook registration removed** from `.claude/settings.json`. The hook was a no-op with `gpt_review: null` config, but its registration was misleading.
+  - **Migration path**: use `/flatline-review` or rely on Flatline gates that run automatically inside `/run sprint-plan`, `/run-bridge`, and `/audit-sprint`. See `.claude/loa/reference/flatline-reference.md`.
+  - **If you rely on `/gpt-review`**, please let us know before sunset: run `/feedback` or file an issue at https://github.com/0xHoneyJar/loa/issues with the `deprecation` label.
+
+## [1.90.0] - 2026-04-15 — Config Transparency & Safety Enforcement
+
+Configuration now has the same documentation rigor as the features it controls. This release ships a comprehensive configuration reference (~1,000 lines covering every `.loa.config.yaml` option with ELI5 explanations, per-invocation costs, risks in both directions, and setup requirements), an interactive `/loa setup` onboarding wizard, and concrete safety enforcement for the security invariants that previously existed only as documentation warnings. It also closes a long-standing gap where all the framework's safety hooks had been defined but never wired into the settings file Claude Code actually reads — meaning spiral dispatch guards, destructive bash blockers, mutation loggers, and compact recovery had all been silently inert. They now fire at the platform level.
+
+The central tension resolved in this release: **documentation that describes dangerous options without enforcing safety invariants is a map that shows the minefield but leaves the gates open.** The new CONFIG_REFERENCE.md is the map; the runtime overrides and hook wiring are the gates.
+
+### Added
+
+- **`docs/CONFIG_REFERENCE.md`** — comprehensive configuration reference (cycle-073, [#510](https://github.com/0xHoneyJar/loa/issues/510), PR [#511](https://github.com/0xHoneyJar/loa/pull/511))
+  - Cost Matrix: per-invocation low/high, monthly estimates at moderate workflow, models used, for every cost-bearing feature (Flatline, Simstim, Spiral, Run Bridge, Post-PR Validation, Red Team, Continuous Learning, Prompt Enhancement)
+  - Decision Guide: Mermaid flowchart + plaintext fallback table routing users to a recommended feature set by budget tier, team size, and workflow pace
+  - Per-feature documentation follows a consistent pattern: ELI5 → version introduced → recommendation → default → cost warning → sub-keys table → cost details → risks-if-enabled → risks-if-disabled → setup requirements → see-also
+  - Safety hooks table documents the non-configurable platform-level guards (deny rules for `~/.ssh/`, `~/.aws/`, `~/.kube/`, `~/.gnupg/`)
+  - Pricing footnotes with verification date and "recheck before large commitments" warnings
+- **`/loa setup` onboarding wizard** — interactive configuration generator (cycle-073, PR [#511](https://github.com/0xHoneyJar/loa/pull/511))
+  - Detects available provider API keys (Anthropic, OpenAI, Google)
+  - Questionnaire: usage tier (solo / team / enterprise), budget comfort level, workflow preference (HITL / semi-auto / fully auto)
+  - Generates a recommended `.loa.config.yaml` matched to answers with explanations for each enabled feature
+  - Idempotent: re-running on an existing config shows current settings with recommendations rather than overwriting
+  - Refuses to set security invariants (e.g., `secret_scanning.enabled: false`) to unsafe values
+- **README cost warning** — prominent callout listing the three most expensive features (Flatline, Simstim, Spiral) with per-invocation cost ranges and instructions to run `/loa setup` before enabling autonomous modes
+- **Auto-sentinel hook** (`spiral-skill-sentinel.sh`) — creates `.run/spiral-dispatch-active` automatically when `/spiraling` is invoked, closing the last mechanical enforcement gap where agents could forget to activate the dispatch guard
+- **Pipeline profiles + scheduling for Spiral** (cycle-072, PR [#508](https://github.com/0xHoneyJar/loa/pull/508))
+  - Three profiles: `light` (~$8, no Flatline, Sonnet advisor), `standard` (~$12, Sprint Flatline only, Opus advisor), `full` (~$20–35, all 3 Flatline gates, Opus advisor)
+  - Auto-escalation: detects security/system/schema paths in task description or sprint plan and upgrades profile automatically
+  - Off-hours scheduling via `spiral-scheduler.sh` with configurable UTC windows
+  - Mechanical dispatch guard: Write/Edit to code files blocked unless the spiral harness has been dispatched
+
+### Fixed
+
+- **Safety hooks now actually fire** — all 11 hooks defined in `.claude/hooks/settings.hooks.json` were never merged into `.claude/settings.json` (the file Claude Code actually reads). Spiral dispatch guards, destructive bash blockers, team role guards, mutation loggers, compact recovery hooks, and run-mode stop guards have all been silently inert. Merged the full hook registration into the active settings file. Detection: the post-merge pipeline ran for PRs #507 and #508 without ever firing the stop guard it was supposed to enforce.
+- **`secret_scanning.enabled` is now a security invariant** — `flatline_protocol.secret_scanning.enabled: false` previously would have sent raw code to OpenAI for Flatline review. The docs said "never disable" but the config loader respected the user value. Runtime now overrides `false` → `true` with a CRITICAL log in both `adversarial-review.sh` and `flatline-snapshot.sh` (the latter unconditionally returns true). The config key remains for forward compatibility but cannot disable scanning.
+- **Default daily budget cap reduced from $500/day to $10/day** — the original default could burn $15,000/month if an autonomous workflow ran amok. Tiered guidance now recommends `$1/day` for solo $0–10/mo, `$10/day` for moderate use (new default), `$50/day` for active autonomous workflows.
+- **README/config consistency** — README claimed Flatline Protocol, Simstim, and Spiral were all "disabled by default"; actually Flatline and Simstim are `enabled: true` (gated on API keys) and only Spiral defaults to `false`. README now reflects this accurately.
+- **Dispatch guard documentation** — `/spiraling` invocations now carry explicit dispatch instructions. The skill loads as context, never as an orchestrator. (PR [#507](https://github.com/0xHoneyJar/loa/pull/507))
+- **Post-PR Flatline cost inconsistency** — sub-keys table said `~$1.50` while the Cost Warning said `~$5–15`. Reconciled to `~$5–15 depending on diff size`.
+- **Spiral safety "floor" misnomer** — `budget_cents` and `wall_clock_seconds` were documented as "floors" but are actually hard ceilings (values above are clamped). Renamed with explicit clamping semantics.
+- **Missing `prompt_enhancement` documentation** — referenced in Cost Matrix and Decision Guide but had no dedicated section. Added full section with sub-keys, costs, and risks.
+
+### Changed
+
+- `hounfour.metering.budget.daily_micro_usd` default: `500000000` ($500/day) → `10000000` ($10/day)
+- `hounfour.flatline_routing` documented as canonical key; `feature_flags.flatline_routing` documented as alias with precedence rule (top-level wins)
+- `hounfour.metering.budget.on_exceeded` behavior documented: `block` (hard-stop), `downgrade` (Opus→Sonnet), `warn` (log + continue)
+- Bridgebuilder `auto_triage_blockers` rate-limiting behavior documented: findings queue to `.run/bridge-pending-bugs.jsonl`, dispatched one at a time through `/bug` with circuit breaker (same finding 3× = HITL escalation)
+- Model names throughout CONFIG_REFERENCE are documented as runtime-configured via Hounfour, not hardcoded contracts
+
+### Security
+
+- Secret-scanning invariant now enforced in runtime (not just documented)
+- Hook wiring fix closes 11 dormant safety hooks that were silently not firing
+- `/loa setup` wizard refuses to set security invariants to unsafe values
+
+### Process
+
+This release was produced through the `/spiraling` autopoietic pipeline with kaironic Bridgebuilder convergence:
+
+- 3 Bridgebuilder iterations on PR [#511](https://github.com/0xHoneyJar/loa/pull/511)
+- Iteration 1: 11 findings (4 actionable, mean confidence 0.79) → all resolved
+- Iteration 2: 11 findings (4 actionable, mean confidence 0.61) → 3 resolved (SEC-001 runtime enforcement, RISK-001 documentation, DOC-003 ceiling clarification)
+- Iteration 3: 11 findings (3 actionable, mean confidence 0.73) → 3 resolved (missing prompt_enhancement section, budget ceiling clarification, on_exceeded behavior)
+- Convergence: 0 HIGH findings, remaining MEDIUMs are code-change proposals tracked in follow-up issues
+
+Issue [#512](https://github.com/0xHoneyJar/loa/issues/512) filed to automate this kaironic loop inside `spiral-harness.sh` — the harness currently runs Bridgebuilder as a terminal advisory step; the follow-up teaches it to iterate until convergence the way `/run-bridge` does standalone.
+
+### Versions Consolidated
+
+This release bundles changes from intermediate tags:
+
+- `v1.88.1` — PR [#507](https://github.com/0xHoneyJar/loa/pull/507): spiral dispatch guard documentation
+- `v1.89.0` — PR [#508](https://github.com/0xHoneyJar/loa/pull/508), cycle-072: pipeline profiles + scheduling + mechanical dispatch guard
+- `v1.89.1` — auto-sentinel hook
+- `v1.89.2` — hook wiring fix (safety hooks now actually fire)
+- `v1.90.0` — this release (cycle-073: config transparency + security enforcement + bundled changes)
+
+### References
+
+- Config reference: [`docs/CONFIG_REFERENCE.md`](docs/CONFIG_REFERENCE.md)
+- Setup wizard skill: [`.claude/skills/loa-setup/`](.claude/skills/loa-setup/)
+- Cycle-073 PRD/SDD/Sprint: [`grimoires/loa/prd.md`](grimoires/loa/prd.md), [`grimoires/loa/sdd.md`](grimoires/loa/sdd.md), [`grimoires/loa/sprint.md`](grimoires/loa/sprint.md)
+- Follow-up work: [#512](https://github.com/0xHoneyJar/loa/issues/512) (harness kaironic BB loop)
+
+---
+
+## [1.88.0] - 2026-04-15 — Spiral Autopoietic Orchestrator
+
+Loa can now improve itself. The Spiral Autopoietic Orchestrator (`/spiral`) is a self-improving meta-loop that dispatches full development cycles (plan, build, review, audit), harvests lessons from each cycle, and feeds them into the next. This release ships the complete infrastructure across 13 cycles of development (059–071), culminating in an evidence-gated harness architecture that was validated through A/B benchmarking of Sonnet vs Opus executor models.
+
+The key architectural insight: **LLMs skip quality gates when self-supervising.** Cycle-070's E2E test proved it — a monolithic `claude -p` session self-certified every gate in 4 seconds. The fix is harness engineering: bash controls sequencing, the LLM does scoped work within bounded tasks. Flatline, Review, and Audit run between phases in bash — the model cannot skip them because it is not the model's decision.
+
+### Added
+
+- **`/spiral` autopoietic meta-orchestrator** (cycles 063–068, [RFC-060](grimoires/loa/proposals/rfc-060-spiral.md), PRs [#490](https://github.com/0xHoneyJar/loa/pull/490)–[#495](https://github.com/0xHoneyJar/loa/pull/495))
+  - Full lifecycle: SEED → SIMSTIM → HARVEST → EVALUATE across multiple cycles
+  - Six composable stopping conditions: cycle budget, Flatline convergence, cost budget, wall-clock, HITL halt, quality gate failure
+  - State machine: INIT → RUNNING → COMPLETED | HALTED | FAILED with crash recovery
+  - Per-cycle workspace isolation (`.run/cycles/cycle-N/`) — eliminates single-slot artifact collision
+  - SEED phase queries Vision Registry for relevant speculative insights from prior cycles
+  - HARVEST phase feeds accepted Flatline findings and Bridgebuilder praise into the next cycle's context
+  - State-machine coalescer + `--archive-completed` for clean cycle transitions
+  - Config: `spiral.enabled: true` in `.loa.config.yaml` (opt-in, default off)
+
+- **Evidence-gated harness architecture** (cycles 070–071, [proposal](grimoires/loa/proposals/spiral-harness-architecture.md), PRs [#500](https://github.com/0xHoneyJar/loa/pull/500)–[#502](https://github.com/0xHoneyJar/loa/pull/502))
+  - Replaces monolithic `claude -p` dispatch with Phase-as-subprocess + Gate-as-script pattern
+  - Each phase is a separate `claude -p` call with scoped prompt and per-phase budget cap
+  - Quality gates run in bash between phases — Flatline multi-model review, independent Review session, independent Security Audit session, Bridgebuilder PR review
+  - **Flight recorder**: append-only JSONL (`flight-recorder.jsonl`) logging every action with sequence numbers, timestamps, sha256 checksums, costs, durations, and verdicts — complete audit trail for every cycle
+  - Evidence verification: artifact existence, minimum size, content-addressed checksums linking inputs → outputs across phases
+  - Circuit breaker: configurable max retries per gate (default 3), exits on repeated failure
+  - Budget enforcement: per-phase caps + cumulative tracking, exits before overspend
+  - Scripts: `.claude/scripts/spiral-harness.sh` (orchestrator), `.claude/scripts/spiral-evidence.sh` (verification + flight recorder)
+
+- **Advisor Strategy: Sonnet executes, Opus judges** (cycle-071 cost optimization, PR [#501](https://github.com/0xHoneyJar/loa/pull/501))
+  - Execution phases (PRD, SDD, Sprint Plan, Implementation) use Sonnet at ~5x cheaper tokens
+  - Judgment phases (Review, Security Audit) use Opus where reasoning quality matters
+  - Projected ~60% cost reduction vs all-Opus: ~$6.50/cycle (execution) + ~$4 (judgment) vs ~$16/cycle previously
+  - Config: `spiral.harness.executor_model: sonnet`, `spiral.harness.advisor_model: opus`
+  - Validated via [A/B benchmark](grimoires/loa/reports/spiral-harness-benchmark-report.md): equivalent output quality, both APPROVED first try, functionally identical code
+
+- **Vision Registry graduation: shadow_mode → active** (cycle-069, [#486](https://github.com/0xHoneyJar/loa/issues/486), PR [#496](https://github.com/0xHoneyJar/loa/pull/496))
+  - Visions captured during Bridgebuilder Design Reviews now feed into subsequent cycles' `/plan-and-analyze` context
+  - Query API: `vision-query.sh --tag`, `--status`, `--health` for registry health reporting
+  - Lifecycle management: `vision-lifecycle.sh promote|archive|reject|explore|propose|defer`
+  - Spiral SEED integration: queries relevant visions by tag to seed each cycle's planning context
+  - 190 tests across vision registry scripts
+
+- **HARVEST phase consumer** (cycles 059–061, PRs [#481](https://github.com/0xHoneyJar/loa/pull/481), [#484](https://github.com/0xHoneyJar/loa/pull/484))
+  - `lore-promote.sh`: vetted PRAISE findings from Bridgebuilder reviews → `grimoires/loa/lore/patterns.yaml`
+  - Wired into post-merge-orchestrator as a pipeline phase (continuous HARVEST)
+  - Bridge triage stats aggregator for cross-PR pattern analysis
+
+- **Spiral harness benchmark report** (PR [#505](https://github.com/0xHoneyJar/loa/pull/505))
+  - Data-driven comparison of Sonnet vs Opus as executor model across 3 flight recorder cycles
+  - Flatline consensus analysis across 6 planning gates with model agreement percentages
+  - Recommended defaults, budget sizing guide, and debugging checklist
+  - Full report: [`grimoires/loa/reports/spiral-harness-benchmark-report.md`](grimoires/loa/reports/spiral-harness-benchmark-report.md)
+
+### Fixed
+
+- **Flatline jq 1.7 parser error** in red-team/inquiry metrics merge (cycle-062, PR [#488](https://github.com/0xHoneyJar/loa/pull/488))
+- **Flatline review-mode wiring** — inquiry tests and default case handling (cycle-062, PR [#489](https://github.com/0xHoneyJar/loa/pull/489))
+- **Harness system zone override** — `--append-system-prompt` authorization for `.claude/scripts/` edits during authorized cycles (PR [#502](https://github.com/0xHoneyJar/loa/pull/502))
+- **Harness verdict grep** — case-insensitive broad match for APPROVED/CHANGES_REQUIRED in any Markdown formatting (PR [#501](https://github.com/0xHoneyJar/loa/pull/501))
+- **Harness budget sizing** — default raised from $10 to $15 after E2E testing proved $10 exhausts at Audit phase (PR [#501](https://github.com/0xHoneyJar/loa/pull/501))
+- **Flatline stderr capture** — redirected to evidence directory for debugging silent failures (PR [#501](https://github.com/0xHoneyJar/loa/pull/501))
+
+### Changed
+
+- **Simstim dispatch** now routes through `spiral-harness.sh` instead of monolithic `claude -p` when `spiral.harness.enabled: true` (default) — quality gates enforced by bash, not the LLM
+- **Vision Registry** default mode changed from `shadow_mode: true` to `shadow_mode: false` — visions now actively surface during planning
+- **Per-phase budget caps** are now configurable via `.loa.config.yaml` — `planning_budget_usd` ($1), `implement_budget_usd` ($5), `review_budget_usd` ($2), `audit_budget_usd` ($2)
+
+### Benchmark Data (Sonnet vs Opus Executor)
+
+| Metric | Sonnet Executor | Opus Executor |
+|--------|----------------|---------------|
+| Total budget | $12 | $12 |
+| Token efficiency | ~5x cheaper | baseline |
+| PRD Flatline | 2 HIGH, 2 BLOCKER, 70% agreement | 3 HIGH, 7 BLOCKER, 70% agreement |
+| SDD Flatline | 3 HIGH, 4 BLOCKER, 80% agreement | 1 HIGH, 3 BLOCKER, 40% agreement |
+| Sprint Flatline | 4 HIGH, 3 BLOCKER, 90% agreement | 2 HIGH, 5 BLOCKER, 80% agreement |
+| Implementation | 141 lines, APPROVED 1st try | 143 lines, APPROVED 1st try |
+| Audit | APPROVED 1st try | APPROVED 1st try |
+| Wall clock | ~18.5 min | ~18 min |
+
+**Verdict**: Sonnet is the right default executor. Quality is equivalent for bounded tasks. The evidence-gated architecture catches issues regardless of model — gates are mechanical, not model-dependent. Full analysis in [benchmark report](grimoires/loa/reports/spiral-harness-benchmark-report.md).
+
+### Known Issues / Future Work
+
+- **Benchmark covers simple tasks only.** The Sonnet-equivalent-to-Opus finding was validated on a well-scoped feature (add `--version` flag). Complex architectural work may benefit from Opus executor — revisit if Sonnet implementations start failing review at higher rates.
+- **No retry-from-CHANGES_REQUIRED path benchmarked.** Both runs achieved APPROVED on first try. The retry mechanism (max 3 attempts per gate) was validated in pre-benchmark test cycles but the recovery loop hasn't been load-tested.
+- **Budget tracking records caps, not actual token spend.** Flight recorder logs the per-phase budget allocation ($1, $5, etc.), not the actual API cost. Token-level cost tracking would require parsing Claude API response metadata.
+- **Arbiter is round-robin, not adaptive.** The Flatline arbiter rotates models (PRD→Opus, SDD→GPT, Sprint→Gemini) — it doesn't learn which model is best for which document type.
+
+### Migration Notes
+
+**Opt-in.** The spiral orchestrator is disabled by default (`spiral.enabled: false`). To enable:
+
+```yaml
+# .loa.config.yaml
+spiral:
+  enabled: true
+  max_budget_per_cycle_usd: 15     # minimum for clean run
+  max_total_budget_usd: 50         # hard stop across all cycles
+  harness:
+    enabled: true                   # evidence-gated pipeline (recommended)
+    executor_model: sonnet          # ~5x cheaper, equivalent quality
+    advisor_model: opus             # judgment quality for review/audit
+```
+
+All existing workflows (`/plan`, `/build`, `/review`, `/ship`, `/run`) continue to work unchanged. `/spiral` is a new command that wraps them in a self-improving loop.
+
+### Quality Gates
+
+| Cycle | What | Senior Review | Security Audit | Tests | PR |
+|-------|------|---------------|----------------|-------|----|
+| 059 | Lore promoter | Yes | Yes | - | [#481](https://github.com/0xHoneyJar/loa/pull/481) |
+| 060 | Post-merge HARVEST wiring | Yes | Yes | - | [#484](https://github.com/0xHoneyJar/loa/pull/484) |
+| 061 | Bridge triage aggregator | Yes | Yes | - | [#467](https://github.com/0xHoneyJar/loa/issues/467) |
+| 062 | Flatline jq/review-mode fixes | Yes | Yes | Yes | [#488](https://github.com/0xHoneyJar/loa/pull/488), [#489](https://github.com/0xHoneyJar/loa/pull/489) |
+| 063 | State coalescer | Yes | Yes | Yes | [#490](https://github.com/0xHoneyJar/loa/pull/490) |
+| 064 | Per-cycle workspace | Yes | Yes | Yes | [#491](https://github.com/0xHoneyJar/loa/pull/491) |
+| 065 | RFC-060 design | Yes | - | - | [#492](https://github.com/0xHoneyJar/loa/pull/492) |
+| 066 | /spiral MVP scaffolding | Yes | Yes | Yes | [#493](https://github.com/0xHoneyJar/loa/pull/493) |
+| 067 | /spiral completion | Yes | Yes | 66 tests | [#494](https://github.com/0xHoneyJar/loa/pull/494) |
+| 068 | Real /simstim dispatch | Yes | Yes | Yes | [#495](https://github.com/0xHoneyJar/loa/pull/495) |
+| 069 | Vision Registry graduation | Yes | Yes | 190 tests | [#496](https://github.com/0xHoneyJar/loa/pull/496) |
+| 070+071 | Harness architecture + E2E | Yes | Yes | E2E validated | [#500](https://github.com/0xHoneyJar/loa/pull/500)–[#502](https://github.com/0xHoneyJar/loa/pull/502) |
+| Benchmark | Sonnet vs Opus A/B | - | - | 3 flight recorder cycles | [#503](https://github.com/0xHoneyJar/loa/pull/503), [#504](https://github.com/0xHoneyJar/loa/pull/504) |
+
+### Source
+
+- Design: [RFC-060](grimoires/loa/proposals/rfc-060-spiral.md), [Harness Architecture Proposal](grimoires/loa/proposals/spiral-harness-architecture.md)
+- Benchmark: [Spiral Harness Benchmark Report](grimoires/loa/reports/spiral-harness-benchmark-report.md)
+- Issues: [#486](https://github.com/0xHoneyJar/loa/issues/486) (Vision Registry), [#481](https://github.com/0xHoneyJar/loa/issues/481) (Lore Promoter), [#484](https://github.com/0xHoneyJar/loa/issues/484) (HARVEST Wiring), [#483](https://github.com/0xHoneyJar/loa/issues/483) (RFC-060 Umbrella)
+- PRs: [#481](https://github.com/0xHoneyJar/loa/pull/481), [#484](https://github.com/0xHoneyJar/loa/pull/484), [#488](https://github.com/0xHoneyJar/loa/pull/488)–[#496](https://github.com/0xHoneyJar/loa/pull/496), [#500](https://github.com/0xHoneyJar/loa/pull/500)–[#505](https://github.com/0xHoneyJar/loa/pull/505)
+
+---
+
+## [1.78.0] - 2026-04-13 — Process Feedback Sweep
+
+Three independent framework improvements driven by observations from a recent multi-cycle development run. All three fix friction points where the framework's contracts were under-enforced or its failure modes were silent. Filed as issues [#473](https://github.com/0xHoneyJar/loa/issues/473), [#474](https://github.com/0xHoneyJar/loa/issues/474), [#475](https://github.com/0xHoneyJar/loa/issues/475); shipped as cycles 056/057/058. The post-merge auto-pipeline tagged each as its own minor bump (v1.76.0, v1.77.0, v1.78.0); this release rolls them together with curated narrative.
+
+### Fixed
+
+- **simstim `sync_run_mode` now cross-references git history** (#474, cycle-056, was v1.76.0)
+  - Previously the sync trusted `sprint-plan-state.json` unconditionally; when context compaction left the file at `state: "RUNNING"` despite git showing all sprint commits already landed, operators were forced to use the documented last-resort `--force-phase complete --yes` escape hatch.
+  - New `git_inferred_completion_check` helper greps `git log ${base_branch}..HEAD` for matching sprint commits using a configurable pattern (default `^feat\(sprint-`). When `commits_found >= sprints.total`, the sync auto-marks the state `JACKED_OUT` with a `git_inferred: true` flag and returns `synced: true, reason: "git_inferred_completion"` with diagnostic counts.
+  - Fallback only fires when state already says `RUNNING` AND commit count meets the threshold — existing behavior preserved for genuine in-flight runs and partial completions.
+  - Configurable via `.loa.config.yaml` `run_mode.git.{base_branch,sprint_commit_pattern}`.
+  - Tests: 5 BATS cases covering stale-with-commits, no-commits, partial commits, state-update assertion, sprints.list fallback.
+
+- **Bridge orchestrator silent-no-op now fails loud** (#473, cycle-058, was v1.78.0)
+  - When `bridge-orchestrator.sh --depth N` ran without an acting skill on the other end of the pipe, all `SIGNAL:*` lines fired in seconds and the script exited cleanly with `JACKED_OUT` state — but zero findings, zero sprints executed. Silent success is the worst kind of failure.
+  - Post-loop check: when `.run/bridge-reviews/` contains zero findings files after a full-depth run, exits `3` with an actionable error message listing three remediation paths. Default `DETECT_SILENT_NOOP=true`. Opt out via `--no-silent-noop-detect` (intended for tests/CI).
+
+### Added
+
+- **`/implement` enforces structural AC verification** (#475, cycle-057, was v1.77.0)
+  - Prior to this release, acceptance criteria were exhortation, not enforcement. SDD-implementation drift routinely escaped past `/implement` into `/review-sprint`, costing a full fix-loop round trip.
+  - `implementing-tasks/SKILL.md` now requires every AC from `sprint.md` to be walked verbatim in the `## AC Verification` section of `reviewer.md`, with status (`✓ Met` / `✗ Not met` / `⚠ Partial` / `⏸ [ACCEPTED-DEFERRED]`) and **file:line evidence** for every Met claim.
+  - `reviewing-code/SKILL.md` auto-returns `CHANGES_REQUIRED` when the AC Verification section is missing, when any AC shows `Not met` without a scope-split, when deferrals lack a matching NOTES.md Decision Log entry, or when evidence is vague ("implemented in src/", "done").
+  - `implementation-report.md` template includes the structured section with anti-vacuous-satisfaction examples (good vs bad evidence).
+  - Karpathy "goal-driven" enforcement: verifies the contract was honored, not just that code was written.
+  - No new scripts, no new tests — discipline enforced by the existing review skill flow.
+
+- **Bridge orchestrator `--single-iteration` re-entrancy flag** (#473, cycle-058)
+  - Processes exactly one iteration body and exits with state preserved; pair with `--resume --single-iteration` to advance step by step. Restores the mid-loop intercept point that was missing for skills wanting to act on `SIGNAL:*` lines per-iteration rather than letting all iterations fire in one shell invocation.
+  - Default `SINGLE_ITERATION=false` preserves the one-shot contract for existing callers.
+  - 7 BATS test cases covering flag recognition, defaults, banner/error text presence.
+
+### Changed
+
+- **`bridge-orchestrator.sh` exit codes documented**: code `3` is now reserved for "silent no-op detected". Codes `0`, `1`, `2` unchanged. Listed in both `--help` output and the file-header comment block.
+
+### Known Issues / Future Work
+
+- **Bridge orchestrator full re-entrant rewrite still pending** (noted in #473 commit). The `--single-iteration` flag narrows the intercept window to one iteration's worth of signals, but multiple `SIGNAL:*` lines still fire within a single iteration before the calling skill can act. The asymptote — emit one signal per invocation — remains valuable future work and would warrant its own RFC cycle.
+- **AC verification deferrals are agent-validated, not script-validated** (#475 audit). The check that `[ACCEPTED-DEFERRED]` has a matching Decision Log entry relies on the reviewing agent reading `NOTES.md`, consistent with how all other gates in Loa work (agent-executed).
+- **Git-aware sync count-based inference can fire early** (#474 docs). A sprint that produced multiple matching commits (e.g., review-feedback fix commits with the same prefix) can satisfy the count check before all sprints are truly done. Empirically rare under squash-merge workflows. Beads-based authoritative alternative noted as a future enhancement.
+
+### Migration Notes
+
+**None required.** All three changes are additive or default-preserving:
+- Git-aware sync only fires when state already says `RUNNING` (existing behavior preserved)
+- AC verification gate is enforced by the review skill — implementations that don't include the section get auto-rejected, but this matches the intent (the framework now catches drift instead of silently approving it)
+- Bridge orchestrator new flags default to off; silent-no-op detection defaults to on with opt-out
+
+### Quality Gates
+
+| Cycle | Senior Review | Cypherpunk Audit | Tests |
+|-------|---------------|------------------|-------|
+| 056 (#474) | APPROVED (3 concerns addressed: grep double-zero, dead --oneline, missing docs) | APPROVED (5/5 vectors clear) | 5/5 BATS |
+| 057 (#475) | APPROVED (combined review+audit) | APPROVED (no injection surface) | N/A (SKILL.md only) |
+| 058 (#473) | APPROVED (combined review+audit) | APPROVED (PROJECT_ROOT-bounded find, no injection) | 7/7 BATS |
+
+### Source
+
+- Cycles: 056, 057, 058
+- PRs: #476, #477, #478
+- Issues closed: #473, #474, #475
+
+---
+
+## [1.75.0] - 2026-04-13 — Cross-Repo Context + Lore Active Weaving
+
+Closes [#464](https://github.com/0xHoneyJar/loa/issues/464) Part A entirely. The last two "written but unwired" exports from `v1.72.0`'s multi-model Bridgebuilder pipeline are now actually invoked. Two config flags that were previously no-ops (`cross_repo.auto_detect`, `depth_5.lore_active_weaving`) now produce real behavior.
+
+### Added
+
+- **Cross-repo context wiring** (#471, cycle-055 sprint 2 — closes #464 A4)
+  - `core/cross-repo.ts` exports (`detectRefs`, `parseManualRefs`, `fetchCrossRepoContext`) are now invoked from the multi-model review path. Previously unit-tested but never reached at runtime.
+  - `auto_detect: true` scans the PR title for `owner/repo#NNN` references; `manual_refs: [...]` passes a configured list through `parseManualRefs`.
+  - `fetchCrossRepoContext` runs with the documented per-ref (5s) and total (30s) timeouts. Manual refs are hoisted out of the per-PR loop (cached once per run); only auto-detected refs are fetched per-item.
+  - Fetched issue/PR titles, bodies (truncated to 1KB at the source, then again at render), and labels are formatted into a `## Cross-Repository Context` markdown section with a 20KB byte budget and an "untrusted data" header. Failed fetches surface as a "Cross-Repo Fetch Failures" subsection rather than blocking the review.
+  - New `core/cross-repo-render.ts` keeps the template a pure formatter; main.ts handles the resolution + fetch + render flow.
+
+- **Lore active weaving** (#471, cycle-055 sprint 1 — closes #464 A5)
+  - New `core/lore-loader.ts`. `loadLoreEntries(path?, logger?)` shells out to `yq` (already a Loa hard prerequisite) to convert YAML → JSON, validates required fields (`id`, `term`, `short`, `context`), flattens object-form `source` (cycle/bridge_iteration/date) to a single string. Default path: `grimoires/loa/lore/patterns.yaml`; configurable via `depth.lore_path`.
+  - When `depth_5.lore_active_weaving: true`, lore entries are loaded once per run and threaded through `EnrichmentContext` to `template.buildEnrichedSystemPrompt()`. The template's `lore_active_weaving` gate (which had been waiting for entries to actually arrive) now fires.
+  - Degrades gracefully: missing file → `[]` + warning, malformed entries → skipped per-entry with explicit logs, yq subprocess failure → throws with actionable message that the orchestrator catches and continues without lore.
+
+- **`tests/unit/red-team-model-adapter.bats`** (v1.74.1, #469) — 6-test regression suite catching the original mock-mode-only bug, with negative-and-positive assertions guarded by `bash -c` positional-args (injection-safe across BATS versions).
+
+- **`red_team:` block in `.loa.config.yaml.example`** (v1.74.1, #469) — was absent; mounted projects had no template for enabling the skill.
+
+- **Bridgebuilder unit test coverage** (#471) — 16 new tests (8 lore-loader + 8 cross-repo-render). Bridgebuilder skill is now at 609/609 passing.
+
+### Fixed
+
+- **Red Team live model invocation** (v1.74.1, #469, sprint-bug-102) — `invoke_live()` was a hardcoded stub; wired to `.claude/scripts/model-invoke` (cheval.py). Pipeline now passes explicit `--live`/`--mock` flag to all three adapter call sites and resolves the default mode via `hounfour.flatline_routing` + provider API key presence. Mock mode emits an unmissable WARNING banner so fixture data can't be mistaken for live analysis.
+
+- **Manual cross-repo refs no longer re-fetched per PR** (#471, Bridgebuilder pass-1 FIND-002) — surfaced by the multi-model review of this PR itself; manual refs were originally inside the per-PR loop, making N×M redundant network calls. Hoisted above the loop with per-item dedup against the manual cache.
+
+- **Lore-loader test now skips cleanly when `yq` is missing** (#471, Bridgebuilder pass-1 FIND-007) — `before` hook probes `yq --version` once; `beforeEach` skips with install instructions. Replaces opaque `execFile` errors in CI containers without yq.
+
+### Changed
+
+- **Post-PR Bridgebuilder Review enabled on this repository** (v1.74.0, #468, cycle-054, Option A from #467) — `post_pr_validation.phases.bridgebuilder_review.enabled: true` in `.loa.config.yaml`. The kaironic-convergence loop from `v1.73.0` now runs automatically after every PR's `FLATLINE_PR` phase. False positives accepted during experimental rollout per HITL design decision logged in #467.
+
+### Known Issues
+
+- **Auto-detection scans PR title only** (#471 FIND-006) — `PullRequest` port type does not carry the body field. Requires port-type extension to scan body too. Filed as follow-up.
+- **`lore_path` path-traversal defense-in-depth** (#469 + #471 cycle-055 audit) — config is operator-controlled (`.loa.config.yaml`), not user input, so accepted as informational. A path-jail check could be added in a follow-up micro-PR.
+- **Pre-existing BATS Tests failures on `main`** persist (`adversarial-review.bats`, `butterfreezone-validate.bats`, `gpt-review-api.bats`). None relate to this release.
+- **Legacy `bd` hooks** in `.git/hooks/pre-commit` and `post-merge` for users who installed before the `br` (beads_rust) migration. Hooks are per-clone, so `install-br.sh` cannot rewrite them. Manual fix:
+  ```bash
+  sed -i 's/\bbd\b/br/g' .git/hooks/pre-commit .git/hooks/post-merge
+  sed -i 's|br import -i "$BEADS_DIR/issues.jsonl"|br sync --import-only|' .git/hooks/post-merge
+  ```
+
+### Migration Notes
+
+**None required.** All changes are additive or opt-in:
+- `cross_repo.auto_detect: false` and `depth_5.lore_active_weaving: false` defaults preserve existing behavior.
+- `red_team.enabled: false` in the new config example template (opt-in).
+- `post_pr_validation.phases.bridgebuilder_review.enabled: true` only applies to this repository's `.loa.config.yaml`; downstream consumers retain their existing settings.
+
+### Quality Gates
+
+| Gate | v1.74.1 (#469) | v1.75.0 (#471) |
+|------|----------------|----------------|
+| Senior tech-lead review | APPROVED | APPROVED (with noted concerns addressed) |
+| Cypherpunk security audit | APPROVED | APPROVED (2 LOW informational, no blockers) |
+| Bridgebuilder convergence | FLATLINE @ pass 4 | FLATLINE @ pass 2 (HIGH 1→0) |
+| Test suite | 609/609 | 609/609 |
+
+The v1.75.0 cycle's Bridgebuilder dogfood pass surfaced its own dead code (the `dedupeRefs` helper became unused after the FIND-002 hoisting fix replaced its caller) — caught and removed before merge. Clean closed-loop demonstration.
+
+### Source
+
+- PRs: #468, #469, #470, #471
+- Refs: #464 (closed Part A), #467 Option C (completed), #467 Option A (in production observation)
+
+---
+
+## [1.74.1] - 2026-04-13 — Closed-Loop Adversarial Review
+
+Completes the multi-cycle arc that began with `v1.72.0` (multi-model Bridgebuilder) and `v1.73.0` (Amendment 1 post-PR loop). Both adversarial review systems — Bridgebuilder and Red Team — now actually run end-to-end against live models.
+
+### Fixed
+
+- **Red Team live model invocation** (#469, sprint-bug-102)
+  - `invoke_live()` in `.claude/scripts/red-team-model-adapter.sh` was a hardcoded stub returning `exit 1` with a "requires cheval.py (Hounfour integration)" error, even though `cheval.py` has been in-production use by Flatline and Bridgebuilder since `v1.65.0`. Wired to `.claude/scripts/model-invoke` with role→agent and model→provider:model-id mapping (mirrors `flatline-orchestrator.sh` pattern).
+  - Pipeline (`.claude/scripts/red-team-pipeline.sh`) now propagates an explicit `--live`/`--mock` flag to every adapter invocation, resolved once via `resolve_adapter_mode()`. Previously all three call sites (phases 1/2/4) relied on the adapter's silent default, which was hardcoded to `mock`.
+  - Config-driven default mode detection: `live` when `hounfour.flatline_routing: true` AND `model-invoke` is executable AND at least one provider API key is present (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GEMINI_API_KEY`). Falls back to `mock` otherwise — safe default prevents accidental API billing on half-configured installs.
+  - Unmissable WARNING banner on stderr whenever mock mode runs, with the three steps to enable live mode. Pipeline also emits a mode notice so users see the banner even when child stderr is suppressed.
+  - Impact: Users running `/red-team` against their SDD now actually receive real adversarial analysis from the configured model, not fixture data from Loa's own development history.
+
+### Added
+
+- **`red_team:` block in `.loa.config.yaml.example`** (#469) — was absent; mounted projects had no template for enabling the skill.
+- **`tests/unit/red-team-model-adapter.bats`** (#469) — 6 BATS regression tests covering stub removal, explicit mode propagation, banner emission, config documentation, explicit `--mock` honoring, and self-test integrity. Post-merge Bridgebuilder 4-pass convergence validated the suite.
+
+### Changed
+
+- **Post-PR Bridgebuilder Review enabled on this repository** (#468, cycle-054, Option A from #467) — `post_pr_validation.phases.bridgebuilder_review.enabled: true` in `.loa.config.yaml`. The iterative kaironic-convergence loop from `v1.73.0` now runs automatically after every PR's `FLATLINE_PR` phase. False positives are accepted during experimental rollout per HITL design decision logged in #467.
+- **Stale `dist/` synchronized** (#468) — `.claude/skills/bridgebuilder-review/resources/dist/` was out of date when `v1.72.0` merged; rebuilt and committed.
+
+### Known Issues
+
+- **BATS Tests suite status on `main`**: Pre-existing failures in `adversarial-review.bats`, `butterfreezone-validate.bats`, `gpt-review-api.bats`, and others. None relate to this release. Tracked as technical debt; not introduced by #468/#469.
+- **`.git/hooks/pre-commit` and `.git/hooks/post-merge`** still reference the legacy `bd` binary for users who migrated to `br` (beads_rust) before the hook scripts were updated. These hooks are per-clone (not version-controlled), so `install-br.sh` cannot rewrite them. Manual fix: replace `bd` with `br` in both files, and `bd import -i` with `br sync --import-only`. A future version of `install-br.sh` should emit a migration warning.
+
+### Migration Notes
+
+None required. All changes are additive or opt-in:
+- `red_team.enabled: false` in the new config example template (opt-in).
+- `post_pr_validation.phases.bridgebuilder_review.enabled: true` only applies to this repository's `.loa.config.yaml`; downstream consumers retain their existing settings.
+- `invoke_live` signature extended with new positional args (`prompt_file`, `output_file`, `budget`, `timeout`) — the adapter's external CLI interface (`--role`, `--model`, `--prompt-file`, `--output-file`, `--mock`/`--live`) is unchanged.
+
+### Quality Gates
+
+| Gate | Status |
+|------|--------|
+| Senior tech-lead review | APPROVED (with noted concerns addressed) |
+| Cypherpunk security audit | APPROVED (2 informational LOW, 1 pre-existing) |
+| Bridgebuilder post-PR convergence | FLATLINE at pass 4 — 0 HIGH, 2 PRAISE |
+
+Full convergence trajectory: `grimoires/loa/a2a/trajectory/bridge-triage-2026-04-13.jsonl`.
+
+### Source
+
+- PRs: #468, #469
+- Commits: 2 on main (1 fix, 1 feat)
+- Refs: #464, #467
+
+---
+
+## [1.67.0] - 2026-03-25
+
+### Added
+
+- **cycle-052**: DX Hardening — User-Facing Release Communication (#460)
+  - `classify-commit-zone.sh`: Three-Zone commit classification for release pipeline (system-only, state-only, app, mixed-internal)
+  - `generate-release-summary.sh`: Emoji-prefixed "What's New" summaries from CHANGELOG/git log — max 5 lines, filters internal changes
+  - `/update-loa` now shows friendly summary after successful update (configurable via `update_loa.friendly_summary`)
+  - `semver-bump.sh --downstream`: Excludes System/State-only commits from downstream version bumps
+  - `post-merge-orchestrator.sh --downstream`: Zone-aware changelog and release note filtering with auto-detection
+  - 36 new tests (16 classify + 14 summary + 6 downstream bump)
+
+### Fixed
+
+- Release notes on downstream projects no longer include Loa framework cycles and System Zone changes (#394)
+
+## [1.66.1] - 2026-03-25
+
+### Fixed
+
+- **collect-trace.sh**: Three bash strict mode failures — empty array expansion, invalid JSON in `--argjson`, unbound `PATTERNS_MATCHED` array (#444, #459)
+
+### Changed
+
+- **shell-conventions.md** (v2): Added bash strict mode safety patterns — empty array guards, array/string initialization, JSON construction validation, arithmetic with `set -e`
+
+## [1.66.0] - 2026-03-24
+
+### Added
+
+- **cycle-051**: First-Class Construct Support — RFC #452 (#454)
+  - **Construct Index** (L1): `construct-index-gen.sh` generates `.run/construct-index.yaml` from installed packs with capability aggregation, composition pre-computation, and `--validate` flag for schema integrity
+  - **Name Resolution** (L2): `construct-resolve.sh` with 3-tier resolution (slug → name → command) and collision warnings. CLAUDE.md conditional instruction for agent-side activation
+  - **Composition as Pipe** (L3): `compose` subcommand detects writes/reads path overlap between constructs. Honest messaging when no material chain exists
+  - **Personal Operator OS** (L4): `archetype-resolver.sh` with activate/deactivate/status/greeting. User-defined modes in `.loa.config.yaml` mapping to construct compositions. Gate merging: most-restrictive-wins
+  - **Ambient Protocol Presence** (L5): Opt-in session greeting showing constructs, compositions, entry points, open threads. Thread tracking in `.run/open-threads.jsonl` with 30-day auto-archive
+  - 56 new tests across 7 suites (construct-index-gen, construct-resolve, archetype-resolver, ambient-greeting, open-threads, cross-platform-validation, construct-e2e)
+
+### Fixed
+
+- **constructs-install.sh**: Prefer local source clone over stale registry pack (#449, #453)
+  - `find_local_source()` checks for `manifest.json` OR `construct.yaml` (previously construct.yaml only — most packs don't have it)
+  - Freshness uses `find -newer` on any file (not just construct.yaml mtime — catches fixes in any file)
+  - Staleness warning (stderr) when installed pack >7 days old
+  - Configurable local search paths via `.loa.config.yaml`
+  - 6 new tests
+
+### Security
+
+- Bridgebuilder two-pass review on both PRs
+- Deep ecosystem review connecting to supply chain integrity patterns
+- All findings addressed before merge
+
 ## [1.65.0] - 2026-03-23
 
 ### Added
@@ -56,6 +1125,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ATK-011: Blocks `unset LOA_TEAM_MEMBER` and `env -u` privilege escalation in Agent Teams
 
 ## [Unreleased]
+
+## [1.94.0] — 2026-04-17
+
+## [1.91.7] — 2026-04-16
 
 ### Added
 
