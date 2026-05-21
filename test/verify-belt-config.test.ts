@@ -23,9 +23,18 @@ describe("verify-belt-config", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("scopes verification to exactly the two Mibera belt contracts", () => {
-    expect(BELT_CONTRACTS).toEqual(["MiberaLiquidBacking", "MiberaCollection"]);
-    expect(BELT_CHAIN_ID).toBe(80094);
+  it("covers all 14 belt contracts across 4 chains (multi-chain footprint)", () => {
+    const names = new Set(BELT_CONTRACTS.map((c) => c.name));
+    const chains = new Set(BELT_CONTRACTS.map((c) => c.chainId));
+    expect(names.size).toBe(14);
+    expect([...chains].sort((a, b) => a - b)).toEqual([1, 10, 8453, 80094]);
+    // TrackedErc721 is referenced on BOTH Berachain (80094) and Optimism (10).
+    expect(
+      BELT_CONTRACTS.filter((c) => c.name === "TrackedErc721")
+        .map((c) => c.chainId)
+        .sort((a, b) => a - b),
+    ).toEqual([10, 80094]);
+    expect(BELT_CHAIN_ID).toBe(80094); // back-compat export
   });
 
   it("fails when a field_selection field is removed — the silent-data-loss case (SDD §5.1)", () => {
@@ -105,7 +114,7 @@ describe("verify-belt-config", () => {
   });
 
   it("extracts identical contract definitions from belt and monolith", () => {
-    for (const name of BELT_CONTRACTS) {
+    for (const { name } of BELT_CONTRACTS) {
       const beltDef = extractContractDefinition(beltText, name);
       const monoDef = extractContractDefinition(monoText, name);
       expect(beltDef, `${name} present in belt config`).not.toBeNull();
@@ -114,12 +123,12 @@ describe("verify-belt-config", () => {
     }
   });
 
-  it("extracts matching chain refs (address + start_block) for both contracts", () => {
-    for (const name of BELT_CONTRACTS) {
-      const beltRef = extractChainContractRef(beltText, BELT_CHAIN_ID, name);
-      const monoRef = extractChainContractRef(monoText, BELT_CHAIN_ID, name);
-      expect(beltRef).not.toBeNull();
-      expect(monoRef).not.toBeNull();
+  it("extracts matching chain refs (address + start_block) per contract per chain", () => {
+    for (const { name, chainId } of BELT_CONTRACTS) {
+      const beltRef = extractChainContractRef(beltText, chainId, name);
+      const monoRef = extractChainContractRef(monoText, chainId, name);
+      expect(beltRef, `${name} ref on chain ${chainId} in belt`).not.toBeNull();
+      expect(monoRef, `${name} ref on chain ${chainId} in monolith`).not.toBeNull();
       expect(beltRef).toEqual(monoRef);
     }
   });

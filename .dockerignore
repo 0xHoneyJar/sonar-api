@@ -11,3 +11,6 @@ envio-env.d.ts
 grimoires
 *.log
 .DS_Store
+# Never bake local env files into the image (COPY . . would otherwise include them).
+.env
+.env.*

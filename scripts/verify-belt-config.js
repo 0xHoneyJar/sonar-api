@@ -24,14 +24,37 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-/** Belt contracts whose field_selection fidelity is enforced. */
+/**
+ * Belt contracts whose fidelity is enforced, each tagged with the chain it is
+ * referenced on. Event-definition (events + field_selection) fidelity is checked
+ * once per unique contract name (chain-agnostic, vs the monolith top-level def);
+ * address + start_block fidelity is checked per (contract, chain). TrackedErc721
+ * is referenced on TWO chains (Berachain lore/fractures + Optimism lore), so it
+ * appears twice — its def is checked once, its address/start_block per chain.
+ */
 export const BELT_CONTRACTS = [
-  'MiberaLiquidBacking', 'MiberaCollection',
-  // Mibera ecosystem (Berachain) — score-api footprint extension
-  'PaddleFi', 'BgtToken', 'CubBadges1155', 'CandiesMarket1155', 'GeneralMints', 'TrackedErc721',
+  // Berachain (80094) — score-api footprint
+  { name: 'MiberaLiquidBacking', chainId: 80094 },
+  { name: 'MiberaCollection', chainId: 80094 },
+  { name: 'PaddleFi', chainId: 80094 },
+  { name: 'BgtToken', chainId: 80094 },
+  { name: 'CubBadges1155', chainId: 80094 },
+  { name: 'CandiesMarket1155', chainId: 80094 },
+  { name: 'GeneralMints', chainId: 80094 },
+  { name: 'TrackedErc721', chainId: 80094 },
+  // Base (8453)
+  { name: 'FriendtechShares', chainId: 8453 },
+  { name: 'TrackedErc20', chainId: 8453 },
+  // Optimism (10)
+  { name: 'MiberaSets', chainId: 10 },
+  { name: 'MiberaZora1155', chainId: 10 },
+  { name: 'MirrorObservability', chainId: 10 },
+  { name: 'TrackedErc721', chainId: 10 },
+  // Ethereum (1)
+  { name: 'MiladyCollection', chainId: 1 },
 ];
 
-/** Berachain mainnet chain id — the belt's only network. */
+/** @deprecated belt is now multi-chain — use BELT_CONTRACTS[].chainId. Kept for back-compat. */
 export const BELT_CHAIN_ID = 80094;
 
 /**
@@ -232,36 +255,40 @@ export function verifyBeltConfig(opts = {}) {
   const monoText = monolithConfigText ?? readFileSync(monolithConfigPath, 'utf8');
   const mismatches = [];
 
-  for (const name of BELT_CONTRACTS) {
-    // --- contract definition: events + field_selection ---
-    const beltDef = extractContractDefinition(beltText, name);
-    const monoDef = extractContractDefinition(monoText, name);
-    if (monoDef === null) {
-      mismatches.push(`${name}: not found in monolith ${monolithConfigPath} — cannot verify`);
-    } else if (beltDef === null) {
-      mismatches.push(`${name}: missing from belt ${beltConfigPath} contracts: definitions`);
-    } else if (beltDef !== monoDef) {
-      mismatches.push(
-        `${name}: contract definition / field_selection differs from config.yaml${firstDiff(monoDef, beltDef)}`,
-      );
+  const seenDefs = new Set();
+  for (const { name, chainId } of BELT_CONTRACTS) {
+    // --- contract definition: events + field_selection (chain-agnostic; once per name) ---
+    if (!seenDefs.has(name)) {
+      seenDefs.add(name);
+      const beltDef = extractContractDefinition(beltText, name);
+      const monoDef = extractContractDefinition(monoText, name);
+      if (monoDef === null) {
+        mismatches.push(`${name}: not found in monolith ${monolithConfigPath} — cannot verify`);
+      } else if (beltDef === null) {
+        mismatches.push(`${name}: missing from belt ${beltConfigPath} contracts: definitions`);
+      } else if (beltDef !== monoDef) {
+        mismatches.push(
+          `${name}: contract definition / field_selection differs from config.yaml${firstDiff(monoDef, beltDef)}`,
+        );
+      }
     }
 
-    // --- chain reference: address + start_block ---
-    const beltRef = extractChainContractRef(beltText, BELT_CHAIN_ID, name);
-    const monoRef = extractChainContractRef(monoText, BELT_CHAIN_ID, name);
+    // --- chain reference: address + start_block (per contract, per chain) ---
+    const beltRef = extractChainContractRef(beltText, chainId, name);
+    const monoRef = extractChainContractRef(monoText, chainId, name);
     if (monoRef === null) {
-      mismatches.push(`${name}: not referenced on chain ${BELT_CHAIN_ID} in monolith — cannot verify`);
+      mismatches.push(`${name}: not referenced on chain ${chainId} in monolith — cannot verify`);
     } else if (beltRef === null) {
-      mismatches.push(`${name}: missing from belt chain ${BELT_CHAIN_ID} contracts:`);
+      mismatches.push(`${name}: missing from belt chain ${chainId} contracts:`);
     } else {
       if (beltRef.address.join(',') !== monoRef.address.join(',')) {
         mismatches.push(
-          `${name}: address differs — belt [${beltRef.address.join(', ')}] vs config.yaml [${monoRef.address.join(', ')}]`,
+          `${name} (chain ${chainId}): address differs — belt [${beltRef.address.join(', ')}] vs config.yaml [${monoRef.address.join(', ')}]`,
         );
       }
       if (beltRef.startBlock !== monoRef.startBlock) {
         mismatches.push(
-          `${name}: start_block differs — belt ${beltRef.startBlock} vs config.yaml ${monoRef.startBlock}`,
+          `${name} (chain ${chainId}): start_block differs — belt ${beltRef.startBlock} vs config.yaml ${monoRef.startBlock}`,
         );
       }
     }
@@ -273,8 +300,10 @@ export function verifyBeltConfig(opts = {}) {
 function main() {
   const result = verifyBeltConfig();
   if (result.ok) {
+    const names = new Set(BELT_CONTRACTS.map((c) => c.name));
+    const chains = new Set(BELT_CONTRACTS.map((c) => c.chainId));
     console.log(
-      `✓ verify-belt-config: ${BELT_CONTRACTS.length} belt contracts field-identical to config.yaml`,
+      `✓ verify-belt-config: ${names.size} belt contracts across ${chains.size} chains field-identical to config.yaml`,
     );
     process.exit(0);
   }

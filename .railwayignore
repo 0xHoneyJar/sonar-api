@@ -17,3 +17,6 @@ generated
 envio-env.d.ts
 *.log
 .DS_Store
+# Never upload local env files into the build context.
+.env
+.env.*
