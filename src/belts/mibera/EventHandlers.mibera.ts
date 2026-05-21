@@ -48,6 +48,7 @@ import { handleCandiesMintSingle, handleCandiesMintBatch } from "../../handlers/
 import { handleGeneralMintTransfer } from "../../handlers/mints";
 import { handleVmMinted } from "../../handlers/vm-minted";
 import { handleTrackedErc721Transfer } from "../../handlers/tracked-erc721";
+import { handleSeaportOrderFulfilled } from "../../handlers/seaport"; // Berachain: Mibera secondary sales → MintActivity SALE/PURCHASE (filtered to Mibera)
 
 // ── Mibera ecosystem handlers (Base / Optimism / Ethereum) — multi-chain extension.
 // Same DISS-001 boundary: each module's only `generated` value-imports are its own
@@ -83,6 +84,7 @@ export {
   handleGeneralMintTransfer,
   handleVmMinted,
   handleTrackedErc721Transfer,
+  handleSeaportOrderFulfilled,
   handleFriendtechTrade,
   handleTrackedErc20Transfer,
   handleMiberaSetsSingle,

@@ -115,10 +115,12 @@ contracts:
         field_selection:
           transaction_fields:
             - hash
+            - value  # BERA paid → CandiesBacking.amount (handler skips backing when tx.value absent)
       - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
         field_selection:
           transaction_fields:
             - hash
+            - value  # BERA paid → CandiesBacking.amount
   - name: GeneralMints
     handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
@@ -134,6 +136,15 @@ contracts:
     handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Seaport — OpenSea marketplace. Handler filters OrderFulfilled to Mibera (TRACKED_COLLECTIONS)
+  # → MintActivity SALE/PURCHASE (score-api mibera_buyer/seller/sales). Berachain-only in this belt.
+  - name: Seaport
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8,address,uint256,uint256)[] offer, (uint8,address,uint256,uint256,address)[] consideration)
         field_selection:
           transaction_fields:
             - hash
@@ -263,6 +274,11 @@ chains:
           - 0x24F4047d372139de8DACbe79e2fC576291Ec3ffc # fracture #10: mireveal_8_8
           - 0xFc2D7eBFEB2714fCE13CaF234A95dB129ecC43Da # apdao_seat
         start_block: 4029732 # fracture #1 deployment (earliest TrackedErc721 on Berachain)
+      # Seaport v1.6 — Mibera secondary sales (handler filters OrderFulfilled to Mibera 0x6666).
+      - name: Seaport
+        address:
+          - "0x0000000000000068F116a894984e2DB1123eB395" # Seaport v1.6
+        start_block: 3837808 # MiberaCollection deployment — no relevant Mibera trades before
 
   # ── Base (8453) — FriendtechShares + TrackedErc20(MiberaMaker333). DATA SOURCE: HyperSync.
   # friend.tech Trade volume is enormous (event args unindexed → ALL Trades fetched); free

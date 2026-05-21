@@ -42,6 +42,7 @@ export const BELT_CONTRACTS = [
   { name: 'CandiesMarket1155', chainId: 80094 },
   { name: 'GeneralMints', chainId: 80094 },
   { name: 'TrackedErc721', chainId: 80094 },
+  { name: 'Seaport', chainId: 80094 }, // Mibera secondary sales (OpenSea)
   // Base (8453)
   { name: 'FriendtechShares', chainId: 8453 },
   { name: 'TrackedErc20', chainId: 8453 },

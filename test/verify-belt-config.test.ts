@@ -23,10 +23,10 @@ describe("verify-belt-config", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("covers all 14 belt contracts across 4 chains (multi-chain footprint)", () => {
+  it("covers all 15 belt contracts across 4 chains (multi-chain footprint)", () => {
     const names = new Set(BELT_CONTRACTS.map((c) => c.name));
     const chains = new Set(BELT_CONTRACTS.map((c) => c.chainId));
-    expect(names.size).toBe(14);
+    expect(names.size).toBe(15);
     expect([...chains].sort((a, b) => a - b)).toEqual([1, 10, 8453, 80094]);
     // TrackedErc721 is referenced on BOTH Berachain (80094) and Optimism (10).
     expect(
