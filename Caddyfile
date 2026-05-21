@@ -4,6 +4,13 @@
 	admin off
 	# caddy-ratelimit (module compiled in via Dockerfile.gateway)
 	order rate_limit before reverse_proxy
+	# Railway terminates TLS at its edge + proxies over the private network, so the
+	# immediate peer is a Railway proxy IP. Trust private-range peers so {client_ip}
+	# resolves the real caller from X-Forwarded-For (else rate-limit keys on the proxy).
+	servers {
+		trusted_proxies static private_ranges
+		client_ip_headers X-Forwarded-For
+	}
 }
 
 :{$PORT:8080} {
@@ -17,7 +24,7 @@
 	# S3-T2 / AC-12: per-IP request rate limit (120 req/min/IP).
 	rate_limit {
 		zone perip {
-			key {remote_host}
+			key {client_ip}
 			events 120
 			window 1m
 		}
