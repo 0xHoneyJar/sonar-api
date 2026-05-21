@@ -49,6 +49,16 @@ import { handleGeneralMintTransfer } from "../../handlers/mints";
 import { handleVmMinted } from "../../handlers/vm-minted";
 import { handleTrackedErc721Transfer } from "../../handlers/tracked-erc721";
 
+// ── Mibera ecosystem handlers (Base / Optimism / Ethereum) — multi-chain extension.
+// Same DISS-001 boundary: each module's only `generated` value-imports are its own
+// belt-config contract(s) + schema entities. Contract defs are in config.mibera.yaml.
+import { handleFriendtechTrade } from "../../handlers/friendtech"; // Base: FriendtechShares
+import { handleTrackedErc20Transfer } from "../../handlers/tracked-erc20"; // Base: TrackedErc20 (MiberaMaker333)
+import { handleMiberaSetsSingle, handleMiberaSetsBatch } from "../../handlers/mibera-sets"; // OP: MiberaSets
+import { handleMiberaZoraSingle, handleMiberaZoraBatch } from "../../handlers/mibera-zora"; // OP: MiberaZora1155
+import { handleWritingEditionPurchased } from "../../handlers/mirror-observability"; // OP: MirrorObservability
+import { handleMiladyCollectionTransfer } from "../../handlers/milady-collection"; // ETH: MiladyCollection
+
 // Re-export the handler consts so the imports above are "used" — registration is
 // the side-effect of importing the modules. Mirrors src/EventHandlers.ts.
 export {
@@ -73,4 +83,12 @@ export {
   handleGeneralMintTransfer,
   handleVmMinted,
   handleTrackedErc721Transfer,
+  handleFriendtechTrade,
+  handleTrackedErc20Transfer,
+  handleMiberaSetsSingle,
+  handleMiberaSetsBatch,
+  handleMiberaZoraSingle,
+  handleMiberaZoraBatch,
+  handleWritingEditionPurchased,
+  handleMiladyCollectionTransfer,
 };
