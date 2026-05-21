@@ -358,3 +358,20 @@
 
 None. (bd-1ra resolved 2026-05-20 — `origin` + `upstream` remotes configured;
 `indexer-belt-rebuild` pushed; draft PR #13 open on `0xHoneyJar/sonar-api`.)
+
+## NEXT PHASE — Mibera ecosystem sovereign indexer (score-api restoration) — DIRECTION LOCKED 2026-05-20
+- **Thesis (operator):** own the Mibera/THJ ecosystem onchain data; sync-speed = the unlock; no SaaS rent;
+  build our own Dune later. The **ecosystem's data layer**, not a "score-api indexer." (memory: sovereign-data-thesis)
+- **Scope (Zerker-confirmed):** 4 chains (1 ETH · 10 OP · 8453 Base · 80094 Bera) / ~13 contracts / 12 entities
+  (frozen schema.graphql). Map: `grimoires/loa/context/score-api-coverage-scope.md`; experiment charter +
+  observations log: `grimoires/loa/context/mibera-sovereign-indexer-experiment.md`. (Arb + Zora dropped — HoneyJar-only.)
+- **Locked decisions:** (Q2) artifact = **extend the Mibera belt** (these contracts ARE mibera) → one indexer →
+  one Hasura → one endpoint. (Q3) build all 4 chains → validate → **ONE** score-api `ENVIO_GRAPHQL_URL` repoint
+  (no incremental). (Q1, operator lean — confirm) data source = **bounded HyperSync backfill → eRPC sovereign
+  realtime**; HyperRPC paid only as last resort. (Q4) experiment resolves: sovereign viability + **sync speed**
+  per chain + cost envelope + single-vs-belts. Hivemind Lab experiment (log in the charter).
+- **Build plan (P-build):** extend `config.mibera.yaml` to the 4-chain footprint (pull contract event-defs from
+  `config.yaml`) + wire each contract's existing handler into `src/belts/mibera` entrypoint + HyperSync backfill
+  source → deploy → backfill → observe per chain → reconcile vs on-chain → repoint. Order: Berachain first
+  (biggest share, eRPC ready), then Base/OP/ETH. **MiberaCollection must index ALL transfers incl. to-contracts.**
+  Tests + prod-promotion rigor = before the repoint (operator deferred). Build directly (experiment frame).
