@@ -22,7 +22,7 @@ This task adds **3 belt services** + redeploys eRPC with the Finding A+B fix:
 
 - **belt-postgres** — new Railway Postgres (the belt's OWN DB; separate from the eRPC cache PG per SDD §4.5).
 - **belt-hasura** — `hasura/graphql-engine:v2.43.0`; serves the public GraphQL (port 8080). This is the endpoint consumers hit.
-- **belt-indexer** — this repo (`0xHoneyJar/thj-envio`, branch `indexer-belt-rebuild`); runs `pnpm envio start --config config.mibera.yaml`; writes to belt-postgres, applies Hasura metadata to belt-hasura, pulls chain data from the eRPC service over Railway private networking.
+- **belt-indexer** — this repo (`0xHoneyJar/sonar-api`, branch `indexer-belt-rebuild`); runs `pnpm envio start --config config.mibera.yaml`; writes to belt-postgres, applies Hasura metadata to belt-hasura, pulls chain data from the eRPC service over Railway private networking.
 - **eRPC service** — REBUILD so the Finding A+B fix (ignoreMethods + tenderly/sentio + rate-limit pacing) takes effect. `Dockerfile.erpc` bakes `erpc.yaml` in, so a rebuild from the branch with the fixed `erpc.yaml` is all that's needed.
 
 ## Step 0 — Branch / source
@@ -34,7 +34,7 @@ rebuild MUST come from the branch that has the fixed `erpc.yaml`.
 
 ## Step 1 — Redeploy eRPC with the fix (do FIRST — the belt needs it)
 
-1. eRPC service → Settings → confirm Source = `0xHoneyJar/thj-envio` @ `indexer-belt-rebuild`, Dockerfile = `Dockerfile.erpc`.
+1. eRPC service → Settings → confirm Source = `0xHoneyJar/sonar-api` @ `indexer-belt-rebuild`, Dockerfile = `Dockerfile.erpc`.
 2. Trigger **Redeploy** (Railway auto-builds on push if connected; else manual).
 3. Verify after build: eRPC logs show all 6 upstreams (incl. `berachain-tenderly`, `berachain-sentio`) initialized; `/healthcheck` → `state: OK`.
    - Internal address (unchanged): `http://erpc.railway.internal:4000/main/evm/80094`.
@@ -50,7 +50,7 @@ rebuild MUST come from the branch that has the fixed `erpc.yaml`.
 
 ## Step 4 — Create belt-indexer
 
-- `+ New` → **GitHub Repo** → `0xHoneyJar/thj-envio`, branch `indexer-belt-rebuild`. Name `belt-indexer`.
+- `+ New` → **GitHub Repo** → `0xHoneyJar/sonar-api`, branch `indexer-belt-rebuild`. Name `belt-indexer`.
 - Settings:
   - **Build command:** `pnpm install --frozen-lockfile && pnpm envio codegen --config config.mibera.yaml`
   - **Start command:** `TUI_OFF=true pnpm envio start --config config.mibera.yaml`
