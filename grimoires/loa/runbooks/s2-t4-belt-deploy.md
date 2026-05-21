@@ -136,3 +136,24 @@ Outcome: belt synced to head sovereignly, AC-6=19 on Railway, public GraphQL liv
 - DB: `chain_metadata.latest_processed_block == block_height` (synced); entity counts match local.
 - Public GraphQL (anonymous `public` role): `https://belt-hasura-production.up.railway.app/v1/graphql` —
   `MiberaLoanStats.totalActiveLoans == 19`, MiberaTransfer 39,714, MintActivity 10,000.
+
+## S3 — L5 gateway + handback (live as of 2026-05-20)
+
+**Gateway (S3-T1/T2):** `belt-gateway` (Caddy + caddy-ratelimit; `Dockerfile.gateway` + `Caddyfile`).
+- **Public URL (the stable consumer endpoint):** `https://belt-gateway-production.up.railway.app/v1/graphql`
+- Upstream = single env `BELT_UPSTREAM=belt-hasura.railway.internal:8080`.
+- Hardening: 120 req/min per `{client_ip}` (XFF; `trusted_proxies private_ranges`) + 50KB body cap.
+- **Upstream-swap recovery (R-3):** `railway variables -s belt-gateway --set 'BELT_UPSTREAM=<new>'` → auto-redeploys.
+  Verified: bad upstream → 502, revert → live data. (Federation later = additive Caddyfile route; URL unchanged.)
+- Fast-follow: precise GraphQL depth/complexity cap (graphql-armor proxy or Hasura allowlist).
+
+**Handback (S3-T5, operator, ONE-WAY) — after a soak (≥2h synced-to-head + healthchecks green):**
+1. mibera-honeyroad (Vercel): `NEXT_PUBLIC_ENVIO_URL` → `https://belt-gateway-production.up.railway.app/v1/graphql`.
+   Confirm `/backing` renders live loan data (19 active).
+2. score-api (Vercel/Railway): `ENVIO_GRAPHQL_URL` → the same gateway URL (S3-T4 audit PASSED → unblocked).
+   Both point at the **gateway**, never the raw belt — so belt recovery is a gateway upstream-swap, not a code fix.
+
+**Observability (S3-T3, operator — needs an alert channel):** Railway healthchecks → `erpc` `/healthcheck`,
+`belt-hasura` `/healthz`; sync-lag monitor = `chain_metadata.latest_processed_block` vs eRPC head, alert if lag
+> ~300 blocks / 10 min (monitor via DB — belt-indexer stdout barely streams on Railway); ≥80% disk alerts on
+both Postgres. Route to Slack webhook / Railway notifications.

@@ -230,10 +230,31 @@
     session transcript; internal/low-risk but rotate before/at handback). (c) revoke the temporary Railway
     project token (`~/.railway-token`) when CLI driving is done. (d) `~/.railway-belt-hasura-secret` holds the
     current admin secret locally.
-  - **NEXT — S3:** L5 gateway (stable URL fronting belt-hasura) → observability (the empty-logs gap matters
-    here) → S3-T4 score-api empty-safe audit (the 94-table public schema is now exposed; uncovered entities
-    return empty arrays = the empty-safe contract) → staged handback (mibera-honeyroad `NEXT_PUBLIC_ENVIO_URL`
-    → gateway). Plus the Score-API full-coverage scoping + paid-RPC decision (per operator).
+  - **S3 IN PROGRESS (2026-05-20, driven). T1 ✅ T2 ✅ T4 ✅ T6 ✅ | T3 + T5 + T7 = operator-paired.**
+    - **S3-T1 ✅ L5 gateway (AC-13).** `belt-gateway` (Caddy + caddy-ratelimit, `Dockerfile.gateway` + `Caddyfile`)
+      live at **`https://belt-gateway-production.up.railway.app/v1/graphql`** — proxies belt-hasura, single-config
+      `BELT_UPSTREAM=belt-hasura.railway.internal:8080`, federation-ready (additive Caddyfile route; public URL
+      unchanged). **Swap verified:** bad upstream→502, revert→live data. Recovery = set `BELT_UPSTREAM` + redeploy.
+    - **S3-T2 ✅ hardening (AC-12).** Per-IP rate limit 120/min keyed on `{client_ip}` (XFF; `trusted_proxies
+      private_ranges` for Railway's edge) + 50KB request-body cap (verified: 60KB→413, small→200). The module is
+      loaded + enforced; empirical 429 not triggerable from this session's rotating egress IP — verify from a
+      single IP. **Fast-follow:** precise GraphQL depth/complexity cap (graphql-armor proxy or Hasura allowlist) —
+      the body cap is the interim coarse guard.
+    - **S3-T4 ✅ score-api empty-safe audit (AC-9, HARD GATE) — PASS.** `grimoires/loa/a2a/sprint-3/score-api-empty-safe-audit.md`.
+      `fetchWithPagination`→[] on empty; `envioQuery` THROWS on GraphQL errors → empty-safety REQUIRES the tables be
+      tracked (the 94-table track makes the 7 uncovered entities return [] — verified live). score-api repoint leg
+      UNBLOCKED. Carry-forward: if belt DB is wiped+resumed without re-track, re-run the manual track first.
+    - **S3-T6 ✅ schema unchanged (AC-10).** `git diff main…indexer-belt-rebuild -- schema.graphql` = empty.
+    - **S3-T3 ⏳ observability (operator-paired — needs alert channel).** Recommended: Railway healthchecks →
+      `erpc` `/healthcheck`, `belt-hasura` `/healthz`; sync-lag monitor = compare `chain_metadata.latest_processed_block`
+      vs eRPC head, alert if lag > ~300 blocks / 10 min (note: belt-indexer stdout barely streams — monitor via DB,
+      not logs); Postgres ≥80% disk alerts on belt + cache PG. Needs an ops channel (Slack webhook / Railway notif).
+    - **S3-T5 ⏳ handback (operator-paired, ONE-WAY).** After a soak (≥2h synced-to-head + healthcheck green):
+      repoint mibera-honeyroad `NEXT_PUBLIC_ENVIO_URL` (Vercel) → the gateway URL above; confirm `/backing` renders.
+      Then (after S3-T4 ✅) score-api `ENVIO_GRAPHQL_URL` → gateway URL. Both → the **gateway** URL, never the raw
+      belt URL (so recovery = gateway swap). This is the operator's Vercel flip.
+    - **S3-T7 ⏳ E2E goal validation** — after T5 (load live `/backing`).
+    - Services now: erpc, Postgres(cache), Postgres-3vIC(belt DB), belt-hasura, belt-indexer, **belt-gateway**.
 
 ## Prior Focus (superseded by r4 re-sprint)
 - indexer-belt-rebuild Sprint 1 COMPLETE (2026-05-20, `/run sprint-1`) —
