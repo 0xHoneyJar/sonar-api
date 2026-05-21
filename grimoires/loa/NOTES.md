@@ -255,6 +255,28 @@
       belt URL (so recovery = gateway swap). This is the operator's Vercel flip.
     - **S3-T7 ⏳ E2E goal validation** — after T5 (load live `/backing`).
     - Services now: erpc, Postgres(cache), Postgres-3vIC(belt DB), belt-hasura, belt-indexer, **belt-gateway**.
+  - **S3-T5 step 1 DONE — honeyroad.xyz/backing RESTORED on production (2026-05-20, operator-requested, no full soak).**
+    PRD **G1 achieved live.** Set `NEXT_PUBLIC_ENVIO_URL` = `https://belt-gateway-production.up.railway.app/v1/graphql`
+    + `NEXT_PUBLIC_MAINTENANCE_BANNER=false` on Vercel, redeployed → honeyroad.xyz now renders Total Backing
+    31,632.007, the backing-per-NFT floor-value chart, and live Recent-Activity mints. Verified via browser +
+    the gateway returns 200 w/ CORS allow-origin honeyroad.xyz; old hosted indexer (indexer.hyperindex.xyz)
+    confirmed DOWN ("Failed to fetch") — the original fire.
+    - **CRITICAL project-mapping learning:** the repo `0xHoneyJar/mibera-honeyroad` deploys to the Vercel project
+      **`mibera-interface`** (domain **honeyroad.xyz**) — NOT the `mibera-honeyroad` Vercel project (whose builds
+      have ALL errored 5+ days, missing DATABASE_URL; it's dead/abandoned). I first (harmlessly) set the env +
+      a failed build on the dead `mibera-honeyroad` project before finding the live one. **For score-api leg +
+      future: target the `mibera-interface` Vercel project / honeyroad.xyz.**
+    - The `/backing` "indexer down" strip was env-driven: `MAINTENANCE_BANNER = NEXT_PUBLIC_MAINTENANCE_BANNER !== "false"`
+      (defaults ON) — set to `false` to clear it.
+    - **Vercel deploy gotcha:** `vercel --prod` from local FAILED on the dead project (no DATABASE_URL); the working
+      path was `vercel redeploy <last-good-prod>` on mibera-interface (rebuilds the live commit + current project
+      env, which has DATABASE_URL). `vercel redeploy` DID bake the new NEXT_PUBLIC_ vars (data loaded → env applied).
+  - **REMAINING / CLEANUP:** (a) **score-api leg (S3-T5 step 2)** — repoint score-api `ENVIO_GRAPHQL_URL` → the gateway
+    (S3-T4 audit PASSED → unblocked); operator-paired. (b) stray env var + failed build on the DEAD `mibera-honeyroad`
+    Vercel project — harmless (never serves), remove if desired. (c) S3-T3 observability (needs alert channel) — esp.
+    a sync-lag monitor since the flip skipped the ≥2h soak (verify belt realtime keeps up). (d) revoke `~/.railway-token`;
+    rotate belt-hasura admin secret + Postgres-3vIC password. (e) S3-T7 E2E: G1 ✅ live; G2/G3 ✅ (factory + one-env-var
+    recovery + schema unchanged).
 
 ## Prior Focus (superseded by r4 re-sprint)
 - indexer-belt-rebuild Sprint 1 COMPLETE (2026-05-20, `/run sprint-1`) —
