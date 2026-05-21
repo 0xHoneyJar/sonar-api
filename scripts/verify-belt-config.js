@@ -25,7 +25,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /** Belt contracts whose field_selection fidelity is enforced. */
-export const BELT_CONTRACTS = ['MiberaLiquidBacking', 'MiberaCollection'];
+export const BELT_CONTRACTS = [
+  'MiberaLiquidBacking', 'MiberaCollection',
+  // Mibera ecosystem (Berachain) — score-api footprint extension
+  'PaddleFi', 'BgtToken', 'CubBadges1155', 'CandiesMarket1155', 'GeneralMints', 'TrackedErc721',
+];
 
 /** Berachain mainnet chain id — the belt's only network. */
 export const BELT_CHAIN_ID = 80094;

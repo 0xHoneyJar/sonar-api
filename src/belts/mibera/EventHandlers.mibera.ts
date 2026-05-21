@@ -37,6 +37,18 @@ import {
 // Mibera Collection handlers (transfer/mint/burn tracking)
 import { handleMiberaCollectionTransfer } from "../../handlers/mibera-collection";
 
+// ── Mibera ecosystem handlers (Berachain) — extends the belt to the full ecosystem
+// footprint score-api consumes. Importing each module runs its registration calls; each
+// module's only `generated` value-imports are its own belt-config contract(s) + schema
+// entities (DISS-001-safe — verified). See grimoires/loa/context/mibera-sovereign-indexer-experiment.md.
+import { handlePaddleMint, handlePaddlePawn, handlePaddleLiquidateBorrow } from "../../handlers/paddlefi";
+import { handleBgtQueueBoost } from "../../handlers/bgt";
+import { handleCubBadgesTransferSingle, handleCubBadgesTransferBatch } from "../../handlers/badges1155";
+import { handleCandiesMintSingle, handleCandiesMintBatch } from "../../handlers/mints1155";
+import { handleGeneralMintTransfer } from "../../handlers/mints";
+import { handleVmMinted } from "../../handlers/vm-minted";
+import { handleTrackedErc721Transfer } from "../../handlers/tracked-erc721";
+
 // Re-export the handler consts so the imports above are "used" — registration is
 // the side-effect of importing the modules. Mirrors src/EventHandlers.ts.
 export {
@@ -50,4 +62,15 @@ export {
   handleItemRedeemed,
   handleRFVChanged,
   handleMiberaCollectionTransfer,
+  handlePaddleMint,
+  handlePaddlePawn,
+  handlePaddleLiquidateBorrow,
+  handleBgtQueueBoost,
+  handleCubBadgesTransferSingle,
+  handleCubBadgesTransferBatch,
+  handleCandiesMintSingle,
+  handleCandiesMintBatch,
+  handleGeneralMintTransfer,
+  handleVmMinted,
+  handleTrackedErc721Transfer,
 };

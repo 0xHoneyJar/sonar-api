@@ -70,6 +70,73 @@ contracts:
           transaction_fields:
             - hash
             - value
+  # ── Mibera ecosystem contracts (Berachain) — extends the belt to the full ecosystem
+  # footprint score-api consumes (grimoires/loa/context/mibera-sovereign-indexer-experiment.md).
+  # Handlers repoint to the belt entrypoint (DISS-001); event-defs verbatim from config.yaml.
+  - name: PaddleFi
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: Mint(address minter, uint256 mintAmount, uint256 mintTokens)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: Pawn(address borrower, uint256[] nftIds)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: LiquidateBorrow(address liquidator, address borrower, uint256 repayAmount, uint256[] nftIds)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: BgtToken
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: QueueBoost(address indexed account, bytes indexed pubkey, uint128 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - input
+  - name: CubBadges1155
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: CandiesMarket1155
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: GeneralMints
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: Minted(address indexed user, uint256 tokenId, string traits)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: TrackedErc721
+    handler: src/belts/mibera/EventHandlers.mibera.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
 chains:
   # Berachain Mainnet (DO NOT CHANGE THIS ID)
   - id: 80094
@@ -100,3 +167,40 @@ chains:
         address:
           - 0x6666397dfe9a8c469bf65dc744cb1c733416c420 # Mibera Collection
         start_block: 3837808 # MiberaCollection deployment
+      - name: PaddleFi
+        address:
+          - 0x242b7126F3c4E4F8CbD7f62571293e63E9b0a4E1 # PaddleFi MIBERA-WBERA vault
+        start_block: 5604652 # PaddleFi deployment
+      - name: BgtToken
+        address:
+          - 0x656b95E550C07a9ffe548Bd4085c72418Ceb1dBa
+        start_block: 8221 # BgtToken deployment
+      - name: CubBadges1155
+        address:
+          - 0x574617ab9788e614b3eb3f7bd61334720d9e1aac # Cub Universal Badges (mainnet)
+        start_block: 1080991 # CubBadges1155 deployment
+      - name: CandiesMarket1155
+        address:
+          - 0x80283fbF2b8E50f6Ddf9bfc4a90A8336Bc90E38F # mibera_drugs / mibera_candies (SilkRoad marketplace)
+          - 0xeca03517c5195f1edd634da6d690d6c72407c40c # mibera_drugs / mibera_candies (secondary)
+        start_block: 3716959 # CandiesMarket secondary deployment (earliest of the 2)
+      - name: GeneralMints
+        address:
+          - 0x048327A187b944ddac61c6e202BfccD20d17c008 # mibera_vm / mibera_shadows
+          - 0x230945E0Ed56EF4dE871a6c0695De265DE23D8D8 # mibera_gif
+        start_block: 4130866 # mibera_vm deployment (earliest GeneralMints on Berachain)
+      - name: TrackedErc721
+        address:
+          - 0x4B08a069381EfbB9f08C73D6B2e975C9BE3c4684 # mibera_tarot / mibera_quiz
+          - 0x86Db98cf1b81E833447b12a077ac28c36b75c8E1 # fracture #1: miparcels
+          - 0x8D4972bd5D2df474e71da6676a365fB549853991 # fracture #2: miladies (Miladies on Berachain)
+          - 0x144B27b1A267eE71989664b3907030Da84cc4754 # fracture #3: mireveal_1_1
+          - 0x72DB992E18a1bf38111B1936DD723E82D0D96313 # fracture #4: mireveal_2_2
+          - 0x3A00301B713be83EC54B7B4Fb0f86397d087E6d3 # fracture #5: mireveal_3_3
+          - 0x419F25C4f9A9c730AAcf58b8401B5b3e566Fe886 # fracture #6: mireveal_4_20
+          - 0x81A27117bd894942BA6737402fB9e57e942C6058 # fracture #7: mireveal_5_5
+          - 0xaaB7b4502251aE393D0590bAB3e208E2d58F4813 # fracture #8: mireveal_6_6
+          - 0xc64126EA8dC7626c16daA2A29D375C33fcaa4C7c # fracture #9: mireveal_7_7
+          - 0x24F4047d372139de8DACbe79e2fC576291Ec3ffc # fracture #10: mireveal_8_8
+          - 0xFc2D7eBFEB2714fCE13CaF234A95dB129ecC43Da # apdao_seat
+        start_block: 4029732 # fracture #1 deployment (earliest TrackedErc721 on Berachain)
