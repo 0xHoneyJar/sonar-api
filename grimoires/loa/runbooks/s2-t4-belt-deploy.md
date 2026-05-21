@@ -51,10 +51,8 @@ rebuild MUST come from the branch that has the fixed `erpc.yaml`.
 ## Step 4 — Create belt-indexer
 
 - `+ New` → **GitHub Repo** → `0xHoneyJar/sonar-api`, branch `indexer-belt-rebuild`. Name `belt-indexer`.
-- Settings:
-  - **Build command:** `pnpm install --frozen-lockfile && pnpm envio codegen --config config.mibera.yaml`
-  - **Start command:** `TUI_OFF=true pnpm envio start --config config.mibera.yaml`
-  - (No public domain needed — it's internal. It exposes a health/metrics port; optional Railway healthcheck can target it.)
+- Settings → **Dockerfile path:** `Dockerfile.belt` (controlled build; runs `envio codegen`, skips the repo-wide `tsc` build that DISS-002 breaks). No build/start command needed — the Dockerfile owns both.
+  - (No public domain needed — it's an internal worker. It exposes a health/metrics port; an optional Railway healthcheck can target it.)
 - Variables (see table).
 
 ## Env-var table (the deliverable)

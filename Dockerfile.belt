@@ -1,0 +1,19 @@
+# Dockerfile.belt — Mibera belt (Envio HyperIndex) indexer service for Railway (S2-T4).
+#
+# A controlled build so that:
+#  - `envio codegen --config config.mibera.yaml` runs (embeds the committed eRPC
+#    internal URL + generates the belt's bindings), and
+#  - the repo-wide `pnpm build` (= `tsc --build`) NEVER runs — it is structurally
+#    incompatible with belt-scoped codegen (DISS-002); Nixpacks auto-build would
+#    trip it, so we bypass Nixpacks with this Dockerfile.
+#
+# Runtime config (belt Postgres + Hasura endpoint) is injected as Railway env vars
+# (ENVIO_PG_* + HASURA_GRAPHQL_*); see grimoires/loa/runbooks/s2-t4-belt-deploy.md.
+# Sovereign: NO ENVIO_API_TOKEN — the data source is eRPC (baked into config.mibera.yaml).
+FROM node:20-bookworm-slim
+RUN corepack enable && corepack prepare pnpm@10.11.0 --activate
+WORKDIR /app
+COPY . .
+RUN pnpm install --frozen-lockfile && pnpm envio codegen --config config.mibera.yaml
+ENV TUI_OFF=true
+CMD ["pnpm", "envio", "start", "--config", "config.mibera.yaml"]
