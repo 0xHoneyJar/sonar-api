@@ -200,10 +200,40 @@
     only-on-chain=[], only-belt=[].** The belt data is complete AND correct vs chain. (`backingLoanExpired`
     is a state-MUTATING fn with no outputs — SDD §6 mislabels it as readable; the discriminator is
     `backingLoanDetails.loanedTo`. Recommend reconciling SDD §6 wording.)
-  - **NEXT:** S2-T4 — deploy belt Railway service + belt Postgres in `freeside-sonar` (e240cdf0); apply
-    the same erpc.yaml fix to the deployed eRPC service (rebuild `Dockerfile.erpc`); validate cold-sync
-    rate-limit tuning on the Railway IP. Then S3 (gateway/observability/handback). Local stack (envio
-    postgres :5433 + Hasura :8080 has the full synced+reconciled dataset; eRPC docker) left disposable.
+  - **S2-T4 COMPLETE — belt LIVE on Railway (2026-05-20, driven via railway CLI w/ project token).**
+    `freeside-sonar`/production now runs: `erpc` (rebuilt w/ A+B fix — 6 upstreams incl tenderly/sentio),
+    `Postgres` (eRPC cache), `Postgres-3vIC` (belt DB), `belt-hasura` (graphql-engine v2.43), `belt-indexer`
+    (Dockerfile.belt). **Belt cold-synced to head sovereignly through eRPC** (chain_metadata: latest_processed
+    21,156,792 = head, is_hyper_sync=false, 51,818 events, first_event 3,838,974 = mint captured). Data
+    COMPLETE + CORRECT, byte-identical to local: MiberaTransfer 39,714 · MintActivity 10,000 · MiberaLoan 176.
+    **AC-6 on Railway: totalActiveLoans=19**, active IDs identical to the on-chain-reconciled set. Public
+    GraphQL (anonymous `public` role) verified live: `https://belt-hasura-production.up.railway.app/v1/graphql`.
+  - **S2-T4 deploy gotchas (factory learnings — folded into runbook):**
+    1. **Dockerfile.belt needs `node:22`** — envio alpha.17 handler autoload uses `fs.promises.glob` (Node ≥22);
+       node:20 crashes `Promises.glob is not a function`. (Build passes on 20; runtime crashes.)
+    2. **eRPC redeploy:** the GitHub-triggered build had failed ("couldn't locate Dockerfile.erpc in code
+       archive"); deployed via `railway up -s erpc -c` (local upload w/ Dockerfile.erpc) instead.
+    3. **Image services (`railway add -i`) don't auto-deploy** — nudge the first deploy with a var-set.
+    4. **`RAILWAY_RUN_COMMAND` is IGNORED for Dockerfile services** — can't inject `--restart` via env.
+    5. **Hasura tracking is the big one:** envio runs "Tracking tables in Hasura" ONLY on FRESH storage init,
+       NOT on resume. The belt's first start tracked 0 tables (belt-hasura private DNS was seconds-old →
+       silent failure), and every resume skips tracking. **Fix applied: manually tracked 94 entity tables +
+       `public` SELECT (allow_aggregations) via the Hasura metadata API** (`pg_track_table` +
+       `pg_create_select_permission`) — idempotent, no re-sync, replicates exactly what envio does. **Factory
+       rule: deploy belt-postgres → belt-hasura (confirm healthy) → belt-indexer LAST; if GraphQL shows
+       `field not found in query_root`, run the manual-track step (see runbook).**
+    6. **belt-indexer stdout logs barely stream on Railway** (envio non-TUI buffering) — verify via the DB
+       (`chain_metadata`) + Hasura metadata, not `railway logs`. Investigate for S3 observability.
+  - **CLEANUP / FOLLOW-UPS (operator):** (a) remove the stray PUBLIC domain accidentally created on
+    `belt-indexer` (`belt-indexer-production-645f.up.railway.app` — it's a worker, 502s; dashboard removal —
+    no CLI remove). (b) ROTATE the belt-hasura admin secret + Postgres-3vIC password (both appeared in the
+    session transcript; internal/low-risk but rotate before/at handback). (c) revoke the temporary Railway
+    project token (`~/.railway-token`) when CLI driving is done. (d) `~/.railway-belt-hasura-secret` holds the
+    current admin secret locally.
+  - **NEXT — S3:** L5 gateway (stable URL fronting belt-hasura) → observability (the empty-logs gap matters
+    here) → S3-T4 score-api empty-safe audit (the 94-table public schema is now exposed; uncovered entities
+    return empty arrays = the empty-safe contract) → staged handback (mibera-honeyroad `NEXT_PUBLIC_ENVIO_URL`
+    → gateway). Plus the Score-API full-coverage scoping + paid-RPC decision (per operator).
 
 ## Prior Focus (superseded by r4 re-sprint)
 - indexer-belt-rebuild Sprint 1 COMPLETE (2026-05-20, `/run sprint-1`) —

@@ -100,3 +100,39 @@ rebuild MUST come from the branch that has the fixed `erpc.yaml`.
 2. **Startup order** — indexer needs belt-hasura + belt-postgres up; it retries, but if it errors early, redeploy belt-indexer after the other two are healthy.
 3. **eRPC rate-limit tuning** — the 25/s is a starting point; tune on the real Railway IP.
 4. **Branch** — every service must build from the branch holding the fixed `erpc.yaml` + belt code.
+
+## What actually happened (live S2-T4 run, 2026-05-20 — read before re-running)
+
+Deployed via `railway` CLI with a **project token** (`RAILWAY_TOKEN`); browser-login was read-only.
+Outcome: belt synced to head sovereignly, AC-6=19 on Railway, public GraphQL live. Gotchas hit:
+
+1. **`Dockerfile.belt` MUST be `node:22`** (envio alpha.17 autoload uses `fs.promises.glob`; node:20 → runtime
+   crash `Promises.glob is not a function`; build still passes on 20). Fixed + committed.
+2. **eRPC deploy:** GitHub build failed ("couldn't locate Dockerfile.erpc in code archive"). Deployed with
+   `railway up -s erpc -c` (local upload, respects the service's Dockerfile.erpc). Verify 6 upstreams in logs.
+3. **`railway add -d postgres -s <name>`** ignores `-s` → DB got auto-named `Postgres-3vIC`. Reference it by
+   its actual name (`${{Postgres-3vIC.DATABASE_URL}}` etc.) or rename in dashboard BEFORE wiring references.
+4. **Image services (`railway add -i`) don't auto-deploy** — trigger the first deploy with a var-set
+   (`railway variables -s belt-hasura --set X=Y`).
+5. **`RAILWAY_RUN_COMMAND` is ignored for Dockerfile services** — you cannot inject `--restart` via env.
+6. **Hasura table tracking (CRITICAL):** envio runs "Tracking tables in Hasura" ONLY on a FRESH storage init,
+   never on resume. If belt-hasura's private DNS is seconds-old at the indexer's first start, tracking fails
+   silently and never retries → GraphQL returns `field 'X' not found in type 'query_root'` with 0 tracked
+   tables. **Deploy belt-hasura BEFORE belt-indexer and confirm it's healthy.** If tables still aren't tracked,
+   run the manual track (idempotent — does exactly what envio does):
+
+   ```bash
+   # for each public entity table (exclude raw_events, dynamic_contract_registry, persisted_state,
+   # envio_chains, envio_checkpoints, _meta, envio_history_*): pg_track_table + public SELECT
+   curl -s "$HASURA_URL/v1/metadata" -H "x-hasura-admin-secret: $SECRET" -H 'content-type: application/json' \
+     -d '{"type":"pg_track_table","args":{"source":"default","table":{"schema":"public","name":"<T>"}}}'
+   curl -s "$HASURA_URL/v1/metadata" -H "x-hasura-admin-secret: $SECRET" -H 'content-type: application/json' \
+     -d '{"type":"pg_create_select_permission","args":{"source":"default","table":{"schema":"public","name":"<T>"},"role":"public","permission":{"columns":"*","filter":{},"allow_aggregations":true}}}'
+   ```
+7. **belt-indexer stdout barely streams on Railway** (envio non-TUI buffering) — verify sync via the DB
+   (`chain_metadata.latest_processed_block`) + Hasura metadata, not `railway logs`. (Observability gap for S3.)
+
+## Verify (live endpoints)
+- DB: `chain_metadata.latest_processed_block == block_height` (synced); entity counts match local.
+- Public GraphQL (anonymous `public` role): `https://belt-hasura-production.up.railway.app/v1/graphql` —
+  `MiberaLoanStats.totalActiveLoans == 19`, MiberaTransfer 39,714, MintActivity 10,000.
