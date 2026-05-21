@@ -1,0 +1,19 @@
+# Slim the `railway up` upload context (Dockerfile.belt + Dockerfile.erpc builds).
+# Mirrors .dockerignore, plus .claude — the latter contains broken symlinks to an
+# uninstalled construct pack (.claude/skills/* -> ../constructs/packs/archivist/...)
+# that crash `railway up`'s file indexer ("No such file or directory"). The builds
+# need none of these: belt = src/ + config.mibera.yaml + schema.graphql + package.json
+# + pnpm-lock.yaml + Dockerfile.belt; eRPC = erpc.yaml + Dockerfile.erpc. node_modules
+# is reinstalled in-image (pnpm install --frozen-lockfile).
+.claude
+grimoires
+.git
+.run
+.beads
+.ck
+node_modules
+generated
+.envio
+envio-env.d.ts
+*.log
+.DS_Store
