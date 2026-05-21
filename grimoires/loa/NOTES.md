@@ -1,6 +1,15 @@
 # Session Notes
 
 ## Current Focus
+- **SESSION 3 (2026-05-21) — Berachain ECOSYSTEM belt DEPLOYED + backfilled + validated (leg 1 of the 4-chain sovereign indexer).**
+  The committed 8-contract belt (`7408ceb`) is now LIVE on Railway, synced to head, sovereign (`is_hyper_sync=false`), following tip.
+  - **Deploy hit 2 pre-existing bugs (both fixed, config-only) — see KF-013:**
+    1. **envio Rust CLI `28P01` on `persisted_state`** (SCRAM-over-SSL channel binding) while JS runtime authed fine with the same correct password. **Fix: Railway var `ENVIO_PG_SSL_MODE=false`** on belt-indexer (was `prefer`). KEEP THIS SET (+ for all future legs).
+    2. **Chain `start_block` floor (3837808, 2-contract-era leftover) > BgtToken start_block (8221)** → envio rejects. **Fix: `config.mibera.yaml` chain floor → 8221** (committed-pending).
+  - **Re-init mechanism (factory rule for future legs):** envio `isInitialized()` checks table-existence NOT config-hash → a plain redeploy RESUMES + silently skips new contracts. Force fresh init: **`Dockerfile.belt` CMD now env-gated** (`${ENVIO_RESTART:+--restart}`) → set Railway var `ENVIO_RESTART=1` → deploy → backfill → **delete the var** → redeploy (resumes). (committed-pending Dockerfile change.)
+  - **Sync metric (#1):** dense 8-contract sovereign-eRPC cold sync **≈ 60 min to head** (21.16M blk), ~12× the 2-contract ~5 min. **Zero 429 stalls** — KF-012 A+B eRPC fix held. **Completeness PASS** (ground-truth exact: MiberaTransfer 39,714 / MintActivity 10,000 / MiberaLoan 176). **Bottleneck = BgtToken QueueBoost (BgtBoostEvent 1.38M)** — flag for score-api: does validator_booster need full history from block 8221, or would a later start_block do?
+  - `/backing` restored on the ecosystem belt (gateway + CORS for honeyroad.xyz verified). `persisted_state` stays empty but resume reads `chain_metadata`/`checkpoints` (not persisted_state) → restart-durable.
+  - **PENDING:** (a) commit `Dockerfile.belt` (env-gated CMD) + `config.mibera.yaml` (start_block 8221) — operator review (reviewed infra). (b) Base/OP/ETH legs + ONE score-api repoint (remaining). (c) revoke `~/.railway-token` at session end. (d) Base RPC research captured in `grimoires/k-hole/research-output/dig-session-2026-05-21.md` (op-stack getLogs-liar WILL recur).
 - indexer-belt-rebuild **RE-SPRINTED against SDD r4 §12** (2026-05-19, `/sprint-plan`) —
   `sprint.md` regenerated for the L0–L6 bottom-up stack: **S0** eRPC calibration spike →
   **S1** build the eRPC L2 substrate (`erpc.yaml` + dedicated Railway service + cache

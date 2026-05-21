@@ -140,9 +140,11 @@ contracts:
 chains:
   # Berachain Mainnet (DO NOT CHANGE THIS ID)
   - id: 80094
-    # Earliest belt contract (MiberaCollection @ 3837808); per-contract
-    # start_blocks below override this floor.
-    start_block: 3837808
+    # Chain-level floor MUST be <= the earliest per-contract start_block — Envio
+    # alpha.17 rejects any contract whose start_block is below this. Earliest belt
+    # contract is now BgtToken @ 8221 (ecosystem extension); per-contract
+    # start_blocks below override this floor for each contract.
+    start_block: 8221
     # Data source — the eRPC L2 substrate (SDD r4 §3 / §4.1). r4 retires the
     # Sprint-1 HyperSync source; the belt indexes Berachain over JSON-RPC through
     # the shared eRPC proxy at its private Railway address. `for: sync` makes eRPC

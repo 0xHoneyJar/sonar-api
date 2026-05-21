@@ -17,4 +17,10 @@ WORKDIR /app
 COPY . .
 RUN pnpm install --frozen-lockfile && pnpm envio codegen --config config.mibera.yaml
 ENV TUI_OFF=true
-CMD ["pnpm", "envio", "start", "--config", "config.mibera.yaml"]
+# Env-gated re-init: steady-state RESUMES from the last checkpoint (safe default);
+# set ENVIO_RESTART=1 on the Railway service to force a fresh init (`envio start
+# --restart` → DROP SCHEMA + re-create + re-track Hasura + backfill from start_blocks).
+# Required whenever the contract set changes (Envio's isInitialized() only checks
+# table existence, NOT the config hash — a plain redeploy would resume and silently
+# skip new contracts' history). Toggle: set var → deploy → backfill → remove var → redeploy.
+CMD ["sh", "-c", "exec pnpm envio start --config config.mibera.yaml ${ENVIO_RESTART:+--restart}"]

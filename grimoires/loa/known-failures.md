@@ -66,6 +66,7 @@ actually tried, not just what someone *said* was tried.
 | [KF-010](#kf-010-cheval-delegate-google-adapter-300s-process-timeout-on-concurrent-bb-runs) | RESOLVED 2026-05-16 (sprint-bug-165, issue #921) | bridgebuilder google + anthropic voices / `deriveTimeoutMs` predicate scope | 6 (single batch, 2026-05-16) |
 | [KF-011](#kf-011-adversarial-reviewsh-malformed-response-on-review-type-prompts-post-kf-002-closure) | **RESOLVED 2026-05-17** (sub-mode (b): parser raw_decode extracts prose-prefixed JSON — PR #933 `d9ec8cb5`; sub-mode (c): route-around via 4-voice fallback chain — PR #934 `ccd510b0`; structural sub-mode (c) Gemini streaming-recovery tracked at issue #935). | adversarial-review.sh review-type — JSON contract layer + Gemini streaming-recovery gap | 2 (initial obs sprint-166 review + repro on parser-fix branch) |
 | [KF-012](#kf-012-free-berachain-rpc-returns-empty-200-on-filtered-eth_getlogs--erpc-silently-drops-indexer-logs) | **RESOLVED-VIA-CONFIG 2026-05-20** (eRPC `ignoreMethods:[eth_getLogs]` on lying upstream + widened getLogs cluster + per-upstream rate-limit pacing; sovereign path preserved) | indexer-belt-rebuild — Mibera belt RPC sync via eRPC | 1 |
+| [KF-013](#kf-013-envio-rust-cli-28p01-on-railway-managed-postgres-via-scram-over-ssl) | **RESOLVED-VIA-CONFIG 2026-05-21** (`ENVIO_PG_SSL_MODE=false` — Rust CLI persisted_state upsert; JS runtime was unaffected) | belt-indexer deploy on Railway managed Postgres | 1 |
 
 ---
 
@@ -856,3 +857,37 @@ empty response. Identify the liar with a per-upstream getLogs matrix vs ground t
 per-IP under dense-region bursts — pace eRPC with per-upstream `rateLimitBudget` and widen the
 getLogs cluster; do NOT just retry harder (that deepens the 429 spiral). Sovereign RPC sync of
 the full chain is viable this way (~5 min) — HyperSync backfill was NOT needed.
+
+---
+
+## KF-013: envio Rust CLI 28P01 on Railway managed Postgres via SCRAM-over-SSL
+
+**Status**: RESOLVED-VIA-CONFIG 2026-05-21 (`ENVIO_PG_SSL_MODE=false` on the belt-indexer service). Config-only; sovereign path preserved.
+**Feature**: belt-indexer (`envio start`, v3.0.0-alpha.17) deploying against Railway **managed Postgres** (`Postgres-3vIC`) over the private network (`*.railway.internal:5432`).
+**Symptom**: On a fresh deploy/re-init, the indexer **crash-loops** with:
+```
+Error: Failed cli execution
+Caused by:
+    0: Failed to upsert persisted state table
+    1: error returned from database: password authentication failed for user "postgres"
+    2: password authentication failed for user "postgres"
+```
+The PostgreSQL error is **28P01** (the server received and *rejected* a password). Critically, the **JS runtime (postgres.js) authenticates fine with the same `ENVIO_PG_PASSWORD`** — it successfully runs `DROP SCHEMA`, recreates all entity tables, and writes `chain_metadata`. Only the **Rust CLI's `persisted_state` upsert** fails auth, and that exit kills the whole process. Net effect: schema gets wiped + recreated but the indexer never starts indexing → if a re-init wiped a live DB (e.g. `/backing`), it stays down.
+**First observed**: 2026-05-21 (Mibera ecosystem sovereign indexer — deploying the 8-contract Berachain belt; the first re-init of the belt since S2-T4).
+**Recurrence count**: 1
+**Current workaround**: Set **`ENVIO_PG_SSL_MODE=false`** on the indexer service. The default/prior value was `prefer`. With `prefer`, the Rust CLI (sqlx) negotiates TLS to Railway's self-signed Postgres and the **SCRAM-SHA-256 channel-binding** step is rejected as a bad password (28P01); postgres.js connects plaintext (plain SCRAM, no channel binding) and is unaffected — which is why JS works and the Rust CLI doesn't. `false` forces both to plaintext (private Railway network is not internet-exposed). Valid `ENVIO_PG_SSL_MODE` values are the union `require | allow | prefer | verify-full` **or boolean `false`** — note `disable` is **NOT valid** and crashes env-parsing (`Invalid union`) before any DB connection.
+**Upstream issue**: not filed (envio Rust-CLI vs JS-runtime SSL/SCRAM asymmetry against managed Postgres; candidate envio bug report — the two connection layers should agree on SSL handling, and the Rust CLI's channel-binding failure should not surface as a misleading 28P01).
+**Related visions / lore**: KF-012 (sibling — the other infra wall hit on this same sovereign-indexer deploy); the "JS-works/Rust-fails with identical correct creds" asymmetry.
+
+### Attempts
+
+| Date | What we tried | Outcome | Evidence |
+|------|---------------|---------|----------|
+| 2026-05-21 | Verify the password isn't stale/rotated — connect to Postgres-3vIC directly via the public proxy with the exact `ENVIO_PG_PASSWORD` | RULED OUT — `SELECT 1` AUTH OK; password correct (32 chars, no whitespace); `max_connections=100`, ~12 conns (no saturation) | external postgres.js `SELECT 1` + `pg_stat_activity` |
+| 2026-05-21 | Add `PGPASSWORD`/`PGUSER`/`PGHOST`/`PGDATABASE`/`PGPORT` (libpq env, in case a psql subprocess path needed them) | DID NOT WORK — still 28P01 on `persisted_state` | belt-indexer redeploy 5a20b90d; DB poll persisted_state=0 |
+| 2026-05-21 | `ENVIO_PG_SSL_MODE=disable` | DID NOT WORK — **invalid value**; crashed env-parsing (`ENVIO_PG_SSL_MODE: Failed parsing at root. Reason: Invalid union`) before connecting | deployment 5f5869e0 logs |
+| 2026-05-21 | `ENVIO_PG_SSL_MODE=false` (valid `Bool(false)` → SSL off) | **RESOLVED** — 28P01 gone; indexer authenticates + proceeds (next error was an unrelated config bug — chain `start_block` floor; see NOTES) and then backfills normally | rebuild 16387281; `chain_metadata.latest_processed_block` climbing; entity tables populating |
+
+### Reading guide
+
+If an envio indexer **crash-loops on `Failed to upsert persisted state table → password authentication failed`** while you can independently confirm the password is correct (connect with the same creds yourself) AND the schema/`chain_metadata` tables clearly got created (proof the JS layer authed fine): do **not** chase the password. The Rust CLI and the JS runtime handle SSL differently against managed Postgres (Railway, and likely Supabase/Neon/RDS with TLS). Set **`ENVIO_PG_SSL_MODE=false`** (private network) — or a non-channel-binding TLS mode if the link must be encrypted. Do NOT use `disable` (not a valid envio value; it crashes env-parsing). This is a deploy-time wall, distinct from KF-012 (a data-completeness wall) — both were hit on the same sovereign-indexer cold deploy. Note also: envio's `isInitialized()` only checks table existence (not the config hash), so a plain redeploy after a contract-set change **resumes** and silently skips new contracts' history — force a fresh init via `envio start --restart` (works once SSL is fixed) or by emptying the schema.
