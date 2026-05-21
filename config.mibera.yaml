@@ -264,14 +264,15 @@ chains:
           - 0xFc2D7eBFEB2714fCE13CaF234A95dB129ecC43Da # apdao_seat
         start_block: 4029732 # fracture #1 deployment (earliest TrackedErc721 on Berachain)
 
-  # ── Base (8453) — FriendtechShares + TrackedErc20(MiberaMaker333). eRPC route /8453.
-  # NOTE: FriendtechShares Trade volume is very large (event args unindexed → all Trades
-  # fetched); friend.tech backfill may need bounded HyperSync if eRPC ETA is unacceptable.
+  # ── Base (8453) — FriendtechShares + TrackedErc20(MiberaMaker333). DATA SOURCE: HyperSync.
+  # friend.tech Trade volume is enormous (event args unindexed → ALL Trades fetched); free
+  # eRPC crawled at ~20 blk/s (effectively won't finish), so this leg uses HyperSync (needs
+  # ENVIO_API_TOKEN) — the break-glass for the dense op-stack backfill (2026-05-21 decision:
+  # we pay a vendor for the one-time dense fill; eRPC cache + free realtime cover the rest).
+  # To return to sovereign realtime later, restore the rpc: block (eRPC route /8453) + resume.
+  #   rpc: { url: http://erpc.railway.internal:4000/main/evm/8453, for: sync }
   - id: 8453
     start_block: 2430439 # friend.tech start block (earliest contract; FriendtechShares inherits this floor)
-    rpc:
-      url: http://erpc.railway.internal:4000/main/evm/8453
-      for: sync
     contracts:
       - name: FriendtechShares
         address:
