@@ -1,7 +1,13 @@
 # Caddyfile — L5 gateway for the freeside-sonar belt factory (S3-T1/T2).
 # Listens on Railway's $PORT; reverse-proxies to the belt's L4 GraphQL (BELT_UPSTREAM).
 {
-	admin off
+	# S3-T3.1 / bd-c09.1 (Option B, SDD §7.4): admin API enabled but bound LOOPBACK-ONLY so the
+	# swap can be a graceful `caddy reload` (zero-drop) instead of an env-var-triggered Railway
+	# redeploy (~seconds blip). HARD CONSTRAINT: localhost only — the admin endpoint MUST NOT be
+	# reachable off-host (verified by bd-c09.2 post-deploy: an off-container curl to :2019 must
+	# fail). If localhost-only reload proves infeasible on Railway, the §7.4 contingency is
+	# Option C (≥2 replicas → rolling redeploy) — no re-decision needed.
+	admin localhost:2019
 	# caddy-ratelimit (module compiled in via Dockerfile.gateway)
 	order rate_limit before reverse_proxy
 	# Railway terminates TLS at its edge + proxies over the private network, so the
@@ -30,7 +36,8 @@
 		}
 	}
 
-	# S3-T1 / AC-13: single-config upstream. Swap = change BELT_UPSTREAM + redeploy.
+	# S3-T1 / AC-13: single-config upstream. Swap is performed ONLY by scripts/promote.sh
+	# (bd-c09.4, R-D sole writer) after a non-skippable gate PASS — never by a bare env edit.
 	# Federation-ready: a 2nd belt is an additive route here; the public URL is unchanged.
 	reverse_proxy {$BELT_UPSTREAM} {
 		header_up Host {upstream_hostport}
