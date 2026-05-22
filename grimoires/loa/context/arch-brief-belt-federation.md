@@ -1,146 +1,171 @@
 ---
-title: "Architecture Brief — Append-Only Belt Federation (sonar reframe)"
+title: "Architecture Brief r2 — One Consolidated Belt + Blue-Green Promotion (sonar reframe)"
 status: candidate
 mode: arch
 cycle: sonar-belt-factory
 date: 2026-05-21
-supersedes_premise: "12 pure-product physical belts (PRD/SDD G1/G2)"
+revision: r2
+supersedes_premise: "r1 append-only belt federation (siblings + query-time gateway) — RETIRED"
 review_targets: [flatline, bridgebuilder]
 ---
 
-# Architecture Brief — Append-Only Belt Federation
+# Architecture Brief r2 — One Consolidated Belt + Blue-Green Promotion
 
-> **For adversarial review.** This brief reframes the `sonar-belt-factory` cycle
-> after the S0 calibration spike (`grimoires/loa/a2a/sprint-172/s0-multideploy-calibration.md`)
-> proved the original 12-belt premise is budget-infeasible. Reviewers: attack §6
-> (load-bearing bets) and §7 (open questions) hardest. Lead with what to doubt.
+> **r2 reframe.** r1 proposed append-only *federation* (permanent sibling belts +
+> a query-time gateway). Review (Flatline `SKP-002`/`SKP-003` CRITICAL, BB
+> `F-001`/`F-003`) showed that model carries unproven, possibly-false premises
+> (parallel-backfill speedup; cross-belt query correctness). r2 **removes the
+> federation entirely**: one consolidated belt behind a stable alias, changes
+> shipped by **blue-green promotion**. Most of the r1 risk surface disappears
+> because there is only ever one belt. Reviewers: attack §6 (bets) and §7 (open
+> questions). Lead with what to doubt.
 
-## 1. Problem (grounded, not hypothetical)
+## 1. Problem (grounded)
 
-- **The 8-hour sync.** `SCALE.md:15,21` — empirically established: a single
-  deployment indexing 6 chains means **any contract addition forces a full reindex
-  of all chains**, 30 min → several hours. Per-source `start_block` tightening +
-  HyperSync + V3 migration produced **negligible** backfill improvement. The
-  bottleneck is architectural, not config. `SCALE.md` D4 names the fix as a
-  **per-chain deployment split**.
-- **Hard budget ceiling: < $100/mo.** Operator constraint: this is the bar to
-  justify leaving Envio's hosted (~$300/mo). Measured (S0-T1, Railway): 1 belt +
-  shared infra ≈ **$84.40/mo**, **89% memory**; memory = **$10.11/GB-RAM/mo**.
-- **S0 finding:** 12 physical belts ≈ $280–450/mo (each belt = a separate
-  memory-resident indexer process; cost = memory × process-count). 3–4.5× over
-  ceiling, and *worse* than the hosted option it replaces. **The original premise
-  is dead.**
+- **The real pain is DOWNTIME during re-sync, not re-sync itself.** `SCALE.md:15,21`:
+  adding any contract source forces a full reindex of all chains (the "8-hour"
+  sync), and `SCALE.md` D4 names per-deployment split as the structural fix. The
+  thing that hurts consumers is that the *live* endpoint goes stale/down during
+  that reindex — not that a reindex happens.
+- **Hard budget ceiling: < $100/mo** (the bar to leave Envio's ~$300/mo hosted).
+  Measured (S0-T1, Railway): 1 belt + shared infra ≈ **$84.40/mo**, 89% memory.
+- **API-level consistency is the indexer's own responsibility** — consumers
+  (frontends, score-api) must get a stable, consistent GraphQL endpoint. score-api's
+  capture/fallbacks are a *safety net*, not a license for the indexer to be lossy.
 
-## 2. Reframed thesis
+## 2. Reframed thesis (r2)
 
-The belt factory's real job is **never re-backfill the already-synced corpus.**
-The S0-proven capability (per-belt config + physical schema subsets compile in
-isolation) exists so a *new source* can be backfilled *on its own*, in parallel,
-without re-syncing the corpus you already paid hours for. Isolation is **on-demand
-(for backfill)**, not always-on (for steady-state blast-radius).
+**One consolidated belt** indexing the full Mibera-ecosystem footprint, serving a
+**stable, additive-only GraphQL API behind a fixed production alias.** Changes ship
+via **blue-green promotion**:
+
+> Build a new deployment (green) that includes the change → let it backfill and
+> **catch up to / exceed** the live deployment's (blue) head → **atomically flip
+> the production alias** blue→green → retire blue.
+
+The 8-hour reindex still happens — **on green, in the background.** The production
+endpoint never goes stale. Consumers point at the alias and **never see the swap.**
 
 ## 3. Module boundary (the indexer is ONE freeside module)
 
 | | |
 |---|---|
-| **`is`** | Index Mibera-ecosystem on-chain events *fast*; serve them through *one federated GraphQL API*. Sync-time optimized. Additive-only public contract. |
+| **`is`** | Index the Mibera-ecosystem footprint into composed, queryable entities; serve them through **one stable GraphQL endpoint** with **zero-downtime** updates via blue-green promotion. |
 | **`is_not`** | Durable analytics store · ClickHouse · Dune · historical snapshots · system-of-record for scores. |
 
-**score-api owns durability + analytics.** Its cron captures from the indexer's
-federated API and has fallbacks for indexer downtime. ⇒ the indexer can be
-**lean and disposable** — no per-belt HA; KF-013 re-init is tolerable because
-score-api backstops gaps. This is the lambda-architecture split: indexer = hot
-serving tier; score-api/ClickHouse = warm/cold analytics tier fed by CDC/cron.
+score-api owns durable analytics (cron capture → ClickHouse/Dune) and acts as a
+**safety net** for indexer gaps — but the indexer is responsible for serving
+consistently, not for being disposable. (Lambda split: indexer = hot serving tier;
+score-api = warm/cold analytics tier. BB `F-008` praised this framing; r2 keeps it
+but corrects the emphasis — serving consistency is load-bearing.)
 
-## 4. Architecture — append-only belt federation
+### Composition stays intra-belt (unchanged, and now uncomplicated)
+
+Handlers compose freely **within the one belt** — per-event entities, running
+aggregates (`PaddleSupplier` via get→update→set), and cross-cutting normalized
+entities (`Action`, written by **21 handlers** via `recordAction`). Because there
+is **one belt**, there is **no cross-belt UNION / dedup / ordering / pagination
+problem** (the r1 `SKP-002` CRITICAL is gone by construction). Shared handler
+*logic* (`src/handlers/*`, `src/lib/*`) is imported as today.
+
+## 4. Architecture — blue-green promotion behind a stable alias
 
 ```
-   ┌─────────────── indexer module (this repo / one freeside Beacon) ───────────────┐
-   │  CORPUS belt(s)        sibling belt        sibling belt                          │
-   │  (all chains, steady,  (new source A,      (new source B,    ← spun up on-demand │
-   │   never --restart)      parallel backfill)  parallel backfill)  per new source   │
-   │        │                    │                   │                                │
-   │        └──────────── federation gateway (query-time fan-out, NO db merge) ───────┤
-   └───────────────────────────────────│────────────────────────────────────────────┘
-                                        ▼  single federated GraphQL API (additive-only, BeaconV3)
-                              score-api cron  →  ClickHouse / Dune  (durable analytics, fallbacks)
+ consumers (frontends, score-api cron)
+        │  always → stable production alias (fixed URL, never changes)
+        ▼
+   ┌─────────── alias / router (thin: points at "current" belt, supports atomic swap) ──────────┐
+   │                                                                                             │
+   │   BLUE  (live)  ──────────────serving──────────────►        GREEN (building, background)    │
+   │   consolidated belt @ head                                  consolidated belt + the change  │
+   │                                                             backfilling… catches up to head │
+   │                                                                     │ exceeds blue's head    │
+   │                                          ◄── atomic alias flip ─────┘                        │
+   │   (retire blue)                                                                              │
+   └─────────────────────────────────────────────────────────────────────────────────────────────┘
+              green is built fresh via the KF-013 re-init runbook (belt-reinit.md)
 ```
 
-- **Corpus belt(s):** 1 (maybe 2 by chain) consolidated deployment. Synced once.
-  Never `--restart` ⇒ never re-backfilled. ~$50–60/mo.
-- **Sibling belts:** when a new source is added, spin up an isolated belt for *just*
-  that source (config + schema subset — the factory). Backfill is scoped (one
-  contract/chain) ⇒ fast ⇒ parallel ⇒ corpus untouched. Cheap (tiny) or transient.
-- **Federation gateway:** composes one GraphQL surface across corpus + siblings at
-  **query time**. New belts appear behind the stable API; consumers never see the
-  partitioning. **Additive-only** = the BeaconV3 contract (public URL + schema
-  unchanged when belts are added).
-- **Partition axis = reindex-cost (chain), per D4** — not product taxonomy.
-- **Consolidation (the cost-control valve):** low-churn sibling belts are
-  periodically folded into the corpus belt via a *deliberate* `--restart` during a
-  maintenance window (score-api fallbacks cover the gap). Keeps belt-count bounded.
+- **Steady-state: ONE belt** (+ shared eRPC + gateway). No siblings, no federation.
+- **Promotion (add source / additive schema change):** stand up green with the
+  change, backfill in the background (blue keeps serving), promote when green's
+  `latest_processed_block ≥ blue`'s, retire blue.
+- **Stable alias:** consumers hit a fixed endpoint; the swap is invisible. This is
+  `SCALE.md` Guardrail 5 (currently flagged "not yet built") — **r2's core
+  deliverable.**
+- **Additive-only schema invariant:** green's schema is a superset of blue's, so the
+  alias swap is transparent to existing consumers (no breaking changes behind the
+  alias).
+- **Backfill speed:** operator judgment (2026-05-21) — **the RPC/eRPC path can
+  backfill fast enough**; time-to-promote is a feature-latency number, not downtime.
 
 ## 5. Cost model (must stay < $100/mo)
 
 | Component | Steady-state $/mo |
 |---|---|
-| Shared: eRPC + eRPC Postgres + gateway | ~$25–35 |
-| Corpus belt (indexer + Postgres; Hasura shared/optional) | ~$40–55 |
-| Sibling belts (each tiny; transient during backfill) | ~$5–15 each, folded periodically |
-| **Target total (steady)** | **< $100** |
+| Shared: eRPC + eRPC Postgres + gateway/alias | ~$25–35 |
+| Consolidated belt (indexer + Postgres; Hasura) | ~$50–60 |
+| **Steady total** | **< $100** |
+| Transient during a promotion window (blue + green both up) | ~2× the belt for the catch-up window (hours), then back to 1× |
 
-Memory is the swing factor. Sharing Hasura (1 → N belt Postgres, multi-source) and
-right-sizing corpus RAM are the levers. **Shared Postgres is rejected** — a belt
-re-init would touch siblings (breaks backfill isolation).
+No permanent siblings, no federation gateway → **no sprawl, no cost creep.** The
+only extra cost is the transient 2× *during* a promotion (a few hours of one extra
+belt), which is negligible monthly. (Resolves r1 `F-002` unbounded-growth and
+`SKP-005` cost-extrapolation concerns: there is nothing to grow.)
 
 ## 6. Load-bearing bets (ATTACK THESE)
 
-- **B1 — Federate, never merge.** Siblings stay separate Postgres; the gateway
-  composes at read-time. If the real model is "split then recombine into one DB,"
-  that's the `--restart` path and the whole design collapses.
-- **B2 — score-api is a sufficient durability backstop.** Leaning on its cron +
-  fallbacks lets the indexer be lossy/disposable. If score-api's capture can't
-  recover events the indexer drops, this is a hidden data-loss surface.
-- **B3 — Scoped backfill is actually parallel.** Sibling belts backfill
-  concurrently *without* contending on the shared eRPC ceiling (R6). If eRPC
-  throughput is the real bottleneck, parallelism gives no speedup (and SCALE.md
-  already showed optimization didn't help — is RPC the ceiling?).
-- **B4 — Query-time federation scales.** Fan-out across N belt GraphQL endpoints
-  (with cross-belt entity UNION: Action/Mint/Holder dedup, ordering, pagination)
-  stays within acceptable latency/cost vs a single DB.
+- **B1 — Additive-only schema.** Every promotion's schema is a superset; the alias
+  swap is transparent. If a change is *non-additive* (rename/remove/retype an
+  entity field a consumer depends on), blue-green alone doesn't make it safe —
+  needs a consumer-coordination step. (What's the path for breaking changes?)
+- **B2 — Green converges.** Backfill runs faster than realtime, so green catches up
+  to and exceeds blue. Operator asserts RPC backfill is fast enough; if a chain's
+  backfill is *slower* than its block production, green never converges.
+- **B3 — Atomic alias swap.** The promotion is a clean, single-flip cutover with no
+  split-brain window across consumers. `SCALE.md` Guardrail 5 warned a manual
+  env-var swap across 4+ consumers produces split-brain — so the alias must be a
+  *real* indirection (single source of truth), not per-consumer config edits.
+- **B4 — Serving consistency during catch-up.** Blue serves a complete, consistent
+  view the entire time green builds; consumers never observe green mid-backfill.
 
 ## 7. Open questions (for the reviewers)
 
-- **Q1 (corpus growth):** every new source → a sibling belt ⇒ belt-count + fan-out
-  width creep up over time. What is the consolidation cadence/trigger that keeps it
-  bounded? Is periodic `--restart`-fold the right valve, or does it reintroduce the
-  8-hour pain at fold-time?
-- **Q2 (cross-belt consistency):** federated reads hit belts at *different* sync
-  heights ⇒ consumers see inconsistent cross-belt state during backfill. Acceptable
-  because score-api capture tolerates it? What's the consistency contract?
-- **Q3 (join-corpus vs own-belt rule):** crisp decision rule for when a new source
-  joins the corpus (cheap, but forces a corpus re-sync) vs gets its own belt
-  (isolated, but adds a process). Likely: own-belt if the source's chain is already
-  synced past its deploy block (else corpus re-sync is unavoidable per D6).
-- **Q4 (parallel-backfill ceiling):** is the cold-sync bottleneck eRPC throughput
-  (⇒ parallelism useless; need paid backfill RPC or HyperSync break-glass) or
-  indexer CPU (⇒ parallelism helps)? This determines whether the whole "spin up a
-  sibling to backfill fast" premise holds. **Most important to resolve.**
-- **Q5 (multi-team scale):** scaling to more teams' contracts — does the federated
-  API + per-source belt model hold, or does fan-out / cost break first?
-- **Q6 (federation tech):** Apollo Federation vs a thin custom gateway vs Hasura
-  remote schemas vs one Hasura over multiple Postgres sources — which, and why?
+- **Q1 (the alias mechanism):** what *is* the stable alias technically — a Railway
+  custom domain reassigned on promotion? a gateway/router that holds the
+  current-belt URL? a DNS/proxy layer? This is the core thing to build (Guardrail 5);
+  it must be atomic and single-source-of-truth across all consumers.
+- **Q2 (non-additive / breaking schema changes):** B1 covers additive changes. What
+  is the path when a change is *not* additive (field rename/removal, entity
+  restructure)? Versioned alias? Consumer-coordinated cutover?
+- **Q3 (promotion trigger + verification):** what gate confirms green is safe to
+  promote — `latest_processed_block ≥ blue` on every chain, plus a reconciliation
+  check (entity counts within tolerance) before the flip? (Connects to S2-T4
+  reconciliation already in the cycle.)
+- **Q4 (backfill speed, lowered stakes):** operator says RPC is fast enough — worth
+  a one-shot confirmation of full-corpus backfill wall-time so "time-to-promote" is
+  a known number, but it no longer gates *downtime*.
+- **Q5 (multi-team batching):** many teams adding sources → batch several changes
+  into one green per promotion (one catch-up, one flip) rather than one promotion
+  per change. Confirm batching is the intended cadence.
 
-## 8. Out of scope (explicit)
+## 8. What r2 retires from r1 (and why)
 
-ClickHouse/Dune analytics, snapshot durability, score computation — all score-api.
-The cutover/decommission of the current shipped belt (deferred; AC-R7 guard holds).
+| r1 element | r2 status | reason |
+|---|---|---|
+| Permanent sibling belts | **REMOVED** | sprawl + cost creep (`F-002`, `SKP-005`); blue-green needs only transient green |
+| Query-time federation gateway | **REMOVED** | cross-belt UNION/dedup/ordering correctness (`SKP-002` CRITICAL, `F-003`) — moot with one belt |
+| Fold = in-place `--restart` (downtime) | **REPLACED** by blue-green | `SKP-003` (fold reintroduces 8h downtime) — green builds in background, blue serves |
+| "indexer is disposable" emphasis | **CORRECTED** | serving consistency is the indexer's job; score-api is a safety net (`SKP-001` de-risked — no 8h serving gap to cover) |
+| parallel sibling backfill premise | **DROPPED** | `F-001`/`SKP-003-4`/Q4 — irrelevant; one belt, background catch-up |
 
 ## 9. What S0 already settled (inputs, not under review)
 
 - Envio `3.0.0-alpha.17`, config field `rpc` (OQ-1).
-- Option A (per-belt physical schema subset) compiles: `codegen` + belt-scoped
-  `tsc` both exit 0 (R-D / R10).
+- Option A (per-belt physical schema subset) compiles — codegen + tsc exit 0
+  (R-D/R10). *Note: r2 uses one consolidated belt, so the subset capability is held
+  in reserve, not the primary mechanism.*
 - `isInitialized()` = table-existence; resume restarts each chain from DB
-  `progressBlockNumber`; adding a pre-head source needs `--restart` (D6).
-  Runbook: `grimoires/loa/runbooks/belt-reinit.md`.
+  `progressBlockNumber`; a fresh green is built via the `--restart`-seeds-then-resume
+  runbook. Runbook: `grimoires/loa/runbooks/belt-reinit.md` (BB `F-006`: add a
+  chain_metadata-count verification gate before the resume deploy — accepted).

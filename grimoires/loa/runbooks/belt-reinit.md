@@ -67,7 +67,13 @@ is what matters; let it crash once, then resume.
    - JS init wipes + recreates the schema and seeds one `chain_metadata` row per
      config chain (`progressBlockNumber = -1`).
    - Rust CLI then crashes 28P01 on the `persisted_state` upsert. **Expected.**
-     Verify the seeding landed: `chain_metadata` has a row per config chain.
+   - **VERIFICATION GATE (BB F-006) — do not skip.** Confirm seeding is COMPLETE
+     before proceeding: `SELECT COUNT(*) FROM chain_metadata` MUST equal the number
+     of chains in `config.<belt>.yaml`. If the count is short (JS crashed before
+     seeding all chains, or only a subset seeded), the unseeded chains will be
+     **silently skipped** on resume (the D6 silent-skip behavior). On a short count,
+     **do NOT proceed to step 2** — redeploy with `ENVIO_RESTART=1` again until the
+     count matches.
 2. **Delete `ENVIO_RESTART`** (remove the var) → redeploy.
    - Boots without `--restart` → **resume** → `makeFromDbState` backfills each
      seeded chain from `start_block` (`-1` → `start_block - 1`). Resume never runs
