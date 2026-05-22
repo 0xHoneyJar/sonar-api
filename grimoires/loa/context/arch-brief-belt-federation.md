@@ -90,9 +90,17 @@ problem** (the r1 `SKP-002` CRITICAL is gone by construction). Shared handler
 - **Promotion (add source / additive schema change):** stand up green with the
   change, backfill in the background (blue keeps serving), promote when green's
   `latest_processed_block ≥ blue`'s, retire blue.
-- **Stable alias:** consumers hit a fixed endpoint; the swap is invisible. This is
-  `SCALE.md` Guardrail 5 (currently flagged "not yet built") — **r2's core
-  deliverable.**
+- **Stable alias: ALREADY BUILT (spike 2026-05-22).** The Caddy `belt-gateway`
+  (`Dockerfile.gateway` + `Caddyfile`) is the stable indirection: fixed public URL
+  `:{$PORT}` → `reverse_proxy {$BELT_UPSTREAM}`. It is a **proxy, not DNS** (atomic
+  by construction, not propagation-bound) and **single-source-of-truth** (one Caddy
+  config + one env var — resolves Guardrail 5's split-brain). The promotion swap is
+  built + verified (`NOTES.md`: bad upstream→502, revert→live):
+  `railway variables -s belt-gateway --set 'BELT_UPSTREAM=<green>'`. **Rollback =
+  revert `BELT_UPSTREAM`** (proven reversible). Remaining refinement: today's swap is
+  env-change→Railway redeploy (~seconds blip); for true zero-downtime enable Caddy
+  admin + `caddy reload` (graceful) or run ≥2 gateway instances — a bounded SDD
+  choice, not an unsolved blocker.
 - **Additive-only schema invariant:** green's schema is a superset of blue's, so the
   alias swap is transparent to existing consumers (no breaking changes behind the
   alias).
@@ -131,10 +139,12 @@ belt), which is negligible monthly. (Resolves r1 `F-002` unbounded-growth and
 
 ## 7. Open questions (for the reviewers)
 
-- **Q1 (the alias mechanism):** what *is* the stable alias technically — a Railway
-  custom domain reassigned on promotion? a gateway/router that holds the
-  current-belt URL? a DNS/proxy layer? This is the core thing to build (Guardrail 5);
-  it must be atomic and single-source-of-truth across all consumers.
+- **Q1 (the alias mechanism): RESOLVED (spike 2026-05-22).** It is the existing
+  Caddy `belt-gateway` (proxy, not DNS; single-source-of-truth; swap via
+  `BELT_UPSTREAM` + verified rollback). See §4. Only open sub-question: swap
+  atomicity (Railway-redeploy blip vs. Caddy graceful `reload` vs. ≥2 instances) —
+  an SDD decision, gated by whether the ~seconds blip is acceptable given score-api
+  fallbacks.
 - **Q2 (non-additive / breaking schema changes):** B1 covers additive changes. What
   is the path when a change is *not* additive (field rename/removal, entity
   restructure)? Versioned alias? Consumer-coordinated cutover?
