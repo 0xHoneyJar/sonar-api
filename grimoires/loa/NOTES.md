@@ -1,5 +1,14 @@
 # Session Notes
 
+## Decision Log — sonar-belt-factory SDD (2026-05-21, /architect)
+- SDD written to `grimoires/loa/sdd.md` for cycle `sonar-belt-factory` — N-belt generalization of the single-belt r4 SDD.
+- **FR-1 partition resolved**: 41 contracts → 9 belts (honeyjar, mibera, sf-vaults, apdao, berachain-core, aquabera, crayons, purupuru, paddle). PaddleFi+CandiesMarket1155+GeneralMints get a `paddle` (DeFi/lending) home; FriendtechShares→`friendtech` OR fold to paddle; CubBadges1155→honeyjar (Cub ecosystem); TrackedErc20→berachain-core (utility, indexed once); TrackedErc721→split by chain home (apdao seat on Bera; lore on OP→mibera). MiladyCollection→mibera. Final count is FR-0-gated (cost may consolidate).
+- **Shipped "mibera belt" is actually the score-api-footprint ECOSYSTEM belt** (16 contracts, 4 chains) — re-scoping it to pure-product is R7's hazard; preserve score-api#151 footprint via federation overlay.
+- **KF-013 re-init pattern** (set ENVIO_RESTART=1 → deploy seeds+crashes → delete var → redeploy resumes) is load-bearing for FR-0 multi-deployment + FR-2 per-belt deploy. Belt runs without persisted_state (resume reads chain_metadata/checkpoints).
+- **FR-0 D6 closure**: KF-013 establishes that config-mutation reset is per-deployment; multi-deployment = separate Railway service + separate Postgres + ENVIO_RESTART-gated init per belt. eRPC L2 stays SHARED (cache compounds).
+- BeaconV3 schema read (`loa-freeside/packages/beacon-schema/src/beacon-v3.ts` v0.2.0): V2 base (mcp/cli/pricing/publisher/auth) + 6 V3 fields (is/is_not≥2/composes_with/acvp_invariants/sealed_schemas/cycle_state). is_not entries MUST start "Does NOT"/"Will NOT"/"Refuses to". Tag refs = TagName@semver+hash8-16.
+- Effect FR-5: domain/ports/live/mock + single ManagedRuntime.make (grep gate =1) at NEW serving layer only; Envio handlers stay, become live adapters. suffix-as-type (*.port.ts/*.live.ts/*.mock.ts).
+
 ## Current Focus
 - **SESSION 3 (2026-05-21) — Berachain ECOSYSTEM belt DEPLOYED + backfilled + validated (leg 1 of the 4-chain sovereign indexer).**
   The committed 8-contract belt (`7408ceb`) is now LIVE on Railway, synced to head, sovereign (`is_hyper_sync=false`), following tip.

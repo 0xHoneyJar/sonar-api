@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "active_cycle": "indexer-belt-rebuild",
+  "active_cycle": "sonar-belt-factory",
   "cycles": [
     {
       "id": "cycle-036",
@@ -1355,7 +1355,7 @@
     {
       "id": "indexer-belt-rebuild",
       "label": "Indexer Belt Rebuild — L0-L6 stack (eRPC L2 substrate)",
-      "status": "active",
+      "status": "archived",
       "created": "2026-05-19T00:00:00Z",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
@@ -1377,13 +1377,67 @@
           "local_id": 2,
           "global_id": 170,
           "label": "S2 — Re-point Mibera Belt to eRPC + Verify",
-          "status": "in_progress"
+          "status": "completed"
         },
         {
           "local_id": 3,
           "global_id": 171,
           "label": "S3 — Gateway / Observability / Hardening / Handback",
-          "status": "planned"
+          "status": "completed"
+        }
+      ],
+      "archived": "2026-05-22T00:23:59Z",
+      "archive_path": "grimoires/loa/archive/2026-05-21-indexer-belt-rebuild-mibera"
+    },
+    {
+      "id": "sonar-belt-factory",
+      "label": "sonar-api belt-factory — composable freeside-* building (D4 split + BeaconV3 + Effect serving)",
+      "status": "active",
+      "created": "2026-05-22T00:23:59Z",
+      "archived": null,
+      "archive_path": null,
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprints": [
+        {
+          "local_id": 0,
+          "global_id": 172,
+          "label": "S0 — Envio multi-deployment calibration spike (FR-0, gates all)",
+          "scope": "SMALL",
+          "status": "planned",
+          "priority": "P0"
+        },
+        {
+          "local_id": 1,
+          "global_id": 173,
+          "label": "S1 — Factory generalization + belt authoring (FR-1, FR-2)",
+          "scope": "LARGE",
+          "status": "planned",
+          "priority": "P0"
+        },
+        {
+          "local_id": 2,
+          "global_id": 174,
+          "label": "S2 — Belt deployment + blast-radius proof + R7 reconciliation (FR-2, FR-3)",
+          "scope": "MEDIUM",
+          "status": "planned",
+          "priority": "P0"
+        },
+        {
+          "local_id": 3,
+          "global_id": 175,
+          "label": "S3 — Effect serving/ports layer + uptime harness (FR-5, FR-6)",
+          "scope": "LARGE",
+          "status": "planned",
+          "priority": "P1"
+        },
+        {
+          "local_id": 4,
+          "global_id": 176,
+          "label": "S4 — BeaconV3 spike + federation contract + E2E validation (FR-4, FR-7)",
+          "scope": "MEDIUM",
+          "status": "planned",
+          "priority": "P2"
         }
       ]
     }
@@ -1585,5 +1639,5 @@
       "sprint_plan": "grimoires/loa/a2a/bug-20260428-i640-1cc190/sprint.md"
     }
   ],
-  "next_sprint_number": 172
+  "next_sprint_number": 177
 }
