@@ -119,10 +119,27 @@ function parseSchema(src) {
   return types;
 }
 
+/** Parse `enum Name { V1 V2 … }` declarations into { EnumName: [values] } (DISS-001). */
+function parseEnums(src) {
+  const enums = {};
+  const noComments = String(src || "").replace(/#[^\n]*/g, "");
+  const enumRe = /enum\s+([A-Za-z0-9_]+)\s*(?:@\w+\s*)*\{([^}]*)\}/g;
+  let m;
+  while ((m = enumRe.exec(noComments)) !== null) {
+    const [, name, body] = m;
+    // strip value directives (e.g. @deprecated) before extracting value identifiers
+    const noDirectives = body.replace(/@\w+(?:\([^)]*\))?/g, " ");
+    enums[name] = noDirectives.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
+  }
+  return enums;
+}
+
 /**
  * Part 3 — schema superset (FR-7 additive-only). Green must contain every blue
- * type + field with an identical signature (catches removal, type change, AND
- * nullability/enum contraction — IMP-005). Green adding fields/types is allowed.
+ * type + field with an identical signature (catches removal, type/nullability
+ * change) AND every blue enum's value-set must be ⊆ green's (catches enum
+ * value-set contraction — IMP-005, DISS-001). Green adding fields/types/enum
+ * values is allowed.
  */
 export function checkSchemaSuperset(blueSchema, greenSchema) {
   const blue = parseSchema(blueSchema);
@@ -140,6 +157,20 @@ export function checkSchemaSuperset(blueSchema, greenSchema) {
       } else if (gsig !== sig) {
         failures.push(`green ${type}.${fname}: '${gsig}' ≠ blue '${sig}' (type/nullability/enum drift)`);
       }
+    }
+  }
+  // enum value-set superset (DISS-001): green must keep every blue enum value.
+  const blueEnums = parseEnums(blueSchema);
+  const greenEnums = parseEnums(greenSchema);
+  for (const [enumName, values] of Object.entries(blueEnums)) {
+    const g = greenEnums[enumName];
+    if (!g) {
+      failures.push(`green schema missing enum ${enumName} (non-additive removal)`);
+      continue;
+    }
+    const gset = new Set(g);
+    for (const v of values) {
+      if (!gset.has(v)) failures.push(`green enum ${enumName} missing value '${v}' (non-additive value removal)`);
     }
   }
   return { pass: failures.length === 0, failures };

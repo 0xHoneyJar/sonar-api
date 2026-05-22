@@ -151,4 +151,27 @@ describe("promotion-gate — Part 3 schema superset (additive-only, FR-7)", () =
     expect(r.pass).toBe(false);
     expect(r.failures.join(" ")).toMatch(/PaddleSupply/);
   });
+
+  // DISS-001: enum value-set contraction must FAIL (AC-7/IMP-005 enum dimension).
+  it("PASSES when green adds an enum value (additive)", () => {
+    const blue = "enum LoanStatus { ACTIVE CLOSED }";
+    const green = "enum LoanStatus { ACTIVE CLOSED LIQUIDATED }"; // additive value
+    expect(checkSchemaSuperset(blue, green).pass).toBe(true);
+  });
+
+  it("FAILS when green removes an enum value (non-additive contraction — DISS-001)", () => {
+    const blue = "enum LoanStatus { ACTIVE CLOSED LIQUIDATED }";
+    const green = "enum LoanStatus { ACTIVE CLOSED }"; // dropped LIQUIDATED
+    const r = checkSchemaSuperset(blue, green);
+    expect(r.pass).toBe(false);
+    expect(r.failures.join(" ")).toMatch(/LIQUIDATED/);
+  });
+
+  it("FAILS when green drops an entire enum blue has", () => {
+    const blue = "type Loan { id: ID! status: LoanStatus! } enum LoanStatus { ACTIVE CLOSED }";
+    const green = "type Loan { id: ID! status: LoanStatus! }"; // enum removed entirely
+    const r = checkSchemaSuperset(blue, green);
+    expect(r.pass).toBe(false);
+    expect(r.failures.join(" ")).toMatch(/LoanStatus/);
+  });
 });
