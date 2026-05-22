@@ -43,27 +43,36 @@ const prev = {}; // chain_id -> { ts, done }
 async function snapshot() {
   const rows = await sql`
     select chain_id, start_block, block_height, latest_processed_block,
-           num_events_processed, is_hyper_sync,
+           latest_fetched_block_number as fetched, num_events_processed, is_hyper_sync,
            timestamp_caught_up_to_head_or_endblock as caught_up
     from chain_metadata order by chain_id`;
   const now = Date.now();
   const chains = rows.map((r) => {
     const start = Number(r.start_block), head = Number(r.block_height), done = Number(r.latest_processed_block);
+    const fetched = Math.min(Number(r.fetched), head);
     const span = Math.max(head - start, 1);
     const pct = Math.min(100, Math.max(0, ((done - start) / span) * 100));
+    const fetchedPct = Math.min(100, Math.max(0, ((fetched - start) / span) * 100));
     const remaining = Math.max(head - done, 0);
+    const fetchAhead = Math.max(fetched - done, 0);
     const converged = !!r.caught_up || remaining <= 100;
+    // liveness rate = leading-edge (fetched) movement so a batch-lagging chain still reads active;
+    // ETA uses committed (processed) movement, which is what actually closes the gap.
     let rate = null, eta = null;
     const p = prev[r.chain_id];
     if (p && now > p.ts) {
-      const dt = (now - p.ts) / 1000, dblk = done - p.done;
-      if (dt > 0 && dblk >= 0) { rate = dblk / dt; if (rate > 1 && !converged) eta = remaining / rate; }
+      const dt = (now - p.ts) / 1000;
+      const dfetch = fetched - (p.fetched ?? fetched), ddone = done - p.done;
+      if (dt > 0) {
+        if (dfetch > 0) rate = dfetch / dt; else if (ddone > 0) rate = ddone / dt;
+        if (ddone > 1 && !converged) eta = remaining / (ddone / dt);
+      }
     }
-    prev[r.chain_id] = { ts: now, done };
+    prev[r.chain_id] = { ts: now, done, fetched };
     return {
       id: r.chain_id, name: CHAINS[r.chain_id] || String(r.chain_id),
-      start, head, done, pct, remaining, events: Number(r.num_events_processed),
-      hyperSync: !!r.is_hyper_sync, converged, rate, eta,
+      start, head, done, fetched, pct, fetchedPct, remaining, fetchAhead,
+      events: Number(r.num_events_processed), hyperSync: !!r.is_hyper_sync, converged, rate, eta,
     };
   });
   return { ts: now, chains, converged: chains.filter((c) => c.converged).length, total: chains.length };
@@ -92,8 +101,9 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
   .badge{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--dim);
     border:1px solid var(--line);border-radius:5px;padding:1px 6px;margin-left:8px}
   .pct{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
-  .bar{height:8px;background:var(--track);border-radius:5px;overflow:hidden;margin:10px 0 8px}
-  .fill{height:100%;border-radius:5px;transition:width .6s ease}
+  .bar{position:relative;height:8px;background:var(--track);border-radius:5px;overflow:hidden;margin:10px 0 8px}
+  .ghost{position:absolute;inset:0 auto 0 0;height:100%;background:#2b3650;border-radius:5px;transition:width .6s ease}
+  .fill{position:absolute;inset:0 auto 0 0;height:100%;border-radius:5px;transition:width .6s ease}
   .stats{display:flex;flex-wrap:wrap;gap:4px 18px;color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums}
   .stats b{color:var(--fg);font-weight:500}
   .ok{color:var(--green)} .go{color:var(--amber)}
@@ -124,10 +134,11 @@ async function tick(){
     return \`<div class="chain">
       <div class="row"><span class="name">\${dot}\${c.name}<span class="badge">\${c.hyperSync?"hypersync":"rpc"}</span></span>
         <span class="pct \${cls}">\${c.converged?"✓ at head":c.pct.toFixed(1)+"%"}</span></div>
-      <div class="bar"><div class="fill" style="width:\${c.pct}%;background:\${col}"></div></div>
+      <div class="bar"><div class="ghost" style="width:\${c.fetchedPct}%"></div><div class="fill" style="width:\${c.pct}%;background:\${col}"></div></div>
       <div class="stats">
         <span><b>\${fmtN(c.done)}</b> / \${fmtN(c.head)}</span>
         <span>remaining <b>\${fmtN(c.remaining)}</b></span>
+        \${(!c.converged && c.fetchAhead>1000)?'<span>fetched <b class="go">+'+fmtN(c.fetchAhead)+'</b> ahead</span>':''}
         <span>events <b>\${fmtN(c.events)}</b></span>
         <span>rate <b>\${fmtRate(c.rate)}</b></span>
         <span>eta <b>\${c.converged?"—":fmtEta(c.eta)}</b></span>
