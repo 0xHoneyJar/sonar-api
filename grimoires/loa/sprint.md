@@ -1,395 +1,433 @@
-# Sprint Plan — sonar-api Belt-Factory (`sonar-belt-factory`)
+# Sprint Plan — sonar-api Consolidated Belt + Blue-Green Promotion (`sonar-belt-factory`)
 
-**Version:** 1.0
-**Date:** 2026-05-21
+**Version:** 2.0 (full rewrite to track PRD r2 + SDD r7)
+**Date:** 2026-05-22
 **Author:** Sprint Planner Agent (SHIP/ARCH · BARTH + protocol/noether, craft lens)
-**PRD Reference:** `grimoires/loa/prd.md` (sonar-belt-factory)
-**SDD Reference:** `grimoires/loa/sdd.md` r6 (Flatline-remediated · 9 blockers + 10 high-consensus integrated)
+**PRD Reference:** `grimoires/loa/prd.md` r2 (sonar-belt-factory)
+**SDD Reference:** `grimoires/loa/sdd.md` r7 (Flatline-remediated · §17 R-A..R-G + IMP-001..009 integrated)
 **Cycle:** `sonar-belt-factory` · ledger global sprint range **172–176**
+
+> **Supersedes** sprint.md v1.0 (the RETIRED r1/r6 "12 pure-product belts + BeaconV3 federation + Effect serving" plan). The v1.0 S0 calibration spike (global 172) ran and PROVED the 12-belt approach budget-infeasible ($280–450/mo vs the hard < $100/mo ceiling) — that finding triggered the PRD r2 reframe to **one consolidated belt + blue-green promotion**. S0 is retained as completed; S1–S4 are re-authored to the new SDD §13 sequencing.
 
 ---
 
 ## Executive Summary
 
-Decompose the monolithic `sonar-api` Envio indexer (1 deployment · 41 contracts · 93 entities · 6 chains) into **12 independently-deployable pure-product belts**, each owning its own runtime + schema-subset + Postgres; declare them to `loa-freeside` via a spiked **BeaconV3** contract; and add an **Effect `domain/ports/live/mock`** serving layer with a sync-lag SLO + mock/live CI harness.
+Keep the THJ sovereign indexer as **one consolidated Envio belt** (41 contracts · 93 entities · 6 chains) serving a **stable, additive-only GraphQL API behind a fixed production alias** (the Caddy `belt-gateway`, already live). Ship every change (new source, additive schema field) via **blue-green promotion**: stand up a green deployment with the change, backfill it in the background while blue keeps serving, run a **reconciliation gate**, then **atomically swap the alias** blue→green via `caddy reload` and retire blue after a rollback window. The 8-hour reindex still happens — off the live path, so consumers see **zero downtime**.
 
-The cycle is **gated by FR-0** — a half-day calibration spike (S0) that PROVES Envio multi-deployment mechanics (per the §17 R-D HARD EXIT criteria) before any belt ships. Sequencing follows SDD §13 + the §17 remediation→sprint mapping. The shipped ecosystem belt stays the **sole score-api source** all cycle (R-B no-split-brain); new belts backfill **dark**; cutover + decommission are deferred to the next cycle behind a hard guard (AC-R7 PASS).
+The infrastructure is mostly **already live** (the consolidated belt = blue; the Caddy alias; the eRPC L2; the `belt-reinit.md` re-init runbook). This cycle is predominantly **operational discipline + the reconciliation gate** — not greenfield build. The one substantive net-new code artifact is `scripts/promotion-gate.js` (zero-dep, test-first), which carries the §17 remediation requirements (fixed-block-cutoff reconciliation, raw-L1 spot-check, content sample, schema superset-diff, non-skippable `promote` precondition).
 
-**Total Sprints:** 5 (S0–S4)
-**Sprint Duration:** S0 = half-day (calibration spike); S1–S4 ≈ 2.5 days each
-**Sovereignty posture:** OWN indexer/schema/gateway/eRPC; RENT free RPC + Railway; HyperSync = Base break-glass only.
+**Total Sprints:** 5 (S0 completed + S1–S4 to build)
+**Sprint Duration:** S0 = half-day (completed spike); S1 ≈ 2.5 days; S2–S4 ≈ 2 days each
+**Sovereignty posture:** OWN indexer/schema/gateway/eRPC; RENT free RPC + Railway; HyperSync = break-glass only.
 
 ### PRD Goals (G-N traceability — see Appendix C)
 
-| ID | Goal | KPI gate |
-|----|------|----------|
-| **G1** | Full migration — every contract/entity sorted into a pure-product belt (41/41 + 93/93, no monolith remainder) | All items sorted into belts (measured at **S1 exit**, §17 R-A / B6) |
-| **G2** | Blast-radius isolation — a source change reindexes only its belt's chains | 0 reindex events on sibling belts (AC-FR3 sibling-monotonicity CI probe) |
-| **G3** | Federation contract — sonar-api declares belts via spiked BeaconV3; ≥1 consumer routed | `build-beacon-json` exit 0 against `loa-freeside/packages/beacon-schema` (spike) |
-| **G4** | Uptime — sync-lag SLO defined + monitored; Effect mock/live harness green as CI gate | SLO monitor wired (managed env, D3) + harness green in CI |
+| ID | Goal | KPI gate (PRD §3) |
+|----|------|-------------------|
+| **G1** | Zero-downtime updates — source/schema change ships via background green + atomic alias swap; never makes the live endpoint stale | A source-add promotion completes with **0 consumer-visible downtime** (no 5xx spike on the stable endpoint) |
+| **G2** | Cost ceiling — total indexer infra **< $100/mo** steady-state (the bar to leave Envio's ~$300 hosted) | Measured Railway steady-state < $100/mo (≈ $84/mo single belt per S0); transient 2× only *during* a promotion window |
+| **G3** | API serving consistency — one stable GraphQL endpoint behind a fixed alias; no split-brain, no consumer config edits | **0 consumer config changes** across a promotion; reconciliation confirms no entity dropped (AC-R7 footprint preserved) |
+| **G4** | Background re-sync + promotion gate — backfill is a background operation on green, gated by reconciliation before any swap | Promotion gate enforced: green ≥ blue on **every** chain AND reconciliation pass before swap; rollback exercised |
+
+> **Goal-ID note:** the PRD labels its goals `G1`–`G4` directly (PRD §3 Primary Goals). This plan uses those IDs verbatim. No auto-assignment required.
 
 ---
 
 ## Sprint Overview
 
-| Sprint | Global | Theme | Scope | FR / §17 | Key Deliverables | Dependencies |
-|--------|--------|-------|-------|----------|------------------|--------------|
-| **S0** | 172 | Envio multi-deployment calibration spike (GATES ALL) | SMALL (3) | FR-0 · R-D · OQ-1 | Q-a/b/c answered · Option A codegen+tsc PROOF or Option B fallback · alpha.17 vs alpha.14 confirmed · per-belt $/mo → belt count finalized | None |
-| **S1** | 173 | Factory generalization + belt authoring | LARGE (7) | FR-1 · FR-2 · R-A | Parameterized `verify-belt-config` · `config.<belt>.yaml` + `src/belts/<belt>/` for confirmed belts · GeneralMints placed · crayons/purupuru resolved (41/41) | S0 clean exit |
-| **S2** | 174 | Belt deployment + blast-radius proof + R7 reconciliation | MEDIUM (6) | FR-2 · FR-3 · R-B · R-E | Belts deployed (ENVIO_RESTART per belt) · dark backfill · blast-radius CI probe PASS · score-api footprint reconciliation PASS · decommission HARD GUARD | S1 |
-| **S3** | 175 | Effect serving/ports layer + uptime harness | LARGE (7) | FR-5 · FR-6 · R-C | `domain/ports/live/mock` structure · single-runtime + suffix CI gates · sync-lag SLO (managed env) · mock/live CI harness · eRPC/gateway HA + degraded fallbacks | S2 |
-| **S4** | 176 | BeaconV3 spike + federation contract + E2E validation | MEDIUM (6) | FR-4 · FR-7 · R-F | `beacon.yaml` validates exit 0 · minimal typed Federation port shape · federation contract design · **E2E goal validation (G1–G4)** | S3 |
+| Sprint | Global | Theme | Scope | Key Deliverables | Dependencies |
+|--------|--------|-------|-------|------------------|--------------|
+| **S0** | 172 | Envio multi-deployment calibration spike (FR-0) | SMALL | **COMPLETED** — proved 12-belt infeasible → PRD r2 reframe; alpha.17/`rpc` field; Option-A reserve; cost $84/mo; `belt-reinit.md` | None |
+| **S1** | 173 | Stable-alias contract + the reconciliation gate (FR-2, FR-4) | LARGE | `promotion-gate.js` (test-first) with all §17 remediation requirements; alias contract specified + swap smoke | S0 |
+| **S2** | 174 | Green-build orchestration + dry-run promotion (FR-3, FR-8) | MEDIUM | Green-build procedure on `belt-reinit.md` + seed-count verify; one end-to-end dry-run promotion (stand up → gate → swap → rollback); G4 backfill wall-time measured | S1 |
+| **S3** | 175 | Swap atomicity + rollback + breaking-change path (FR-5, FR-6, FR-7) | MEDIUM | Caddy graceful-reload swap (Option B, localhost-only admin) with off-host-unreachable verification; rollback exercised; expand/contract path documented | S2 |
+| **S4** | 176 | Boundary docs + reserve + E2E goal validation (FR-1, FR-9, FR-10) | SMALL | FR-1 one-belt confirmation; score-api boundary doc; FR-10 reserve documented (no code); **E2E validation of G1–G4** | S3 |
 
 ---
 
-## Sprint S0 (Global 172): Envio Multi-Deployment Calibration Spike — GATES THE ENTIRE CYCLE
+## Sprint 0 (COMPLETED): Envio Multi-Deployment Calibration Spike
 
-**Scope:** SMALL (3 tasks) · **Duration:** half-day (max) · **Priority:** P0 (FR-0)
-**Persona:** ARCH (the-arcade + protocol) · operator S0-spike doctrine (untested integration path)
-
-> **No belt ships until S0 exits clean.** S0 deletes its scratch artifacts after audit — NET 0 LOC to the cycle beyond the documented findings + the generalized re-init runbook (S0 doctrine: spike-not-wire).
+**Global ID:** 172 · **Scope:** SMALL · **Status:** ✅ COMPLETED · **Priority:** P0 (gated all)
 
 ### Sprint Goal
-Prove Envio multi-deployment mechanics + the §17 R-D hard exit criteria, and finalize the belt count, before committing to belt migrations.
+Prove Envio multi-deployment mechanics and per-belt cost before committing to any belt-split architecture (FR-0 calibration spike, spike-not-wire / NET-0 LOC doctrine).
+
+### Outcome (closing the loop — this sprint is done)
+- ✅ **OQ-1 / version reconcile** — Envio `3.0.0-alpha.17` pinned; data-source field is **`rpc`** (not `rpc_config`). `(S0)` `> grimoires/loa/a2a/sprint-172/s0-multideploy-calibration.md`
+- ✅ **R-D / Option-A proof** — per-belt config + physical schema subset codegens + `tsc` exit 0 (held in reserve as FR-10).
+- ✅ **Q-a / topology** — Railway: per-belt = indexer+hasura+postgres; shared = gateway+erpc+erpc-pg.
+- ◐ **Q-b / cost** — project-aggregate $84.40/mo for 1 belt + shared (89% memory); 12 belts projected $280–450/mo → **budget-infeasible against the < $100/mo ceiling**.
+- ✅ **Q-c / D6** — reset semantics closed; `runbooks/belt-reinit.md` authored (KF-013 re-init dance).
+
+### The load-bearing finding
+> "This reframes the cycle away from r1's 12 physical belts (which the S0 spike proved cost ~$280–450/mo against a hard < $100/mo ceiling, and which solved the wrong problem)." — `> prd.md:L26`
+
+S0's purpose was served: the per-belt cost finding RETIRED the 12-belt plan and produced the PRD r2 / SDD r7 reframe. No further S0 work; the scratch belt was deleted per the spike-not-wire NET-0 contract. The S1–S4 below are the new plan.
+
+---
+
+## Sprint 1: Stable-Alias Contract + The Reconciliation Gate
+
+**Global ID:** 173 · **Scope:** LARGE (7–10 tasks) · **Priority:** P0
+**Duration:** 2.5 days
+
+### Sprint Goal
+Author the one substantive net-new artifact — `scripts/promotion-gate.js` — test-first, carrying every §17 remediation requirement, and formally specify + smoke-test the stable alias contract so the swap lever is proven before any green is built.
 
 ### Deliverables
-- [ ] `grimoires/loa/a2a/<sprint>/s0-multideploy-calibration.md` answering Q-a (how Envio runs N deployments), Q-b (per-belt $/mo), Q-c (per-mutation reset semantics → closes SCALE.md D6)
-- [ ] A **real `envio codegen` + `tsc` build** for ≥1 representative belt proving Option A (per-belt physical schema subset) compiles — OR a documented decision to fall back to Option B (shared schema, subset-populated, empty-safe)
-- [ ] Envio version reconciliation: `alpha.17` (PRD) vs `alpha.14` (reality A1) confirmed on the pinned version, codegen tested against it (OQ-1)
-- [ ] Per-belt cost number + N-belt total + explicit consolidation recommendation
-- [ ] Generalized KF-013 re-init runbook ("any belt `<X>`") replacing SCALE.md Guardrail 1's `WARNING (SKP-004)` "unverified" labeling
-- [ ] **Belt count confirmed by operator** (pair-point) — §4 candidate is 12 belts; S0 cost may consolidate
+- [ ] `scripts/promotion-gate.js` exists (zero-dep, matching `verify-belt-config.js`'s no-dependency invariant) and exits 0 against a **blue-vs-blue self-parity** sanity run.
+- [ ] Gate enforces all three checks: block-height parity (Part 1), entity-count reconciliation (Part 2, AC-R7 footprint), and schema-diff superset (FR-7 §9.1).
+- [ ] Gate writes its result to `grimoires/loa/a2a/sprint-173/promotion-reconciliation.md` on every run (PASS/FAIL + per-check evidence).
+- [ ] The alias contract is documented (§4): public URL, additive-only schema invariant, `BELT_UPSTREAM` as the sole swap lever, proxy-not-DNS rationale.
+- [ ] The existing swap smoke (bad upstream → 502, revert → live) is re-run and recorded as the alias baseline `> NOTES.md:265`.
 
-### Acceptance Criteria (S0 HARD EXIT — §3.3 + §17 R-D)
-- [ ] Q-a/Q-b/Q-c each have a written, grounded answer
-- [ ] **Option A proof OR Option B fallback decision is made on real build evidence** — no belt ships on an unproven codegen path (R-D, Flatline B1-CRITICAL/B2)
-- [ ] Pre-codegen reference check: for the representative belt, every entity its handlers reference is in that belt's subset (or surfaced as a purity signal / genuine shared shape)
-- [ ] Envio version pinned + codegen-verified (OQ-1 resolved)
-- [ ] D6 closed: per-mutation reset semantics stated definitively
-- [ ] Operator-confirmed belt count
-- [ ] Scratch artifacts deleted post-audit (NET 0 LOC)
+### Acceptance Criteria
+- [ ] `node scripts/promotion-gate.js` exits **0** when comparing blue against itself (self-parity must pass — a gate that fails its own identity is broken).
+- [ ] Gate **exits non-zero** on each injected failure: short block-height on one chain; an entity count outside tolerance; a green schema missing a blue field (negative test cases — IMP-009).
+- [ ] Reconciliation runs at a **fixed block cutoff** per chain `target = min(blue_head, green_head) − safety_margin`, not at wall-clock "now" (R-F: racy comparison closed).
+- [ ] Gate includes a **raw-L1 `eth_getLogs` spot-check** (bypassing the eRPC cache) for a sample of (chain, contract, block-range) so a poisoned shared-cache entry can't pass blue=green while both are wrong (R-B).
+- [ ] Gate includes a **content sample**: for N sampled entity IDs per high-value entity, field-level payloads are compared blue-vs-green, not just counts (R-E).
+- [ ] Tolerance is **exact** on low-cardinality entities (e.g. `MiberaLoan 176`) and an **absolute floor** `max(0.1%, fixed_row_floor)` on high-cardinality (e.g. `Action 2.07M`) — not a bare ±0.5% (R-G); tolerance is configurable with a provisional default + override (IMP-007).
+- [ ] Schema-compat diff checks **nullability and enum** dimensions, not just name/type presence (IMP-005).
+- [ ] Connection strings (blue + green Postgres / GraphQL) are sourced from env/config, never hardcoded (IMP-001).
 
 ### Technical Tasks
-- [ ] **S0-T1**: Multi-deployment mechanics + cost (Q-a/Q-b) — confirm belt = own Railway service + own Postgres + own `config.<belt>.yaml` generalizes to ≥3 simultaneous belts (not just the 2 prod mirrors `b5da47c`/`914708e`); measure 1 Railway service + 1 Postgres $/mo; produce N-belt total + consolidation recommendation. Confirm eRPC stays shared. → **[G1, G2]**
-- [ ] **S0-T2**: Option A codegen+tsc PROOF + version reconciliation (R-D + OQ-1) — pin Envio version (alpha.17 vs alpha.14); run pre-codegen entity-reference check for one representative belt; run a real `envio codegen` + `tsc --noEmit` against the per-belt physical schema subset; if it fails, document Option B (shared schema, subset-populated, empty-safe) as the mandatory fallback. → **[G1, G2]**
-- [ ] **S0-T3**: Reset semantics + re-init runbook (Q-c / D6 / KF-013) — confirm `isInitialized()` checks table-existence not config-hash (plain redeploy resumes + silently skips new contracts); document the `ENVIO_RESTART`-seeds-then-resume primitive generalized to any belt; close SCALE.md D6; **DO NOT retry `ENVIO_PG_SSL_MODE=false`** (KF-013 misdiagnosis, recurrence-aware). Delete scratch artifacts after audit. → **[G2]**
+
+<!-- Test-first: write the failing gate test, then the gate. -->
+
+- [ ] Task 1.1: Write the test harness for `promotion-gate.js` first — fixtures for blue-vs-blue (self-parity PASS) and the injected-failure negative cases (short height, count drift, missing field, nullability change). → **[G-4]**
+- [ ] Task 1.2: Implement **Part 1 — block-height parity**: query each deployment's `chain_metadata`, assert `green.latest_processed_block ≥ blue` on **every** chain (§6.1, SCALE.md probe). → **[G-4]**
+- [ ] Task 1.3: Implement **Part 2 — entity-count reconciliation** over the score-api footprint (12 entities: `MiberaLoan 176` … `Action 2.07M` … `TreasuryActivity 11,819`) with the R-G tolerance model (exact low-cardinality / absolute-floor high-cardinality). → **[G-3, G-4]**
+- [ ] Task 1.4: Implement the **fixed-block-cutoff** comparison (`target = min(blue_head, green_head) − safety_margin`) so both belts are queried AT that block, not "now" (R-F). → **[G-4]**
+- [ ] Task 1.5: Implement the **schema-diff superset check** — parse blue + green `schema.graphql`, assert green ⊇ blue across name/type **and** nullability/enum (§9.1, IMP-005); non-superset → FAIL. → **[G-3, G-1]**
+- [ ] Task 1.6: Implement the **raw-L1 `eth_getLogs` spot-check** (cache-bypass) + the **content sample** (field-level payload compare for N sampled IDs) — the two anti-silent-loss checks (R-B, R-E; extends KF-012 discipline). → **[G-4]**
+- [ ] Task 1.7: Wire result emission to `grimoires/loa/a2a/sprint-173/promotion-reconciliation.md`; source all connection strings from env/config (IMP-001); make tolerance configurable with provisional default (IMP-007). → **[G-4]**
+- [ ] Task 1.8: Document the alias contract (§4) and re-run + record the swap smoke baseline (`BELT_UPSTREAM` bad → 502, revert → live). → **[G-3]**
 
 ### Dependencies
-- None (first sprint). Strong prior evidence from KF-013 + the shipped belt de-risks the spike.
+- S0 (complete): Envio version/field, topology, cost model, `belt-reinit.md`.
+- The shipped blue belt + live Caddy alias + live eRPC L2 (all already live — read-only for this sprint).
 
 ### Security Considerations
-- **Trust boundaries**: spike runs against Railway managed Postgres over SCRAM/SSL — credentials in env, never inline (PRD §Security; SDD §9.3 rejected hardcoded PG password).
-- **External dependencies**: no new deps; exercises the existing Envio `alpha.17` pin + eRPC substrate.
-- **Sensitive data**: Postgres + Railway credentials — per-belt credential isolation; secrets via env only.
+- **Trust boundaries:** the gate reads from blue + green Postgres/GraphQL (trusted, operator-owned) and from **raw public L1 RPC** (untrusted external — the raw-L1 spot-check treats getLogs responses as suspect per KF-012; an empty-200 must surface as a gap, not silently pass).
+- **External dependencies:** none new — `promotion-gate.js` is zero-dep (no npm install), matching `verify-belt-config.js`. The raw-L1 check uses the same eRPC-bypass RPC endpoints already in config.
+- **Sensitive data:** Postgres connection strings sourced from env (IMP-001), never committed. Public read-only on-chain data; no auth surface added.
 
 ### Risks & Mitigation
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| Option A breaks TS codegen (missing Envio bindings, R10/R-D) | Med | High | Real codegen+tsc build IS the test; Option B empty-safe fallback is pre-decided |
-| Envio version mismatch corrupts belt builds (OQ-1) | Med | Med | Confirm pin + test codegen before any belt build |
-| N× infra cost too high (R2) | Med | Med | Cost number drives operator consolidation decision; `paddle`/eRPC-shared amortize |
-| Re-init dead-end re-attempt (KF-013) | Low | Med | Recurrence-aware: skip `ENVIO_PG_SSL_MODE=false`; use seeds-then-resume |
+| Shared eRPC cache makes blue=green both-wrong pass reconciliation (R-B) | Med | High | Raw-L1 `eth_getLogs` spot-check bypasses the cache (Task 1.6); reconciliation is blue-vs-green **plus** green-vs-raw-L1 |
+| Counts match but rows are wrong/dup/stale (R-E) | Med | High | Field-level content sample for N sampled IDs (Task 1.6) |
+| ±0.5% tolerance hides thousands of high-cardinality rows (R-G) | Med | High | Exact on low-cardinality + absolute floor on high-cardinality (Task 1.3) |
+| Racy wall-clock comparison while both belts advance (R-F) | Med | Med | Fixed block cutoff per chain (Task 1.4) |
 
 ### Success Metrics
-- Calibration doc complete with definitive Q-a/b/c answers
-- Codegen build exit 0 (Option A) or documented Option-B decision
-- Per-belt $/mo measured; belt count operator-confirmed
+- `promotion-gate.js` self-parity exit 0; all ≥3 negative cases exit non-zero (IMP-009).
+- 100% of the 12 score-api footprint entities covered by Part-2 reconciliation.
+- Gate run < a few minutes wall-time (operator-runnable, not a CI burden).
 
 ---
 
-## Sprint S1 (Global 173): Factory Generalization + Belt Authoring
+## Sprint 2: Green-Build Orchestration + Dry-Run Promotion
 
-**Scope:** LARGE (7 tasks) · **Duration:** 2.5 days · **Priority:** P0 (FR-1, FR-2)
-**Persona:** ARCH (the-arcade + protocol + noether, craft lens)
-
-> Extends the existing factory primitive (`config.mibera.yaml` + `src/belts/mibera/` + `verify-belt-config`) to the operator-confirmed belt partition. **This cycle generalizes — it does not invent.** Branch-state check before authoring (operator doctrine): `ls`/`find` each belt's handler modules against the cycle branch; a missing module is the FR-1 purity signal.
+**Global ID:** 174 · **Scope:** MEDIUM (4–6 tasks) · **Priority:** P0
+**Duration:** 2 days
 
 ### Sprint Goal
-Generalize the belt factory to the full pure-product partition and author config + handlers + schema-subset for every confirmed belt, achieving 41/41 contracts + 93/93 entities placed.
+Operationalize standing up green from `belt-reinit.md` with the seed-count verification gate, then exercise the **full blue-green loop end-to-end once** via a dry-run promotion (green = a copy of blue) — proving stand-up → gate → swap → rollback works and capturing the G4 backfill wall-time.
 
 ### Deliverables
-- [ ] `scripts/verify-belt-config.js` parameterized per belt via a `belts/<belt>/contracts.manifest.json` (`{name, chainId}` pairs); zero-dependency design preserved
-- [ ] `config.<belt>.yaml` for every confirmed belt (contracts subset + chains subset; data source = shared eRPC `rpc_config` per chain)
-- [ ] `src/belts/<belt>/EventHandlers.<belt>.ts` per belt (imports only that belt's handler modules; DISS-001 per-belt-entrypoint invariant)
-- [ ] Per-belt `schema.graphql` subset per S0's Option-A/B decision
-- [ ] GeneralMints placement resolved (S1 exit, §17 R-A)
-- [ ] crayons ⟷ purupuru platform-vs-project resolved (S1 exit, §17 R-A)
+- [ ] A green-build procedure (extending `belt-reinit.md`) that stands up a separate Railway `belt-indexer'` + `belt-hasura'` + **own Postgres-green**, with the `ENVIO_RESTART=1`-seeds-then-resume dance.
+- [ ] The BB-F006 **seed-count verification step** wired into the procedure: assert `SELECT COUNT(*) FROM chain_metadata` == config chain count before removing `ENVIO_RESTART`.
+- [ ] One completed **dry-run promotion**: green stands up, `promotion-gate.js` (from S1) PASSES, the alias swaps, and a rollback restores blue.
+- [ ] The **G4 one-shot measurement**: full-corpus backfill wall-time recorded as a known number (does not gate downtime).
+- [ ] Promotion-window cost quantified (transient 2× vs the 89% steady-state headroom — R5/R-C).
 
-### Acceptance Criteria (S1 EXIT — §16 + §17 R-A)
-- [ ] `verify-belt-config <belt>` exit 0 for every belt (field-identical to `config.yaml`: address/start_block/field_selection)
-- [ ] `envio codegen` + `tsc --noEmit` exit 0 per belt
-- [ ] **41/41 contracts placed** — GeneralMints homed; crayons/purupuru boundary decided (closes the B6 launch-gate; "all assigned" is asserted at S1 exit, NOT at planning)
-- [ ] **93/93 entities** each live in exactly one belt's schema-subset
-- [ ] One-belt-indexes-it rule honored: `BgtToken`/`TrackedErc20` indexed once (berachain-core); `TrackedErc721` references split apdao-Bera / mibera-OP; `TrackedHolder` written per-instance, NOT owned by berachain-core (R-A)
+### Acceptance Criteria
+- [ ] Green stands up with its **own Postgres**, structurally isolated from blue (separate Railway service) — a green `--restart` provably leaves blue's `chain_metadata`/checkpoints untouched (FR-3 isolation).
+- [ ] The seed-count gate **blocks resume** on a short `chain_metadata` count and the procedure documents "re-deploy `ENVIO_RESTART=1` until count matches" (FR-8 retry/escalation; KF-013/R4).
+- [ ] The dry-run swap exhibits the FR-6 downtime characteristic decided in S3 (or, if S3's reload isn't built yet, records the current ~seconds Railway-redeploy blip as the baseline to improve in S3).
+- [ ] Rollback (`revert BELT_UPSTREAM` → blue) restores service with **0 consumer config changes** and no data loss (blue retained hot **and kept indexing at-head** — FR-5, R-A).
+- [ ] Railway plan headroom for the transient 2× is confirmed before the dry-run; a promotion that would exceed plan memory is blocked (R-C).
+- [ ] **Sustained-parity**: the gate is re-run after a short interval (not a single snapshot) to confirm green stays caught up, not just momentarily even (IMP-003).
 
 ### Technical Tasks
-- [ ] **S1-T1**: Parameterize `verify-belt-config` (§5.3) — replace hard-coded `BELT_CONTRACTS` with per-belt `contracts.manifest.json`; assert per-(contract,chain) field-identity to `config.yaml`; preserve zero-dep invariant; extend existing `test/verify-belt-config.test.ts`. → **[G1, G2]**
-- [ ] **S1-T2**: Author NFT/product belts — `honeyjar`, `honeycomb`, `cubquests`, `mibera` (incl. CandiesMarket1155 + MiladyCollection + Seaport), `sf-vaults` configs + scoped handler entrypoints + schema subsets. → **[G1]**
-- [ ] **S1-T3**: Author Berachain/protocol belts — `apdao` (incl. TrackedErc721 Bera-seat), `berachain-core` (incl. BgtToken + TrackedErc20 indexed-once), `aquabera` configs + entrypoints + schema subsets. → **[G1]**
-- [ ] **S1-T4**: Author remaining product belts — `paddle` (PaddleFi pure), `friendtech` (⚠ KF-012 op-stack getLogs-liar applies — verify getLogs per chain), `crayons`, `purupuru` configs + entrypoints + schema subsets. → **[G1]**
-- [ ] **S1-T5**: Resolve GeneralMints placement (R-A exit) — home it to the belt consuming its `MintEvent`; update manifest + config + schema subset; close 41/41. → **[G1]**
-- [ ] **S1-T6**: Resolve crayons ⟷ purupuru platform-vs-project (R-A exit) — decide belt boundary = platform (crayons indexes all launched collections) vs project (purupuru standalone); operator pair-point if ambiguous; record decision. → **[G1]**
-- [ ] **S1-T7**: Per-belt schema-subset composition (§5.2) — apply S0's Option A (per-belt physical `schema.graphql`) or Option B (shared schema, empty-safe) decision uniformly; verify cross-cutting shapes (`Action`/`Mint`/`Holder`/`Token`/`CollectionStat`) defined per-belt-that-writes, federation merge deferred to FR-7. → **[G1]**
+- [ ] Task 2.1: Write the green-build procedure section in `belt-reinit.md` (own service + own Postgres; `ENVIO_RESTART=1` seed → seed-count verify → remove flag → resume background backfill). → **[G-1, G-4]**
+- [ ] Task 2.2: Wire the BB-F006 seed-count verify (`COUNT(*) chain_metadata` vs config chain count) as a hard pre-resume step with the retry-until-match escalation (KF-013/R4). → **[G-4]**
+- [ ] Task 2.3: Confirm Railway plan headroom for the transient 2×; size green's memory; record the bound on the promotion window (R-C / R5). → **[G-2]**
+- [ ] Task 2.4: Execute the **dry-run promotion** end-to-end (green=copy-of-blue → S1 gate PASS → swap → rollback); capture the G4 backfill wall-time + the promotion-window cost. → **[G-1, G-4]**
+- [ ] Task 2.5: Run the **sustained-parity** re-check (gate twice across an interval) and record green-stays-caught-up evidence (IMP-003). → **[G-4]**
 
 ### Dependencies
-- S0 clean exit (belt count confirmed; Option A/B decided; version pinned).
+- S1: `promotion-gate.js` (the gate the dry-run runs).
+- `belt-reinit.md` (KF-013 re-init primitive); the shipped blue belt; eRPC warm cache.
 
 ### Security Considerations
-- **Trust boundaries**: belt configs reference `config.yaml` as source-of-truth; `verify-belt-config` is the fidelity gate against drift.
-- **External dependencies**: no new runtime deps; reuses shared `src/handlers/*` + `src/lib/*` (handlers never forked).
-- **Sensitive data**: per-belt env credentials; eRPC URLs per chain route (no direct L1 RPC).
+- **Trust boundaries:** green is operator-stood-up infra (trusted); the seed-count gate guards against the silent-skip class (KF-013) where Envio's table-existence `isInitialized()` resumes a half-seeded green.
+- **External dependencies:** none new — green reuses the same belt Docker image + shared eRPC; only Railway service/Postgres provisioning.
+- **Sensitive data:** green's Postgres credentials via Railway env (per-belt, not shared with blue); eRPC over the private Railway network.
 
 ### Risks & Mitigation
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| Cross-cutting entity tension (shared shapes, R3) | Med | High | One-belt-indexes rule (FR-1); shapes written per-belt, merged at federation (FR-7) |
-| Handler references out-of-subset entity (R10) | Med | Med | Branch-state check + S0 codegen proof; out-of-subset ref = purity signal → move contract |
-| GeneralMints/crayons-purupuru unresolved at S1 exit (R-A) | Med | High | Hard S1 exit criteria; operator pair-point; cheap to revise (decoupled belts) |
-| KF-012 getLogs-liar on friendtech (Base) | Med | High | Per-chain getLogs verification before trusting belt data (R9) |
+| Green seeds incompletely (JS crashes mid-seed → short `chain_metadata`) (R4/KF-013) | Med | High | Seed-count verify blocks resume; re-deploy `ENVIO_RESTART=1` until count matches (Task 2.2) |
+| Promotion-window 2× exceeds the 89%-headroom Railway plan (R-C/R5) | Med | Med | Confirm plan headroom + bound the window before the dry-run (Task 2.3) |
+| Green never converges (a chain backfills slower than block production) (R6) | Low | High | eRPC warm cache on Bera/Base/OP/ETH; G4 wall-time measures it once; escalate RPC tier if a chain can't keep up |
 
 ### Success Metrics
-- 41/41 contracts + 93/93 entities placed (12 belts, or S0-consolidated count)
-- `verify-belt-config` + codegen + tsc green for every belt
+- Dry-run promotion completes the full loop (stand-up → gate PASS → swap → rollback) in one session.
+- G4 backfill wall-time captured as a single concrete number.
+- Promotion-window cost quantified (2× transient, bounded).
 
 ---
 
-## Sprint S2 (Global 174): Belt Deployment + Blast-Radius Proof + R7 Reconciliation
+## Sprint 3: Swap Atomicity + Rollback + Breaking-Change Path
 
-**Scope:** MEDIUM (6 tasks) · **Duration:** 2.5 days · **Priority:** P0 (FR-2, FR-3)
-**Persona:** SHIP (the-arcade + protocol) · KF-013 re-init pattern operational
-
-> Each belt = own Envio deployment + own Postgres + own Railway service. New belts backfill **dark** (§17 R-B): the shipped ecosystem belt stays the SOLE score-api source — no double-serve, no split-brain. The temporary double-index is the accepted, bounded blue-green cost. **HARD DECOMMISSION GUARD: do not decommission the shipped ecosystem belt until AC-R7 PASS; cutover deferred to next cycle.**
+**Global ID:** 175 · **Scope:** MEDIUM (4–6 tasks) · **Priority:** P1
+**Duration:** 2 days
 
 ### Sprint Goal
-Deploy every belt as an independent eRPC-routed deployment, prove blast-radius isolation via a CI probe, and reconcile the score-api footprint against the new-belt union — all while the shipped belt keeps serving score-api unchanged.
+Realize the FR-6 swap-atomicity decision (Option B — Caddy graceful reload, admin API localhost-only) with an off-host-unreachable verification, exercise the rollback procedure for real, and document the expand/contract path for non-additive (breaking) schema changes.
 
 ### Deliverables
-- [ ] Each confirmed belt deployed: own Railway service + own Postgres, eRPC-routed per chain, re-initialized via its own `ENVIO_RESTART` toggle (KF-013 generalized runbook)
-- [ ] New belts backfill DARK — indexed but NOT served to score-api (R-B)
-- [ ] Blast-radius CI probe: `chain_metadata` sibling-monotonicity, triggered on any `config.<belt>.yaml` / belt-schema change (R-E)
-- [ ] `grimoires/loa/a2a/<sprint>/blast-radius-proof.md`
-- [ ] `grimoires/loa/a2a/<sprint>/score-api-footprint-reconciliation.md` (AC-R7)
-- [ ] HARD decommission guard wired (deploy-gate, not a runbook note) — blocks shipped-belt decommission until AC-R7 PASS
+- [ ] Caddy `belt-gateway` rebuilt with the **admin API enabled, bound localhost-only** (`admin localhost:2019` or unix socket — NEVER exposed); the promotion swap step becomes a `caddy reload` (or admin-API config POST) instead of an env-var-triggered Railway redeploy.
+- [ ] A **verification** that the admin endpoint is **unreachable from outside** the gateway container (the binding security requirement from §7.3/§7.4 pushback + IMP-014).
+- [ ] A **zero-downtime swap probe**: poll the alias during a `caddy reload` swap and assert **no 5xx spike** (G1) — or, on the documented contingency, fall back to Option C (≥2 replicas).
+- [ ] Rollback procedure documented + exercised against the live alias (revert `BELT_UPSTREAM`→blue; blue retained hot and at-head per R-A).
+- [ ] The **expand/contract (parallel-change) path** for breaking schema changes documented (§9.2): EXPAND (add new field, keep old) → promote → consumer migration → CONTRACT (remove old) → promote.
 
-### Acceptance Criteria (§16 + §17 R-B/R-E)
-- [ ] **AC-FR3**: blast-radius probe PASS — adding a source to belt X re-inits only belt X; sibling belts show monotonic `latest_processed_block` + non-decreasing `num_events_processed` (0 reindex events on siblings). Probe runs as a **CI job** (durable, non-skippable), not a manual runbook step.
-- [ ] **AC-R7**: score-api footprint reconciliation PASS — the entity-count check (`MiberaLoan 176 · MiberaTransfer 39,714 · MintActivity 10,000 · NftBurn 39 · BgtBoostEvent 1.47M · Erc1155MintEvent 7,607 · Action 2.07M · FriendtechTrade 1,317 · PaddleSupply 363 · MintEvent 3,588 · MiberaStakedToken 1,603 · TreasuryActivity 11,819`) against the new-belt union matches the shipped belt within reconciliation tolerance; NO score-api entity dropped
-- [ ] Shipped ecosystem belt remains the sole score-api source (no consumer repoint; score-api#151 deferred)
-- [ ] Decommission guard blocks until AC-R7 PASS
-- [ ] eRPC warm-cache + per-chain getLogs verification (R9) before trusting any new belt's data
+### Acceptance Criteria
+- [ ] The Caddy admin API is reachable from inside the container but **NOT** reachable off-host (verified — a curl from outside the container to the admin port fails/times out).
+- [ ] A swap via `caddy reload` produces **no 5xx** on the alias during the swap window (zero-downtime swap probe PASS) — directly satisfies G1.
+- [ ] If localhost-only admin binding proves infeasible on Railway, the documented contingency (Option C: ≥2 gateway replicas, rolling redeploy) is taken — **no re-decision needed** (§7.4).
+- [ ] Rollback restores blue with 0 consumer config changes, lossless, because blue kept indexing at-head through the verification window (R-A: blue NOT paused at swap).
+- [ ] The swap is performed ONLY through a `promote` flow that runs `promotion-gate.js` as a **non-skippable precondition** (exit 0 required before it touches the alias); bare `BELT_UPSTREAM` edits are not the documented path (R-D / OQ-4 → command).
+- [ ] The breaking-change path is documented such that the alias **never** serves a schema missing a field a live consumer reads (the additive invariant holds across both expand and contract promotions).
 
 ### Technical Tasks
-- [ ] **S2-T1**: Deploy belts independently (FR-2) — per belt: Railway service + Postgres; `Dockerfile.belt` `ENVIO_RESTART`-gated CMD; seed-then-resume re-init (KF-013); eRPC `rpc_config` per chain (Bera/Base/OP/ETH warm, ARB/Zora cold). Stagger to avoid simultaneous cold-syncs (R6). → **[G1, G2]**
-- [ ] **S2-T2**: Dark-backfill discipline (R-B) — new belts index but are NOT served to score-api; document the bounded double-index window; the shipped belt is unchanged. → **[G2]**
-- [ ] **S2-T3**: Blast-radius CI probe (FR-3 / R-E) — `chain_metadata` snapshot-before/after probe asserting sibling-monotonicity; wire as a CI job triggered on `config.<belt>.yaml` / belt-schema change; write `blast-radius-proof.md`. → **[G2]**
-- [ ] **S2-T4**: score-api footprint reconciliation (AC-R7 / §4.5) — entity-count union check vs shipped belt; record to `score-api-footprint-reconciliation.md`; gate on tolerance match. → **[G1, G3]**
-- [ ] **S2-T5**: HARD decommission guard (R-B binding) — a deploy-gate that refuses shipped-ecosystem-belt decommission until AC-R7 PASS + (next-cycle) federation coverage proven. → **[G3]**
-- [ ] **S2-T6**: Per-chain getLogs verification + blue-green per belt (R9 / SCALE.md Guardrails 1+4) — verify KF-012 getLogs-liar doesn't recur per new belt's chain; per-source health probe (a new source produces a stat row within N blocks); blue-green per belt. → **[G2]**
+- [ ] Task 3.1: Rebuild `Dockerfile.gateway` / `Caddyfile` with `admin` bound localhost-only (replacing `admin off`); add the `caddy reload`-based swap step to the promotion procedure (FR-6 Option B, §7.4). → **[G-1]**
+- [ ] Task 3.2: Verify the admin endpoint is unreachable off-host (off-container curl to the admin port fails); record evidence (R9/IMP-014 closure). → **[G-1]**
+- [ ] Task 3.3: Run the zero-downtime swap probe (poll alias through a `caddy reload`, assert no 5xx); if infeasible, switch to Option C and document (§7.4 contingency). → **[G-1]**
+- [ ] Task 3.4: Wrap the swap in a `promote` flow with `promotion-gate.js` as a non-skippable precondition (R-D); document + exercise the rollback procedure (revert `BELT_UPSTREAM`→blue within the window; blue at-head per R-A); record the rollback-triggers list (§8). → **[G-1, G-4]**
+- [ ] Task 3.5: Document the expand/contract breaking-change path (§9.2) with the schema-diff gate as the enforcement that a non-additive green fails before the swap. → **[G-3]**
 
 ### Dependencies
-- S1 (belt configs + handlers + schema subsets authored, codegen green).
+- S2: a working green-build + dry-run loop (the swap mechanism is exercised in the dry-run).
+- S1: `promotion-gate.js` (the precondition the `promote` flow runs).
+- The live Caddy gateway (rebuilt this sprint).
 
 ### Security Considerations
-- **Trust boundaries**: free-RPC eth_getLogs is UNTRUSTED on op-stack (KF-012 lies with empty-200); reconciliation count gaps + eRPC error metrics are the detection.
-- **External dependencies**: Railway managed Postgres per belt (SCRAM/SSL); eRPC shared substrate (live).
-- **Sensitive data**: per-belt Postgres credentials isolated; `ENVIO_RESTART` toggle scoped per service.
+- **Trust boundaries:** enabling the Caddy admin API **widens the gateway attack surface** (R9). The hard constraint: admin bound localhost-only, never exposed; Task 3.2 is the explicit verification that the surface is closed off-host.
+- **External dependencies:** the gateway rebuild uses the same `caddy:2` + `caddy-ratelimit` (xcaddy) stack — no new dependency; only the `admin` directive changes.
+- **Sensitive data:** the admin API can rewrite the gateway config — off-host reachability would be a config-injection vector. localhost-only binding + the off-host-unreachable verification (Task 3.2) is the mitigation.
 
 ### Risks & Mitigation
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| Re-scope regresses score-api coverage (R7) | Med | High | AC-R7 reconciliation gate; shipped belt sole source; hard decommission guard; cutover deferred |
-| Double-serve / split-brain (R-B / Flatline B3,B7) | Med | High | Dark backfill only; ONE authoritative source; bounded double-index is accepted cost |
-| Simultaneous cold-syncs (R6) | Med | Med | eRPC warm cache; stagger; dense belts (Base friend.tech, ETH Milady) may need paid archive RPC upstream |
-| KF-012 getLogs-liar recurs on new chain (R9) | Med | High | Per-chain getLogs verification before trust; reconciliation catches silent loss |
+| Enabling Caddy admin widens attack surface (R9/IMP-014) | Low | Med | Bind localhost-only; verify off-host-unreachable (Task 3.2); contingency Option C avoids the admin surface entirely |
+| `caddy reload` localhost binding infeasible on Railway | Low | Med | Documented contingency: Option C (≥2 replicas, rolling) — no re-decision (§7.4) |
+| Breaking change behind the additive-only alias breaks a consumer at swap (R2) | Med | High | Expand/contract path (Task 3.5); schema-diff superset check FAILS a non-additive green at the gate |
+| Operator swaps `BELT_UPSTREAM` directly, bypassing the gate (R-D) | Med | High | `promote` flow makes the gate a non-skippable precondition (Task 3.4); bare edits not the documented path |
 
 ### Success Metrics
-- Blast-radius probe: 0 reindex events on siblings (CI PASS)
-- AC-R7 reconciliation: 0 dropped score-api entities
-- All confirmed belts deployed + backfilling
+- Swap produces 0 5xx (G1 zero-downtime swap proven) — or Option-C contingency taken with evidence.
+- Admin endpoint verified unreachable off-host.
+- Rollback exercised against the live alias; expand/contract path documented; `promote` flow gates the swap.
 
 ---
 
-## Sprint S3 (Global 175): Effect Serving/Ports Layer + Uptime Harness
+## Sprint 4 (Final): Boundary Docs + Reserve + End-to-End Goal Validation
 
-**Scope:** LARGE (7 tasks) · **Duration:** 2.5 days · **Priority:** P1 (FR-5, FR-6)
-**Persona:** ARCH (the-arcade + protocol) · construct-effect-substrate (`status: candidate`, structure-only)
-
-> Structure-only adoption at the NEW serving/gateway layer; **Envio handlers stay as-is and become live adapters behind ports** ("push deps to the edge"). NOT a runtime rewrite of the indexer (R5). §17 R-C adds eRPC + gateway HA with degraded direct fallbacks.
+**Global ID:** 176 · **Scope:** SMALL (1–3 tasks + E2E) · **Priority:** P2
+**Duration:** 1.5 days
 
 ### Sprint Goal
-Add the Effect `domain/ports/live/mock` serving layer with enforced single-runtime + suffix gates, wire a managed-environment sync-lag SLO monitor, and ship the mock/live CI harness as a belt-change gate — with HA + degraded fallbacks for the shared SPOFs.
+Confirm FR-1 (one belt — mostly already true), write the score-api boundary doc (FR-9) and the FR-10 reserve documentation (design only, no code), and validate end-to-end that all PRD goals G1–G4 are achieved.
 
 ### Deliverables
-- [ ] `serving/` package: `domain/` (Schema only) · `ports/` (`*.port.ts`) · `live/` (`*.live.ts` wrapping Envio belt GraphQL) · `mock/` (`*.mock.ts` fixtures)
-- [ ] Single `ManagedRuntime.make` site in `serving/runtime/runtime.ts`
-- [ ] Sync-lag SLO thresholds (seeded from SCALE.md Guardrail 2) + a managed-environment monitor (GitHub Actions scheduled / Railway scheduled service — NOT a dev laptop, D3)
-- [ ] Effect mock/live CI harness gating belt changes
-- [ ] eRPC HA (≥2 stateless instances) + degraded direct-L1 fallback; gateway HA (≥2 instances) + direct-belt-URL fallback (R-C)
+- [ ] FR-1 confirmation note: the indexer is ONE consolidated belt; handlers compose intra-belt (`Action` via 21 handlers, etc.); no cross-belt federation exists.
+- [ ] The score-api boundary doc (FR-9, §10.1): indexer = hot serving tier (must not be lossy); score-api = warm/cold analytics safety net (cron → ClickHouse/Dune + fallbacks). The reconciliation gate is what keeps the indexer non-lossy.
+- [ ] The FR-10 reserve documented (the S0-proven on-demand split capability — Option A) as a dormant, documented-not-wired path; BeaconV3 declaration noted as the same reserve class.
+- [ ] **E2E goal validation** (Task 4.E2E below) — all of G1–G4 validated with documented evidence.
 
-### Acceptance Criteria (§16 AC-FR6 + §8 gates + §17 R-C)
-- [ ] **single-runtime grep gate** = exactly 1 `ManagedRuntime.make(` site (note the `\(` to avoid the cycle-2 self-match footgun)
-- [ ] **suffix-pairing gate** — every `serving/ports/*.port.ts` has a matching `serving/live/*.live.ts` (no MISSING)
-- [ ] Sync-lag SLO defined per belt × chain (PROPOSED/observation-only until 1 week baselined); monitor runs from a managed env (D3); alert distinguishes "backfilling at S0-measured rate" (healthy) from "stalled" (failure)
-- [ ] Mock path green: federation/serving logic composes belt fragments into the score-footprint shape (no network)
-- [ ] Live path green: belt endpoint reachable + score-api entities resolve
-- [ ] eRPC + gateway HA documented + degraded fallbacks (direct-L1 / direct-belt-URL) specified in §11
+### Acceptance Criteria
+- [ ] Boundary doc clearly states "score-api fallback is a safety net for a brief swap blip, NOT a license for the indexer to be lossy" (PR#15 SKP-001 corrected emphasis).
+- [ ] FR-10 reserve is documented with the S0 codegen+tsc evidence ref; explicitly marked **not built this cycle**.
+- [ ] Every PRD goal (G1–G4) has a documented validation result; no goal marked "not achieved" without explicit justification.
 
-### Technical Tasks
-- [ ] **S3-T1**: `serving/domain/` Schemas (FR-5) — `belt.ts` (Belt = Schema.Struct: id, chains, endpoint, entities[]) + `score-footprint.ts` (federation result shape); no effects in domain. → **[G4]**
-- [ ] **S3-T2**: `serving/ports/` interfaces (FR-5) — `belt-source.port.ts` (BeltSource: query a belt's GraphQL by entity) + `federation.port.ts` (Federation: compose across belts, FR-7 shape). → **[G3, G4]**
-- [ ] **S3-T3**: `serving/live/` + single provide-site (FR-5 / §8.2) — `belt-source.live.ts` wrapping the Envio belt GraphQL HTTP (Effect at the boundary, handlers untouched); the single `ManagedRuntime.make` in `serving/runtime/runtime.ts`. → **[G4]**
-- [ ] **S3-T4**: `serving/mock/` fixtures + CI grep gates (§8.2/§8.3) — `belt-source.mock.ts` deterministic fixtures; wire the single-runtime grep gate + the suffix-pairing find-loop gate as CI. → **[G4]**
-- [ ] **S3-T5**: Sync-lag SLO + managed-env monitor (FR-6 / §9.1 / D3) — per belt × chain `chain_head − latest_processed_block` probe; thresholds seeded from SCALE.md Guardrail 2 (observation-only); scheduled from a managed env; cold-sync-vs-stalled alert discrimination. → **[G4]**
-- [ ] **S3-T6**: Mock/live CI harness (FR-6 / §9.2) — mock path (federation composes score-footprint, no network) + live path (belt endpoint smoke + score-api entities resolve); both green = belt change allowed. → **[G4]**
-- [ ] **S3-T7**: SPOF HA + degraded fallbacks (R-C) — eRPC HA (≥2 stateless behind one internal address) + degraded direct-L1 fallback; gateway HA (≥2 instances) + consumers retain direct per-belt GraphQL URLs as fallback; document in §11; fold HA cost into S0 calibration awareness. → **[G2, G4]**
-
-### Dependencies
-- S2 (belts deployed + reachable endpoints for the live adapter + live harness path).
-
-### Security Considerations
-- **Trust boundaries**: serving layer speaks Effect at the boundary; belt GraphQL endpoints are the trusted upstream; public read-only on-chain data (auth: none).
-- **External dependencies**: `effect ^3.10.0` (beacon-schema peerDep) — pinned; construct-effect-substrate structure adopted, not as a framework runtime dependency.
-- **Sensitive data**: no new secrets; gateway routes to belt endpoints over internal addresses.
-
-### Risks & Mitigation
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| construct-effect-substrate immaturity (R5) | Low | Med | Structure-only at serving layer; Envio handlers untouched |
-| Shared SPOF (eRPC/gateway) outage (R-C / Flatline B9,B4) | Med | High | HA (≥2 instances) + degraded direct-L1 / direct-belt-URL fallbacks |
-| SLO false alarms during cold backfill | Med | Med | Alert distinguishes backfill-at-S0-rate from stalled (S0 rate is load-bearing input) |
-| single-runtime grep self-match footgun | Low | Low | Use `\(` in the grep gate (cycle-2 documented footgun) |
-
-### Success Metrics
-- Both CI grep gates pass (1 runtime site; 0 missing live adapters)
-- Mock + live harness green in CI
-- SLO monitor live in a managed env; HA + fallbacks documented
-
----
-
-## Sprint S4 (Global 176, Final): BeaconV3 Spike + Federation Contract + E2E Validation
-
-**Scope:** MEDIUM (6 tasks) · **Duration:** 2.5 days · **Priority:** P2 (FR-4, FR-7) + E2E
-**Persona:** ARCH (the-arcade + protocol) · manifest authoring → **beacon construct** (Construct Resolution)
-
-> Spike, not full wiring (FR-4). FR-7 is design-only but the **minimal typed Federation port shape lands this cycle** (§17 R-F) so AC-FR7 is objective. Registry aggregation + mcp-gateway routing + ClickHouse are deferred joint follow-ups.
-
-### Sprint Goal
-Author and validate a BeaconV3 declaration for sonar-api's belts, land the minimal typed Federation port shape + federation contract design, and run end-to-end validation of all PRD goals.
-
-### Deliverables
-- [ ] `beacon.yaml` at repo root declaring sonar-api's belts against `@freeside/beacon-schema@0.2.0` BeaconV3
-- [ ] `app/.well-known/beacon.json` produced by `build-beacon-json` (exit 0)
-- [ ] Minimal typed Federation port shape in `serving/ports/federation.port.ts` (R-F) — objective AC-FR7
-- [ ] Federation contract design doc: `Action`/`Mint`/`Holder`/`Token` union semantics + score-api fan-out/composition + ClickHouse/Dune as a federation-layer (not belt) concern; additive-only invariant
-- [ ] E2E goal validation report (G1–G4)
-
-### Acceptance Criteria (§16 AC-FR4 + §17 R-F)
-- [ ] **AC-FR4**: `npx build-beacon-json --in beacon.yaml --out app/.well-known/beacon.json` exits 0 (decodes clean against `BeaconV3Schema`)
-- [ ] `is.one_liner` ≤120 chars; `is.scope` 2–7 entries ≤100 chars; `is_not` ≥2 entries each starting "Does NOT"/"Will NOT"/"Refuses to"; `cycle_state` = `{ status: candidate, since: 2026-05-21, next_review: ≤+180d }`
-- [ ] `composes_with` ships `{}` if loa-freeside hasn't published the referenced Tag (MAY-LATITUDE-5 pushback — verify Tag availability before claiming composition; `optionalWith(default {})`)
-- [ ] **AC-FR7**: minimal typed Federation port shape lands; federation realization (fan-out vs true composition) designed but NOT wired; public URL + GraphQL contract designed to be additive-only
-- [ ] E2E validation: all PRD goals validated with documented evidence
-
-### Technical Tasks
-- [ ] **S4-T1**: Author `beacon.yaml` (FR-4 / §7.1) — populate `is`/`is_not`/`acvp_invariants` (e.g. `event_completeness` → `score-api-footprint-reconciliation.md` proof_artifact) / `sealed_schemas` (per-belt schema subsets, hashed) / `cycle_state`; V2 `mcp` block (shape: data, streamable-http, auth: none, pricing: free, publisher 0xHoneyJar). → **[G3]**
-- [ ] **S4-T2**: Validate against beacon-schema (FR-4 / §7.2) — run `build-beacon-json`; verify Tag availability before adding `composes_with.loa-freeside`, else ship `composes_with: {}`. → **[G3]**
-- [ ] **S4-T3**: Minimal typed Federation port shape (R-F) — define the gateway↔belt query interface in `federation.port.ts` so AC-FR7 is objective; port shape lands, wiring deferred. → **[G3]**
-- [ ] **S4-T4**: Federation contract design (FR-7 / §10) — document `Action`/`Mint`/`Holder`/`Token` union semantics; score-api federation across mibera+berachain-core+paddle (fan-out (a) vs composition (b)); ClickHouse/Dune as federation-layer concern (deferred); the additive-only binding constraint (public URL + GraphQL contract unchanged when belts added). → **[G3]**
-- [ ] **S4-T5**: Update `known-failures.md` + runbooks — fold S0 generalized re-init runbook + any new degradation observed during the cycle into `known-failures.md` (append-only); ensure KF-012/KF-013 references current. → **[G1, G2]**
-- [ ] **S4-T6 (E2E)**: see Task 176.E2E below. → **[G1, G2, G3, G4]**
-
-### Task 176.E2E: End-to-End Goal Validation
+### Task 4.E2E: End-to-End Goal Validation
 
 **Priority:** P0 (Must Complete)
 **Goal Contribution:** All goals (G1, G2, G3, G4)
 
-**Description:** Validate that all PRD goals are achieved through the complete implementation.
+**Description:** Validate that all PRD launch criteria (`> prd.md:L173-180`) are achieved through the complete blue-green promotion implementation.
 
 **Validation Steps:**
 
 | Goal ID | Goal | Validation Action | Expected Result |
 |---------|------|-------------------|-----------------|
-| G1 | Full migration | Count placed contracts/entities across all belt manifests + schema subsets | 41/41 contracts + 93/93 entities placed; no monolith remainder (S1-exit measure) |
-| G2 | Blast-radius isolation | Run the blast-radius CI probe: add a source to one belt, snapshot sibling `chain_metadata` before/after | 0 reindex events on sibling belts (sibling-monotonic PASS) |
-| G3 | Federation contract | `build-beacon-json` against beacon-schema; confirm Federation port shape exists | exit 0; typed Federation port present; ≥1 consumer reachable through a belt endpoint (spike) |
-| G4 | Uptime | Confirm SLO monitor runs in a managed env; run the mock/live CI harness | SLO thresholds defined + monitored; harness green in CI |
+| **G1** | Zero-downtime updates | Run a real source-add promotion (or replay the S2/S3 dry-run + reload swap); poll the alias through the swap | 0 consumer-visible downtime — no 5xx spike on the stable endpoint (Option B reload) |
+| **G2** | Cost ceiling < $100/mo | Read Railway steady-state cost; confirm single-belt ≈ $84/mo; confirm promotion-window 2× is transient + bounded | Steady-state < $100/mo; transient cost quantified (S2 Task 2.3) |
+| **G3** | API serving consistency | Confirm 0 consumer config changes across the promotion; run `promotion-gate.js` Part-2 reconciliation | 0 config changes; AC-R7 footprint reconciliation PASS (no dropped entity) |
+| **G4** | Background re-sync + promotion gate | Confirm `promotion-gate.js` exit 0 required pre-swap (block ≥ blue every chain + reconciliation); confirm rollback exercised | Gate enforced as the swap precondition (R-D `promote` flow); rollback (revert `BELT_UPSTREAM`) exercised |
 
 **Acceptance Criteria:**
-- [ ] Each goal validated with documented evidence (linked artifacts in `grimoires/loa/a2a/<sprint>/`)
-- [ ] Integration points verified (eRPC → belt → serving/port → consumer/beacon)
-- [ ] AC-R7 reconciliation re-confirmed (no score-api regression); decommission guard still armed (cutover next cycle)
-- [ ] No goal marked "not achieved" without explicit justification
+- [ ] Each goal validated with documented evidence written to `grimoires/loa/a2a/sprint-176/e2e-validation.md`.
+- [ ] The swap-atomicity decision (FR-6 Option B) is recorded with the measured swap downtime characteristic.
+- [ ] The breaking (non-additive) schema change path is documented (expand/contract).
+- [ ] No goal marked "not achieved" without explicit justification.
+
+### Technical Tasks
+- [ ] Task 4.1: Write the FR-1 one-belt confirmation note + the FR-9 score-api boundary doc (§10.1). → **[G-3]**
+- [ ] Task 4.2: Document the FR-10 on-demand-split reserve (Option A, with S0 evidence) + the BeaconV3 reserve note — design only, no code (§10.2). → **[G-2]**
+- [ ] Task 4.E2E: Execute the end-to-end goal validation (table above); write results to `grimoires/loa/a2a/sprint-176/e2e-validation.md`. → **[G-1, G-2, G-3, G-4]**
 
 ### Dependencies
-- S3 (serving/ports layer + Federation port file exists for R-F); S2 (footprint reconciliation artifact for the acvp_invariant proof).
+- S1 (gate), S2 (dry-run + green-build), S3 (swap atomicity + rollback) — E2E validates the whole stack.
 
 ### Security Considerations
-- **Trust boundaries**: `beacon.json` is public declaration metadata; the `composes_with` Tag hash is recomputed against the live Honeycomb Tag definition (validator-side).
-- **External dependencies**: `@freeside/beacon-schema@0.2.0` (pinned); loa-freeside Tag availability is the only cross-repo coupling (decoupled via spike-not-wire + `composes_with: {}` fallback).
-- **Sensitive data**: none new; declaration describes public on-chain data surfaces.
+- **Trust boundaries:** documentation sprint — no new trust surface. The E2E validation re-confirms the S3 admin-API-off-host-unreachable property still holds.
+- **External dependencies:** none.
+- **Sensitive data:** none added; boundary doc references the existing score-api lambda split.
 
 ### Risks & Mitigation
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| BeaconV3 cross-repo dependency on loa-freeside Tag (R4 / §7.2) | Med | Med | Spike-not-wire; `composes_with: {}` fallback (`optionalWith(default {})`) |
-| AC-FR7 unobjective without a port shape | Med | Med | R-F: minimal typed Federation port lands this cycle |
-| E2E surfaces a missed goal late | Low | High | Goal traceability enforced per sprint (Appendix C); E2E is P0 |
+| Re-scoping regresses the score-api#151 footprint (R7) | Med | High | E2E G3 = AC-R7 reconciliation; the shipped belt stays SOLE source until a green verifiably reconciles (score-api#151 repoint deferred) |
+| A goal can't be validated end-to-end (e.g. no real promotion run yet) | Low | Med | Replay the S2/S3 dry-run as the G1/G4 evidence; mark "validated via dry-run" explicitly |
 
 ### Success Metrics
-- `build-beacon-json` exit 0
-- Typed Federation port shape present; federation design documented
-- All 4 PRD goals validated with evidence
+- All 4 PRD goals validated with evidence in `e2e-validation.md`.
+- Boundary + reserve docs complete.
 
 ---
 
-## Risk Register (cycle-level, from PRD §Risks + SDD §14)
+## Risk Register
 
-| ID | Risk | Likelihood | Impact | Mitigation | Owning Sprint |
-|----|------|-----------|--------|------------|---------------|
-| R1 | Envio multi-deployment mechanics/cost unknown | Med (KF-013 de-risks) | High | FR-0 S0 spike; finalizes belt count | S0 |
-| R2 | N× infra cost | Med | Med | S0 cost calibration; consolidation allowed; eRPC shared | S0 |
-| R3 | Cross-cutting entity tension | Med | High | One-belt-indexes rule (FR-1); federation merge (FR-7) | S1, S4 |
-| R4 | BeaconV3 cross-repo dependency | Med | Med | Spike-not-wire; `composes_with: {}` fallback | S4 |
-| R5 | construct-effect-substrate candidate maturity | Low | Med | Structure-only at serving layer | S3 |
-| R6 | Simultaneous cold-syncs during migration | Med | Med | eRPC warm cache; blue-green per belt; stagger | S2 |
-| R7 | Re-scoping shipped belt regresses score-api | Med | High | AC-R7 reconciliation; sole-source; hard decommission guard; cutover deferred | S2 |
-| R8 | Ledger pollution (loa-framework cycles) | Low | Low | Separate cleanup; non-blocking | — |
-| R9 | KF-012 getLogs-liar recurs on new belt chain | Med | High | Per-chain getLogs verification; reconciliation catches loss | S1, S2 |
-| R10 | Envio codegen tolerance for per-belt schema subset | Med | Med | S0 codegen+tsc proof; Option B empty-safe fallback | S0, S1 |
-| R-B | Double-serve / split-brain across sources | Med | High | Dark backfill; ONE authoritative score-api source | S2 |
-| R-C | Shared SPOF (eRPC/gateway) outage | Med | High | HA + degraded direct fallbacks | S3 |
-
----
-
-## Self-Review Checklist
-
-- [x] All MVP features (FR-0…FR-7) accounted for across S0–S4
-- [x] Sprints build logically (S0 gates → S1 author → S2 deploy/prove → S3 serve/monitor → S4 declare/validate)
-- [x] Each sprint feasible as a single iteration (3–7 tasks; S0 capped at half-day)
-- [x] All deliverables + acceptance criteria are checkboxed + testable
-- [x] Technical approach aligns with SDD §13 sequencing + §17 remediation→sprint mapping
-- [x] §17 remediations threaded: R-A (S1 exits) · R-B (S2 dark backfill + decommission guard) · R-C (S3 HA) · R-D (S0 hard exit) · R-E (S2 CI probe) · R-F (S4 Federation port)
-- [x] Risks identified with mitigation + owning sprint
-- [x] Dependencies explicit per sprint
-- [x] All PRD goals (G1–G4) mapped to tasks (Appendix C)
-- [x] All tasks annotated with goal contributions
-- [x] E2E validation task (176.E2E) in the final sprint (P0)
+| ID | Risk | Sprint | Probability | Impact | Mitigation | Source |
+|----|------|--------|-------------|--------|------------|--------|
+| R1 | Swap not truly atomic (Railway redeploy blip) | S2, S3 | Med | Med | FR-6 Option B `caddy reload` (S3); measure 5xx during dry-run (S2) | prd R1 |
+| R2 | Breaking schema change behind additive-only alias | S3 | Med | High | Expand/contract path + schema-diff superset gate fails non-additive green | prd R2 |
+| R3 | Promotion on block-height alone passes a green with dropped entities | S1 | Med | High | Two-part gate (entity-count + schema-diff + content sample), not height alone | prd R3 / SKP-002 |
+| R4 | Green build fails to seed all chains (KF-013) → silent-skip | S2 | Med | High | Seed-count verify before resume; retry `ENVIO_RESTART=1` until match | KF-013 |
+| R5 | Promotion-window 2× cost vs 89% memory headroom | S2 | Med | Med | Confirm plan headroom; bound window; batch changes into one green | prd R5 / R-C |
+| R6 | Green never converges (chain backfill slower than block prod) | S2 | Low | High | Warm eRPC cache; G4 wall-time once; escalate RPC tier | prd R6 |
+| R7 | Re-scoping regresses score-api#151 footprint | S1, S4 | Med | High | Reconciliation = AC-R7; shipped belt SOLE source until green reconciles | prd R7 |
+| R8 | KF-012 op-stack getLogs-liar on a new source's chain | S1 | Med | High | Per-chain getLogs verification + raw-L1 spot-check (R-B); gate catches gap | KF-012 |
+| R9 | Caddy admin API widens gateway attack surface | S3 | Low | Med | Bind localhost-only; verify off-host-unreachable; contingency Option C | sdd §7 |
+| R10 | Envio codegen treats superset schema as additive (unconfirmed) | S2 | Low | High | Confirm on the first real promotion (OQ-3); S0 proved subset codegens cleanly | sdd §3.3 |
+| R-B | Shared eRPC cache → blue=green both-wrong passes reconciliation | S1 | Med | High | Raw-L1 `eth_getLogs` spot-check bypasses cache | sdd §17 R-B |
+| R-E | Counts match but rows wrong/dup/stale | S1 | Med | High | Field-level content sample for N sampled IDs | sdd §17 R-E |
+| R-F | Racy comparison while both belts advance | S1 | Med | Med | Fixed block cutoff per chain | sdd §17 R-F |
+| R-D | Bypassable gate (operator swaps directly) | S3 | Med | High | `promote` flow makes the gate a non-skippable precondition | sdd §17 R-D |
 
 ---
 
-## Appendix C: Goal Traceability
+## Success Metrics Summary
 
-PRD goals are G1–G4 (auto-assigned from the PRD "Primary Goals" section G1–G4; KPI gates per PRD "Key Performance Indicators" + SDD §16).
-
-| Goal | Description | Contributing Tasks |
-|------|-------------|--------------------|
-| **G1** | Full migration (41/41 + 93/93 into pure-product belts) | S0-T1, S0-T2, S1-T1, S1-T2, S1-T3, S1-T4, S1-T5, S1-T6, S1-T7, S2-T1, S2-T4, S4-T5, 176.E2E |
-| **G2** | Blast-radius isolation (source change reindexes only its belt) | S0-T1, S0-T2, S0-T3, S1-T1, S2-T1, S2-T2, S2-T3, S2-T6, S3-T7, S4-T5, 176.E2E |
-| **G3** | Federation contract (BeaconV3 declared + routed spike) | S2-T4, S2-T5, S3-T2, S4-T1, S4-T2, S4-T3, S4-T4, 176.E2E |
-| **G4** | Uptime (sync-lag SLO + Effect mock/live harness CI gate) | S3-T1, S3-T2, S3-T3, S3-T4, S3-T5, S3-T6, S3-T7, 176.E2E |
-
-**Goal coverage check:** every goal G1–G4 has ≥1 contributing task — no orphaned goals. E2E validation task (176.E2E) present in final sprint. No warnings.
+| Metric | Target | Measurement Method | Sprint |
+|--------|--------|--------------------|--------|
+| Gate self-parity | exit 0 (blue-vs-blue) | `node scripts/promotion-gate.js` | S1 |
+| Gate negative cases | exit non-zero on ≥3 injected failures | gate test harness (IMP-009) | S1 |
+| Footprint coverage | 12/12 score-api entities reconciled | Part-2 reconciliation entity list | S1 |
+| Green isolation | blue `chain_metadata` untouched by green `--restart` | dry-run promotion | S2 |
+| G4 backfill wall-time | one concrete number captured | dry-run promotion measurement | S2 |
+| Steady-state cost | < $100/mo (≈ $84/mo single belt) | Railway cost reading | S2, S4 |
+| Zero-downtime swap | 0 5xx on the alias during a `caddy reload` swap | swap probe | S3 |
+| Admin endpoint security | unreachable off-host | off-container curl verification | S3 |
+| Gate non-skippable | swap only via `promote` flow (gate precondition) | promote-flow review | S3 |
+| All PRD goals | G1–G4 validated with evidence | `e2e-validation.md` | S4 |
 
 ---
 
-> **Sources:** `grimoires/loa/prd.md` (sonar-belt-factory · FR-0…FR-7 · G1–G4 · KPIs · risks) · `grimoires/loa/sdd.md` r6 (§3 S0, §4 taxonomy, §5 deployment, §6 blast-radius, §7 BeaconV3, §8 Effect, §9 SLO/harness, §10 federation, §13 sequencing, §16 acceptance mapping, §17 Flatline remediation) · `grimoires/loa/known-failures.md` (KF-012 getLogs-liar, KF-013 re-init) · `grimoires/loa/ledger.json` (cycle `sonar-belt-factory`, global range 172–176).
+## Dependencies Map
+
+```
+S0 (172, DONE) ──▶ S1 (173) ──────▶ S2 (174) ──────▶ S3 (175) ──────▶ S4 (176, E2E)
+  spike →            the gate          green-build       swap atomicity     boundary + reserve
+  reframe            (net-new code)    + dry-run loop    + rollback + B/C    + validate G1–G4
+                     FR-2, FR-4        FR-3, FR-8        FR-5, FR-6, FR-7    FR-1, FR-9, FR-10
+```
+
+---
+
+## Appendix
+
+### A. PRD Feature Mapping
+
+| PRD Feature (FR-X) | Priority | Sprint | Status |
+|--------------------|----------|--------|--------|
+| FR-1 — Consolidated belt | P2 | S4 (confirm) | Planned (mostly already true) |
+| FR-2 — Stable alias (specify contract) | P0 | S1 | Planned |
+| FR-3 — Blue-green promotion | P0 | S2 | Planned |
+| FR-4 — Promotion gate (reconciliation) | P0 | S1 | Planned |
+| FR-5 — Rollback | P0 | S3 | Planned |
+| FR-6 — Swap atomicity | P1 | S3 | Planned |
+| FR-7 — Additive-only + breaking-change path | P1 | S1 (diff) + S3 (path) | Planned |
+| FR-8 — Green-build orchestration | P1 | S2 | Planned |
+| FR-9 — score-api boundary | P2 | S4 | Planned |
+| FR-10 — On-demand split (reserve) | P2 | S4 (doc only) | Planned (no code) |
+
+### B. SDD Component Mapping
+
+| SDD Component / §17 finding | Sprint | Status |
+|----------------------------|--------|--------|
+| `promotion-gate.js` (§6.2) | S1 | Planned |
+| Stable alias contract (§4) | S1 | Planned |
+| R-B raw-L1 spot-check (§17) | S1 | Planned |
+| R-E content sample (§17) | S1 | Planned |
+| R-F fixed-block cutoff (§17) | S1 | Planned |
+| R-G tolerance model (§17) | S1 | Planned |
+| IMP-001/005/007/009 (gate impl reqs) | S1 | Planned |
+| Green-build procedure + seed-count gate (§5.2) | S2 | Planned |
+| R-A blue-keeps-indexing rollback (§17/§8) | S2, S3 | Planned |
+| R-C plan-headroom for 2× (§17/§5.4) | S2 | Planned |
+| IMP-003 sustained-parity (§17) | S2 | Planned |
+| Caddy graceful reload + localhost admin (§7.4) | S3 | Planned |
+| R-D non-skippable `promote` precondition (§17) | S3 | Planned |
+| Expand/contract breaking-change path (§9.2) | S3 | Planned |
+| score-api boundary + FR-10 reserve (§10) | S4 | Planned |
+
+### C. PRD Goal Mapping
+
+| Goal ID | Goal Description | Contributing Tasks | Validation Task |
+|---------|------------------|--------------------|-----------------|
+| **G1** | Zero-downtime updates (blue-green + atomic swap) | S1: 1.5 · S2: 2.1, 2.4 · S3: 3.1, 3.2, 3.3, 3.4 | S4: Task 4.E2E |
+| **G2** | Cost ceiling < $100/mo | S2: 2.3 · S4: 4.2 | S4: Task 4.E2E |
+| **G3** | API serving consistency (stable alias, no split-brain) | S1: 1.3, 1.5, 1.8 · S3: 3.5 · S4: 4.1 | S4: Task 4.E2E |
+| **G4** | Background re-sync + promotion gate | S1: 1.1, 1.2, 1.3, 1.4, 1.6, 1.7 · S2: 2.1, 2.2, 2.4, 2.5 · S3: 3.4 | S4: Task 4.E2E |
+
+**Goal Coverage Check:**
+- [x] All PRD goals (G1–G4) have at least one contributing task.
+- [x] All goals have a validation task in the final sprint (S4 Task 4.E2E).
+- [x] No orphan tasks (every task annotated → **[G-N]**).
+
+**Per-Sprint Goal Contribution:**
+- S0 (done): foundation/reframe — informs G2 (cost), no live goal contribution.
+- S1: G4 (gate core), G3 (alias contract + schema diff), G1 (schema superset).
+- S2: G1 (green build + dry-run), G4 (seed-count + sustained-parity), G2 (plan headroom).
+- S3: G1 (zero-downtime swap), G3 (breaking-change path), G4 (rollback + non-skippable gate).
+- S4: E2E validation of all goals G1–G4.
+
+---
+
+## Flatline Remediation (sprint-phase — 3-model, CLI subscription $0, full confidence)
+
+Integrated from the sprint-plan adversarial review (`grimoires/loa/a2a/flatline/sprint-review.json`). These are sprint-level gaps the SDD §17 didn't cover:
+
+- **SR-1 (SKP-001/003 CRITICAL — gates S1; NEW Task 1.0).** Tasks 1.3/1.4 assume at-block ("as of block N") querying works, but Hasura/Envio serves **current** state — fine for append-only event entities that carry a `block_number` (filter + count), **not** for mutable aggregates (`PaddleSupplier`, `*Stats`, overwritten in place). **Add Task 1.0 (BEFORE 1.3/1.4): reconciliation-feasibility spike** — for each of the 12 AC-R7 entities, confirm whether at-block querying is possible (has a block column) and **classify** it: (a) append-only → at-block count at the fixed cutoff; (b) mutable aggregate → reconcile at a **settled** block below the reorg threshold via event-derived recompute OR current-state compare once both belts pass the cutoff. If a class supports neither, the gate documents the deterministic alternative. **Tasks 1.3/1.4 implement per the 1.0 classification; do not assume uniform at-block querying.**
+- **SR-2 (SKP-001 CRITICAL — S2).** Green's transient 2× backfill vs Railway memory is a **hard provisioning pre-req**, not just "confirm headroom": green runs in a strictly isolated Railway environment OR a temporary plan-ceiling upgrade is verified **before** green backfill starts; a promotion that would exceed plan memory is **blocked**. (Add to S2 green-build acceptance.)
+- **SR-3 (SKP-002/001 HIGH — S3).** The `promote` flow must be a **named, enforced artifact**: `scripts/promote.sh` that (1) runs `node scripts/promotion-gate.js`, (2) fails closed on non-zero, (3) is the **only** path that writes `BELT_UPSTREAM` / triggers the Caddy reload. Restrict manual write paths (gateway config in a controlled script, not ad-hoc `railway variables` edits) so the gate is non-bypassable in mechanism, not just by documentation (closes R-D properly).
+- **SR-4 (SKP-002 HIGH — S1 Task 1.6).** The raw-L1 `eth_getLogs` spot-check will hit **free-RPC rate limits**: add exponential backoff + jitter, and use a **dedicated low-tier RPC key** for the gate (not the shared free pool / not the eRPC cache it's bypassing).
+- **SR-5 (SKP-003 HIGH — S1 Task 1.6).** The content sample targets **deterministic "golden" entity IDs** (e.g. a known genesis/protocol tx per entity class), not random sampling — so a semantic mutation in a fixed, high-signal record is reliably caught.
+- **SR-6 (SKP-002 HIGH — S3 §7.4).** Caddy admin hardening beyond localhost TCP: prefer a **unix socket with filesystem perms**, explicitly disable network exposure at the service level, and audit config reloads. (Strengthens the OQ-1 localhost-only constraint.)
+- **SR-7 (high-consensus — S1/S2).** Cross-cutting: (a) **fail-closed** gate semantics — any check error/unknown → FAIL, never PASS (IMP-004); (b) explicit **rollback-window duration** before blue is retired (IMP-001); (c) enumerate the **full 12-entity AC-R7 footprint list** in the plan for auditable 12/12 coverage (IMP-009); (d) an explicit **blue-keeps-indexing verification step** in S2 (IMP-008, confirms R-A); (e) a **mechanical zero-dep check** for `promotion-gate.js` (IMP-010); (f) gate **execution env + required env vars** documented (IMP-005).
+
+**Disputed (operator's call, not auto-integrated):** IMP-011 (dry-run green-copy mechanism — what the dry-run actually proves), IMP-012 (re-verify Caddy exposure after later deploys — config-drift guard), IMP-013 (backfill wall-time escalation threshold). Left as S2/S4 judgment calls.
+
+**Status: sprint plan Flatline-remediated (SR-1..SR-7).**
+
+---
+
+*Generated by Sprint Planner Agent — tracks PRD r2 + SDD r7. Supersedes sprint.md v1.0 (RETIRED 12-belt plan). Flatline-remediated 2026-05-22 (SR-1..SR-7).*

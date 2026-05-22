@@ -1402,15 +1402,15 @@
         {
           "local_id": 0,
           "global_id": 172,
-          "label": "S0 — Envio multi-deployment calibration spike (FR-0, gates all)",
+          "label": "S0 — Envio multi-deployment calibration spike (FR-0; proved 12-belt infeasible → PRD r2 reframe)",
           "scope": "SMALL",
-          "status": "planned",
+          "status": "completed",
           "priority": "P0"
         },
         {
           "local_id": 1,
           "global_id": 173,
-          "label": "S1 — Factory generalization + belt authoring (FR-1, FR-2)",
+          "label": "S1 — Stable-alias contract + reconciliation gate (FR-2, FR-4; promotion-gate.js + §17 R-B/E/F/G)",
           "scope": "LARGE",
           "status": "planned",
           "priority": "P0"
@@ -1418,7 +1418,7 @@
         {
           "local_id": 2,
           "global_id": 174,
-          "label": "S2 — Belt deployment + blast-radius proof + R7 reconciliation (FR-2, FR-3)",
+          "label": "S2 — Green-build orchestration + dry-run promotion (FR-3, FR-8; seed-count verify + G4 wall-time)",
           "scope": "MEDIUM",
           "status": "planned",
           "priority": "P0"
@@ -1426,16 +1426,16 @@
         {
           "local_id": 3,
           "global_id": 175,
-          "label": "S3 — Effect serving/ports layer + uptime harness (FR-5, FR-6)",
-          "scope": "LARGE",
+          "label": "S3 — Swap atomicity + rollback + breaking-change path (FR-5, FR-6, FR-7; Caddy reload + promote gate)",
+          "scope": "MEDIUM",
           "status": "planned",
           "priority": "P1"
         },
         {
           "local_id": 4,
           "global_id": 176,
-          "label": "S4 — BeaconV3 spike + federation contract + E2E validation (FR-4, FR-7)",
-          "scope": "MEDIUM",
+          "label": "S4 — Boundary docs + reserve + E2E goal validation (FR-1, FR-9, FR-10)",
+          "scope": "SMALL",
           "status": "planned",
           "priority": "P2"
         }

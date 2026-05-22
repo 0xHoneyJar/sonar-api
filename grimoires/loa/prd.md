@@ -1,9 +1,9 @@
-# Product Requirements Document — sonar-api Belt-Factory
+# Product Requirements Document — sonar-api Consolidated Belt + Blue-Green Promotion
 
-> **Cycle**: `sonar-belt-factory` · **Created**: 2026-05-21 · **Persona**: SHIP/ARCH (BARTH + protocol/noether)
-> **Builds on**: `grimoires/loa/context/arch-brief-freeside-sonar-stack.md` (ACTIVE, operator-promoted 2026-05-20) · `SCALE.md` Decision Log D4
-> **Supersedes data-source assumption of**: archived `indexer-belt-rebuild` cycle (Mibera belt, merged PR #13)
-> **Grounding legend**: `[CODE:file]` = codebase reality · `> file:line` = doc quote · `(Direction 2026-05-21 QN)` = operator AskUserQuestion answer this session
+> **Cycle**: `sonar-belt-factory` · **Revision**: r2 (reframed 2026-05-22) · **Persona**: SHIP/ARCH (BARTH + protocol/noether)
+> **Supersedes**: r1 "12 pure-product belts + BeaconV3 federation" — RETIRED at the S0 calibration spike (budget-infeasible + wrong axis; see `grimoires/loa/a2a/sprint-172/s0-multideploy-calibration.md`).
+> **Builds on**: `grimoires/loa/context/arch-brief-belt-federation.md` r2 (reviewed twice — Flatline + Bridgebuilder, PR #15) · `SCALE.md` Guardrail 1 (blue-green) + Guardrail 5 (stable alias) + D4.
+> **Grounding legend**: `[CODE:file]` = codebase reality · `> file:line` = doc quote · `(S0)` = S0 spike finding · `(PR#15)` = multi-model review finding · `(Direction 2026-05-22)` = operator decision this session.
 
 ## Table of Contents
 1. Executive Summary
@@ -21,190 +21,162 @@
 
 ## Executive Summary
 
-`sonar-api` (formerly `freeside-sonar`, repo origin `0xHoneyJar/sonar-api`) is the THJ sovereign on-chain indexer — today a **single Envio HyperIndex deployment** ingesting 41 contract definitions across 6 chains into 93 GraphQL entities, serving CubQuests, score-api, Set&Forgetti, ApiologyDAO, and the Mibera substrate `[CODE:reality/architecture-overview.md]`.
+Keep the THJ sovereign indexer as **one consolidated Envio belt** (full Mibera-ecosystem footprint, 6 chains) serving a **stable, additive-only GraphQL API behind a fixed production alias**. Ship every change (new source, schema addition) via **blue-green promotion**: stand up a green deployment with the change, backfill it in the background while blue keeps serving, run a reconciliation gate, then **atomically swap the alias** blue→green and retire blue. The 8-hour reindex still happens — but off the live path, so consumers see **zero downtime**.
 
-Its structural bottleneck: **one deployment indexing 6 chains means any contract-source addition forces a full reindex of all chains**, blocking every consumer for 30 min–several hours.
-
-> "the structural fix is in Decision Log D4 (per-chain deployment split)." — `SCALE.md:21`
-
-This cycle is **D4's kickoff**: decompose the monolith into **independently-deployable, pure-product belts**, each owning its own runtime + schema + substrate; declare them to `loa-freeside`'s federation via a **BeaconV3** contract; and structure the new serving layer on the **Effect `domain/ports/live/mock`** pattern. Belts become sovereign data producers; the federation layer (loa-freeside registry + MCP gateway) becomes the cross-cutting + analytics consumer. Multi-tenant hosted; decoupled enough that a future tenant (e.g. AP DAO) can self-host cheaply.
+This reframes the cycle away from r1's 12 physical belts (which the S0 spike proved cost ~$280–450/mo against a hard **< $100/mo** ceiling, and which solved the wrong problem). The per-belt schema-subset capability proven in S0 (Option A) is **held in reserve** (FR-10) for a future on-demand split, not the primary mechanism. The indexer owns **serving consistency**; score-api owns durable analytics (ClickHouse/Dune cron + fallbacks) as a safety net, not a crutch.
 
 ---
 
 ## Problem Statement
 
 ### The Problem
-A monolithic indexer cannot scale across products or tenants. Adding or changing one product's source re-indexes everything, and there is no contract-shaped seam for consumers (or future tenant operators) to bind to other than a raw Hasura URL.
+> `SCALE.md:15,21`: adding any contract source forces a full reindex of all 6 chains (the "8-hour sync"); per-source `start_block` tightening + HyperSync + V3 gave *negligible* backfill improvement — "the bottleneck is architectural." The pain that reaches consumers is the **stale/down live endpoint during that reindex**, not the reindex itself.
 
 ### User Pain Points
-- **Consumers** (apdao-auction-house, score-mibera, mibera-codex, dimensions) "see stale or missing data" during any reindex `> SCALE.md:15`.
-- **Operators** must run blue-green + page 4+ consumer maintainers for any source addition `> SCALE.md:80` — config-tightening gave "negligible UX improvements in backfill time" `> SCALE.md:21`.
-- **Prospective tenants** (AP DAO) cannot run their own slice without inheriting the whole monolith.
+- Consumers (frontends, score-api) see stale/missing data during any reindex `> SCALE.md:15`.
+- Adding a contract = operational dread (multi-hour downtime window).
+- Envio hosted (~$300/mo) is the cost baseline to beat (Direction 2026-05-22).
 
-### Current State `[CODE:reality/]`
-- One Envio HyperIndex V3 deployment (`b5da47c` authoritative + `914708e` mirror) `> claims-to-verify.md:T3`.
-- 41 contracts / 93 entities / 30 handler modules / 6 chains (ETH, OP, ARB, Base, Berachain-primary, Zora).
-- eRPC shared cache substrate live; cache compounds across belts (empirically confirmed this session: Bera re-sync accelerated ~1,620 → 6,593 blk/s as cache warmed).
-- Belt-factory primitive exists (`config.mibera.yaml` + `src/belts/mibera/` + `verify-belt-config` gate; ADR-008 belt-as-unit-of-publication).
+### Current State `[CODE:reality]`
+- One consolidated Envio `3.0.0-alpha.17` belt (config field `rpc`) (S0/OQ-1), full ecosystem footprint, eRPC data source, on Railway (`belt-indexer` + `belt-hasura` + `Postgres`).
+- A Caddy **stable-alias gateway already exists** [CODE:Dockerfile.gateway, Caddyfile]: `:{$PORT}` → `reverse_proxy {$BELT_UPSTREAM}`; swap verified (`> grimoires/loa/NOTES.md:265`: bad upstream→502, revert→live).
+- Re-init runbook exists [CODE:grimoires/loa/runbooks/belt-reinit.md] (KF-013 `--restart`-seeds-then-resume + verification gate).
 
 ### Desired State
-N independently-deployable pure-product belts; a source change reindexes only its belt's chains; each belt declares itself to loa-freeside via BeaconV3; consumers reach belts through the federation gateway; uptime guarded by SLO + an Effect mock/live test harness.
+A consolidated belt whose updates are **zero-downtime** (blue-green promotion behind the stable alias), staying **< $100/mo** steady-state, where the indexer serves a **consistent** API and re-syncs happen in the background.
 
 ---
 
 ## Goals & Success Metrics
 
 ### Primary Goals
-1. **G1 — Full migration**: every existing indexed item sorted into a pure-product belt. *Not just AP DAO — the whole monolith, migrated together.* (Direction 2026-05-21 Q-scope)
-2. **G2 — Blast-radius isolation**: a source change reindexes only its belt's chains, zero impact on other belts. (D4 payoff)
-3. **G3 — Federation contract**: sonar-api declares its belts via a spiked BeaconV3 contract; consumers route through loa-freeside, not raw Hasura URLs.
-4. **G4 — Uptime**: sync-lag SLO defined + monitored; Effect mock/live harness green as a CI gate.
+1. **G1 — Zero-downtime updates.** Adding a source or additive schema change never makes the production endpoint stale: changes ship via background green build + atomic alias swap.
+2. **G2 — Cost ceiling.** Total indexer infra **< $100/mo** steady-state (the bar to leave Envio's ~$300 hosted).
+3. **G3 — API serving consistency.** One stable GraphQL endpoint behind a fixed alias; consumers never touch backend deployment URLs or experience split-brain.
+4. **G4 — Background re-sync.** Cold-start / re-init / source-add backfill is a background operation (on green), not consumer downtime; time-to-promote is bounded by RPC backfill speed (operator: fast enough — Direction 2026-05-22).
 
-### Key Performance Indicators (success gates — operator-confirmed, Direction 2026-05-21 Q-success)
+### Key Performance Indicators (success gates)
 | KPI | Target |
 |---|---|
-| **Blast-radius proof** | Adding/changing a source in belt X reindexes ONLY belt X's chains; other belts untouched (measured: 0 reindex events on sibling belts) |
-| **BeaconV3 declared + routed** | sonar-api declares to loa-freeside registry; ≥1 consumer reaches a belt through the federation gateway (spike-level: contract validated against `loa-freeside/packages/beacon-schema`) |
-| **Uptime SLO + harness green** | Sync-lag SLO thresholds defined + monitored; Effect live/mock harness passes in CI |
-| **All items sorted into belts** | 41/41 contracts + 93/93 entities assigned to a belt; none orphaned in a monolith remainder |
+| **G1 zero-downtime** | A promotion (add a source) completes with **0 consumer-visible downtime** — alias swap with no 5xx spike on the stable endpoint |
+| **G2 budget** | Measured Railway steady-state **< $100/mo** (1 belt + shared eRPC/gateway); transient 2× only *during* a promotion window |
+| **G3 stability** | **0 consumer config changes** across a promotion; reconciliation confirms no entity dropped |
+| **G4 promotion gate** | Green reaches `latest_processed_block ≥ blue` on **every** chain AND passes reconciliation before any swap |
 
 ### Constraints
-- **Own-vs-rent sovereignty ladder** `> arch-brief §2`: OWN indexer/schema/gateway/eRPC/cache; RENT free RPC + Railway; DEFER paid HyperSync (currently used only as Base break-glass).
-- **Multi-tenant hosted** now; no packaged installable this cycle, but belts decoupled so future self-host is cheap. (Direction 2026-05-21 Q-tenancy)
-- **ClickHouse/Dune deferred** to a fast-follow; it lives at the federation layer, not in belts. (Direction 2026-05-21 Q-serving)
+- Hard budget **< $100/mo** (Direction 2026-05-22).
+- Sovereignty: OWN indexer/schema/gateway/eRPC; RENT free RPC + Railway; HyperSync = break-glass only.
+- Additive-only public GraphQL contract behind the alias (breaking changes need an explicit path — FR-7).
 
 ---
 
 ## User Personas & Use Cases
 
-### Primary Persona: Indexer Operator (us / zerker)
-- **Job**: add/change a product's sources without re-syncing unrelated products; keep all consumers green.
-- **Use case**: "Add an apdao contract → only the apdao belt reindexes; Mibera/score stay live."
+### Primary Persona: Indexer Operator (zerker)
+Adds a contract / schema field, deploys green, watches it catch up, promotes on a green light, rolls back by reverting the alias if needed — all without paging consumers.
 
-### Secondary Persona: Consumer App (score-api, mibera-honeyroad, CubQuests, Set&Forgetti, dimensions, mibera-codex, future Quest API / Dune)
-- **Job**: query authoritative on-chain data through one consistent, discoverable endpoint.
-- **Use case**: "score-api federates across the mibera + berachain-core + paddle belts via the gateway, not N hardcoded Hasura URLs."
+### Secondary Persona: Consumer App (score-api, mibera-honeyroad, CubQuests, Set&Forgetti, dimensions, mibera-codex, future Dune/Quest API)
+Points at the fixed alias URL; queries composed entities (per-event, aggregates, cross-cutting `Action`/`Mint`/`Holder`); never sees the backend swap. **score-api** additionally captures snapshots into ClickHouse/Dune on a cron with fallbacks (durable analytics — out of scope here).
 
-### Tertiary Persona: Tenant Operator (AP DAO)
-- **Job**: consume (and possibly later self-host) their belt without inheriting the monolith.
-- **Use case**: "AP DAO's belt runs in our multi-tenant infra now; the decoupling means they could lift it out later." (Direction 2026-05-21 Q-tenancy)
+### Tertiary Persona: Future Tenant (AP DAO)
+Future on-demand split (the reserved per-belt capability, FR-10) — not this cycle.
 
 ---
 
 ## Functional Requirements
 
-### FR-0: S0 Calibration Spike — Envio multi-deployment mechanics (gates the sprint)
-Before sprint commitment, a half-day spike verifies: (a) how Envio runs N independent deployments (separate Postgres? separate Railway service? schema subset per belt?), (b) per-belt infra cost, (c) Envio per-mutation reset semantics (closes SCALE.md D6). **Output finalizes the belt count** — cost may consolidate some products. (Direction 2026-05-21 Q-cost: "S0 spike decides")
-> Sources: operator CLAUDE.md S0-spike doctrine (untested integration path), SCALE.md:D6
+### FR-1: Consolidated belt
+One Envio belt indexing the full footprint (6 chains, all current sources). Handlers compose freely *within* the belt — per-event entities, running aggregates (e.g. `PaddleSupplier` get→update→set), and cross-cutting normalized entities (`Action`, written by 21 handlers via `recordAction`) [CODE:src/handlers/*, src/lib/actions.ts]. No cross-belt composition (one belt → no federation).
 
-### FR-1: Belt taxonomy — pure-product partition
-Partition all 41 contracts / 93 entities into **pure-product belts**; cross-consumer needs handled at federation, never by consumer-shaped belts. (Direction 2026-05-21 Q-boundaries: "Pure product belts + federate")
+### FR-2: Stable alias (exists — specify the contract)
+The fixed public GraphQL endpoint = the Caddy `belt-gateway` [CODE:Caddyfile] (`reverse_proxy {$BELT_UPSTREAM}`). Proxy not DNS (atomic, single-source-of-truth). Define the alias contract: public URL, additive-only schema, the `BELT_UPSTREAM` swap as the only cutover lever (no per-consumer config) (resolves PR#15 SKP-001/F-001/Guardrail-5).
 
-**Seeded candidate taxonomy** (final partition + count is the first `/architect` deliverable, informed by FR-0):
+### FR-3: Blue-green promotion
+Procedure to ship a change: (1) stand up green (new Railway service + own Postgres, via `belt-reinit.md`) with the change; (2) green backfills in background while blue serves; (3) reconciliation gate (FR-4); (4) atomic alias swap `BELT_UPSTREAM`→green; (5) retire blue. Green↔blue DB isolation is structural (separate service + Postgres) (resolves PR#15 SKP-002 isolation).
 
-| Belt | Contracts (candidate) | Chains |
-|---|---|---|
-| `honeyjar` | HoneyJar (×6 chains), HoneyJar2/3/4/5Eth, Honeycomb, MoneycombVault | ETH·ARB·Zora·OP·Base·Bera *(cross-chain rollup)* |
-| `mibera` | MiberaCollection/Premint/Staking/Sets/Zora/LiquidBacking, Seaport, MirrorObservability, MiladyCollection | Bera·OP·ETH |
-| `sf-vaults` | SFVaultERC4626, SFMultiRewards, SFVaultStrategyWrapper, HenloVault | Bera |
-| `apdao` | ApdaoAuctionHouse, TrackedErc721 (seat) | Bera |
-| `berachain-core` | FatBera×2, BeaconDeposit, BlockRewardController, AutomatedStake, Validator×3, BgtToken | Bera |
-| `aquabera` | AquaberaVault, AquaberaVaultDirect | Bera |
-| `crayons` | CrayonsFactory, CrayonsCollection | Bera |
-| `purupuru` | PuruApiculture1155 | Base |
-| *(to place in /architect)* | PaddleFi, CandiesMarket1155, CubBadges1155, GeneralMints, FriendtechShares, TrackedErc20 — currently bundled in the shipped score-api-footprint belt; move to product homes | Bera/Base |
+### FR-4: Promotion gate (reconciliation, not just block-height)
+Before the swap: green's `latest_processed_block ≥ blue`'s on **every** chain AND an entity-count reconciliation within tolerance vs blue (extends the existing AC-R7 score-api footprint reconciliation). Block-height alone is insufficient (PR#15 SKP-002). No swap until the gate passes.
 
-**Rule**: utility contracts that serve multiple products (`BgtToken`, `TrackedErc721/Erc20`) and shared entity *shapes* (`Action`, `Mint`, `Holder`, `Token`) index in exactly ONE belt; other consumers read them through the gateway — never duplicated in indexing. (Direction 2026-05-21 Q-cross-cutting)
+### FR-5: Rollback
+A bad promotion is reverted by setting `BELT_UPSTREAM` back to blue (proven reversible — `NOTES.md:265`). Blue is retained (not deleted) until green is verified healthy post-swap for a defined window (resolves PR#15 SKP-003 "no rollback path").
 
-### FR-2: Per-belt independent deployment
-Each belt = its own deployable unit (Envio deployment + persistence + serving), parameterized by `config.<belt>.yaml` + `src/belts/<belt>/` + the `verify-belt-config` fidelity gate (extends the existing factory primitive).
+### FR-6: Swap atomicity
+Decide + specify the swap mechanism's downtime characteristic: today `BELT_UPSTREAM` change → Railway redeploy (~seconds blip; `admin off` in Caddyfile precludes `caddy reload`). For true zero-downtime: enable Caddy admin + graceful `caddy reload`, OR run ≥2 gateway instances, OR accept the blip (score-api fallbacks cover it). Operator-gated by whether the blip is acceptable (PR#15 SKP-001 sub-question).
 
-### FR-3: Blast-radius isolation
-A source addition/change in belt X triggers reindex of belt X's chains only. Verified by an observable proof (sibling belts show 0 reindex events). Blue-green per SCALE.md guardrails applies per belt.
+### FR-7: Additive-only schema + breaking-change path
+Green's schema MUST be a superset of blue's so the swap is transparent (additive invariant). Define the path for **non-additive** changes (field rename/removal/retype): versioned alias / consumer-coordinated cutover (resolves PR#15 SKP-003/B1).
 
-### FR-4: BeaconV3 declaration (spike, not full wiring)
-sonar-api authors a BeaconV3 declaration for its belts, validated against `loa-freeside/packages/beacon-schema`. Full registry aggregation + MCP-gateway routing is a follow-up joint cycle with loa-freeside. (Direction 2026-05-21 Q-federation: "Spike contract now, wire later")
-> Manifest authoring → beacon construct (Construct Resolution table)
+### FR-8: Green-build orchestration
+Operationalize standing up green from the `belt-reinit.md` runbook (own service + Postgres, `ENVIO_RESTART=1`-seeds-then-resume, verification gate before resume). Include the retry/escalation path if seeding is incomplete (PR#15 BB F-004).
 
-### FR-5: Effect serving/ports layer
-The new serving/gateway/ports layer adopts `domain/ports/live/mock` + a single Effect provide-site ("strengthen the core"); Envio HyperIndex handlers stay as-is and become **live adapters behind ports** ("push deps to the edge"). (Direction 2026-05-21 Q-effect: "Structure at serving/ports layer")
-> construct-effect-substrate is `status: candidate` — adopt structure, not a full runtime rewrite.
+### FR-9: score-api boundary (durable analytics downstream)
+The indexer serves; **score-api owns durability/analytics** (cron capture → ClickHouse/Dune + fallbacks). The indexer must serve consistently (not be lossy); score-api is the safety net for indexer downtime, not a justification for gaps (PR#15 SKP-001 corrected emphasis; BB F-008 praised the lambda split).
 
-### FR-6: Uptime SLO + test/mock harness
-Define sync-lag SLO thresholds (seed from SCALE.md Guardrail 2) + wire monitoring; the Effect mock/live split provides a CI test harness gating belt changes.
-
-### FR-7: Federation-layer cross-cutting contract (design only)
-Cross-product aggregation (e.g. score-api across mibera + berachain-core + paddle) and the future ClickHouse/Dune OLAP path are specified as **federation-layer** concerns, not belt concerns. This cycle locks the contract shape; wiring + ClickHouse are deferred. (Direction 2026-05-21 Q-cross-cutting + Q-serving)
+### FR-10 (reserve, not built this cycle): on-demand split capability
+The S0-proven per-belt config + physical schema subset (Option A, codegen+tsc exit 0) is **held in reserve** for a future on-demand split (tenant isolation or a source needing instant-live without waiting for green). Documented, not wired.
 
 ---
 
 ## Non-Functional Requirements
 
 ### Performance
-- Sync-lag within SLO per belt; cold first-sync per (belt × chain) bounded by free-RPC + eRPC throughput (the central hypothesis of the arch brief `> arch-brief §5`).
+Time-to-promote bounded by full-corpus backfill wall-time (operator: RPC fast enough; worth a one-shot measured number — G4). Steady-state query latency via the Caddy gateway + per-IP rate limit [CODE:Caddyfile, 120 events/min].
 
 ### Scalability
-- N belts scale horizontally; **eRPC cache compounds** — first belt per chain pays cold-sync, every belt after rides warm cache `> arch-brief §4`. Bera/Base/OP/ETH already warm; only ARB/Zora belts pay fresh cold-sync.
+Adding sources = batched into a green per promotion (one catch-up, one swap) — no per-source infra growth. Multi-team additions batch the same way.
 
 ### Security
-- Secrets in env, never inline `> arch-brief §4` (SDD §9.3 rejected hardcoded Postgres password). Per-belt credential isolation.
+Public read-only on-chain data (auth: none). Per-belt Postgres credentials via env. eRPC over private Railway network. KF-012 op-stack getLogs-liar verification per chain before trusting new-source data.
 
 ### Reliability
-- Blue-green schema rollout per belt (SCALE.md Guardrail 1); stable consumer alias (SCALE.md D2 / Guardrail 5) is a precondition for safe cutover and may be pulled in.
-- Effect mock/live harness as a regression gate.
+Zero-downtime promotion (G1); reversible rollback (FR-5); green DB isolation (FR-3); score-api fallback safety net (FR-9). Cost model must include transient promotion-window 2× vs current 89% memory headroom (PR#15 SKP-004).
 
 ### Compliance
-- N/A (no regulatory scope).
+Sovereignty posture (OWN core, RENT RPC/Railway). No new external SaaS dependency on the live path (HyperSync = break-glass only).
 
 ---
 
 ## Technical Considerations
 
 ### Architecture Notes
-- L0–L6 belt-factory stack `> arch-brief §3`: chains → free RPC → **eRPC substrate** → belt indexers → belt APIs → **gateway (federation)** → consumers. This cycle realizes L3 (per-belt) + L5 (BeaconV3 federation) + the Effect contract shape across them.
-- Cross-chain NFT rollups stay *within* one belt (e.g. honeyjar across 6 chains); cross-*product* aggregation is the gateway's job. (Direction 2026-05-21 assumption 2, confirmed)
+Lambda split: indexer = hot serving tier (this cycle); score-api/ClickHouse = warm/cold analytics tier (downstream, out of scope). Alias = Caddy gateway. Promotion = blue-green via `BELT_UPSTREAM`.
 
 ### Integrations
-- **loa-freeside** (v7.0.0) — BeaconV3 sealed schema (`packages/beacon-schema`), registry (`packages/freeside-registry`), MCP federation gateway (`apps/mcp-gateway`). The "home aware of all connected APIs."
-- Railway (hosting), Postgres (persistence), Hasura/Envio GraphQL (serving), free public RPC (Chainlist).
+Consumers via the stable alias; score-api cron capture; loa-freeside `freeside-mcp-gateway`/BeaconV3 as the org-wide routing layer (sonar-api is a freeside building — BeaconV3 declaration is a future/reserve concern, not load-bearing for this cycle's zero-downtime goal).
 
 ### Dependencies
-- Envio HyperIndex V3 (`alpha.17` pinned), eRPC, loa-freeside team for BeaconV3 schema readiness (mitigated: spike-not-wire).
+Envio `3.0.0-alpha.17` (pinned, S0); Caddy gateway (shipped); eRPC (shipped); Railway managed Postgres. No new runtime deps.
 
 ### Technical Constraints
-- `config.yaml`/`schema.graphql` changes can trigger multi-hour reindex `> claims-to-verify.md:T1`.
-- Berachain needs explicit `hypersync_config` `> claims-to-verify.md:T2`.
-- `BERACHAIN_TESTNET_ID = 80094` is mislabeled — 80094 IS mainnet `> claims-to-verify.md:T4`.
+`isInitialized()` = table-existence (S0/D6); resume restarts each chain from DB `progressBlockNumber` → a green that needs historical data is a fresh `--restart` build, not an in-place resume. KF-013 re-init dance applies to green builds. `BERACHAIN id = 80094` is mainnet [CODE:config.yaml].
 
 ---
 
 ## Scope & Prioritization
 
 ### In Scope (this cycle)
-- FR-0 S0 spike → FR-1 taxonomy → FR-2 per-belt deploy → FR-3 blast-radius proof → FR-4 BeaconV3 spike → FR-5 Effect serving layer → FR-6 uptime harness → FR-7 federation contract (design).
-- Migrate **all** existing indexed items into belts (incl. re-scoping the shipped Mibera belt to pure-product).
+One consolidated belt (FR-1) · stable alias contract (FR-2) · blue-green promotion (FR-3) · reconciliation promotion gate (FR-4) · rollback (FR-5) · swap-atomicity decision (FR-6) · additive-only + breaking-change path (FR-7) · green-build orchestration (FR-8) · score-api boundary (FR-9).
 
 ### In Scope (Future Iterations)
-- Full BeaconV3 + MCP-gateway federation wiring (joint cycle with loa-freeside).
-- ClickHouse/Dune OLAP analytics path at the federation layer.
-- Tenant self-host packaging (AP DAO and others).
+On-demand split capability (FR-10, reserved) · BeaconV3 declaration to freeside-mcp-gateway · ClickHouse/Dune federation at the analytics layer (score-api).
 
 ### Explicitly Out of Scope
-- ClickHouse this cycle. · Packaged installable / self-host this cycle. · score-api `ENVIO_GRAPHQL_URL` repoint (separate, deferred). · Full federation gateway wiring.
+12 physical pure-product belts (RETIRED) · query-time federation gateway · permanent sibling belts · ClickHouse/Dune/score computation (score-api) · packaged tenant installable.
 
 ### Priority Matrix
-P0: FR-0, FR-1, FR-2, FR-3. P1: FR-5, FR-6. P2: FR-4, FR-7.
+P0: FR-2, FR-3, FR-4, FR-5. P1: FR-6, FR-7, FR-8. P2: FR-1 (mostly already true), FR-9 (boundary doc), FR-10 (reserve).
 
 ---
 
 ## Success Criteria
 
 ### Launch Criteria
-- [ ] All 41 contracts / 93 entities assigned to a belt (no monolith remainder).
-- [ ] Blast-radius proof: a source change reindexes only its belt's chains (sibling belts: 0 reindex).
-- [ ] BeaconV3 declaration validates against `loa-freeside/packages/beacon-schema`; ≥1 consumer routed via gateway (spike level).
-- [ ] Sync-lag SLO defined + monitored; Effect mock/live harness green in CI.
-- [ ] eRPC capacity verified for the migration's cold-syncs (SCALE.md SKP-003 pre-flight).
+- [ ] **G1**: a source-add promotion completes with 0 consumer-visible downtime (alias swap, no 5xx spike on the stable endpoint).
+- [ ] **G2**: measured Railway steady-state < $100/mo; promotion-window transient cost quantified.
+- [ ] **G3**: 0 consumer config changes across a promotion; reconciliation shows no dropped entity (AC-R7 footprint preserved).
+- [ ] **G4**: promotion gate enforced — green ≥ blue on every chain + reconciliation pass before swap; rollback (revert `BELT_UPSTREAM`) exercised.
+- [ ] Swap-atomicity decision made (blip vs `caddy reload` vs ≥2 instances) with evidence.
+- [ ] Breaking (non-additive) schema change path documented.
 
 ---
 
@@ -212,16 +184,16 @@ P0: FR-0, FR-1, FR-2, FR-3. P1: FR-5, FR-6. P2: FR-4, FR-7.
 
 | # | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
-| R1 | Envio multi-deployment mechanics/cost unknown | High | High | **FR-0 S0 spike** before sprint commit; finalizes belt count |
-| R2 | N× infra cost (N belts × Postgres × Railway) | Med | Med | S0 cost calibration; cost-driven consolidation allowed |
-| R3 | Cross-cutting entity tension (shared shapes, score-api footprint) | Med | High | Federation-layer resolution (FR-7); one-belt-indexes rule (FR-1) |
-| R4 | BeaconV3 cross-repo dependency on loa-freeside team/schema | Med | Med | Spike-not-wire (FR-4) decouples from their availability |
-| R5 | construct-effect-substrate is `status: candidate` (1 project) | Low | Med | Structure-only adoption at serving layer; Envio handlers untouched |
-| R6 | Simultaneous cold-syncs during full migration | Med | Med | eRPC warm cache (Bera/Base/OP/ETH warm); blue-green per belt; stagger |
-| R7 | Re-scoping the just-shipped Mibera belt regresses score-api coverage | Med | High | Re-validate against score-api#151 footprint after re-partition |
-| R8 | Ledger pollution (loa-framework cycles in sonar-api ledger) | Low | Low | Flagged for separate cleanup; does not block this cycle |
+| R1 | Swap not truly atomic (Railway redeploy blip) | Med | Med | FR-6 decision: Caddy `caddy reload` / ≥2 instances / accept blip (score-api covers); measure |
+| R2 | Breaking (non-additive) schema change behind an additive-only alias | Med | High | FR-7 versioned-alias / consumer-coordinated path; additive invariant enforced |
+| R3 | Promotion on block-height alone passes a green with dropped entities | Med | High | FR-4 reconciliation gate (entity counts) before swap; AC-R7 footprint check |
+| R4 | Green build fails to seed all chains (KF-013) → silent-skip on resume | Med | High | FR-8 verification gate (chain_metadata count) + retry/escalation before promote |
+| R5 | Promotion-window 2× cost vs already-89% memory headroom | Med | Med | PR#15 SKP-004 — quantify; bound max promotion window; one belt steady-state |
+| R6 | Green never converges (backfill slower than block production) | Low | High | Operator: RPC fast enough; G4 measures full-corpus backfill wall-time once |
+| R7 | Re-scoping regresses score-api#151 footprint | Med | High | Reconciliation gate (FR-4) = AC-R7; shipped belt stays SOLE source until verified |
+| R8 | KF-012 op-stack getLogs-liar on a new source's chain | Med | High | Per-chain getLogs verification before trusting new-source data |
 
 ### Dependencies
-- loa-freeside (BeaconV3 schema), Railway, free RPC, eRPC substrate (live), AP DAO team (handoff coordination, non-blocking this cycle).
+Caddy gateway (shipped), eRPC (live), Railway, free RPC, Envio alpha.17 (pinned). loa-freeside (BeaconV3) only for the reserved future federation, non-blocking.
 
-> **Sources**: arch-brief-freeside-sonar-stack.md (L0–L6 stack, sovereignty ladder, eRPC), SCALE.md (D4, D6, D2, guardrails), reality/architecture-overview.md + claims-to-verify.md (codebase), loa-freeside README (BeaconV3/registry/gateway), Direction AskUserQuestion answers 2026-05-21 (scope, boundaries, tenancy, serving, effect depth, federation, cost).
+> **Sources**: `grimoires/loa/context/arch-brief-belt-federation.md` r2 + PR #15 reviews (Flatline + BB, alias spike) · `SCALE.md` (Guardrail 1/5, D4) · S0 calibration (`grimoires/loa/a2a/sprint-172/s0-multideploy-calibration.md`) · `belt-reinit.md` · `known-failures.md` (KF-012/013/014) · operator Directions 2026-05-21/22.
