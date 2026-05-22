@@ -67,6 +67,7 @@ actually tried, not just what someone *said* was tried.
 | [KF-011](#kf-011-adversarial-reviewsh-malformed-response-on-review-type-prompts-post-kf-002-closure) | **RESOLVED 2026-05-17** (sub-mode (b): parser raw_decode extracts prose-prefixed JSON — PR #933 `d9ec8cb5`; sub-mode (c): route-around via 4-voice fallback chain — PR #934 `ccd510b0`; structural sub-mode (c) Gemini streaming-recovery tracked at issue #935). | adversarial-review.sh review-type — JSON contract layer + Gemini streaming-recovery gap | 2 (initial obs sprint-166 review + repro on parser-fix branch) |
 | [KF-012](#kf-012-free-berachain-rpc-returns-empty-200-on-filtered-eth_getlogs--erpc-silently-drops-indexer-logs) | **RESOLVED-VIA-CONFIG 2026-05-20** (eRPC `ignoreMethods:[eth_getLogs]` on lying upstream + widened getLogs cluster + per-upstream rate-limit pacing; sovereign path preserved) | indexer-belt-rebuild — Mibera belt RPC sync via eRPC | 1 |
 | [KF-013](#kf-013-envio-rust-cli-28p01-on-railway-managed-postgres-via-scram-over-ssl) | **RESOLVED-VIA-WORKAROUND 2026-05-21** (`--restart`-seeds-then-resume; sslmode=false was a misdiagnosis — Rust-CLI persisted_state 28P01 is fresh-init-only, resume skips it) | belt-indexer deploy/re-init on Railway managed Postgres | 2 |
+| [KF-014](#kf-014-bridgebuilder-pass-2-enrichment-unavailable-on-claude-headless-cli-subscription) | DEGRADED-ACCEPTED 2026-05-22 (Pass-1 convergence findings still post; only the educational enrichment layer is lost) | `/bridgebuilder` two-pass review on `claude-headless` | 3 |
 
 ---
 
@@ -896,3 +897,26 @@ If an envio indexer **crash-loops on `Failed to upsert persisted state table →
 1. `ENVIO_RESTART=1` → deploy → the `--restart` JS init wipes + recreates the schema and seeds a `chain_metadata` row per config chain (`progressBlockNumber=-1`), THEN the Rust CLI crashes on the persisted_state upsert (after seeding). Let it crash once (the seeding is what matters).
 2. **Delete `ENVIO_RESTART` → redeploy** → boots without `--restart` → **resume** → `ChainManager.makeFromDbState` iterates the seeded `chain_metadata` rows and backfills each from its start_block (`-1` → start_block-1). The resume path never runs the fatal upsert.
 This is also how you add NEW chains: a plain resume ignores config chains absent from `chain_metadata` (`makeFromDbState` iterates DB rows, not config), so you MUST `--restart` to seed the new chains' rows first, then resume. The belt runs fine forever without a `persisted_state` row (resume reads `chain_metadata`/`checkpoints`, never `persisted_state`). Note `ENVIO_PG_SSL_MODE=disable` is INVALID (crashes JS env-parse); `false` is the valid no-SSL value (harmless to keep, just not the fix). Distinct from KF-012 (a data-completeness wall) — both hit on the same sovereign-indexer deploy.
+
+---
+
+## KF-014: Bridgebuilder Pass-2 enrichment unavailable on claude-headless (CLI subscription)
+
+**Status**: DEGRADED-ACCEPTED — Pass-1 convergence findings still post and are valid; only the educational enrichment layer (FAANG-parallel / teachable-moment depth) is lost. Not blocking for adversarial-review value.
+**Feature**: `/bridgebuilder` two-pass review when `BRIDGEBUILDER_MODEL=claude-headless` (the CLI-subscription / no-metered-API path).
+**Symptom**: Pass 2 (enrichment) logs `Pass 2 missing findings markers, using Pass 1 output` and falls back to the unenriched Pass-1 convergence findings. The posted review carries `Enrichment pass was unavailable; findings are unenriched.` Core findings (id/severity/category/suggestion) are unaffected.
+**First observed**: 2026-05-22 (sonar-belt-factory S0 reframe — BB review of PR #15 brief on `claude-headless`).
+**Recurrence count**: 3 (PR #15: r1 dry-run, r1 real post, r2 real post — identical each time).
+**Current workaround**: Accept Pass-1 convergence findings (they post + are useful). The flatline path on the same headless models works fully (3-voice, $0), so for design docs prefer flatline for depth + BB for the convergence pass. Don't retry BB expecting enrichment — the Pass-2 markers don't round-trip on the headless path.
+**Upstream issue**: not filed (candidate — BB enrichment-pass prompt vs `claude-headless` output-format/marker mismatch).
+**Related visions / lore**: KF-002 family (headless/CLI output-format quirks).
+
+### Attempts
+
+| Date | What we tried | Outcome | Evidence |
+|------|---------------|---------|----------|
+| 2026-05-22 | BB on PR #15 (r1 dry-run, r1 real, r2 real) via `claude-headless` | DID NOT WORK (enrichment) — all 3 logged `Pass 2 missing findings markers, using Pass 1 output`; Pass-1 findings posted fine | runs `bridgebuilder-20260522T0329…` / `…0335…` / `…0348…`; PR #15 reviews |
+
+### Reading guide
+
+If a BB review posts with "Enrichment pass was unavailable; findings are unenriched" on the CLI-subscription (`claude-headless`) path: this is **expected, not a failure** — the Pass-1 convergence findings are valid and load-bearing. Do not retry expecting enrichment; the recurrence is consistent (3/3). For educational depth on a design doc, use flatline (which works fully on the same headless models).
