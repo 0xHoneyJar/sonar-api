@@ -5,6 +5,9 @@
 **Green = the 6-chain consolidated belt (config.yaml), standing up NOW in freeside-sonar/production (blue-green-as-services).**
 
 > **✅ UPDATE (2026-05-22, later session 4):** seed verified (COUNT==6) → resumed (`ENVIO_RESTART=0`) → all 6 chains backfilling. Hit **KF-015 (Node JS-heap OOM)**: 6-chain load OOM'd Node's ~2GB default heap in the 24GB container → Arbitrum+Zora froze (crash-loop on dense mint regions) while others advanced. **FIXED:** `NODE_OPTIONS=--max-old-space-size=12288` on belt-indexer-green → Zora converged to head, Arbitrum unstuck (+58.5M). All 6 now healthy; Base (8453) + Arbitrum (42161, 296M-block span) are the multi-hour long poles → overnight to converge. **NODE_OPTIONS must persist on green post-swap (KF-015).** Pending items 1-2 below are DONE; remaining = belt-hasura-green, gate expansion-mode (bd-umw.6)+Part-4 (bd-umw.7), certify, swap.
+>
+> **✅✅ CONVERGED (2026-05-22):** all 6 chains AT HEAD, remaining=0 (~14.7M events: Base 8.57M · Berachain 5.53M · ETH 351k · OP 197k · Arbitrum 29k · Zora 24k). Green cold-sync DONE. Next: stand up belt-hasura-green → gate expansion-mode + Part-4 → certify → swap. Local dashboard: `node scripts/sync-dashboard.cjs` (localhost:8787).
+> **Score raw-data direction → RFC `0xHoneyJar/score-api#163`** (watermark ETL belt-PG→score-PG over GraphQL; BRIN+MV not ClickHouse; DuckDB escape hatch). **S3 swap dependency:** `promote.sh` must publish a stable "current-belt DATABASE_URL" (metadata signal) alongside the BELT_UPSTREAM GraphQL flip, so Score (raw-PG consumer) knows which belt is live. Stale Score memories corrected 2026-05-22 (feedback_score_not_api / reference_score_sonar_pipeline).
 
 - **Services created (Railway, freeside-sonar/production):**
   - `Postgres-vRR1` — green's isolated DB (Railway auto-named; the `-s Postgres-green` flag is ignored for DB services). Empty / seeding.
