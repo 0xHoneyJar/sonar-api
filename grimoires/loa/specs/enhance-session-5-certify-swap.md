@@ -27,6 +27,7 @@ SHIP/ARCH — BARTH + protocol/noether, craft lens. Operator-paced from any Rail
 - Project token at `~/.railway-green.tok` (mode 600). Use as `RAILWAY_TOKEN="$(cat ~/.railway-green.tok)" railway …`. **Reads work; writes need it; `railway whoami` fails under it — expected (project token has no user identity).** **REVOKE this token in Railway when the cycle ships.**
 - Green deploys via `railway up -s <svc>` (local dir; **no push** — blue untouched).
 - Project = `freeside-sonar` / env `production`. Services: blue (`belt-indexer`,`belt-hasura`,`Postgres-3vIC`) · green (`belt-indexer-green`,`Postgres-vRR1`) · shared (`belt-gateway`,`erpc`).
+- **KF-015 — `belt-indexer-green` carries `NODE_OPTIONS=--max-old-space-size=12288`** (the 6-chain belt OOMs Node's ~2GB default heap in the 24GB container). **This MUST persist post-swap** (green becomes the sole belt). Consider baking a `NODE_OPTIONS` default into `Dockerfile.belt` as the durable home. Diagnostic: chains freeze while others advance + `JavaScript heap out of memory` in logs → it's heap, not RPC.
 
 ## Pre-flight — is green converged?
 ```bash

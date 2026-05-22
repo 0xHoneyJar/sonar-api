@@ -68,6 +68,7 @@ actually tried, not just what someone *said* was tried.
 | [KF-012](#kf-012-free-berachain-rpc-returns-empty-200-on-filtered-eth_getlogs--erpc-silently-drops-indexer-logs) | **RESOLVED-VIA-CONFIG 2026-05-20** (eRPC `ignoreMethods:[eth_getLogs]` on lying upstream + widened getLogs cluster + per-upstream rate-limit pacing; sovereign path preserved) | indexer-belt-rebuild — Mibera belt RPC sync via eRPC | 1 |
 | [KF-013](#kf-013-envio-rust-cli-28p01-on-railway-managed-postgres-via-scram-over-ssl) | **RESOLVED-VIA-WORKAROUND 2026-05-21** (`--restart`-seeds-then-resume; sslmode=false was a misdiagnosis — Rust-CLI persisted_state 28P01 is fresh-init-only, resume skips it) | belt-indexer deploy/re-init on Railway managed Postgres | 2 |
 | [KF-014](#kf-014-bridgebuilder-pass-2-enrichment-unavailable-on-claude-headless-cli-subscription) | DEGRADED-ACCEPTED 2026-05-22 (Pass-1 convergence findings still post; only the educational enrichment layer is lost) | `/bridgebuilder` two-pass review on `claude-headless` | 3 |
+| [KF-015](#kf-015-envio-belt-indexer-node-js-heap-oom-on-multi-chain-belt-default-2gb-heap-vs-large-container) | **RESOLVED-VIA-CONFIG 2026-05-22** (`NODE_OPTIONS=--max-old-space-size=12288` — 6-chain belt OOM'd Node's ~2GB default heap in a 24GB container; green-only) | belt-indexer 6-chain consolidated cold-sync OOM | 1 |
 
 ---
 
@@ -920,3 +921,27 @@ This is also how you add NEW chains: a plain resume ignores config chains absent
 ### Reading guide
 
 If a BB review posts with "Enrichment pass was unavailable; findings are unenriched" on the CLI-subscription (`claude-headless`) path: this is **expected, not a failure** — the Pass-1 convergence findings are valid and load-bearing. Do not retry expecting enrichment; the recurrence is consistent (3/3). For educational depth on a design doc, use flatline (which works fully on the same headless models).
+
+---
+
+## KF-015: envio belt-indexer Node JS-heap OOM on multi-chain belt (default ~2GB heap vs large container)
+
+**Status**: RESOLVED-VIA-CONFIG 2026-05-22 (`NODE_OPTIONS=--max-old-space-size=12288` on the 6-chain green belt-indexer; the container is 24GB but Node defaulted to ~2GB heap). Config-only; green-only — the 4-chain mibera belt (blue) is fine at the default.
+**Feature**: belt-indexer (`envio start`, v3.0.0-alpha.17) cold-syncing the 6-chain consolidated belt (`config.yaml`: ETH 1 / OP 10 / Base 8453 / Arbitrum 42161 / Berachain 80094 / Zora 7777777, 41 contracts) on Railway (24GB/service cap).
+**Symptom**: The 6-chain belt **crash-loops** with `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory` (+ V8 `FatalProcessOutOfMemory` frame), surfacing as `Error: Failed cli execution`. Operator-visible signature: **chains with dense mint regions FREEZE** (their `chain_metadata.latest_processed_block` stops advancing) while lighter chains keep moving — the dense-region fetcher OOM-crashes the whole process before it can checkpoint past that range; on Railway auto-restart the lighter chains resume from checkpoints and advance a bit, but the dense chains re-hit the same OOM range and re-freeze. Here: Arbitrum + Zora HoneyJar mint regions froze; ETH/OP/Base/Berachain advanced between crashes.
+**First observed**: 2026-05-22 (sonar-belt-factory S2 green-build — 6-chain consolidated belt cold-sync).
+**Recurrence count**: 1
+**Current workaround**: `NODE_OPTIONS=--max-old-space-size=12288` (12GB) on the belt-indexer service — Node's default old-space (~2GB) is far below the 24GB container; raise to ~50% of container so the 6 concurrent chain fetchers + dense getLogs responses fit (leave the other ~12GB for non-heap RSS / buffers so the *container* doesn't OOM-kill). Blue (4-chain) runs WITHOUT NODE_OPTIONS — fewer concurrent fetchers fit in the default heap.
+**Upstream issue**: not filed (Node default-heap-vs-container mismatch; standard Node ops, not an envio bug — though envio could surface a heap hint scaled to chain count).
+**Related visions / lore**: KF-012 (the dense-region throttle that makes those ranges memory-heavy); KF-013 (sibling green-build infra wall on the same deploy — distinct: 28P01 is fresh-init, this is steady-state resume).
+
+### Attempts
+
+| Date | What we tried | Outcome | Evidence |
+|------|---------------|---------|----------|
+| 2026-05-22 | Resume green w/ default Node heap (~2GB), 6 chains | DID NOT WORK — crash-loop OOM; Arbitrum+Zora froze at start-of-dense-region while ETH/OP/Base/Bera advanced | green belt-indexer logs `FATAL ERROR: Reached heap limit ... JavaScript heap out of memory`; chain_metadata 42161/7777777 frozen across 3 checks (~10min) |
+| 2026-05-22 | `NODE_OPTIONS=--max-old-space-size=12288` on belt-indexer-green → resume redeploy | RESOLVED — Zora converged to head; Arbitrum +58.5M past the frozen block; no further OOM | chain_metadata poll: 7777777 → 46,395,369 (≈head); 42161 169,454,463 → 227,909,621 |
+
+### Reading guide
+
+When scaling an Envio belt to MORE chains/contracts (or any node process in a big container), the Node default heap (~2GB old-space) does NOT scale to the container — set `NODE_OPTIONS=--max-old-space-size=<~50% of container MB>`. **Diagnostic signature**: some chains' `latest_processed_block` FREEZE while others advance, + a V8 `FatalProcessOutOfMemory` / "JavaScript heap out of memory" frame + Railway crash-loops. Do NOT chase the RPC (the frozen chains synced fine through sparse ranges *before* the OOM — it's heap, not the endpoint) and do NOT confuse with KF-013 (28P01 is fresh-init; this is steady-state resume). Durable home: bake a `NODE_OPTIONS` default into `Dockerfile.belt` so any belt deploy inherits it; the green service-var is the immediate fix and persists post-swap (green becomes the sole belt).

@@ -4,6 +4,8 @@
 
 **Green = the 6-chain consolidated belt (config.yaml), standing up NOW in freeside-sonar/production (blue-green-as-services).**
 
+> **✅ UPDATE (2026-05-22, later session 4):** seed verified (COUNT==6) → resumed (`ENVIO_RESTART=0`) → all 6 chains backfilling. Hit **KF-015 (Node JS-heap OOM)**: 6-chain load OOM'd Node's ~2GB default heap in the 24GB container → Arbitrum+Zora froze (crash-loop on dense mint regions) while others advanced. **FIXED:** `NODE_OPTIONS=--max-old-space-size=12288` on belt-indexer-green → Zora converged to head, Arbitrum unstuck (+58.5M). All 6 now healthy; Base (8453) + Arbitrum (42161, 296M-block span) are the multi-hour long poles → overnight to converge. **NODE_OPTIONS must persist on green post-swap (KF-015).** Pending items 1-2 below are DONE; remaining = belt-hasura-green, gate expansion-mode (bd-umw.6)+Part-4 (bd-umw.7), certify, swap.
+
 - **Services created (Railway, freeside-sonar/production):**
   - `Postgres-vRR1` — green's isolated DB (Railway auto-named; the `-s Postgres-green` flag is ignored for DB services). Empty / seeding.
   - `belt-indexer-green` — config.yaml (6-chain), `ENVIO_RESTART=1` seed deploy IN PROGRESS via `railway up` (local dir; **no push, blue untouched**).
