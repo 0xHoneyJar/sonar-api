@@ -1,695 +1,507 @@
-# Software Design Document — freeside-sonar, the Belt-Factory Stack
+# Software Design Document — sonar-api Consolidated Belt + Blue-Green Promotion
 
-> **Cycle**: indexer-belt-rebuild · **Deployment #1** (the Mibera belt, on the scaled stack)
-> **Implements**: `grimoires/loa/prd.md` (r2) · **Build doc**: `grimoires/loa/specs/indexer-belt-rebuild.md`
-> **Date**: 2026-05-20 · **Build construct**: `construct-noether`
-> **Revision**: **r4** — re-architected per the promoted ARCH brief
-> `grimoires/loa/context/arch-brief-freeside-sonar-stack.md`. r4 adopts the L0–L6
-> bottom-up stack; introduces **eRPC as the shared L2 substrate** (one deploy, all
-> belts × all chains); **retires FR-0's HyperSync assumption** (HyperSync is paid —
-> the project is free-only); makes per-belt `src/belts/<belt>/` handler-entrypoint
-> directories a **factory invariant**; and pulls **§11 cross-belt federation forward
-> as an L5 design input**. r3 (stable-gateway recovery), r2 (Flatline SDD review),
-> and r1 are superseded but their findings carry forward — see §13.
-> **Stance**: this is an **experimental pressure test, run as science** — state a
-> hypothesis, build the experiment, observe, reason from the result. Runway is
-> **kaironic and ample** (~10 days as of 2026-05-20). "Risk" below means *an unknown
-> to measure*, never *a deadline to fear*.
-> **Grounding**: `arch-brief-freeside-sonar-stack.md` · `erpc-rpc-fallback-contingency.md`
-> (absorbed) · handler cross-contract analysis (§4.2) · Sprint 1 shipped artifacts
-> (`config.mibera.yaml`, `src/belts/mibera/`, `scripts/verify-belt-config.js`).
+**Version:** r7 (sonar-belt-factory) — **full rewrite** to track PRD r2 (one consolidated belt + blue-green promotion). Supersedes the r6 N-belt-factory SDD whose premise (12 physical belts + query-time federation) was RETIRED at the S0 calibration spike.
+**Date:** 2026-05-22
+**Author:** Architecture Designer Agent (ARCH: the-arcade + protocol + noether, craft lens)
+**Status:** Flatline-remediated (r7) — 3-model review integrated as §17 R-A..R-G (CLI subscription, $0); OQ-1 resolved (Option B, §7.4)
+**PRD Reference:** `grimoires/loa/prd.md` r2 (sonar-belt-factory)
+**Supersedes:** `sdd.md` r6 — the L0–L6 N-belt federation framing. **What carries forward** (not redone): the eRPC L2 shared substrate, the `ENVIO_RESTART` re-init primitive (KF-013), the Caddy stable-alias gateway, the `verify-belt-config` fidelity gate, the score-api footprint reconciliation (AC-R7), and the KF-012 per-chain getLogs-liar verification discipline. **What is removed**: belt taxonomy (FR-1 in r6), per-belt blast-radius probe, BeaconV3 declaration (now reserve), the Effect serving/ports layer (now reserve), query-time federation (FR-7 in r6).
 
-## 1. Overview
+> **Grounding legend**: `[CODE:file]` = codebase reality · `> file:Lnn` = doc quote · `[KF-nnn]` = known-failure provenance · `(S0)` = S0 spike finding · `(PR#15)` = multi-model review finding · `[ASSUMPTION]` = ungrounded claim flagged for verification.
 
-freeside-sonar is **one repo / one building** that publishes **belts** — one
-self-hosted Envio HyperIndex deployment per project. This SDD designs the **belt-factory
-stack** the whole factory stands on, and lands **Deployment #1** — the **Mibera belt** —
-as *instance #1* of that scaled pattern, not as a one-off fire-fix.
+---
 
-Two facts surfaced during Sprint 1 forced the re-architecture:
+## Table of Contents
 
-1. **HyperSync is paid; the project is free-only** (operator, 2026-05-20). The r3 PRD
-   FR-0 — *"keep HyperSync if it serves Berachain free"* — is resolved **dead**. The belt
-   cannot use HyperSync. It indexes via **JSON-RPC**, through a shared caching proxy.
-2. **The factory is 4 belts × up to 6 chains, not one belt.** The data source is not a
-   per-belt config detail — it is a **shared substrate** the whole factory rests on.
+1. [Project Architecture](#1-project-architecture)
+2. [Software Stack](#2-software-stack)
+3. [Data Model & Schema (additive-only contract)](#3-data-model--schema-additive-only-contract)
+4. [The Stable Alias (FR-2)](#4-the-stable-alias-fr-2)
+5. [Blue-Green Promotion (FR-3 / FR-8)](#5-blue-green-promotion-fr-3--fr-8)
+6. [The Promotion Gate — Reconciliation (FR-4)](#6-the-promotion-gate--reconciliation-fr-4)
+7. [Swap Atomicity (FR-6)](#7-swap-atomicity-fr-6)
+8. [Rollback (FR-5)](#8-rollback-fr-5)
+9. [Additive-only schema + breaking-change path (FR-7)](#9-additive-only-schema--breaking-change-path-fr-7)
+10. [score-api boundary & on-demand split reserve (FR-9 / FR-10)](#10-score-api-boundary--on-demand-split-reserve-fr-9--fr-10)
+11. [Error Handling Strategy](#11-error-handling-strategy)
+12. [Testing Strategy](#12-testing-strategy)
+13. [Development Phases / Build Sequencing](#13-development-phases--build-sequencing)
+14. [Risks & Mitigation](#14-risks--mitigation)
+15. [Open Questions](#15-open-questions)
+16. [Verification → Acceptance Criteria Mapping](#16-verification--acceptance-criteria-mapping)
 
-The design principle (operator, 2026-05-20): *first principles, move down the stack,
-build what we know how to build, then build up.* The data-source problem pushed the
-design **down** to a new layer — **L2, the eRPC substrate** — and the build sequence
-goes **bottom-up**: build L2 solid, then the L3 belt on it, then L5.
+---
 
-Deployment #1 stays **thin** — the Mibera belt indexes exactly two Berachain contracts
-(`MiberaLiquidBacking`, `MiberaCollection`) and serves a GraphQL endpoint that two
-consumers repoint to via one environment variable each. It is additive **up to the
-consumer repoint** — that repoint is the commit point (§10). No handler code changes,
-no schema changes.
+## 1. Project Architecture
 
-## 2. The L0–L6 Stack
+### 1.1 System Overview
 
-The factory is a layered station. **A layer is only as sound as the layer beneath it**,
-so the layers are built bottom-up.
+`sonar-api` (alias: freeside-sonar) is the THJ sovereign on-chain indexer: **one consolidated Envio HyperIndex V3 belt** ingesting **41 contract definitions** across **6 chains** into **93 GraphQL entities** `[CODE:config.yaml — 41 contracts; schema.graphql — 93 types]`, served behind a **stable production alias** (the Caddy `belt-gateway`, already live `[CODE:Dockerfile.gateway, Caddyfile]`).
 
+The structural pain is not the reindex — it is the **stale/down live endpoint during the reindex**:
+
+> "adding any contract source forces a full reindex of all 6 chains (the '8-hour sync') … the bottleneck is architectural. The pain that reaches consumers is the **stale/down live endpoint during that reindex**, not the reindex itself." — `> prd.md:L33`
+
+This cycle does **not** split the belt and does **not** federate. It makes belt updates **zero-downtime** by shipping every change (new source, additive schema field) via **blue-green promotion**: stand up a green deployment with the change, backfill it in the background while blue keeps serving, run a **reconciliation gate**, then **atomically swap the alias** blue→green and retire blue. The 8-hour reindex still happens — off the live path.
+
+### 1.2 Architectural Pattern
+
+**Pattern:** *Single hot-serving tier behind a stable alias, updated by blue-green deployment* — a serving-consistency discipline layered over an unchanged event-sourcing indexer. The analytics tier (ClickHouse/Dune via score-api cron) is a separate, downstream lambda-architecture leg (out of scope here).
+
+**Justification (traces to PRD goals):**
+- **G1 zero-downtime** demands that the 8-hour reindex never sit on the live path. Blue-green is the only mechanism that achieves this without a second indexer being *permanent*: green is transient, up only during a promotion window `> prd.md:L53,L94`.
+- **G2 cost ceiling (< $100/mo)** is why r1's 12 physical belts were RETIRED: S0 measured 1 belt + shared infra ≈ **$84.40/mo** at 89% memory `(S0)`, and projected 12 belts at **~$280–450/mo** — infeasible against the hard < $100 bar `> prd.md:L54`. One belt + a *transient* green keeps steady-state under the ceiling; the 2× cost exists only during a promotion window `> prd.md:L62`.
+- **G3 serving consistency** is achieved by a *real indirection* (proxy, single source of truth), not per-consumer config edits — the SCALE.md Guardrail-5 split-brain failure mode `> SCALE.md:L76,L332` is eliminated because consumers only ever know the alias URL.
+- **No federation** — there is exactly one belt, so the r1 cross-belt UNION/dedup/ordering/pagination correctness problem (Flatline `SKP-002` CRITICAL on r1) is **gone by construction** `> arch-brief:L66`.
+
+The pattern is deliberately **boring at the indexer layer** (Envio HyperIndex, unchanged — handlers, schema, eRPC routing all reused) and **disciplined at the promotion layer** (the reconciliation gate + atomic swap + rollback). We do not rewrite anything; we add an operational procedure plus the scripts that gate it.
+
+### 1.3 Component Diagram — blue-green behind a stable alias
+
+```mermaid
+graph TD
+    subgraph Consumers["L6 — consumers (always point at the alias, never a deployment URL)"]
+        SC[score-api cron capture]
+        HR[mibera-honeyroad /backing]
+        CQ[CubQuests · Set&Forgetti · dimensions · mibera-codex]
+    end
+
+    subgraph Alias["L5 — stable alias (Caddy belt-gateway · single source of truth)"]
+        GW["belt-gateway :PORT<br/>reverse_proxy BELT_UPSTREAM<br/>(swap = change BELT_UPSTREAM)"]
+    end
+    Consumers -->|fixed public URL| GW
+
+    subgraph Serving["L3/L4 — the ONE consolidated belt (steady state)"]
+        BLUE["BLUE (live)<br/>belt-indexer + belt-hasura + Postgres-blue<br/>@ head, serving"]
+    end
+    GW -->|BELT_UPSTREAM → blue| BLUE
+
+    subgraph Promotion["promotion window (transient — only during a change)"]
+        GREEN["GREEN (building)<br/>belt-indexer' + belt-hasura' + Postgres-green<br/>+ the change · backfilling in background"]
+        GATE{{"reconciliation gate (FR-4):<br/>green block ≥ blue on EVERY chain<br/>AND entity-count parity within tolerance"}}
+        GREEN -->|when caught up| GATE
+        GATE -->|PASS → atomic alias flip| GW
+        GATE -->|FAIL → discard green| GREEN
+    end
+
+    subgraph L2["L2 — shared eRPC substrate (one deploy · cache compounds)"]
+        ERPC[eRPC: cache · hedge · failover · auto-blacklist]
+        EPG[(eRPC cache Postgres)]
+        ERPC --- EPG
+    end
+    ERPC --> BLUE
+    ERPC --> GREEN
+
+    subgraph L1["L1 — free public RPC (rent-free)"]
+        RPC[Chainlist public RPC · 6 chains]
+    end
+    RPC --> ERPC
 ```
-L6  consumers      mibera-honeyroad /backing · score-api · future apps
- ▲                 touch ONLY L5 — never a raw belt endpoint
-L5  gateway        stable public URL — 1 belt: proxy · N belts: federation (§9)
- ▲
-L4  belt APIs      N × GraphQL endpoints — one per belt (Envio-generated)
- ▲
-L3  belt indexers  Envio HyperIndex × {mibera · honeyjar · purupuru · sprawl}
- ▲                 shared src/handlers + schema.graphql · per-belt src/belts/<belt>/
-L2  eRPC SUBSTRATE  ◄ BUILD FIRST. ONE shared deploy. cache + hedge + failover.
- ▲                   multi-chain-capable; Deployment #1 wires Berachain only.
-L1  free RPC       public + free-tier RPC endpoints ($0), multiple per chain
- ▲
-L0  chains         ETH · ARB · Zora · OP · Base · Berachain
-```
 
-| Layer | What it is | Own / Rent | Deployment #1 scope |
+### 1.4 System Components
+
+| Component | Layer | Own/Rent | Status this cycle |
 |---|---|---|---|
-| **L0** chains | The chains. Given. | — | Berachain `80094` only |
-| **L1** free RPC | Public JSON-RPC endpoints + free-tier accounts (Alchemy/dRPC/etc.) — multiple per chain, all $0. | rent, $0 | Berachain endpoints + accounts selected in S0 (§3) |
-| **L2** eRPC | ONE shared caching/hedging/failover proxy in front of L1. **The foundation.** | **own** | built multi-chain-capable, Berachain wired (§3) |
-| **L3** belt indexers | Envio HyperIndex, one per belt. `rpc_config` → eRPC. Shared `src/handlers/` + `schema.graphql`; per-belt `src/belts/<belt>/` entrypoint. | **own** | the Mibera belt (§4) |
-| **L4** belt APIs | One GraphQL endpoint per belt. | own (Envio-generated) | the Mibera belt's endpoint (§7) |
-| **L5** gateway | Stable public URL. 1 belt → simple proxy; N belts → federation. | **own** | simple proxy, *federation-ready interface* (§9) |
-| **L6** consumers | Apps. Repoint by one env var each. | — | mibera-honeyroad + score-api (§8) |
-
-**The sovereignty ladder** (own vs rent, as axioms):
-
-| | Layer | Posture |
-|---|---|---|
-| **OWN** — build + operate | L2 eRPC substrate · L3 indexers · L4/L5 APIs/gateway · L2 cache store | full control |
-| **RENT** — data layer, $0 | L1 RPC — public / free-available endpoints (free-tier accounts = deferred fallback) | the free-only constraint lives **here** |
-| **RENT** — hosting, paid OK | Railway hosting | operator decision 2026-05-20 — optimize for reliability, not minimal cost |
-| **DON'T** (yet) | paid HyperSync · hosted indexers · self-hosted L1 archive nodes | deferred / rejected |
-
-eRPC is a *known, deployable, configurable* component — so **L2 is the floor we build
-this round.** Self-hosted archive nodes (a further down-move toward full data-source
-sovereignty) are deferred until L2 is solid and node-ops is a known quantity.
-
-### 2.1 The factory repo layout (loa-freeside ADR-008)
-
-```
-freeside-sonar  (ONE repo / ONE building)
-├── src/handlers/                  shared — all belts reuse the same handler logic
-├── src/belts/<belt>/              ◄ FACTORY INVARIANT (§4.3) — per-belt handler-
-│   └── EventHandlers.<belt>.ts       registration entrypoint, one dir per belt
-├── schema.graphql                 shared — frozen consumer contract
-├── config.yaml                    the monolith config (retired as the live indexer)
-├── config.mibera.yaml             ← Deployment #1 — Mibera belt scope (Sprint 1)
-├── config.honeyjar.yaml             (later belt)
-├── config.purupuru.yaml             (later belt)
-├── config.sprawl.yaml               (later belt)
-├── erpc.yaml                      ◄ NEW (§3) — the shared L2 eRPC substrate config
-└── scripts/verify-belt-config.js  ← Deployment #1 — config-fidelity gate (Sprint 1)
-```
-
-Each `config.<belt>.yaml` is a complete HyperIndex config scoped to that belt's
-contracts, mapping to **its own Railway service** (HyperIndex container + Postgres),
-syncing independently. **Why per-belt configs, not per-belt repos**: HyperIndex is one
-config per indexer instance; sharing `src/handlers/` + `schema.graphql` keeps one
-codebase and one frozen schema. A belt config *grows* — consumers never re-point when a
-belt's coverage widens.
-
-## 3. L2 — the eRPC Substrate (the heart of r4)
-
-eRPC is a JSON-RPC caching / load-balancing / failover proxy. In this architecture it is
-**one deployment**, sitting in front of L1, serving **all belts × all chains**.
-
-### 3.1 Why shared, not per-belt
-
-Scoping eRPC per-belt (the earlier "eRPC → S2 contingency, scoped to chain 80094"
-framing in the absorbed contingency brief) is **wrong**. eRPC is **factory
-infrastructure**, like the building's electrical service:
-
-- **One deploy, all belts.** Every belt's HyperIndex points its `rpc_config` at the same
-  eRPC URL. Adding belt #2 adds zero eRPC infrastructure.
-- **The cache compounds — the load-bearing economic argument.** eRPC caches finalized
-  blocks. The *first* belt on a given chain pays the cold sync; **every belt after rides
-  the warmed cache.** Belt #2 on Berachain reuses belt #1's cached finalized ranges.
-  Bottom-up gets *cheaper* as the factory scales — this is the reason the architecture
-  is shaped this way, not a nice-to-have.
-
-### 3.2 `erpc.yaml` — the L2 config (NEW deliverable)
-
-A single `erpc.yaml` at repo root, **multi-chain-capable but Berachain-wired** for
-Deployment #1 (do not boil the ocean — §11 OD-4):
-
-- **Projects / upstreams** — one logical project; per-chain upstream groups. Deployment
-  #1 declares the **Berachain `80094`** upstream group only. The schema MUST accommodate
-  adding ETH / ARB / Base / OP / Zora upstream groups later as a **purely additive**
-  edit (no restructuring) — that is the multi-chain-capability requirement.
-- **Per-chain upstreams = a free public L1 cluster.** Each chain's group lists multiple
-  $0 endpoints — anonymous public / free-available RPC endpoints (Chainlist + the chain's
-  documented public RPC) — so eRPC hedges and fails over across them (operator decision
-  2026-05-20, refined: **no free-tier-account signups**; §11 OD-1). Berachain coverage is
-  thinner than Base/Arbitrum — the specific `80094` endpoints are selected and verified
-  in S0. **Free-tier accounts** (Alchemy / dRPC / etc.; better `eth_getLogs` limits,
-  still $0) are a **deferred fallback** — wired only if S0 measures public-only as
-  inadequate.
-- **Reorg-safe cache policy** — finalized blocks → effectively infinite TTL (immutable
-  history); chain-tip / unfinalized blocks → short TTL or cache-bypass. eRPC tracks
-  finality natively; the config sets the finality-distance / TTL policy per chain.
-- **Hedged requests + health tracking** — eRPC issues hedged requests across a chain's
-  endpoint cluster, tracks per-endpoint error rate / latency, and auto-blacklists
-  degrading endpoints. This is what turns "unreliable free RPC" into "reliable enough to
-  index on."
-- **Persistence** — eRPC's cache store is a **PostgreSQL** instance, **owned** (Railway
-  Postgres plugin). This is a *second* Postgres, distinct from each belt's HyperIndex
-  Postgres. Sizing is an open decision (§11 OD-2).
-- **Secrets in env, never inline.** The source research doc this design absorbs
-  *hardcoded a Postgres password inside `erpc.yaml`* — **rejected** (see §12.4 and the
-  absorbed `erpc-rpc-fallback-contingency.md`). The cache-store connection string and
-  any keyed endpoints are Railway environment variables; `erpc.yaml` references them by
-  variable name only and is safe to commit to git.
-
-### 3.3 eRPC hosting
-
-eRPC runs as **its own dedicated Railway service** with **its own cache Postgres**,
-within the one Railway project — not co-located in a belt's container — because it is
-shared infrastructure with an independent lifecycle (operator decision 2026-05-20,
-§11 OD-2). It exposes an internal/private URL that belt HyperIndex services target.
-**Paid Railway hosting is accepted** (operator decision 2026-05-20) — the free-only
-constraint applies to the L1 data layer, not hosting; optimize eRPC + its Postgres for
-reliability. Initial cache-Postgres sizing is tuned in S1.
-
-### 3.4 The hard problem — cold first-sync (the central hypothesis)
-
-eRPC makes **re-syncs** free and fast. It does **not** make **first** syncs free.
-
-The first `(belt × chain)` sync pulls full history — the Mibera belt from block
-`3837808` — through **rate-limited free L1 RPC**. That is slow and *can stall*. Because
-the cache compounds (§3.1), it is the **first belt per chain** that pays the cold sync,
-not every belt — but someone pays, and the rate is unknown.
-
-This is **the central hypothesis the pressure test verifies**:
-
-> **H1** — *Free public Berachain RPC, fronted by eRPC caching + hedging, can cold-sync
-> the Mibera belt from block `3837808` to chain head at a usable rate.* "Usable" is
-> **not** a preset threshold — S0 measures the rate and reports the number; the operator
-> judges viability from it (operator decision 2026-05-20). Public-only is the hardest
-> case for H1; free-tier accounts remain a deferred fallback.
-
-H1 is **not hand-waved and not assumed**. The re-sprint opens with the **S0 calibration
-spike** (§11 OD-3) — a half-day experiment that measures the cold-sync throughput of
-free Berachain RPC + eRPC from `3837808`. **S0 produces data**: a directional cold-sync
-rate. If the observed rate is genuinely slow, that is an *observed result to reason
-from* — it informs background-backfill design, sync-lag thresholds (§7.4), and possibly
-staggered belt launches so the cache is warm — *not* a panic, because runway is kaironic
-and ample. S0 is the **experiment that sequences S1+**, not a fear-gate.
-
-This SDD specs the belt to **background-backfill** (sync runs as the service's own work,
-the endpoint serves whatever range is synced so far) and **§7.4 sync-lag alerting** to
-catch a stall. The deterministic loan reconciliation (§6) is pinned to a block **past
-the synced frontier** at verification time, so it remains exact even mid-backfill.
-
-## 4. L3 — the Mibera Belt Indexer
-
-### 4.1 `config.mibera.yaml` — re-pointed to eRPC (MODIFIED, Sprint 1 artifact)
-
-Sprint 1 shipped `config.mibera.yaml` — a HyperIndex config scoped to the two Mibera
-contracts, with event ABIs + per-event `field_selection` extracted **verbatim** from
-`config.yaml`. **r4 changes one thing: the data source.**
-
-- **`name`** — `mibera-belt` (belt-scoped indexer name; unchanged).
-- **`handlers`** — `src/belts/mibera` (the §4.3 factory invariant; unchanged).
-- **`networks` / `chains`** — one entry: Berachain, chain id `80094`.
-- **Data source — `hypersync_config` → `rpc_config`.** The Sprint 1 config declares
-  `hypersync_config.url: https://berachain.hypersync.xyz`. **r4 retires this.** The
-  `chains[0]` entry instead declares an **`rpc_config`** whose URL is the **eRPC L2
-  service URL** (§3.3). HyperIndex indexes Berachain over JSON-RPC, through eRPC.
-  Auto-discovery is not relied on — the endpoint is explicit (mirrors the existing
-  inline-comment rationale for pinning Berachain explicitly).
-- **`contracts`** — exactly two, unchanged from Sprint 1:
-
-  **`MiberaLiquidBacking`** — `0xaa04F13994A7fCd86F3BbbF4054d239b88F2744d`, start_block
-  `3971122`. 9 events: `LoanReceived(uint256 loanId, uint256[] ids, uint256 amount, uint256 expiry)` ·
-  `BackingLoanPayedBack(uint256 loanId, uint256 newTotalBacking)` ·
-  `BackingLoanExpired(uint256 loanId, uint256 newTotalBacking)` ·
-  `ItemLoaned(uint256 loanId, uint256 itemId, uint256 expiry)` ·
-  `LoanItemSentBack(uint256 loanId, uint256 newTotalBacking)` ·
-  `ItemLoanExpired(uint256 loanId, uint256 newTotalBacking)` ·
-  `ItemPurchased(uint256 itemId, uint256 newTotalBacking)` ·
-  `ItemRedeemed(uint256 itemId, uint256 newTotalBacking)` · `RFVChanged(uint256 indexed newRFV)`.
-
-  **`MiberaCollection`** — `0x6666397dfe9a8c469bf65dc744cb1c733416c420`, start_block
-  `3837808`. 1 event: `Transfer(address indexed from, address indexed to, uint256 indexed tokenId)`.
-
-Addresses, start_blocks, **and `field_selection`** are diffed against `config.yaml` and
-mechanically verified by `scripts/verify-belt-config.js` (§5, PRD FR-1, AC-2 / AC-11).
-
-### 4.2 Handler reuse — verified self-contained
-
-`src/handlers/mibera-liquid-backing.ts` and `src/handlers/mibera-collection.ts` are
-reused **as-is, zero code changes**. The cross-contract dependency analysis (PRD FR-2,
-addressing Flatline blocker SKP-001·880) confirmed:
-
-- **Zero cross-contract entity dependencies.** Every entity each handler reads back, it
-  created itself in an earlier event of the *same* contract.
-- **Imports are pure.** `recordAction` (`src/lib/actions.ts`) is a stateless write
-  helper; `mint-detection.ts` helpers are pure comparisons; `constants.ts` are static
-  maps.
-- **The `TrackedErc721` double-write risk is engineered out.** `config.yaml:716-717`
-  excludes the Mibera collection address from the `TrackedErc721` contract list. The
-  Mibera collection's `TrackedHolder` rows have a *single* writer —
-  `handleMiberaCollectionTransfer`.
-
-**Conclusion**: a config scoped to only these two contracts is **data-equivalent to the
-monolith** for the consumer entities — by *static* analysis. §6's local dev run is the
-empirical confirmation.
-
-Entities written: `mibera-liquid-backing.ts` → `MiberaLoan`, `MiberaLoanStats`,
-`TreasuryItem`, `TreasuryStats`, `TreasuryActivity`, `DailyRfvSnapshot`, `Action`;
-`mibera-collection.ts` → `MiberaTransfer`, `MintActivity`, `NftBurn`, `NftBurnStats`,
-`TrackedHolder`, `MiberaStakedToken`, `MiberaStaker`, `Action`.
-
-### 4.3 `src/belts/<belt>/` — the factory invariant (generalized)
-
-Sprint 1 introduced `src/belts/mibera/EventHandlers.mibera.ts` as the DISS-001 fix. **r4
-promotes it from a Mibera-specific fix to a factory invariant** — *every belt gets one.*
-
-**The mechanism** (review finding DISS-001, verified against the shipped artifact):
-Envio's `HandlerLoader.registerAllHandlers` (`node_modules/envio/src/HandlerLoader.res.mjs`)
-**always** runs `autoLoadFromSrcHandlers(config.handlers)` — it globs
-`<handlers>/**/*.{js,mjs,ts}` and imports **every** match, *independent of any
-per-contract `handler:` field*. The top-level `handlers` key defaults to `src/handlers`.
-If a belt config left `handlers` at the default, a scoped `envio codegen` build would
-import **all** handler modules — including other belts' contracts the belt config never
-declares — corrupting the scoped build.
-
-**The invariant** (a factory rule, not a Mibera detail):
-
-1. Every belt config sets `handlers: src/belts/<belt>`.
-2. That directory contains **exactly one** file — `EventHandlers.<belt>.ts` — the belt's
-   handler-registration entrypoint.
-3. The entrypoint **imports the belt's handler modules** from shared `src/handlers/`
-   (importing them runs their registration calls) and **re-exports** the handler consts
-   so the imports are "used" (mirrors `src/EventHandlers.ts`).
-4. The autoload glob therefore matches **only** the belt's entrypoint — a scoped
-   `envio codegen --config config.<belt>.yaml` build never imports another belt's
-   handler modules.
-5. **Handler *logic* stays in shared `src/handlers/`** — unchanged, reused across belts.
-   `src/belts/<belt>/` holds *registration wiring only*, never business logic.
-
-HoneyJar / Purupuru / Sprawl belts each get a `src/belts/<belt>/EventHandlers.<belt>.ts`
-when they ship — this is the documented norm, not an improvisation per belt. The
-factory's belt-creation checklist (a §13 forward-pointer) MUST include "create
-`src/belts/<belt>/` with the entrypoint" as a step.
-
-### 4.4 `schema.graphql` reuse
-
-Reused **verbatim** — the frozen consumer contract (PRD NFR-1). Entities fed only by
-out-of-scope contracts stay empty (empty ≠ error — §8). No entity/field renamed.
-
-### 4.5 Railway deployment — the L3 belt service
-
-One Railway project. Deployment #1 provisions the eRPC service (§3.3), the eRPC cache
-Postgres, **and** the Mibera belt service + its own Postgres.
-
-- **Belt service** — HyperIndex built from this repo, run against `config.mibera.yaml`.
-- **Config selection** — HyperIndex defaults to `config.yaml`. The belt service points
-  it at `config.mibera.yaml` via the **Railway build step copying `config.mibera.yaml`
-  → `config.yaml`** in the service's working tree (version-independent; sidesteps any
-  `--config`-flag uncertainty). If the installed Envio version supports an explicit
-  `--config` / `ENVIO_CONFIG` selector, that is the preferred alternative — confirmed at
-  implementation.
-- **Build command** — `pnpm install --frozen-lockfile && pnpm envio codegen` (exact
-  invocation confirmed against `package.json` + the installed Envio version).
-- **Start command** — `pnpm envio start` (or the repo's start script).
-- **Database** — a provisioned **persistent PostgreSQL** instance (Railway plugin),
-  **separate from the eRPC cache Postgres**. HyperIndex requires Postgres; persistence
-  is mandatory or a container restart loses sync state.
-- **Environment variables** (enumerated, PRD FR-3b): the belt-Postgres connection URL;
-  **the eRPC L2 service URL** (the data source — §3.3, replacing the FR-0 HyperSync
-  endpoint); HyperIndex/chain config. Secrets live in Railway env, never in
-  `config.mibera.yaml` or git.
-
-## 5. Config `field_selection` Fidelity — mechanically enforced
-
-HyperIndex only exposes transaction/block fields a config *requests*. The correctness
-risk is a `field_selection` that omits a field a handler reads — producing silently-wrong
-data, no crash. Known field dependencies:
-
-1. **`MiberaCollection.Transfer` requires `transaction_fields: [hash, value]`.**
-   `mibera-collection.ts:73` reads `event.transaction.value` → `MintActivity.amountPaid`;
-   omitting `value` silently writes `0n`.
-2. **`MiberaLiquidBacking` `LoanReceived`/`ItemLoaned`/`ItemPurchased`/`ItemRedeemed`
-   require `from`.** Handlers read `event.transaction.from` for `user`/`buyer`/`depositor`/
-   actor fields (incl. the `Action:treasury_purchase` buyer).
-
-### 5.1 Automated structural check (Sprint 1 artifact — `scripts/verify-belt-config.js`)
-
-A CRITICAL invariant guarded only by a human "copy verbatim + eyeball the diff" process
-is itself a risk (Flatline SKP-001·870 / ·760). Sprint 1 shipped the **structural
-verification check**:
-
-- `scripts/verify-belt-config.js` parses `config.mibera.yaml` and `config.yaml`, and for
-  **every event of both belt contracts** asserts the `field_selection` (transaction_fields,
-  block_fields) is byte-identical to the corresponding `config.yaml` entry. It also
-  asserts addresses + start_blocks match.
-- It exits non-zero on any mismatch and is wired as a **build/CI gate** (and runnable
-  locally pre-commit).
-- This makes per-event manual analysis unnecessary — fidelity for all 10 events is
-  enforced uniformly and mechanically (resolves Flatline IMP-003).
-
-**r4 note**: the check compares `field_selection` / addresses / start_blocks — fields
-*unaffected* by the `hypersync_config` → `rpc_config` data-source change. The Sprint 1
-script remains valid as-is; it does not assert anything about the data-source key.
-**Factory generalization**: `verify-belt-config.js` SHOULD be parameterized (or
-re-runnable per belt) so every future `config.<belt>.yaml` inherits the same gate — a
-§13 forward-pointer.
-
-## 6. Handler-Correctness & Endpoint Verification (FR-2, FR-4)
-
-- **Build gate** — `pnpm codegen` + `pnpm tsc --noEmit` clean; §5.1 config check passes.
-  Necessary, not sufficient.
-- **Local dev run (FR-2, AC-4)** — run the indexer locally against `config.mibera.yaml`
-  (`pnpm envio local docker up` + `pnpm envio start`, exact commands per the repo). For
-  the local run, the belt may point at eRPC **or**, if eRPC is not yet up locally,
-  directly at a free Berachain endpoint — the handler-emission proof is data-source-
-  agnostic. Reproducible exit criteria — three GraphQL queries against the local
-  endpoint, expected results recorded:
-  1. `query { MiberaLoan(limit: 5) { id loanedTo timestampDue backingOwed } }` — non-empty.
-  2. `query { MiberaTransfer(limit: 5) { id from to tokenId } }` — non-empty.
-  3. `query { MintActivity(where: {amountPaid: {_gt: "0"}}, limit: 5) { id amountPaid } }`
-     — at least one row (proves the §5 `value` field flows end-to-end).
-- **Deterministic loan reconciliation (FR-4, AC-6)** — pin an exact Berachain block
-  height **past finality and past the synced frontier** (recorded in the verification
-  artifact). Query the endpoint for active loans at that height. Independently read
-  on-chain `MiberaLiquidBacking`: `backingLoanId`, then `backingLoanDetails(id)` +
-  `backingLoanExpired(id)` for `id` in `0..backingLoanId-1`. The endpoint's active set
-  MUST equal the on-chain active set at that block. The expected count (≈19 per the
-  2026-05-19 diagnosis) is recorded as the reference for the pinned block — the gate is
-  exact equality, not a fuzzy number.
-
-## 7. L4 — the Belt API & Observability
-
-### 7.1 The belt GraphQL endpoint
-
-L4 is the Envio-generated GraphQL endpoint of the Mibera belt service. It is **not** the
-URL consumers touch — consumers touch L5 (§9). The belt endpoint is L5's *upstream
-target*.
-
-### 7.2 score-api Partial-Restoration Contract (FR-5)
-
-| Entity | Source contract | Deployment #1 |
-|---|---|---|
-| `MiberaLoan` | MiberaLiquidBacking | ✅ resolves |
-| `MiberaTransfer` | MiberaCollection | ✅ resolves |
-| `MintActivity` | MiberaCollection | ✅ resolves |
-| `NftBurn` | MiberaCollection (mibera) | ⚠️ mibera burns only (no Milady) |
-| `Action` (`treasury_purchase`) | MiberaLiquidBacking | ✅ resolves |
-| `PaddleSupply`, `PaddleLiquidation`, `BgtBoostEvent`, `MintEvent`, `Erc1155MintEvent`, `CandiesBacking`, `FriendtechTrade` | out-of-scope contracts | ⬜ empty arrays |
-
-**Partial coverage is more dangerous than no coverage** — a consumer may compute
-plausible-but-wrong aggregates over the 7 empty entities. **Empty ≠ error**: uncovered
-entities return empty GraphQL arrays, never schema/endpoint errors.
-
-**Pre-repoint safety audit — a HARD acceptance gate (AC-9), not a recommendation:**
-- **Owner**: the engineer executing deployment #1.
-- **Scope**: each of the 7 uncovered entities, as consumed in
-  `score-api/trigger/utils/envio-client.ts`.
-- **Exit criterion**: every uncovered-entity query path is confirmed empty/null-safe — an
-  empty array does not crash or NaN-poison wallet scoring. Any unsafe path is a score-api
-  fix that **blocks the `ENVIO_GRAPHQL_URL` repoint**.
-- **Artifact**: findings recorded in `grimoires/loa/a2a/<sprint>/score-api-empty-safe-audit.md`.
-
-### 7.3 The two-layer health story
-
-r4's stack has **two** layers that can fail silently — L2 eRPC and L3 the belt. Both
-need health signals; a healthy belt fed by a degraded eRPC is still a degraded factory.
-
-- **L3 belt healthcheck** — the Railway belt service's healthcheck targets HyperIndex's
-  health/status endpoint; Railway restarts the service on failure. Cadence: Railway
-  default (~30s); failure threshold: 3 consecutive.
-- **L2 eRPC healthcheck** — the Railway eRPC service's healthcheck targets eRPC's
-  health/metrics endpoint. eRPC exposes per-upstream error-rate metrics; a chain whose
-  whole endpoint cluster is blacklisted is an L2 outage and must alert.
-- **Postgres disk** — alert on the Railway disk-usage metric at ≥ 80% for **both** the
-  belt Postgres and the eRPC cache Postgres.
-
-### 7.4 Sync-lag alert (the stall detector — the silent-death class)
-
-The original incident was a *silent* 404. r4's analogue is a *silent cold-sync stall*
-(§3.4). Concrete requirement:
-
-- **Sync-lag alert** — alert when `chain_head_block − indexed_block` exceeds a threshold.
-  Initial threshold: `> ~300 blocks` **or** `> 10 min` of wall-clock lag — **tuned after
-  the S0 cold-sync calibration (§3.4) gives an observed throughput.** During the initial
-  cold backfill the lag is *expected* to be large; the alert distinguishes "backfilling
-  at the S0-measured rate" (healthy) from "stalled / making no progress" (the failure
-  mode). The S0 rate is the load-bearing input that makes this alert meaningful.
-- **Alert destination** — Railway's built-in service notifications to the operator, plus
-  a webhook to the team ops channel. The exact channel is an operator config step at
-  deploy time; the *requirement* is that L2-degraded / L3-down / sync-stalled / disk-high
-  are not silent.
-
-## 8. Data Flow
-
-```
-L0  Berachain 80094
-        │  eth_getLogs / eth_getBlockByNumber / eth_getTransactionReceipt
-L1  free public RPC endpoints  ──(multiple per chain, Chainlist)
-        │
-L2  eRPC substrate  ── cache (finalized → ∞ TTL) · hedge · failover · auto-blacklist
-        │                          └── eRPC cache Postgres (owned)
-        │  JSON-RPC (rpc_config → eRPC URL)
-L3  Mibera belt — HyperIndex  ── src/belts/mibera entrypoint · src/handlers run
-        │                          └── belt Postgres (owned, separate)
-L4  belt GraphQL endpoint (Railway internal URL)
-        │
-L5  stable gateway URL  ── simple proxy now · federation-ready interface (§9)
-        │                              │
-L6   NEXT_PUBLIC_ENVIO_URL ────────────┘
-            ▼                          └──────── ENVIO_GRAPHQL_URL
-     mibera-honeyroad /backing                   score-api envio-client.ts
-```
-
-## 9. L5 — the Gateway (federation-ready by design)
-
-### 9.1 Recovery — stable gateway, not fix-forward
-
-The r1 PRD called the consumer repoint "one revertible env var" — wrong (Flatline
-SKP-002·830). r4 keeps the r3 resolution: a **stable gateway**.
-
-- **Consumers repoint to a stable gateway URL, never the raw Railway belt URL.** A
-  lightweight reverse proxy (Railway service or Cloudflare Worker) holds a stable public
-  URL; its upstream target — the current belt's L4 GraphQL endpoint — is a single config
-  value.
-- **The one-way repoint happens once**, to the gateway. Swapping the belt behind it (a
-  new deployment, a rollback to a prior good belt, an emergency target) is then an
-  **operator-controlled upstream change** with zero consumer impact — the structural
-  fallback.
-- **Before the repoint** — deployment #1 is fully reversible (new Railway services + new
-  URLs; tear them down, nothing else affected).
-- **The repoint is staged**: consumers repoint to the gateway only after the belt
-  endpoint passes §6 FR-4 deterministic reconciliation **and** a soak (≥2 h
-  synced-to-head, healthcheck green, sync-lag quiet). mibera-honeyroad first (loan UI is
-  the fire); score-api after its §7.2 empty-safe audit.
-- **Post-handback recovery**: if the belt degrades, repoint the gateway upstream — fast,
-  operator-controlled, no consumer change, no outage-pressure code fix.
-
-### 9.2 Federation-ready interface — §11 pulled forward (the L5 design input)
-
-The r1–r3 SDDs deferred cross-belt `Action` fragmentation to a post-#1 open question.
-**r4 pulls it forward as an L5 design input** — because the factory *is* N belts, and
-retrofitting federation into a proxy designed only for one belt is exactly the
-"retrofit" the bottom-up principle forbids.
-
-The problem: post-split, each belt is its own HyperIndex DB + GraphQL endpoint, so the
-`Action` entity (and any entity fed by contracts in multiple belts) **fragments across
-belt databases**. `Action:treasury_purchase / mint / mint1155` come from Mibera-belt
-contracts; `Action:hold1155` comes from `CubBadges1155` in the **HoneyJar belt**. A
-consumer reading one URL sees only one belt's fragment.
-
-**The L5 design constraint** (binding on Deployment #1's gateway, even though Deployment
-#1 ships only the simple proxy):
-
-- **Deployment #1 ships the gateway as a simple single-upstream proxy** (one belt, one
-  upstream). Federation is **not built** in Deployment #1.
-- **But the gateway's interface MUST be designed so federation is purely additive.** The
-  config shape MUST be able to express *N* upstreams without restructuring; the public
-  URL + the GraphQL contract consumers see MUST NOT change when a second belt is added.
-- **Federation realization options** (decided before the HoneyJar belt ships, not now):
-  (a) the gateway fans a query across N belt endpoints and merges results, or (b)
-  freeside-sonar exposes a true GraphQL federation/composition endpoint. r4 does **not**
-  pick between them — it requires only that Deployment #1's gateway not *foreclose*
-  either. The cleaner realization of operator doctrine ("consuming apps compose data
-  across belts at the API layer") is (b); (a) is the lower-effort first step.
-- **score-api impact**: under Deployment #1, score-api points at the gateway and gets
-  **partial** restoration (§7.2). Full `Action` restoration tracks the Mibera-belt
-  widening + the HoneyJar belt + the L5 federation work. Deployment #1 is unaffected by
-  the federation decision — it is L5 *design surface*, not L5 build scope.
-
-## 10. Rollback, Security & Blast Radius
-
-### 10.1 Reversibility
-
-Deployment #1 is purely additive — new Railway services (eRPC, eRPC Postgres, belt,
-belt Postgres) on new URLs. The dead hosted endpoint is already dead; nothing breaks by
-standing up replacements. The **only irreversible step is the consumer repoint** (§9.1)
-— gated on §6 verification and staged behind the soak.
-
-### 10.2 GraphQL endpoint hardening
-
-The L5 gateway URL is public and unauthenticated (consumers need it; data is public
-read-only on-chain data). To prevent trivial DoS / expensive-query abuse (Flatline
-SKP-002·750):
-
-- **Rate limiting** — per-IP request rate limit at the L5 gateway / Railway layer.
-- **Query-complexity / depth limit** — cap GraphQL query depth and complexity so a single
-  query cannot exhaust the indexer (HyperIndex/Hasura-layer setting, or the gateway).
-- These are scoped into deployment #1 (operator elected full integration).
-
-### 10.3 L2 secrets posture
-
-eRPC's cache-store credentials and any keyed L1 endpoints are **Railway environment
-variables**. `erpc.yaml` references them by variable name only — **no inline
-passwords** (§3.2; the absorbed contingency brief flagged the source research doc's
-inline-password anti-pattern). `erpc.yaml` is safe to commit; the belt configs and the
-gateway config follow the same rule.
-
-### 10.4 Blast radius
-
-| | New | Modified | Deleted |
-|---|---|---|---|
-| **Code / config** | `erpc.yaml`; gateway config | `config.mibera.yaml` (data source: `hypersync_config` → `rpc_config` → eRPC) | none |
-| **Infra** | eRPC Railway service + Postgres; belt Railway service + Postgres; L5 gateway | — | — |
-| **Handlers / schema** | none | none (handlers reused as-is; `schema.graphql` verbatim) | none |
-
-Additive only; no contract interaction, no on-chain writes, no auth paths. The only
-irreversible step is the consumer repoint (§9.1).
-
-## 11. Risks & Open Decisions
-
-r4's stance: each item below is **an unknown to measure**, not a deadline to fear.
-Runway is kaironic and ample (~10 days as of 2026-05-20).
-
-| ID | Risk / decision | Disposition |
-|---|---|---|
-| **R-1** | **Cold first-sync throughput** (§3.4, hypothesis H1). Free L1 RPC from block `3837808` may be slow or stall. | The **S0 calibration spike** (OD-3) measures it. Background-backfill design + §7.4 sync-lag alert catch a stall. Observed result drives sequencing. |
-| **R-2** | **First-time self-host of a two-layer stack** (eRPC + HyperIndex) on Railway — unknown deployment friction. | The kaironic runway absorbs iteration. Deployment #1 is deliberately thin (2 contracts, 1 chain). |
-| **R-3** | **The repoint is one-way** (§9.1). | Mitigated structurally by the stable gateway + staged verification, not by rollback. |
-| **R-4** | **eRPC cache Postgres sizing** is unknown. | OD-2. Start small; the disk-usage alert (§7.3) catches under-sizing; Railway Postgres resizes. |
-
-**Open decisions for the re-sprint** (do not block the architecture; they are S0/S1
-inputs):
-
-**Operator decisions (2026-05-20)** — resolved via AskUserQuestion *before* `/sprint-plan`,
-so the re-sprint generates on answers, not assumptions:
-
-- **RPC access** → eRPC's L1 cluster is **public / free-available endpoints only**
-  (operator 2026-05-20, refined — free-tier-account signups skipped). Free-tier accounts
-  (Alchemy/dRPC) remain a deferred fallback if S0 shows public-only is inadequate.
-- **Hosting cost** → **paid Railway hosting is acceptable**; optimize for reliability.
-  The free-only constraint is the L1 data layer, not hosting.
-- **eRPC topology** → **dedicated** Railway service + own cache Postgres.
-- **S0 yardstick** → **none preset**; S0 measures + reports the cold-sync rate, the
-  operator judges viability from the number.
-
-- **OD-1 — Free-RPC endpoint selection.** RESOLVED: **public / free-available endpoints
-  only** (free-tier-account signups skipped — operator 2026-05-20). The specific
-  **Berachain `80094`** public endpoints for the eRPC upstream group are enumerated +
-  verified in **S0**. Free-tier accounts are a deferred fallback.
-- **OD-2 — eRPC hosting.** RESOLVED: **dedicated** Railway service + own cache Postgres
-  (§3.3). Initial cache-Postgres sizing tuned in **S1**.
-- **OD-3 — Cold-sync throughput (the S0 experiment).** S0 is a half-day calibration
-  spike: free Berachain RPC + eRPC, cold-sync from `3837808`, **measure + report the
-  rate**. There is **no preset pass/fail bound** — the operator judges viability from
-  the observed number. S0's output sequences S1+ and tunes the §7.4 sync-lag threshold.
-- **OD-4 — Deployment #1 chain scope: Berachain-only.** Build eRPC L2
-  **multi-chain-capable** (the schema accommodates additive ETH/ARB/Base/OP/Zora upstream
-  groups) but **wire only Berachain now.** Do not boil the ocean.
-- **OD-5 — L5 federation realization.** Simple proxy for Deployment #1; the
-  federation-vs-fan-out choice (§9.2) is decided before the HoneyJar belt — but the
-  Deployment #1 gateway interface MUST NOT foreclose either path.
-
-## 12. Build Sequencing — build down, then up
-
-The re-sprint (`/sprint-plan`) builds the stack **bottom-up**:
-
-| Sprint | Layer | What it builds |
-|---|---|---|
-| **S0** | L1/L2 calibration | **The eRPC calibration spike** (§3.4 H1, OD-3) — a half-day experiment: can free Berachain RPC + eRPC cold-sync the belt from `3837808` at a usable rate? Selects the OD-1 endpoints. **Produces a cold-sync rate** that sequences S1+ and tunes §7.4. |
-| **S1** | L2 | Build the eRPC substrate: `erpc.yaml` (multi-chain-capable, Berachain wired — §3.2), the eRPC Railway service + cache Postgres (§3.3). |
-| **S2** | L3 | Re-point the Mibera belt to eRPC (`config.mibera.yaml` data source — §4.1) + verify (§6). The Sprint 1 belt artifacts are **reused** — Mibera is *instance #1* of the scaled pattern, not a throwaway. |
-| **S3** | L4/L5/L6 | The L5 gateway (simple proxy, federation-ready — §9), endpoint hardening (§10.2), §7 observability, the staged consumer repoint + operator-paired handback. |
-
-S0 is the **first experiment of the pressure test** — run it to *learn the cold-sync
-rate*, then sequence from what is observed. Directionally this is correct: **build the
-floor (L2) once**, then build up.
-
-## 13. Forward-pointers for the factory (post-#1)
-
-These are *not* Deployment #1 scope — they are the factory norms r4 establishes so later
-belts inherit them rather than re-improvising:
-
-- **Per-belt entrypoint** — every later belt creates `src/belts/<belt>/EventHandlers.<belt>.ts`
-  (§4.3). This belongs on a belt-creation checklist.
-- **Config-fidelity gate** — `scripts/verify-belt-config.js` SHOULD be parameterized so
-  every `config.<belt>.yaml` inherits the §5.1 gate.
-- **eRPC additive multi-chain** — adding a chain to the factory is a purely additive
-  `erpc.yaml` upstream-group edit (§3.2) — no L2 restructuring.
-- **L5 federation** — resolved before the HoneyJar belt (§9.2 / OD-5); the Deployment #1
-  gateway interface is built not to foreclose it.
-- **Self-hosted L1 archive nodes** — the *next* down-the-stack sovereignty move (full
-  data-source ownership), deferred until L2 is solid and node-ops is a known quantity
-  (§2 sovereignty ladder).
-
-## 14. Revision History & Flatline Carry-Forward
-
-**r4 (2026-05-20)** — re-architected per the promoted ARCH brief
-`arch-brief-freeside-sonar-stack.md`. Adopts the L0–L6 bottom-up stack; introduces eRPC
-as the shared L2 substrate (§3); retires FR-0's HyperSync assumption — the belt indexes
-via JSON-RPC through eRPC (§3, §4.1); generalizes `src/belts/<belt>/` to a factory
-invariant (§4.3); pulls §11 cross-belt federation forward as an L5 design input (§9.2).
-Absorbs `erpc-rpc-fallback-contingency.md` (the eRPC analysis; its "park it, gated"
-recommendation is superseded — eRPC is now L2 of the scaled stack, not a contingency).
-
-**r3 / r2 / r1 carry-forward** — superseded by r4 but their findings remain in force:
-
-- **r3** — stable-gateway recovery model (3 sprint-phase CRITICALs). Carried into §9.1.
-- **r2 — Flatline SDD review** (2026-05-19, 3-model headless; 88% agreement; 15
-  findings, all integrated):
-  - 6 high-consensus — IMP-001 partial-coverage danger → §7.2; IMP-002 deployment
-    commands → §4.5; IMP-003 un-analyzed events → §5.1 mechanical check; IMP-004 audit as
-    verifiable AC → §7.2 / AC-9; IMP-005 concrete healthcheck → §7.3; IMP-006 exact
-    reference block → §6.
-  - 1 disputed — IMP-009 reproducible AC-4 → §6 (dev command + 3 queries).
-  - 8 blockers — SKP-001·870 + SKP-001·760 field_selection automated check → §5.1;
-    SKP-002·830 stranded rollback → §9.1; SKP-004·710 observability spec → §7.3 / §7.4;
-    SKP-003·720 Postgres disk alert → §7.3; SKP-001·850 partial-data degradation → §7.2;
-    SKP-003·740 audit as hard gate → §7.2 / AC-9; SKP-002·750 endpoint hardening → §10.2.
-- **DISS-001** (Sprint 1 review) — Envio handler autoload globs the whole `handlers`
-  directory → per-belt entrypoint directory + scoped `handlers:` key. Generalized to a
-  factory invariant in §4.3.
-
-Full prior results: `grimoires/loa/a2a/flatline/sdd-review.json`,
-`grimoires/loa/a2a/sprint-1/reviewer.md`.
-
-## 15. Verification → Acceptance Criteria Mapping
-
-PRD r2 acceptance criteria, re-mapped onto the r4 stack. **FR-0 (HyperSync verification)
-is retired** — its AC is replaced by the eRPC-substrate criteria. New r4 criteria are
-marked.
-
-| SDD section | Acceptance criterion |
+| Free public RPC (Chainlist) | L1 | rent-free | unchanged (live) |
+| **eRPC substrate** (shared, multi-chain) | L2 | own | **live** `[NOTES.md]`; reused as-is; cache shared blue↔green |
+| **Consolidated belt** (blue) | L3/L4 | own | **live** — the shipped score-api-footprint belt; this IS the steady-state belt |
+| **Green belt** (transient) | L3/L4 | own | **stood up per promotion**, retired after swap |
+| **Stable alias** (Caddy `belt-gateway`) | L5 | own | **live** `[CODE:Dockerfile.gateway, Caddyfile]`; swap verified `> NOTES.md:265` |
+| score-api (durable analytics) | L6 | own | **downstream, out of scope** — the safety net (FR-9) |
+
+**The module boundary (the indexer is ONE freeside building):**
+
+| | |
 |---|---|
-| §3.4 / §12 S0 | **AC-1 (r4, replaces FR-0 AC)** — S0 calibration spike run; the free-RPC + eRPC cold-sync rate from block `3837808` is **measured and recorded** as an observed result. |
-| §3.2 / §3.3 | **AC-1b (r4, new)** — `erpc.yaml` exists, multi-chain-capable, Berachain `80094` upstream group wired; eRPC Railway service + cache Postgres deployed; secrets in env, none inline. |
-| §4.1 + §5.1 automated check | **AC-2** — `config.mibera.yaml` scoped to the two contracts on `80094`; `field_selection` / addresses / start_blocks byte-identical to `config.yaml` per `verify-belt-config.js`. |
-| §4.1 data source | **AC-2b (r4, new)** — `config.mibera.yaml` data source is `rpc_config` pointed at the eRPC L2 URL; no `hypersync_config` remains. |
-| §4.3 | **AC-2c (r4, new)** — `config.mibera.yaml` sets `handlers: src/belts/mibera`; that directory holds exactly the belt entrypoint; a scoped `envio codegen` imports no other belt's handler modules. |
-| §6 build gate + §5.1 check | **AC-3** — `pnpm codegen` and `pnpm tsc --noEmit` run clean. |
-| §6 local dev run (3 queries) | **AC-4** — a local dev run shows both handlers emitting correct entity data scoped to the two contracts. |
-| §4.5 Railway + Postgres | **AC-5** — the belt Railway service + persistent belt Postgres deploy; HyperIndex syncs Berachain from start_blocks toward head through eRPC. |
-| §6 deterministic reconciliation | **AC-6** — the endpoint's active-loan count reconciles exactly with on-chain `MiberaLiquidBacking` state at a pinned block past finality + past the synced frontier. |
-| §7.3 / §7.4 observability | **AC-7** — L3 belt healthcheck, **L2 eRPC healthcheck**, sync-lag alert, and disk alerts (both Postgres) are live. |
-| §9.1 staged repoint → mibera-honeyroad | **AC-8** — mibera-honeyroad `/backing` renders live loan data after the `NEXT_PUBLIC_ENVIO_URL` repoint to the gateway. |
-| §7.2 pre-repoint empty-safe audit (hard gate) | **AC-9** — `envio-client.ts` audited; after the `ENVIO_GRAPHQL_URL` repoint, the deployment-#1 entity subset resolves and uncovered entities return empty arrays without errors. |
-| §4.4 schema reuse | **AC-10** — `schema.graphql` unchanged; no entity or field renamed. |
-| §5.1 structural check in CI | **AC-11** — the `field_selection` structural check is wired as a CI gate and passes. |
-| §10.2 endpoint hardening | **AC-12** — the L5 gateway's per-IP rate limit + query depth/complexity cap are live. |
-| §9.1 / §9.2 stable gateway | **AC-13** — the L5 gateway holds a stable public URL; an upstream-swap is verified; the gateway config can express N upstreams without restructuring (federation-ready). |
+| **`is`** | Index the Mibera-ecosystem footprint into composed, queryable entities; serve them through **one stable GraphQL endpoint** with **zero-downtime** updates via blue-green promotion. `> arch-brief:L53` |
+| **`is_not`** | Durable analytics store · ClickHouse · Dune · historical snapshots · system-of-record for scores (those are score-api's job). `> arch-brief:L54` |
+
+### 1.5 Data Flow (a promotion)
+
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant Green as Green belt + Postgres-green
+    participant Gate as Reconciliation gate
+    participant GW as belt-gateway (alias)
+    participant Blue as Blue belt (live)
+    participant Cons as Consumers
+
+    Note over Blue,Cons: steady state — consumers read the alias → blue
+    Op->>Green: stand up green (belt-reinit.md) WITH the change
+    Green->>Green: ENVIO_RESTART seed → resume → background backfill (blue untouched)
+    Note over Blue,Cons: blue keeps serving a complete, consistent view
+    Green->>Gate: green latest_processed_block reaches blue's head (per chain)
+    Gate->>Blue: snapshot blue entity counts
+    Gate->>Green: snapshot green entity counts
+    Gate->>Gate: assert block ≥ blue on every chain AND counts within tolerance
+    alt gate PASS
+        Op->>GW: railway variables --set BELT_UPSTREAM=<green>
+        GW->>GW: atomic flip — consumers now read green
+        Note over Cons: 0 config changes · 0 5xx spike (FR-6 decision)
+        Note over Blue: retained hot for rollback window, then retired
+    else gate FAIL
+        Op->>Green: discard green; blue keeps serving; diagnose
+    end
+```
+
+---
+
+## 2. Software Stack
+
+| Layer | Technology | Version | Justification |
+|---|---|---|---|
+| Indexer | Envio HyperIndex | `3.0.0-alpha.17` (pinned) | Confirmed across every source of truth `(S0)`: `package.json`, `node_modules`, `npx envio --version`, git `08f3a99`. Data-source field is **`rpc`** (NOT `rpc_config`) `(S0/OQ-1)`. No version change this cycle. |
+| RPC substrate | eRPC | `v0.0.64`-validated | Shared L2; live; cache compounds (first deploy on a chain pays cold-sync, subsequent rides the cache `> arch-brief:L99`). Blue and green share the warm cache, so a green build does NOT pay a fresh cold-sync on already-warm chains. |
+| Persistence | PostgreSQL | Railway managed PG | One Postgres per belt deployment — blue and green have **separate** Postgres (structural DB isolation, FR-3 `> prd.md:L95`). eRPC cache PG is separate + shared. |
+| Stable alias | Caddy + `caddy-ratelimit` | `caddy:2` (xcaddy + `github.com/mholt/caddy-ratelimit`) | `[CODE:Dockerfile.gateway]`. Reverse-proxy with per-IP rate limit (120/min) + 50KB body cap `[CODE:Caddyfile]`. The swap point is one env var. |
+| Hosting | Railway | — | rent (paid hosting acceptable; the free-only constraint is the L1 data layer, not hosting). `freeside-sonar` project: `belt-indexer` + `belt-hasura` + `Postgres-3vIC` (per belt) + `belt-gateway` + `erpc` + `Postgres` (shared) `(S0 — Q-a confirmed topology)`. |
+| Runtime | Node.js | `>=22.0.0` | envio@3.0.0-alpha.17 requirement (handler autoload uses `fs.promises.glob`) `[CODE:Dockerfile.belt]`. |
+| Re-init primitive | `Dockerfile.belt` CMD | existing | `ENVIO_RESTART`-gated CMD: literal `=1` → `--restart` (fresh init), else resume. The KF-013 re-init dance `[CODE:Dockerfile.belt, KF-013]`. |
+| Config fidelity gate | `scripts/verify-belt-config.js` | existing | Zero-dep YAML fidelity gate `[CODE:scripts/verify-belt-config.js]` — asserts the belt config is field-identical to `config.yaml` for its declared contracts. |
+| Reconciliation gate | **NEW** — promotion-gate script | — | The FR-4 entity-count + block-height parity check (§6). The one net-new code artifact of substance this cycle. |
+
+**Stack non-goals this cycle (PRD "Explicitly Out of Scope" `> prd.md:L163`):** 12 physical belts (RETIRED); query-time federation gateway; ClickHouse/Dune/score computation (score-api); packaged tenant installable; BeaconV3 declaration (now reserve, `> prd.md:L161`); the Effect serving/ports layer (now reserve). HyperSync stays **break-glass only** (sovereign-data thesis — eRPC for all chains `> prd.md:L135`).
+
+---
+
+## 3. Data Model & Schema (additive-only contract)
+
+### 3.1 The belt is the OLTP event store; the public surface is its GraphQL schema
+
+The belt's persistence is **Envio-managed PostgreSQL** — codegen produces the tables from `schema.graphql` (93 entity types) `[CODE:schema.graphql]`. The DDL is generated, not hand-authored; the design contract is the **GraphQL schema shape** the alias exposes, not the table layout.
+
+### 3.2 Cross-cutting entity composition (intra-belt, unchanged)
+
+Handlers compose freely **within the one belt** `> prd.md:L89` `[CODE:src/handlers/*, src/lib/*]`:
+- **Per-event entities** (e.g. `HoneyJar_Transfer`, `MiberaTransfer`).
+- **Running aggregates** (e.g. `PaddleSupplier` via get→update→set in a handler).
+- **Cross-cutting normalized entities** — `Action` is written by **21 handlers** via `recordAction` `[CODE:src/lib/actions.ts]`; `Holder`/`Token` shapes via shared lib (`src/lib/erc721-holders.ts`, `src/lib/mint-detection.ts`).
+
+Because there is **one belt**, `Action`/`Mint`/`Holder`/`Token` are single coherent tables — **no cross-belt merge, no fragment reassembly** (the r1 federation problem does not exist here).
+
+### 3.3 The additive-only invariant (the load-bearing schema contract)
+
+```mermaid
+erDiagram
+    BLUE_SCHEMA ||--|| GREEN_SCHEMA : "green ⊇ blue (superset)"
+    BLUE_SCHEMA {
+        type entities_93 "current public surface"
+    }
+    GREEN_SCHEMA {
+        type entities_93 "unchanged entities (byte-identical blocks)"
+        type new_entities "additive: new types"
+        type new_fields "additive: new fields on existing types"
+    }
+```
+
+**Invariant (FR-7 `> prd.md:L106`):** green's schema MUST be a **superset** of blue's. Every entity + field a consumer reads on blue MUST still exist, same name, same type, on green. The alias swap is then transparent. Enforcement is a schema-diff gate in the promotion procedure (§6.2, §9). **`[ASSUMPTION]`** Envio codegen treats a new entity type / new field on an existing type as additive (no destructive table rewrite of existing entities) — confirm on the first real promotion (§15 OQ-3); the S0 evidence that a subset schema codegens cleanly `(S0 R-D)` strongly suggests a superset does too.
+
+### 3.4 Migration strategy = blue-green, never in-place schema mutation
+
+A schema change is NEVER applied in place on blue (resume keeps the old table shape — D6 `> belt-reinit.md:L103`). It ships on a **fresh green build** (`--restart` seeds the new schema), and the swap is the migration. This is the SCALE.md Guardrail-1 rule realized as the cycle's only update mechanism `> SCALE.md:L47`.
+
+---
+
+## 4. The Stable Alias (FR-2)
+
+### 4.1 The contract (the alias already exists — this section specifies it)
+
+The fixed public GraphQL endpoint is the Caddy `belt-gateway` `[CODE:Caddyfile]`:
+
+```caddyfile
+:{$PORT:8080} {
+    request_body { max_size 50KB }          # coarse complexity guard (AC-12)
+    rate_limit { zone perip { key {client_ip} events 120 window 1m } }   # per-IP 120/min
+    reverse_proxy {$BELT_UPSTREAM} { header_up Host {upstream_hostport} }  # the swap point
+}
+```
+
+| Property | Value | Source |
+|---|---|---|
+| Public URL | `https://belt-gateway-production.up.railway.app/v1/graphql` (stable, never changes) | `> NOTES.md:265` |
+| Indirection type | **proxy, not DNS** — atomic by construction, not propagation-bound | `> arch-brief:L96` |
+| Single source of truth | one Caddy config + one env var (`BELT_UPSTREAM`) — resolves Guardrail-5 split-brain | `> arch-brief:L97`; `> SCALE.md:L332` |
+| Swap lever | `railway variables -s belt-gateway --set 'BELT_UPSTREAM=<green-internal-addr>'` | `> arch-brief:L99` |
+| Swap verified | bad upstream → 502; revert → live data | `> NOTES.md:265` |
+| Consumer config changes per swap | **0** (G3) — consumers only know the alias URL | `> prd.md:L63` |
+
+### 4.2 Why proxy, not DNS
+
+DNS swaps are propagation-bound (TTL-dependent, per-resolver caching → a split-brain window across consumers). A reverse-proxy swap is a single config change at one point with **no propagation window** — every request after the swap hits the new upstream; every request before hits the old. This is the structural answer to SCALE.md Guardrail-5's split-brain CRITICAL `> SCALE.md:L76` and PR#15 SKP-001/F-001 `> prd.md:L92`.
+
+---
+
+## 5. Blue-Green Promotion (FR-3 / FR-8)
+
+### 5.1 The promotion procedure (5 steps)
+
+Grounded in `belt-reinit.md` (green build) + the existing alias swap (NOTES:265):
+
+```mermaid
+flowchart TD
+    S1["1. STAND UP GREEN<br/>new Railway belt-indexer' + belt-hasura' + Postgres-green<br/>with the change (new source / additive schema)"]
+    S2["2. BACKGROUND BACKFILL<br/>ENVIO_RESTART=1 seed → verify chain_metadata count → resume<br/>green backfills · blue keeps serving"]
+    S3["3. RECONCILIATION GATE (FR-4)<br/>green block ≥ blue on every chain<br/>AND entity-count parity within tolerance"]
+    S4["4. ATOMIC ALIAS SWAP<br/>BELT_UPSTREAM → green<br/>(FR-6 atomicity decision applies)"]
+    S5["5. RETIRE BLUE<br/>after a defined post-swap healthy window<br/>(retained for rollback — FR-5)"]
+    S1 --> S2 --> S3
+    S3 -->|PASS| S4 --> S5
+    S3 -->|FAIL| DISCARD["discard green · blue unaffected · diagnose · re-attempt"]
+```
+
+### 5.2 Step 1–2: green-build orchestration (FR-8) — grounded in KF-013
+
+Green is built fresh via the **generalized re-init runbook** `[CODE:grimoires/loa/runbooks/belt-reinit.md]`. The load-bearing operational fact `[KF-013]`:
+
+> Envio's `isInitialized()` checks **table-existence not config-hash** → a plain redeploy RESUMES and silently skips new contracts. Force a fresh init: set `ENVIO_RESTART=1` → deploy (JS seeds schema + `chain_metadata`, then the Rust-CLI `persisted_state` upsert crashes 28P01 on fresh init — **`ENVIO_PG_SSL_MODE=false` does NOT fix this; that was a misdiagnosis, corrected in KF-013**) → **delete `ENVIO_RESTART` → redeploy → RESUME backfills** the seeded chains. The belt runs fine without `persisted_state`. `> belt-reinit.md:L9, L60-87`
+
+**The verification gate inside step 2 (BB F-006, binding):** after the `ENVIO_RESTART=1` deploy, **before** removing the flag, assert `SELECT COUNT(*) FROM chain_metadata` equals the number of chains in the green config. A short count means JS crashed before seeding all chains → those chains are silently skipped on resume. On a short count, **re-deploy with `ENVIO_RESTART=1` until the count matches** — do NOT proceed `> belt-reinit.md:L70-76`. This is FR-8's "retry/escalation path if seeding is incomplete" `> prd.md:L110`.
+
+**Green↔blue DB isolation is structural** (FR-3 `> prd.md:L95`): green is a *separate Railway service* with its *own Postgres*. A green `--restart` rewrites only green's tables; blue's `chain_metadata`/`checkpoints`/Postgres are a different database, mechanically untouched `> belt-reinit.md:L110`. This is what makes blue serve a complete, consistent view the entire time green builds (B4 `> arch-brief:L137`).
+
+**eRPC cache reuse:** green routes through the same shared eRPC L2 as blue. Chains already warmed by blue (Bera/Base/OP/ETH) `> prd.md:L147` are served from the warm cache, so green's backfill is fast on those chains; only genuinely cold ranges pay fresh RPC.
+
+### 5.3 Step 5: retire blue (retain for the rollback window)
+
+Blue is **not deleted at swap** — it is retained hot for a defined post-swap healthy window (FR-5 `> prd.md:L101`). SCALE.md Guardrail-1 names a 7-day minimum hot-retention `> SCALE.md:L91`; this SDD adopts that as the default rollback grace window (operator-tunable). Only after the window closes with green healthy does blue's Railway service get torn down.
+
+### 5.4 Batching cadence (NFR-Scalability `> prd.md:L125`)
+
+Multiple source/schema additions batch into **one** green per promotion (one catch-up, one swap) rather than one promotion per change. This bounds the transient 2× cost window and the operator toil. Multi-team additions batch the same way (arch-brief Q5 `> arch-brief:L158`).
+
+---
+
+## 6. The Promotion Gate — Reconciliation (FR-4)
+
+> **Block-height alone is insufficient** (PR#15 SKP-002 `> prd.md:L98`). A green that reached blue's head but dropped entities (e.g. KF-012 silent getLogs loss on a chain) would pass a naive height check and serve a lossy view after the swap. The gate is **two-part**.
+
+### 6.1 The two-part gate
+
+```mermaid
+flowchart LR
+    A["Part 1 — block-height parity<br/>for EVERY chain:<br/>green.latest_processed_block ≥ blue.latest_processed_block"] --> C{both pass?}
+    B["Part 2 — entity-count reconciliation<br/>for the score-api footprint entities:<br/>|green.count − blue.count| ≤ tolerance"] --> C
+    C -->|yes| SWAP[gate PASS → allow swap]
+    C -->|no| HOLD[gate FAIL → no swap · diagnose]
+```
+
+**Part 1 — block-height parity (per chain).** Query each deployment's `chain_metadata` (the SCALE.md probe `> SCALE.md:L31-39`): green's `latest_processed_block ≥ blue`'s on **every** chain. A green still backfilling any chain is not promotable `> prd.md:L64`.
+
+**Part 2 — entity-count reconciliation (the AC-R7 footprint check).** The shipped belt's score-api footprint (verified live `[NOTES.md]`): `MiberaLoan 176 · MiberaTransfer 39,714 · MintActivity 10,000 · NftBurn 39 · BgtBoostEvent 1.47M · Erc1155MintEvent 7,607 · Action 2.07M · FriendtechTrade 1,317 · PaddleSupply 363 · MintEvent 3,588 · MiberaStakedToken 1,603 · TreasuryActivity 11,819`. Green's counts for each MUST match blue's within a reconciliation tolerance. This extends the existing AC-R7 reconciliation `> prd.md:L98`.
+
+### 6.2 The gate script (the net-new code)
+
+A script (e.g. `scripts/promotion-gate.js`, zero-dep to match `verify-belt-config.js`'s stated invariant) that:
+1. Queries blue + green `chain_metadata` → asserts Part 1.
+2. Queries blue + green for each footprint entity's count → asserts Part 2 within tolerance.
+3. Additionally runs the schema-diff superset check (§9) — green's schema ⊇ blue's.
+4. Exits 0 (PASS, swap allowed) or non-zero (FAIL, hold), and writes the result to `grimoires/loa/a2a/<sprint>/promotion-reconciliation.md`.
+
+**Tolerance** is a configurable band (counts move slightly between two snapshots taken at different wall-clock instants as new blocks arrive). The tolerance must be tight enough to catch a dropped-entity class (KF-012) but loose enough to absorb normal head drift. **`[ASSUMPTION]`** a small relative band (e.g. ±0.5% on high-cardinality entities, exact match on low-cardinality like `MiberaLoan 176`) is appropriate — calibrate on the first real promotion (§15 OQ-2).
+
+### 6.3 Gate enforcement
+
+The gate is a **mandatory step in the promotion procedure** — no swap without a PASS. **`[ASSUMPTION]`** since promotion is operator-driven (not CI-triggered — there is no per-belt `config.<belt>.yaml` change event the way r6 had), the enforcement is a runbook+script discipline rather than a CI job. If the team later wires a "promote" command, the gate becomes that command's precondition (exit-non-zero blocks the swap).
+
+---
+
+## 7. Swap Atomicity (FR-6)
+
+> The swap mechanism's downtime characteristic is an **explicit SDD decision** the operator must make (PR#15 SKP-001 sub-question `> prd.md:L104`). Three options, with the recommendation.
+
+### 7.1 Current behavior
+
+Today the swap = change `BELT_UPSTREAM` → **Railway redeploys the gateway** (~seconds blip). The Caddyfile has `admin off` `[CODE:Caddyfile]`, which **precludes** a graceful `caddy reload` in-process — so an env-var change forces a service redeploy, and during that redeploy the gateway is briefly unavailable (~seconds).
+
+### 7.2 The three options
+
+| Option | Mechanism | Downtime | Cost | Effort |
+|---|---|---|---|---|
+| **(A) Accept the blip** | Keep `admin off`; env-var → Railway redeploy | ~seconds 5xx during gateway redeploy | none | none |
+| **(B) Caddy graceful reload** | Enable Caddy admin API; swap = `caddy reload` (drains in-flight, zero-drop) | **0** (graceful) | none | small (Caddyfile `admin` config + a reload step) |
+| **(C) ≥2 gateway instances** | Run 2 gateway replicas behind Railway; rolling redeploy | **0** (rolling) | ~2× the (small) gateway cost | small (Railway replica config) |
+
+### 7.3 Recommendation
+
+**Option B (Caddy graceful reload)** is the recommended path for true zero-downtime (G1) at lowest cost: it directly closes the blip with no extra service, and `caddy reload` is the canonical zero-drop config-swap mechanism.
+
+### 7.4 DECISION (operator, 2026-05-22): Option B — Caddy graceful reload
+
+**Resolved: Option B.** S3 builds: Caddyfile `admin` enabled **bound localhost-only** (`admin localhost:2019` or unix socket — NEVER exposed; this is a hard build constraint), and the promotion swap step becomes a `caddy reload` (or admin-API config POST) instead of an env-var-triggered Railway redeploy. **Binding security requirement (from the §7.3 pushback):** the admin endpoint MUST NOT be reachable off-host; the S3 task includes a verification that the admin API is unreachable from outside the gateway container. If localhost-only binding proves infeasible on Railway during S3, fall back to Option C (≥2 replicas) — recorded as the S3 contingency, no re-decision needed.
+
+> **Pushback (MAY-LATITUDE-5):** the weakest assumption here is that `admin off` is required. It was set deliberately in the Caddyfile `[CODE:Caddyfile]`; enabling the admin API widens the gateway's attack surface (the admin endpoint must be bound to localhost only, never exposed). Before choosing Option B, verify the admin API can be bound localhost-only on Railway and that the reload step has access to it. If that's fiddly, Option C (replicas) sidesteps the admin-API surface entirely at a small cost. Operator check: **is a ~seconds 5xx blip on a swap (which happens only during a promotion, rarely) actually a problem given score-api's cron fallback?**
+
+---
+
+## 8. Rollback (FR-5)
+
+A bad promotion is reverted by setting `BELT_UPSTREAM` back to **blue** — proven reversible `> NOTES.md:265`. Because blue is retained hot through the rollback window (§5.3), the revert is instant (same swap mechanism, reverse direction) and lossless.
+
+```mermaid
+stateDiagram-v2
+    [*] --> BlueLive: steady state
+    BlueLive --> Promoting: stand up green
+    Promoting --> GateCheck: green caught up
+    GateCheck --> BlueLive: gate FAIL (discard green)
+    GateCheck --> GreenLive: gate PASS + swap
+    GreenLive --> BlueLive: ROLLBACK (revert BELT_UPSTREAM) within window
+    GreenLive --> [*]: window healthy → retire blue → green is new blue
+```
+
+**Rollback triggers** (adapted from SCALE.md Guardrail-1 `> SCALE.md:L104-110`): a 5xx spike on the alias post-swap; a consumer reports missing entity fields; a post-swap reconciliation re-run shows green diverged; operator-detected data inconsistency in the first hour. On any trigger: revert `BELT_UPSTREAM`→blue, verify consumers green, keep the broken green for postmortem (don't fix-in-place).
+
+---
+
+## 9. Additive-only schema + breaking-change path (FR-7)
+
+### 9.1 Additive changes (the common case)
+
+Green ⊇ blue (§3.3). The schema-diff superset check (part of the gate, §6.2) enforces it: parse blue's `schema.graphql` entity/field set, parse green's, assert green is a superset. A non-superset green **fails the gate** — it must not be promoted behind the additive-only alias.
+
+### 9.2 Non-additive changes (field rename / removal / retype) — the breaking-change path
+
+Blue-green alone does NOT make a breaking change safe (B1 `> arch-brief:L127`): swapping to a green that removed a field a consumer reads would break that consumer at the swap instant. The path (FR-7 `> prd.md:L107`, arch-brief Q2 `> arch-brief:L149`):
+
+```mermaid
+flowchart TD
+    BC[breaking change needed<br/>e.g. rename Field A → Field B]
+    BC --> EXPAND["EXPAND: green adds Field B AND keeps Field A<br/>(still additive → normal blue-green promotion)"]
+    EXPAND --> SWAP1[promote green via the normal gate]
+    SWAP1 --> MIGRATE["consumer migration: each consumer moves A → B<br/>(coordinated, out-of-band, on their own schedule)"]
+    MIGRATE --> CONTRACT["CONTRACT: a LATER green removes Field A<br/>(now safe — no consumer reads it)"]
+    CONTRACT --> SWAP2[promote the contract-green via the gate]
+```
+
+This is the **expand/contract (parallel-change) pattern**: a breaking change is decomposed into two additive promotions bracketing a consumer-coordination step. The alias never serves a schema missing a field a live consumer depends on. (A versioned alias — a second proxy route for a v2 schema — is the heavier alternative if consumers can't migrate in a bounded window; recorded as the fallback, not the default.)
+
+---
+
+## 10. score-api boundary & on-demand split reserve (FR-9 / FR-10)
+
+### 10.1 FR-9 — the lambda split (indexer serves; score-api owns durability)
+
+| Tier | Owner | Responsibility |
+|---|---|---|
+| **Hot serving** | the indexer (this cycle) | serve a consistent GraphQL view with zero-downtime updates — **must not be lossy** |
+| **Warm/cold analytics** | score-api (downstream, out of scope) | cron capture → ClickHouse/Dune + fallbacks; the **safety net** for indexer downtime |
+
+The corrected emphasis (PR#15 SKP-001 `> prd.md:L113`): score-api's fallback is a *safety net for a brief swap blip*, **not a license for the indexer to be lossy**. The reconciliation gate (FR-4) is precisely what keeps the indexer non-lossy across a promotion. BB F-008 praised the lambda framing `> prd.md:L113`.
+
+### 10.2 FR-10 — on-demand split capability (RESERVE — not built)
+
+The S0-proven per-belt physical schema subset (Option A — codegen + tsc exit 0 on a representative belt) `(S0 R-D)` is **held in reserve** `> prd.md:L115`, not wired this cycle. It is the future mechanism for an **on-demand split** (a tenant needing isolation, or a single source needing instant-live without waiting for a full green). Documented capability, dormant code path. The future BeaconV3 declaration to `loa-freeside`'s `freeside-mcp-gateway` is the same reserve class `> prd.md:L145` — non-blocking for this cycle's zero-downtime goal.
+
+---
+
+## 11. Error Handling Strategy
+
+| Failure class | Detection | Handling | Provenance |
+|---|---|---|---|
+| **Free RPC empty-200 on filtered eth_getLogs** (op-stack getLogs-liar) | eRPC per-upstream error metrics; **the FR-4 reconciliation gate catches the resulting entity-count gap** | eRPC `ignoreMethods: [eth_getLogs]` on the lying upstream + widened getLogs cluster + per-upstream rate-limit pacing; **verify per chain before trusting a new source's data** | `[KF-012]` — RESOLVED-VIA-CONFIG; **WILL recur on Base/new op-stack chains** `[NOTES.md]` |
+| **Envio Rust-CLI 28P01 on fresh init** (persisted_state SCRAM-over-SSL) | green deploy crashes on `--restart` | the `ENVIO_RESTART`-seeds-then-resume pattern (§5.2); belt runs without `persisted_state`. **`ENVIO_PG_SSL_MODE=false` does NOT fix it (misdiagnosis); `=disable` is INVALID (crashes JS env-parse)** | `[KF-013]` — RESOLVED-VIA-WORKAROUND |
+| **Green seeds incompletely** (JS crashes mid-seed → short `chain_metadata`) | the BB-F006 verification gate: `COUNT(*) chain_metadata` < config chain count | re-deploy `ENVIO_RESTART=1` until count matches; do NOT proceed to resume | `> belt-reinit.md:L70-76` |
+| **Green never converges** (a chain's backfill slower than block production) | block-height parity (Part 1) never reached on that chain | hold the promotion; operator: RPC is fast enough (G4 measures full-corpus backfill wall-time once); if a chain genuinely can't keep up, escalate RPC tier | R6 `> prd.md:L192`; `> arch-brief:L132` |
+| **Swap blip 5xx** | alias 5xx spike at swap instant | FR-6 decision (Option B graceful reload eliminates; Option A accepts; score-api fallback covers) | §7 |
+| **Bad promotion (green diverged post-swap)** | rollback triggers (§8) | revert `BELT_UPSTREAM`→blue (instant, lossless, blue retained) | FR-5 |
+| **eRPC degraded** (whole-chain cluster blacklisted) | eRPC health/metrics endpoint | L2 outage affects BOTH blue and green on that chain (shared substrate trade-off); degraded-mode direct-L1 fallback possible (slower, no cache, but live) | r6 §17 R-C |
+| **Non-additive schema slips into a green** | the schema-diff superset check in the gate (§9.1) | gate FAILS; the change must go through the expand/contract path (§9.2) | FR-7 |
+
+**The two-layer-silent-failure principle (carried forward):** the stack has TWO layers that fail silently — L2 eRPC and L3 the belt. A healthy belt fed by a degraded eRPC is still degraded. The reconciliation gate is the structural backstop: it compares green against blue *as observed*, so a silent loss on green surfaces as a count gap before the swap.
+
+---
+
+## 12. Testing Strategy
+
+| Test layer | What it covers | Tool | Gate |
+|---|---|---|---|
+| **verify-belt-config** | The (green) belt config is field-identical to `config.yaml` for its contracts (address/start_block/field_selection) | `scripts/verify-belt-config.js` `[CODE]` | exit 0 required pre-deploy |
+| **promotion gate — block-height parity** | green ≥ blue on every chain | `chain_metadata` probe in `promotion-gate.js` (§6.2) | all chains pass |
+| **promotion gate — entity-count reconciliation** | green preserves the score-api footprint within tolerance (AC-R7) | per-entity count probe in `promotion-gate.js` | within tolerance |
+| **schema-diff superset** | green's schema ⊇ blue's (additive-only) | schema-diff in `promotion-gate.js` (§9.1) | green is a superset |
+| **chain_metadata seed-count verify** | green seeded ALL config chains before resume (no silent skip) | `COUNT(*) chain_metadata` vs config (§5.2) | count matches |
+| **per-chain getLogs verification** | a new source's chain is not a getLogs-liar (KF-012) | per-chain `eth_getLogs` sanity vs reconciliation | no silent gap |
+| **swap reversibility smoke** | bad upstream → 502, revert → live (FR-5/FR-6) | the existing swap smoke `> NOTES.md:265` | revert restores service |
+| **zero-downtime swap probe** | the swap produces no 5xx spike on the alias (G1, FR-6) | poll the alias during a swap; assert no 5xx (or only the accepted Option-A blip) | per the FR-6 decision |
+
+**Test-first discipline** applies to the new `promotion-gate.js` (the one substantive net-new artifact). The Envio handlers are reused unmodified (no new handler code → no new handler tests). There is currently only **1 indexer test** (`test/fatbera-core.test.ts`) for 84 handlers `[NOTES.md]` — a known coverage risk, but out of scope: this cycle adds no handler logic.
+
+---
+
+## 13. Development Phases / Build Sequencing
+
+The infrastructure is mostly **already live** (the consolidated belt = blue; the Caddy alias; the eRPC L2; the re-init runbook). This cycle is predominantly **operational discipline + the reconciliation gate**, not greenfield build.
+
+| Sprint | FR / Priority | What it builds | Gates |
+|---|---|---|---|
+| **S1** | FR-2 + FR-4 (P0) | Specify + smoke-test the alias contract (§4); author `promotion-gate.js` (block-height parity + entity-count reconciliation + schema-diff superset, §6) test-first | gate script exit 0 against blue-vs-blue (self-parity sanity); swap smoke (§4.1) |
+| **S2** | FR-3 + FR-8 (P0) | Operationalize the green-build procedure (§5) on top of `belt-reinit.md`; the BB-F006 seed-count verify wired into the procedure; one **dry-run promotion** (stand up green = a copy of blue, run the gate, swap, rollback) to exercise the full loop end-to-end | dry-run: green stands up, gate PASSES, swap succeeds with FR-6-decision downtime characteristic, rollback restores blue |
+| **S3** | FR-5 + FR-6 + FR-7 (P1) | Make the FR-6 swap-atomicity decision with evidence (§7, OQ-1); rollback procedure documented + exercised (§8); the expand/contract breaking-change path documented (§9.2) | FR-6 decision recorded; rollback exercised; breaking-change path documented |
+| **S4** | FR-1 + FR-9 + FR-10 (P2) | Confirm FR-1 (one belt — mostly already true); the score-api boundary doc (FR-9, §10.1); document the FR-10 reserve (on-demand split) — design only | boundary doc written; reserve documented (no code) |
+
+**Priority (PRD `> prd.md:L167`):** P0 = FR-2, FR-3, FR-4, FR-5. P1 = FR-6, FR-7, FR-8. P2 = FR-1, FR-9, FR-10. (Sequencing groups FR-5 with the FR-6 swap decision since rollback IS a swap; FR-8 lands in S2 with the green-build procedure it serves.)
+
+**The G4 one-shot measurement** (full-corpus backfill wall-time `> prd.md:L56`) is captured during the S2 dry-run promotion — it makes "time-to-promote" a known number without gating downtime.
+
+---
+
+## 14. Risks & Mitigation
+
+| ID | Risk | Likelihood | Impact | Mitigation | Source |
+|---|---|---|---|---|---|
+| **R1** | Swap not truly atomic (Railway redeploy ~seconds blip) | Med | Med | FR-6 decision (§7): Caddy graceful reload (Option B) / ≥2 instances (Option C) / accept blip + score-api covers (Option A); **measure the swap's 5xx during S2 dry-run** | `> prd.md:R1` |
+| **R2** | Breaking (non-additive) schema change behind an additive-only alias | Med | High | FR-7 expand/contract path (§9.2); schema-diff superset check FAILS a non-additive green at the gate | `> prd.md:R2` |
+| **R3** | Promotion on block-height alone passes a green with dropped entities | Med | High | FR-4 **two-part** gate (§6): entity-count reconciliation + schema-diff, not height alone; AC-R7 footprint check | `> prd.md:R3`; PR#15 SKP-002 |
+| **R4** | Green build fails to seed all chains (KF-013) → silent-skip on resume | Med | High | FR-8 seed-count verification gate (§5.2) before resume; retry `ENVIO_RESTART=1` until count matches | `[KF-013]`; `> prd.md:R4` |
+| **R5** | Promotion-window 2× cost vs already-89% memory headroom | Med | Med | Transient only (one belt steady-state); bound the promotion window; batch changes into one green (§5.4); quantify during S2 | `> prd.md:R5`; PR#15 SKP-004 `(S0 — $84/mo single belt)` |
+| **R6** | Green never converges (a chain's backfill slower than block production) | Low | High | Operator: RPC fast enough; warm eRPC cache on Bera/Base/OP/ETH; G4 measures full-corpus backfill wall-time once; escalate RPC tier if a chain can't keep up | `> prd.md:R6` |
+| **R7** | Re-scoping regresses the score-api#151 footprint | Med | High | FR-4 reconciliation = AC-R7; **the shipped belt stays SOLE source until a green verifiably reconciles**; score-api#151 repoint deferred (no forced cutover) | `> prd.md:R7` |
+| **R8** | KF-012 op-stack getLogs-liar on a new source's chain | Med | High | Per-chain getLogs verification before trusting new-source data; reconciliation gate catches the silent loss as a count gap | `[KF-012]`; `> prd.md:R8` |
+| **R9** | Enabling Caddy admin API (FR-6 Option B) widens gateway attack surface | Low | Med | Bind admin API localhost-only; or choose Option C (replicas) which avoids the admin surface entirely (§7.3 pushback) | §7 |
+| **R10** | `[ASSUMPTION]` Envio codegen treats a superset schema as additive (no destructive rewrite of existing entities) | Low | High | Confirm on the first real promotion (OQ-3); S0 proved subset codegens cleanly, superset is the safer direction | §3.3 |
+
+---
+
+## 15. Open Questions
+
+- **OQ-1 — Swap-atomicity decision (FR-6, §7). RESOLVED (operator, 2026-05-22): Option B — Caddy graceful reload.** Admin API enabled **localhost-only** (hard constraint), swap = `caddy reload`. Contingency if localhost-only binding is infeasible on Railway: Option C (≥2 replicas), no re-decision. See §7.4.
+- **OQ-2 — Reconciliation tolerance band (FR-4, §6.2).** What relative tolerance per entity class? Proposal: exact match on low-cardinality (e.g. `MiberaLoan 176`), small relative band (±0.5%) on high-cardinality (`Action 2.07M`, `BgtBoostEvent 1.47M`). **Calibrate on the first real promotion** — head drift between two snapshots sets the floor.
+- **OQ-3 — Envio superset-schema codegen behavior (§3.3, R10).** Does adding a new entity / new field on an existing type leave existing entities' tables intact (additive), or does codegen rewrite them (forcing a re-backfill)? S0 proved a *subset* codegens cleanly; a *superset* is the safer direction but must be confirmed on the first promotion that adds a field.
+- **OQ-4 — Gate enforcement surface (§6.3).** Is the promotion gate a runbook+script discipline (operator runs it before swapping), or is a "promote" command authored that makes the gate its non-skippable precondition? The PRD frames promotion as operator-driven; a wrapping command is a quality-of-life follow-up, not load-bearing this cycle.
+- **OQ-5 — Promotion-window cost ceiling (R5, §5.4).** What is the maximum acceptable promotion-window duration (during which 2× belt cost applies)? Batching (§5.4) bounds frequency; this bounds duration. Decide after the G4 backfill wall-time number is measured.
+
+---
+
+## 16. Verification → Acceptance Criteria Mapping
+
+| PRD Launch Criterion `> prd.md:L173-180` | SDD section | Acceptance gate |
+|---|---|---|
+| **G1** — source-add promotion completes with 0 consumer-visible downtime (no 5xx spike on the stable endpoint) | §5, §7 | Swap probe shows no 5xx (Option B/C) OR only the accepted Option-A blip per the FR-6 decision; measured during S2 dry-run |
+| **G2** — measured Railway steady-state < $100/mo; promotion-window transient cost quantified | §1.2, §5.4, R5 | Steady-state ≈ $84/mo single belt `(S0)`; promotion-window 2× quantified + bounded |
+| **G3** — 0 consumer config changes across a promotion; reconciliation shows no dropped entity (AC-R7) | §4, §6 | Consumers unchanged (alias-only); FR-4 entity-count reconciliation PASS |
+| **G4** — promotion gate enforced (green ≥ blue every chain + reconciliation pass before swap); rollback exercised | §6, §8 | `promotion-gate.js` exit 0 required pre-swap; rollback (revert `BELT_UPSTREAM`) exercised in S2 dry-run |
+| Swap-atomicity decision made (blip vs reload vs ≥2 instances) with evidence | §7, OQ-1 | FR-6 decision recorded with the measured swap downtime characteristic |
+| Breaking (non-additive) schema change path documented | §9.2 | Expand/contract path documented |
+| **(implied)** score-api footprint preserved (R7) | §6.1, §10.1 | AC-R7 footprint reconciliation PASS; shipped belt stays SOLE source until a green reconciles |
+
+---
+
+## 17. Flatline Remediation (r7 — 3-model, CLI subscription $0, full confidence)
+
+Integrated from the SDD-r7 adversarial review (Flatline `claude/codex/gemini-headless`). The CRITICAL/HIGH findings that change what the sprint builds, with resolutions baked in here:
+
+- **R-A (SKP-001 CRIT — lossless rollback requires blue to keep indexing).** §8's "instant + lossless" rollback holds ONLY if blue **continues running + indexing** through the post-swap verification window. **Resolution:** blue is NOT paused/stopped at swap — it keeps indexing at-head until green is verified healthy; rollback = revert `BELT_UPSTREAM` to a still-at-head blue; blue is retired only after the verification window passes. (Amends §8.)
+- **R-B (SKP-003 CRIT — shared eRPC cache defeats independent reconciliation).** Blue and green both read the shared eRPC cache, so a poisoned cache entry (KF-012 getLogs-liar) yields identical wrong data in both → entity-count reconciliation PASSES while both are wrong. **Resolution:** the promotion gate adds a **raw-L1 `eth_getLogs` spot-check** (bypassing the eRPC cache) for a sample of (chain, contract, block-range) per promotion; reconciliation is blue-vs-green **plus** green-vs-raw-L1. (Amends §6; extends the KF-012 discipline.)
+- **R-C (SKP-002 CRIT — promotion 2× memory vs 89% steady-state).** Green is a **separate Railway service** with its own RAM allocation, so it cannot OOM blue. **Resolution:** but the Railway plan/account must have headroom for the transient 2× during the promotion window — confirm plan headroom + size green's memory + bound the window (R5). A promotion that would exceed plan memory is blocked. (Amends §5.4 / R5.)
+- **R-D (SKP-001 CRIT — bypassable gate).** A runbook-discipline gate can be skipped (operator swaps `BELT_UPSTREAM` directly). **Resolution:** the swap is performed ONLY through a `promote` command that runs `promotion-gate.js` as a **non-skippable precondition** (exit 0 required before it touches the alias). Bare `BELT_UPSTREAM` edits are not the documented path. (Resolves OQ-4 toward the command; amends §6.3 / FR-8.)
+- **R-E (SKP-002 HIGH — counts match but rows wrong/dup/stale).** Entity-count parity alone can pass a green with corrupted rows. **Resolution:** the gate adds a **content sample** — for N sampled entity IDs per high-value entity, compare field-level payloads blue-vs-green (not just counts). (Amends §6.2.)
+- **R-F (SKP-001/004 HIGH — racy comparison while both advance).** Comparing two continuously-advancing belts at wall-clock is racy. **Resolution:** reconcile at a **fixed block cutoff** per chain (`target = min(blue_head, green_head) − safety_margin`); both belts are queried AT that block, not "now." (Amends §6.2.)
+- **R-G (SKP-003 HIGH + OQ-2 — ±0.5% hides thousands of rows).** **Resolution:** tolerance = **exact** on low-cardinality entities; high-cardinality uses an **absolute floor** (e.g. `max(0.1%, fixed_row_floor)`), not a bare percentage; calibrated on the first real promotion. (Refines OQ-2.)
+
+**Accepted / already-bound:** SKP-004 (Caddy admin exposure) — bound by §7.4's **localhost-only** hard constraint + the S3 task verifying the admin endpoint is unreachable off-host (closes IMP-014). SKP-003 (alpha.17 no stability contract) — accepted risk; version pinned (S0), watched via known-failures. The IMP-001..009 high-consensus items (connection-string sourcing, sustained-parity, schema-compat dims [nullability/enum], provisional tolerance default + override, negative test cases) are gate-script implementation requirements carried into the sprint plan.
+
+**Status: Flatline-remediated (r7).**
+
+---
+
+> **Sources:** `grimoires/loa/prd.md` r2 (sonar-belt-factory) · `grimoires/loa/context/arch-brief-belt-federation.md` r2 (one-belt + blue-green; reviewed via Flatline + BB PR #15) · `SCALE.md` (D4 kickoff, D6 CLOSED, Guardrails 1/2/5) · `grimoires/loa/a2a/sprint-172/s0-multideploy-calibration.md` (S0 — cost $84/mo, budget-infeasibility of 12 belts, Option-A-in-reserve, Q-a/Q-b/Q-c) · `grimoires/loa/runbooks/belt-reinit.md` (KF-013 re-init, BB-F006 seed-count gate, D6 table) · `grimoires/loa/known-failures.md` (KF-012 getLogs-liar, KF-013 re-init, KF-014 BB enrichment) · `config.yaml` + `schema.graphql` (41 contracts / 93 entities) · `Dockerfile.gateway` + `Caddyfile` (the stable alias) · `Dockerfile.belt` (ENVIO_RESTART primitive) · `scripts/verify-belt-config.js` (fidelity gate) · `grimoires/loa/NOTES.md` (shipped belt = score-api footprint, swap verification :265, dense-chain throttle) · `grimoires/loa/sdd.md` r6 (superseded — eRPC L2 + re-init primitive + alias + AC-R7 carried forward; belt-taxonomy/federation/Effect/BeaconV3 removed). The prior r6 §17 R-C (eRPC/gateway HA + degraded-L1 fallback) is folded into §11.

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "active_cycle": "indexer-belt-rebuild",
+  "active_cycle": "sonar-belt-factory",
   "cycles": [
     {
       "id": "cycle-036",
@@ -1355,7 +1355,7 @@
     {
       "id": "indexer-belt-rebuild",
       "label": "Indexer Belt Rebuild — L0-L6 stack (eRPC L2 substrate)",
-      "status": "active",
+      "status": "archived",
       "created": "2026-05-19T00:00:00Z",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
@@ -1377,13 +1377,67 @@
           "local_id": 2,
           "global_id": 170,
           "label": "S2 — Re-point Mibera Belt to eRPC + Verify",
-          "status": "in_progress"
+          "status": "completed"
         },
         {
           "local_id": 3,
           "global_id": 171,
           "label": "S3 — Gateway / Observability / Hardening / Handback",
-          "status": "planned"
+          "status": "completed"
+        }
+      ],
+      "archived": "2026-05-22T00:23:59Z",
+      "archive_path": "grimoires/loa/archive/2026-05-21-indexer-belt-rebuild-mibera"
+    },
+    {
+      "id": "sonar-belt-factory",
+      "label": "sonar-api belt-factory — composable freeside-* building (D4 split + BeaconV3 + Effect serving)",
+      "status": "active",
+      "created": "2026-05-22T00:23:59Z",
+      "archived": null,
+      "archive_path": null,
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprints": [
+        {
+          "local_id": 0,
+          "global_id": 172,
+          "label": "S0 — Envio multi-deployment calibration spike (FR-0; proved 12-belt infeasible → PRD r2 reframe)",
+          "scope": "SMALL",
+          "status": "completed",
+          "priority": "P0"
+        },
+        {
+          "local_id": 1,
+          "global_id": 173,
+          "label": "S1 — Stable-alias contract + reconciliation gate (FR-2, FR-4; promotion-gate.js + §17 R-B/E/F/G)",
+          "scope": "LARGE",
+          "status": "planned",
+          "priority": "P0"
+        },
+        {
+          "local_id": 2,
+          "global_id": 174,
+          "label": "S2 — Green-build orchestration + dry-run promotion (FR-3, FR-8; seed-count verify + G4 wall-time)",
+          "scope": "MEDIUM",
+          "status": "planned",
+          "priority": "P0"
+        },
+        {
+          "local_id": 3,
+          "global_id": 175,
+          "label": "S3 — Swap atomicity + rollback + breaking-change path (FR-5, FR-6, FR-7; Caddy reload + promote gate)",
+          "scope": "MEDIUM",
+          "status": "planned",
+          "priority": "P1"
+        },
+        {
+          "local_id": 4,
+          "global_id": 176,
+          "label": "S4 — Boundary docs + reserve + E2E goal validation (FR-1, FR-9, FR-10)",
+          "scope": "SMALL",
+          "status": "planned",
+          "priority": "P2"
         }
       ]
     }
@@ -1585,5 +1639,5 @@
       "sprint_plan": "grimoires/loa/a2a/bug-20260428-i640-1cc190/sprint.md"
     }
   ],
-  "next_sprint_number": 172
+  "next_sprint_number": 177
 }
