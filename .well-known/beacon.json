@@ -1,0 +1,25 @@
+{
+  "schema_version": "3",
+  "slug": "sonar-api",
+  "publisher": "0xHoneyJar",
+  "is": {
+    "one_liner": "Onchain event indexer across 6 chains (Berachain primary) — source of truth for THJ holdings + events",
+    "scope": [
+      "Index contract events across 6 chains (Ethereum, Optimism, Arbitrum, Base, Berachain, Zora)",
+      "Serve indexed holdings + events via GraphQL (HyperIndex V3)",
+      "Act as single source of truth for CubQuests, score-api, ApiologyDAO, and Mibera substrate"
+    ]
+  },
+  "is_not": [
+    "Does NOT run a chain or validate blocks — it indexes external chain events",
+    "Will NOT host NFT metadata or media — that is storage-api",
+    "Does NOT compute scores or rankings — that is score-api"
+  ],
+  "capabilities": ["query_holdings", "query_events", "query_governance"],
+  "cycle_state": {
+    "status": "active",
+    "since": "2026-05-23",
+    "next_review": "2026-08-21"
+  },
+  "_comment": "composes_with + acvp_invariants omitted pending port-schema sealing (ADR-007 App A.2 / ADR-008 §D-11); relationships are documented in README. Add when buildings seal TagName@semver+hash tags. The mcp transport block is added at deployment."
+}
