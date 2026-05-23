@@ -106,8 +106,14 @@ export function checkBlockHeights(blue, green, { mode = "parity", expectedChains
   }
   const deferred = [];
   if (mode === "expansion") {
+    const expectedSet = new Set(expectedChains.map(String));
     for (const chainId of Object.keys(green)) {
-      if (!(chainId in blue)) {
+      if (chainId in blue) continue;
+      // BB F4: a green-only chain NOT in the expected allowlist is unplanned drift — fail
+      // closed (when expectedChains is provided), don't silently defer it to Part-4.
+      if (expectedChains.length && !expectedSet.has(chainId)) {
+        failures.push(`chain ${chainId}: green-only chain NOT in EXPECTED_CHAINS (unexpected drift — fail-closed, BB F4)`);
+      } else {
         deferred.push(`chain ${chainId}: green-only (no blue baseline) — at-head verified via Part-4 raw-L1`);
       }
     }
@@ -168,7 +174,10 @@ export function checkEntityCounts(blueCounts, greenCounts, footprint = FOOTPRINT
 function parseSchema(src) {
   const types = {};
   const noComments = String(src || "").replace(/#[^\n]*/g, "");
-  const typeRe = /type\s+([A-Za-z0-9_]+)\s*(?:@\w+\s*)*\{([^}]*)\}/g;
+  // BB F3: allow directives WITH arguments (e.g. `type Action @entity(name: "actions")`),
+  // not just bare `@entity` — otherwise such a type is silently dropped from the superset
+  // comparison, hiding a breaking removal.
+  const typeRe = /type\s+([A-Za-z0-9_]+)\s*(?:@\w+(?:\([^)]*\))?\s*)*\{([^}]*)\}/g;
   let m;
   while ((m = typeRe.exec(noComments)) !== null) {
     const [, name, body] = m;
@@ -185,7 +194,7 @@ function parseSchema(src) {
 function parseEnums(src) {
   const enums = {};
   const noComments = String(src || "").replace(/#[^\n]*/g, "");
-  const enumRe = /enum\s+([A-Za-z0-9_]+)\s*(?:@\w+\s*)*\{([^}]*)\}/g;
+  const enumRe = /enum\s+([A-Za-z0-9_]+)\s*(?:@\w+(?:\([^)]*\))?\s*)*\{([^}]*)\}/g; // BB F3: directive args
   let m;
   while ((m = enumRe.exec(noComments)) !== null) {
     const [, name, body] = m;
@@ -519,10 +528,18 @@ export function loadExpectedChains(env = process.env) {
 async function main() {
   const env = process.env;
   const blueUrl = env.BLUE_GRAPHQL_URL;
-  const greenUrl = env.GREEN_GRAPHQL_URL || blueUrl; // self-parity when green unset
+  const greenUrl = env.GREEN_GRAPHQL_URL || blueUrl; // self-parity when green unset (parity mode only)
   const mode = env.PROMOTION_MODE === "expansion" ? "expansion" : "parity";
   if (!blueUrl) {
     console.error("[promotion-gate] BLUE_GRAPHQL_URL required (and GREEN_GRAPHQL_URL for a real promotion). Connection strings are env-sourced, never hardcoded (IMP-001).");
+    process.exit(2);
+  }
+  // BB F1 (fail-closed): a real promotion MUST validate a DISTINCT green. Self-parity
+  // (green falls back to blue) is a parity-mode test convenience ONLY — refuse it in
+  // expansion so a missing GREEN_GRAPHQL_URL can never let a blue-vs-blue run "pass"
+  // and then flip the alias to an unvalidated green.
+  if (mode === "expansion" && (!env.GREEN_GRAPHQL_URL || env.GREEN_GRAPHQL_URL === blueUrl)) {
+    console.error("[promotion-gate] EXPANSION requires GREEN_GRAPHQL_URL set AND ≠ BLUE_GRAPHQL_URL — refusing blue-vs-blue self-parity in a real promotion (fail-closed, BB F1).");
     process.exit(2);
   }
   const fetchSnapshot = makeFetchSnapshot(env);

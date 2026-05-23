@@ -120,6 +120,12 @@ if [ "$ROLLBACK" -eq 1 ]; then
 fi
 
 log "════ PROMOTE: blue → green ════"
+# BB F1 (defense-in-depth; the gate enforces this too): a real promotion MUST validate a
+# DISTINCT green. Refuse if GREEN_GRAPHQL_URL is unset or equals BLUE — self-parity is a
+# gate test mode, never a live swap.
+if [ -z "${GREEN_GRAPHQL_URL:-}" ] || [ "${GREEN_GRAPHQL_URL:-}" = "${BLUE_GRAPHQL_URL:-}" ]; then
+	log "ERROR: promote requires GREEN_GRAPHQL_URL set AND ≠ BLUE_GRAPHQL_URL (refusing blue-vs-blue, BB F1)"; exit 3
+fi
 run_gate || exit 1   # fail-closed: a non-zero gate aborts the swap entirely
 require_token
 log "── Swap (gate PASSED) ─────────────────────────────────────────────────"

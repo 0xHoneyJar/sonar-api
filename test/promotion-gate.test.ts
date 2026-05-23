@@ -337,6 +337,46 @@ describe("promotion-gate — loadExpectedChains", () => {
   });
 });
 
+// Bridgebuilder review (PR #16) follow-ups.
+describe("promotion-gate — BB F3 schema directives with arguments", () => {
+  it("parses a type whose directive HAS ARGS (not silently dropped from the superset)", () => {
+    const blue = 'type Action @entity(name: "actions") { id: ID! timestamp: BigInt! }';
+    const green = 'type Action @entity(name: "actions") { id: ID! }'; // dropped timestamp
+    const r = checkSchemaSuperset(blue, green);
+    expect(r.pass).toBe(false);
+    expect(r.failures.join(" ")).toMatch(/timestamp/);
+  });
+  it("additive change on a directive-with-args type passes", () => {
+    const blue = 'type Action @entity(name: "actions") { id: ID! }';
+    const green = 'type Action @entity(name: "actions") { id: ID! extra: Int }';
+    expect(checkSchemaSuperset(blue, green).pass).toBe(true);
+  });
+});
+
+describe("promotion-gate — BB F4 unexpected green-only chains", () => {
+  it("expansion FAILS a green-only chain NOT in EXPECTED_CHAINS (unplanned drift)", () => {
+    const blue = { "1": 100 };
+    const green = { "1": 100, "42161": 999, "999999": 1 }; // 999999 not expected
+    const r = checkBlockHeights(blue, green, { mode: "expansion", expectedChains: [1, 42161] });
+    expect(r.pass).toBe(false);
+    expect(r.failures.join(" ")).toMatch(/999999.*NOT in EXPECTED_CHAINS/);
+  });
+  it("expansion DEFERS an expected green-only chain (no false fail)", () => {
+    const blue = { "1": 100 };
+    const green = { "1": 100, "42161": 999 };
+    const r = checkBlockHeights(blue, green, { mode: "expansion", expectedChains: [1, 42161] });
+    expect(r.pass).toBe(true);
+    expect(r.deferred.join(" ")).toMatch(/42161/);
+  });
+  it("without an expectedChains allowlist, green-only chains stay deferred (back-compat)", () => {
+    const blue = { "1": 100 };
+    const green = { "1": 100, "42161": 999 };
+    const r = checkBlockHeights(blue, green, { mode: "expansion" });
+    expect(r.pass).toBe(true);
+    expect(r.deferred.join(" ")).toMatch(/42161/);
+  });
+});
+
 // Audit finding (KF-004 suspicion lens): URLs are persisted to the git-committed report + errors.
 describe("promotion-gate — redactUrl (credential leak defense, audit HIGH-secrets)", () => {
   it("strips userinfo (user:pass@)", () => {
