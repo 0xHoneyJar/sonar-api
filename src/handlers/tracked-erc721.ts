@@ -2,6 +2,7 @@ import { TrackedErc721 } from "generated";
 import type {
   handlerContext,
   TrackedHolder as TrackedHolderEntity,
+  Token as TokenEntity,
   MiberaStakedToken as MiberaStakedTokenEntity,
   MiberaStaker as MiberaStakerEntity,
 } from "generated";
@@ -47,6 +48,22 @@ export const handleTrackedErc721Transfer = TrackedErc721.Transfer.handler(
 
     // Skip writes during preload
     if ((context as any).isPreload) return;
+
+    // Per-token current ownership (Token entity) — DEP-1.
+    // Mirrors the TrackedHolder count below so Token{owner} reconciles with
+    // TrackedHolder.tokenCount. The Mibera-staking branches below are dead for
+    // TrackedErc721 (Mibera main 0x6666… is NOT in this handler's address list,
+    // so `isMibera` is always false here), so `to` is always the effective
+    // owner. On burn (to is a burn address) owner=ZERO + isBurned=true.
+    await updateTokenOwnership({
+      context,
+      contractAddress,
+      chainId,
+      tokenId,
+      from,
+      to,
+      timestamp,
+    });
 
     // If this is a mint (from zero address), also create a mint action
     if (from === ZERO) {
@@ -263,6 +280,64 @@ async function adjustHolder({
   };
 
   context.TrackedHolder.set(holder);
+}
+
+// =============================================================================
+// Per-token current ownership (Token entity) — DEP-1
+// =============================================================================
+
+interface UpdateTokenOwnershipArgs {
+  context: handlerContext;
+  contractAddress: string;
+  chainId: number;
+  tokenId: bigint;
+  from: string;
+  to: string;
+  timestamp: bigint;
+}
+
+/**
+ * Maintain the per-token current-owner record (Token entity) for tracked
+ * ERC-721 collections (Tarot + Fractures + lore + apdao_seat). Keyed
+ * `${collection}_${chainId}_${tokenId}` to match the canonical Token shape
+ * (src/lib/erc721-holders.ts). `collection` is the on-chain contract address
+ * (lowercase), matching the TrackedHolder.contract field used downstream.
+ * Burns (to a burn address) mark isBurned=true and set owner=ZERO.
+ */
+async function updateTokenOwnership({
+  context,
+  contractAddress,
+  chainId,
+  tokenId,
+  from,
+  to,
+  timestamp,
+}: UpdateTokenOwnershipArgs) {
+  const burned = isBurnAddress(to);
+  const owner = burned ? ZERO : to;
+
+  const tokenKey = `${contractAddress}_${chainId}_${tokenId}`;
+  const existing = await context.Token.get(tokenKey);
+
+  const token: TokenEntity = existing
+    ? {
+        ...existing,
+        owner,
+        isBurned: burned,
+        lastTransferTime: timestamp,
+      }
+    : {
+        id: tokenKey,
+        collection: contractAddress,
+        chainId,
+        tokenId,
+        owner,
+        isBurned: burned,
+        mintedAt: from === ZERO ? timestamp : BigInt(0),
+        lastTransferTime: timestamp,
+      };
+
+  context.Token.set(token);
 }
 
 // Mibera staking helper types and functions

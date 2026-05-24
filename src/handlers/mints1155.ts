@@ -4,10 +4,16 @@
  */
 
 import { CandiesMarket1155, Erc1155MintEvent, CandiesInventory, CandiesBacking, MiberaOrder } from "generated";
+import type {
+  handlerContext,
+  CandiesHolder as CandiesHolderEntity,
+  CandiesHolderBalance as CandiesHolderBalanceEntity,
+} from "generated";
 
 import { ZERO_ADDRESS, BERACHAIN_ID } from "./constants";
 import { MINT_COLLECTION_KEYS } from "./mints/constants";
 import { recordAction } from "../lib/actions";
+import { isBurnAddress } from "../lib/mint-detection";
 
 const ZERO = ZERO_ADDRESS.toLowerCase();
 
@@ -28,6 +34,34 @@ export const handleCandiesMintSingle = CandiesMarket1155.TransferSingle.handler(
     const chainId = event.chainId;
     const tokenId = BigInt(id.toString());
     const quantity = BigInt(value.toString());
+
+    // =========================================================================
+    // Per-(holder, contract, tokenId) balances (CandiesHolderBalance) — DEP-1.
+    // Mirrors badges1155.adjustBadgeBalances: decrement `from`, increment `to`;
+    // zero/burn addresses are skipped so mint/burn/transfer all reconcile.
+    // Runs for ALL transfers (the mint-only early-return below is preserved for
+    // the existing MintEvent / inventory / backing / order side-effects).
+    // =========================================================================
+    if (quantity > 0n) {
+      await adjustCandiesBalance({
+        context,
+        holderAddress: fromLower,
+        contractAddress,
+        tokenId,
+        amountDelta: -quantity,
+        timestamp,
+        chainId,
+      });
+      await adjustCandiesBalance({
+        context,
+        holderAddress: to.toLowerCase(),
+        contractAddress,
+        tokenId,
+        amountDelta: quantity,
+        timestamp,
+        chainId,
+      });
+    }
 
     // Track orders for SilkRoad marketplace (non-mint transfers on Berachain)
     if (fromLower !== ZERO && contractAddress === SILKROAD_ADDRESS && chainId === BERACHAIN_ID) {
@@ -131,10 +165,7 @@ export const handleCandiesMintBatch = CandiesMarket1155.TransferBatch.handler(
   async ({ event, context }) => {
     const { operator, from, to, ids, values } = event.params;
 
-    if (from.toLowerCase() !== ZERO) {
-      return;
-    }
-
+    const fromLower = from.toLowerCase();
     const contractAddress = event.srcAddress.toLowerCase();
     const collectionKey = getCollectionKey(contractAddress);
     const operatorLower = operator.toLowerCase();
@@ -142,6 +173,55 @@ export const handleCandiesMintBatch = CandiesMarket1155.TransferBatch.handler(
     const timestamp = BigInt(event.block.timestamp);
     const chainId = event.chainId;
     const txHash = event.transaction.hash;
+
+    const idsArrayForBalance = Array.from(ids);
+    const valuesArrayForBalance = Array.from(values);
+    const balanceLength = Math.min(
+      idsArrayForBalance.length,
+      valuesArrayForBalance.length,
+    );
+
+    // =========================================================================
+    // Per-(holder, contract, tokenId) balances (CandiesHolderBalance) — DEP-1.
+    // Runs for ALL batch transfers (mint/burn/transfer); the mint-only
+    // early-return below preserves the existing MintEvent / inventory / backing
+    // side-effects without affecting balance reconciliation.
+    // =========================================================================
+    for (let index = 0; index < balanceLength; index += 1) {
+      const rawId = idsArrayForBalance[index];
+      const rawValue = valuesArrayForBalance[index];
+      if (rawId === undefined || rawValue === undefined || rawValue === null) {
+        continue;
+      }
+      const balanceTokenId = BigInt(rawId.toString());
+      const balanceQuantity = BigInt(rawValue.toString());
+      if (balanceQuantity === 0n) {
+        continue;
+      }
+      await adjustCandiesBalance({
+        context,
+        holderAddress: fromLower,
+        contractAddress,
+        tokenId: balanceTokenId,
+        amountDelta: -balanceQuantity,
+        timestamp,
+        chainId,
+      });
+      await adjustCandiesBalance({
+        context,
+        holderAddress: minterLower,
+        contractAddress,
+        tokenId: balanceTokenId,
+        amountDelta: balanceQuantity,
+        timestamp,
+        chainId,
+      });
+    }
+
+    // Mint-only side-effects below (MintEvent + inventory + backing + action).
+    if (fromLower !== ZERO) {
+      return;
+    }
 
     // Track BERA backing for candies only (mibera_drugs)
     // Use CandiesBacking entity to deduplicate by txHash
@@ -236,3 +316,96 @@ export const handleCandiesMintBatch = CandiesMarket1155.TransferBatch.handler(
     }
   }
 );
+
+// =============================================================================
+// Per-(holder, contract, tokenId) ERC-1155 balances (CandiesHolderBalance) — DEP-1
+// =============================================================================
+
+interface AdjustCandiesBalanceArgs {
+  context: handlerContext;
+  holderAddress: string;
+  contractAddress: string;
+  tokenId: bigint;
+  amountDelta: bigint;
+  timestamp: bigint;
+  chainId: number;
+}
+
+const makeCandiesBalanceId = (
+  chainId: number,
+  address: string,
+  contract: string,
+  tokenId: bigint,
+): string => `${chainId}-${address}-${contract}-${tokenId.toString()}`;
+
+/**
+ * Maintain the per-(holder, contract, tokenId) Candies balance, mirroring
+ * src/handlers/badges1155.ts adjustBadgeBalances. Skips the zero / burn
+ * addresses (so mints and burns naturally settle to a single live side),
+ * clamps decrements to the current balance, and deletes empty records.
+ * `CandiesHolder.totalAmount` aggregates all candy balances for a wallet.
+ */
+async function adjustCandiesBalance({
+  context,
+  holderAddress,
+  contractAddress,
+  tokenId,
+  amountDelta,
+  timestamp,
+  chainId,
+}: AdjustCandiesBalanceArgs): Promise<void> {
+  if (amountDelta === 0n) return;
+
+  const address = holderAddress.toLowerCase();
+  if (address === ZERO || isBurnAddress(address)) return;
+
+  const contract = contractAddress.toLowerCase();
+  const balanceId = makeCandiesBalanceId(chainId, address, contract, tokenId);
+
+  const existingBalance = await context.CandiesHolderBalance.get(balanceId);
+  const currentBalance = existingBalance?.amount ?? 0n;
+
+  // Clamp removals to the available balance (defensive — matches badges1155).
+  let appliedDelta = amountDelta;
+  if (amountDelta < 0n) {
+    const removeAmount =
+      currentBalance < -amountDelta ? currentBalance : -amountDelta;
+    if (removeAmount === 0n) return;
+    appliedDelta = -removeAmount;
+  }
+  if (appliedDelta === 0n) return;
+
+  const nextBalance = currentBalance + appliedDelta;
+
+  // Update aggregate holder total.
+  const existingHolder = await context.CandiesHolder.get(address);
+  let nextTotal = (existingHolder?.totalAmount ?? 0n) + appliedDelta;
+  if (nextTotal < 0n) nextTotal = 0n;
+
+  const holder: CandiesHolderEntity = {
+    id: address,
+    address,
+    chainId,
+    totalAmount: nextTotal,
+    updatedAt: timestamp,
+  };
+  context.CandiesHolder.set(holder);
+
+  if (nextBalance <= 0n) {
+    if (existingBalance) {
+      context.CandiesHolderBalance.deleteUnsafe(balanceId);
+    }
+    return;
+  }
+
+  const balance: CandiesHolderBalanceEntity = {
+    id: balanceId,
+    holder_id: address,
+    contract,
+    tokenId,
+    chainId,
+    amount: nextBalance,
+    updatedAt: timestamp,
+  };
+  context.CandiesHolderBalance.set(balance);
+}

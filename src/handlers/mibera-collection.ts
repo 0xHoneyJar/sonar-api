@@ -20,6 +20,7 @@ import type {
   NftBurn,
   NftBurnStats,
   TrackedHolder as TrackedHolderEntity,
+  Token as TokenEntity,
   MiberaStakedToken as MiberaStakedTokenEntity,
   MiberaStaker as MiberaStakerEntity,
 } from "generated";
@@ -72,6 +73,24 @@ export const handleMiberaCollectionTransfer = MiberaCollection.Transfer.handler(
     // `field_selection.transaction.value = true` is set in config.yaml.
     const txValue = (event.transaction as any).value;
     const amountPaid = txValue ? BigInt(txValue.toString()) : 0n;
+
+    // =========================================================================
+    // 0. Per-token current ownership (Token entity) — DEP-1.
+    // Mirrors the TrackedHolder count below so Token{owner} reconciles with
+    // TrackedHolder.tokenCount. For staking deposits, ownership stays with the
+    // user (the TrackedHolder count is likewise NOT decremented — staked NFTs
+    // still count as held), so the effective owner is `from`, not the staking
+    // contract. On burn, owner=ZERO + isBurned=true.
+    const depositContractKeyForOwner = STAKING_CONTRACT_KEYS[to];
+    const isStakingDeposit = Boolean(depositContractKeyForOwner) && from !== ZERO;
+    const effectiveOwner = isStakingDeposit ? from : to;
+    await updateTokenOwnership({
+      context,
+      tokenId,
+      from,
+      effectiveOwner,
+      timestamp,
+    });
 
     // =========================================================================
     // 1. Create MiberaTransfer record (activity feed)
@@ -339,6 +358,58 @@ async function adjustHolder({
   };
 
   context.TrackedHolder.set(holder);
+}
+
+// =============================================================================
+// Per-token current ownership (Token entity) — DEP-1
+// =============================================================================
+
+interface UpdateTokenOwnershipArgs {
+  context: handlerContext;
+  tokenId: bigint;
+  from: string;
+  effectiveOwner: string;
+  timestamp: bigint;
+}
+
+/**
+ * Maintain the per-token current-owner record (Token entity) for Mibera.
+ * Keyed `${collection}_${chainId}_${tokenId}` to match the canonical Token
+ * shape (src/lib/erc721-holders.ts, honey-jar-nfts.ts). Burns (owner is a burn
+ * address) mark isBurned=true and set owner=ZERO.
+ */
+async function updateTokenOwnership({
+  context,
+  tokenId,
+  from,
+  effectiveOwner,
+  timestamp,
+}: UpdateTokenOwnershipArgs) {
+  const burned = isBurnAddress(effectiveOwner);
+  const owner = burned ? ZERO : effectiveOwner;
+
+  const tokenKey = `${MIBERA_COLLECTION_ADDRESS}_${BERACHAIN_ID}_${tokenId}`;
+  const existing = await context.Token.get(tokenKey);
+
+  const token: TokenEntity = existing
+    ? {
+        ...existing,
+        owner,
+        isBurned: burned,
+        lastTransferTime: timestamp,
+      }
+    : {
+        id: tokenKey,
+        collection: MIBERA_COLLECTION_ADDRESS,
+        chainId: BERACHAIN_ID,
+        tokenId,
+        owner,
+        isBurned: burned,
+        mintedAt: from === ZERO ? timestamp : BigInt(0),
+        lastTransferTime: timestamp,
+      };
+
+  context.Token.set(token);
 }
 
 // =============================================================================

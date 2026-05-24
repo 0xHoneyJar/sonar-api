@@ -68,6 +68,29 @@ type CandiesBacking {
   chainId: Int!
 }
 
+# DEP-1: per-(holder, contract, tokenId) current balance for Mibera Candies
+# (ERC-1155, 0xeca0…40c + SilkRoad 0x8028…E38F). Mirrors BadgeBalance/BadgeHolder
+# (src/handlers/badges1155.ts). Maintained on mint/burn/transfer (incl. batch);
+# the inventory API reads CandiesHolderBalance for "what 1155 candies does W own".
+type CandiesHolder {
+  id: ID!  # holder address (lowercase)
+  address: String!
+  chainId: Int!
+  totalAmount: BigInt!  # sum of all candy balances held
+  updatedAt: BigInt!
+  balances: [CandiesHolderBalance!]! @derivedFrom(field: "holder")
+}
+
+type CandiesHolderBalance {
+  id: ID!  # `${chainId}-${address}-${contract}-${tokenId}`
+  holder: CandiesHolder!
+  contract: String!
+  tokenId: BigInt!
+  chainId: Int!
+  amount: BigInt!
+  updatedAt: BigInt!
+}
+
 type BadgeHolder {
   id: ID!
   address: String!
@@ -325,10 +348,10 @@ type GlobalCollectionStat {
 
 type Token {
   id: ID!
-  collection: String!
+  collection: String! @index
   chainId: Int!
   tokenId: BigInt!
-  owner: String!
+  owner: String! @index
   isBurned: Boolean!
   mintedAt: BigInt!
   lastTransferTime: BigInt!
