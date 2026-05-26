@@ -11,6 +11,7 @@
 import { MiberaZora1155, Erc1155MintEvent } from "generated";
 
 import { recordAction } from "../lib/actions";
+import { publishMintEvent } from "../lib/events-publisher";
 import { isMintFromZero } from "../lib/mint-detection";
 
 // Collection key for action tracking
@@ -76,6 +77,22 @@ export const handleMiberaZoraSingle = MiberaZora1155.TransferSingle.handler(
           operator: operatorLower,
           contract: contractAddress,
           from: fromLower,
+        },
+      });
+
+      // Events-pillar v1: publish Mibera Zora mint envelope.
+      // Subject: nft.mint.detected.mibera-zora.v1. Fail-soft.
+      await publishMintEvent({
+        log: context.log,
+        collectionSlug: "mibera-zora",
+        payload: {
+          chain_id: chainId,
+          contract: contractAddress,
+          token_id: tokenId.toString(),
+          minter: toLower,
+          block_number: event.block.number,
+          transaction_hash: event.transaction.hash,
+          timestamp: new Date(Number(timestamp) * 1000).toISOString(),
         },
       });
     } else {
@@ -177,6 +194,22 @@ export const handleMiberaZoraBatch = MiberaZora1155.TransferBatch.handler(
             contract: contractAddress,
             from: fromLower,
             batchIndex: index,
+          },
+        });
+
+        // Events-pillar v1: publish one envelope per token in the batch.
+        // Subject: nft.mint.detected.mibera-zora.v1. Fail-soft.
+        await publishMintEvent({
+          log: context.log,
+          collectionSlug: "mibera-zora",
+          payload: {
+            chain_id: chainId,
+            contract: contractAddress,
+            token_id: tokenId.toString(),
+            minter: toLower,
+            block_number: event.block.number,
+            transaction_hash: txHash,
+            timestamp: new Date(Number(timestamp) * 1000).toISOString(),
           },
         });
       } else {
