@@ -1,0 +1,136 @@
+# packages/protocol/beacon.yaml — sonar-api (freeside-sonar) building beacon (BeaconV3)
+#
+# Validated against `packages/beacon-schema/src/beacon-v3.ts` (BeaconV3Schema)
+# in loa-freeside. Per the V3 fixture convention:
+#   loa-freeside/packages/beacon-schema/tests/fixtures/freeside-inventory-v3.yaml
+# `schema_version` stays "2" (BeaconV3 is a structural superset of V2 — the
+# V3 fields below are the V3 signal, not a version bump).
+#
+# Cluster role: freeside-sonar is the CLOSER-TO-RAW source in the DAG
+# (loa-freeside/CLAUDE.md "Composition direction" — closer-to-raw publishes,
+# closer-to-meaning consumes). Its `composes_with` is intentionally empty:
+# sonar is a SOURCE for inventory / score / dimensions / honey-road, not a
+# composer of other freeside cells. Upstream dependencies (eRPC, HyperSync,
+# free public RPC) are infrastructure substrate, not cluster cells.
+#
+# At deploy time, `freeside-cli doctor` recomputes the placeholder hashes in
+# `sealed_schemas.<n>.hash` and emits the resolved JSON to /.well-known/beacon.json.
+
+schema_version: "3"
+slug: "sonar-api"
+publisher: "0xHoneyJar"
+
+# ─── Identity + boundaries (per ADR-008 §D-11) ───────────────────────────
+# NOTE: V3 is a SEPARATE shape from V2 (not a structural superset). V3 is the
+# building-identity beacon (schema_version "3"); V2 (schema_version "2") is
+# the MCP-tenant self-declaration. V3 omits V2's `payment`/`docs` fields and
+# requires top-level `slug` + `publisher` + identity (is/is_not/cycle_state).
+# Optional transport block `mcp:` mirrors V2's McpBlock for runtime federation.
+
+is:
+  one_liner: "EVM event indexer (Envio HyperIndex V3 belt) for ERC721/ERC1155 + custom events across 6 chains"
+  scope:
+    - "Indexes 41 contract sources across Ethereum, Optimism, Arbitrum, Base, Berachain, Zora"
+    - "Exposes 93 GraphQL entity types served behind a stable production alias (Caddy belt-gateway)"
+    - "Normalizes cross-cutting Action / Mint / Transfer / Holder rows via shared lib/actions.ts"
+    - "Serves cycle-c verification reads + per-event entities + running aggregates (e.g. PaddleSupplier)"
+    - "Promotes additive-only schema changes blue-green behind a fixed alias (zero consumer downtime)"
+
+# ─── Anti-scope (the discipline-forcing field) ────────────────────────────
+
+is_not:
+  - "Does NOT compose other freeside cells — closer-to-raw in the DAG; sonar is a SOURCE, not a consumer"
+  - "Does NOT serve NFT metadata, images, or off-chain content — freeside-storage owns that surface"
+  - "Will NOT mutate on-chain state — strictly read-only event ingestion + GraphQL serving"
+  - "Refuses to gate the GraphQL endpoint behind a third-party auth aggregator (Dynamic / Privy)"
+  - "Will NOT serve breaking schema changes on the stable alias — additive-only contract (PRD r2 FR-7)"
+
+# ─── Composition (sibling buildings this cell reads at compose time) ──────
+# INTENTIONALLY EMPTY. freeside-sonar is the upstream end of the cluster
+# DAG: inventory-api / score-api / mibera-codex / honey-road CONSUME sonar.
+# The reverse arrow is impossible by the closer-to-raw-publishes rule.
+# Infrastructure deps (eRPC sidecar, HyperSync, free public RPC) are NOT
+# freeside cells and are not declared here.
+
+composes_with: {}
+
+# ─── ACVP invariants (verifiability discipline) ───────────────────────────
+# ASPIRATIONAL. The proof_artifact paths are placeholders — no tests/acvp/
+# directory exists in sonar-api today. The blue-green promotion gate (PRD r2
+# FR-4) is a runtime reconciliation, not a unit-test binding. Future cycle:
+# port the score-api footprint reconciliation (AC-R7) + the per-chain
+# getLogs-liar verification discipline (KF-012) into tests/acvp/.
+
+acvp_invariants:
+  - id: event_completeness
+    scope: "No event drops between block N and N+1 for any indexed contract source on any chain"
+    proof_artifact: "tests/acvp/event_completeness.test.ts"   # ASPIRATIONAL — see KF-012 in grimoires/loa/known-failures.md
+  - id: monotonicity
+    scope: "latest_processed_block on a given chainId never decreases on the live alias (reorgs handled in-belt)"
+    proof_artifact: "tests/acvp/monotonicity.test.ts"          # ASPIRATIONAL — bound by the promotion gate (PRD FR-4)
+  - id: audit_replay
+    scope: "Reindexing the consolidated belt from per-chain start_block produces byte-identical Action / Transfer / MintEvent rows"
+    proof_artifact: "tests/acvp/audit_replay.test.ts"          # ASPIRATIONAL — bound by the green-vs-blue reconciliation gate
+
+# ─── Sealed schemas (hash-verified protocol surface) ──────────────────────
+# The public protocol surface for freeside-sonar is its GraphQL schema
+# (schema.graphql, 93 types) — this is the contract consumers depend on.
+# Hash is PLACEHOLDER (64 zeros); freeside-cli doctor recomputes the
+# canonical-JSON sha256 at validation time.
+
+sealed_schemas:
+  - path: "schema.graphql"
+    hash: "0000000000000000000000000000000000000000000000000000000000000000"   # PLACEHOLDER — doctor recomputes
+    consumers:
+      - "freeside-inventory"      # holdings reads (ERC721 + ERC1155)
+      - "score-api"               # snapshot capture + scoring inputs
+      - "mibera-honeyroad"        # /backing endpoint + cycle-c verify
+      - "mibera-codex"            # 7-dimension reads + grail composition
+      - "freeside-identity-api"   # cycle-c verify redirect (per identity-api PRD)
+      - "cubquests"
+      - "set-and-forgetti"
+      - "apiologydao"
+
+# ─── Cycle state (honest maturity signal) ─────────────────────────────────
+# Status: active. The consolidated belt has been serving production since
+# 2025-12-01 (first config.yaml commit f6e773a); blue-green promotion +
+# stable-alias discipline ratified in PR #16 (cycle/sonar-belt-factory)
+# merged 2026-05-22.
+
+cycle_state:
+  status: active
+  since: "2025-12-01"             # first commit of config.yaml / schema.graphql
+  next_review: "2026-05-30"       # within doctor's +180d cap (2025-12-01 + 180d)
+
+# ─── MCP transport ────────────────────────────────────────────────────────
+# IMPORTANT: freeside-sonar's canonical public surface is GraphQL, NOT MCP.
+# No MCP server is registered in this repo (no src/mcp/, no MCP tool
+# registrations). However, BeaconV2 requires the `mcp:` block with
+# `paths: minItems(1)`, so we declare the GraphQL endpoint as a `proxy`-shape
+# MCP entry — the mcp-gateway can wrap it as a read-only data tool surface.
+# When (if) a native MCP server lands in this repo, switch `shape: data` and
+# enumerate explicit tools (queryAction, queryMint, queryTransfer, etc.).
+#
+# Stable alias: https://indexer.hyperindex.xyz/b5da47c/v1/graphql  (authoritative)
+# Production gateway: belt-gateway @ Caddy (Caddyfile · reverse_proxy {$BELT_UPSTREAM})
+
+mcp:
+  shape: proxy
+  paths:
+    - remote-http
+  remote:
+    transport: streamable-http
+    endpoint: ${SONAR_GRAPHQL_ENDPOINT}     # resolved at gateway boot — default: https://indexer.hyperindex.xyz/b5da47c/v1/graphql
+  auth:
+    kind: none                              # public read endpoint (production root returns {"message":"Sonar API"})
+  capabilities:
+    - tools
+  tools:
+    - graphql                               # single passthrough tool — gateway forwards arbitrary GraphQL queries
+  source_of_truth:
+    type: database                          # Hasura on belt-hasura → Postgres on belt-indexer (PRD r2 FR-1)
+    url: "https://indexer.hyperindex.xyz/b5da47c/v1/graphql"
+  pricing:
+    model: free
+    description: First-party cluster cell — free reads against the stable alias
+  publisher: "0xHoneyJar"
