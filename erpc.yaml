@@ -74,6 +74,13 @@ rateLimiters:
       rules: [{ method: "*", maxCount: 25, period: 1s }]
     - id: bud-sentio
       rules: [{ method: "*", maxCount: 25, period: 1s }]
+    # Envio HyperRPC (paid, pay-per-use $4/1M calls — no published rate cap).
+    # Set to 100 req/s as a sane circuit-breaker against runaway billing.
+    # Path ε 2026-05-27: added to substitute HyperSync's premium product for
+    # live ingestion. HyperRPC is JSON-RPC compatible so it slots into eRPC's
+    # existing upstream pattern; HyperSync (batch-archive product) is not.
+    - id: bud-hyperrpc
+      rules: [{ method: "*", maxCount: 100, period: 1s }]
     # Multi-chain extension (Base/OP/ETH) — per-upstream pacing, same 25 req/s as Berachain.
     - id: bud-base-publicnode
       rules: [{ method: "*", maxCount: 25, period: 1s }]
@@ -185,6 +192,18 @@ projects:
       - id: berachain-sentio
         endpoint: https://berachain.rpc.sentio.xyz
         rateLimitBudget: bud-sentio
+
+      # ── Envio HyperRPC (Berachain) — PAID, high-quality JSON-RPC. Added Path ε
+      # 2026-05-27 to substitute for HyperSync (separate Envio product on a separate
+      # paid SKU). Token injected via HYPERRPC_TOKEN env var (SDD §10.3: no inline
+      # credentials). When this upstream is healthy + the free cluster has any 429,
+      # eRPC's auto-prioritization will route to HyperRPC.
+      - id: berachain-hyperrpc
+        endpoint: https://80094.rpc.hypersync.xyz
+        rateLimitBudget: bud-hyperrpc
+        jsonRpc:
+          headers:
+            Authorization: "Bearer ${HYPERRPC_TOKEN}"
 
       # ── Base 8453 (op-stack) — Mibera ecosystem leg. KF-012 getLogs-liar on op-stack is
       # TIMEOUT/SPARSE-range-based (empty-200 on slow scans); verified 2026-05-21 that
