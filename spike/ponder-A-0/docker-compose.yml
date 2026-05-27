@@ -1,0 +1,41 @@
+# A-0 verification — local Postgres + Hasura for the spike.
+# Uses non-conflicting ports (5444 / 8085) so it doesn't fight existing
+# generated-envio-postgres (5433) or generated-graphql-engine (8080).
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: spike-ponder-a0-postgres
+    environment:
+      POSTGRES_USER: ponder
+      POSTGRES_PASSWORD: ponder
+      POSTGRES_DB: ponder
+    ports:
+      - "5444:5432"
+    volumes:
+      - spike-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ponder -d ponder"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  hasura:
+    image: hasura/graphql-engine:v2.43.0
+    container_name: spike-ponder-a0-hasura
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8085:8080"
+    environment:
+      HASURA_GRAPHQL_DATABASE_URL: postgres://ponder:ponder@postgres:5432/ponder
+      HASURA_GRAPHQL_ENABLE_CONSOLE: "true"
+      HASURA_GRAPHQL_DEV_MODE: "true"
+      HASURA_GRAPHQL_ADMIN_SECRET: spike_admin_secret
+      HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup,http-log,webhook-log,websocket-log,query-log
+      HASURA_GRAPHQL_UNAUTHORIZED_ROLE: anonymous
+
+volumes:
+  spike-pgdata:
