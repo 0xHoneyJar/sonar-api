@@ -311,7 +311,61 @@ export async function publishMintEvent(args: {
     args.log.warn(
       `[events-publisher] publish failed (envio write succeeded): subject=${subject} err=${(err as Error).message}`,
     );
+    // BB#24 rd-3 F-001 HIGH: if the publish failed because the NATS connection
+    // closed (broker restart, network drop, etc.), the singleton `nats` is
+    // now broken and every future publish will keep hitting it. Detect
+    // closed-connection errors + reset the substrate state so the next
+    // publish triggers a fresh lazy init (subject to the transient backoff
+    // window). nats.js errors carry an `code` field for these classes
+    // (ConnectionClosed / StaleConnection / Disconnect) — match by code and
+    // by message fallback for older runtime versions.
+    if (isConnectionClosedError(err)) {
+      args.log.warn(
+        `[events-publisher] NATS connection appears closed — resetting substrate for retry on next publish`,
+      );
+      nats = null;
+      initialized = false;
+      disabledKind = "transient";
+      disabledReason = `NATS publish failed with closed-connection error: ${(err as Error).message}`;
+      lastTransientFailAtMs = Date.now();
+    }
   }
+}
+
+/**
+ * Classifies a publish error as connection-closed (transient + needs reset)
+ * vs other (transient at the broker level but the connection is still
+ * usable). Matches nats.js v2 NatsError shape: `code` field + known
+ * close-class codes; falls back to message-substring matching for older
+ * runtime versions where the code may not be set.
+ *
+ * Conservative: when in doubt, returns false (don't reset on every error;
+ * only on errors that suggest the connection itself is broken).
+ */
+function isConnectionClosedError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const code = (err as { code?: unknown }).code;
+  if (typeof code === "string") {
+    // nats.js NATS_ERROR_CODES — the close-class codes.
+    if (
+      code === "CONNECTION_CLOSED" ||
+      code === "STALE_CONNECTION" ||
+      code === "DISCONNECT" ||
+      code === "CONNECTION_TIMEOUT" ||
+      code === "CONNECTION_REFUSED"
+    ) {
+      return true;
+    }
+  }
+  const msg = err instanceof Error ? err.message : "";
+  // Conservative substring fallback — nats.js error messages contain these
+  // tokens when the code field isn't populated by the runtime.
+  return (
+    msg.includes("CONNECTION_CLOSED") ||
+    msg.includes("STALE_CONNECTION") ||
+    msg.includes("closed") ||
+    msg.includes("stale")
+  );
 }
 
 // --- test-mode injection ----------------------------------------------------
