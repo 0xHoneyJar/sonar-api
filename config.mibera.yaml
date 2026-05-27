@@ -224,8 +224,14 @@ chains:
     # name it `rpc_config`, which does not exist in the installed schema; see the
     # S2-T1 implementation report for the naming-drift finding.
     rpc:
-      url: http://erpc.railway.internal:4000/main/evm/80094
-      for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/80094
+
+        for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/80094
+
+        for: live
     contracts:
       # Mibera Liquid Backing - Loans, RFV, and marketplace
       - name: MiberaLiquidBacking
@@ -296,8 +302,14 @@ chains:
     # the trade for cluster-owned chain-read substrate (memory
     # erpc-postgres-becomes-hypersync).
     rpc:
-      url: http://erpc.railway.internal:4000/main/evm/8453
-      for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/8453
+
+        for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/8453
+
+        for: live
     contracts:
       - name: FriendtechShares
         address:
@@ -311,8 +323,14 @@ chains:
   - id: 10
     start_block: 107558369 # MirrorObservability deployment (earliest for Mibera articles)
     rpc:
-      url: http://erpc.railway.internal:4000/main/evm/10
-      for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/10
+
+        for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/10
+
+        for: live
     contracts:
       - name: MiberaSets
         address:
@@ -340,8 +358,14 @@ chains:
   - id: 1
     start_block: 13090020 # Milady contract deployment (MiladyCollection inherits this floor)
     rpc:
-      url: http://erpc.railway.internal:4000/main/evm/1
-      for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/1
+
+        for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/1
+
+        for: live
     contracts:
       - name: MiladyCollection
         address:
