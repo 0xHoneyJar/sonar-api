@@ -17,6 +17,23 @@
  *      is degraded. The Envio entity write happens FIRST in the handler;
  *      publish is best-effort tail-call.
  *
+ * Failure-kind discipline (BB#24 F-001 closed):
+ *   - **Permanent (config-disabled)**: env vars missing, scheme rejected,
+ *     CA unreadable, signer init failed. These cache `initialized=true` and
+ *     never retry — operator must fix config + restart sonar.
+ *   - **Transient (connection-failed)**: NATS broker unreachable, TLS
+ *     handshake failed, socket dropped. These keep `initialized=false` so
+ *     the NEXT publish call retries — with a small backoff window so a
+ *     burst of mint events doesn't hammer the broker during outage.
+ *
+ * TLS enforcement (BB#24 F-002 / F-003 closed):
+ *   - NATS_URL MUST have a TLS scheme (`tls://` or `nats+tls://` — also
+ *     accepts the cluster's `nats://` form when NATS_TLS_CA is provided
+ *     because the underlying nats.js client upgrades that to TLS when a
+ *     `tls` option is passed). Plaintext-only schemes without CA → refuse.
+ *   - NATS_TLS_CA, when set, MUST be readable. Unreadable CA → refuse
+ *     (config-disabled). The old warn-and-continue path is closed.
+ *
  * Single-process limitation: `InMemoryPrevHashStore` means a sonar restart
  * resets the chain tip and the next envelope's `prev_hash` will be
  * GENESIS — subscribers with `chainStore` will surface
@@ -40,18 +57,36 @@ import { connect, type NatsConnection } from "nats";
 // --- module-singleton state -------------------------------------------------
 
 /**
- * Lazy-init flags. The first publish either constructs the substrate or
+ * Lazy-init state. The first publish either constructs the substrate or
  * sets `disabledReason` and skips. After that, subsequent publishes are
  * either a cheap publish call or a no-op return.
+ *
+ * `disabledKind` distinguishes permanent failures (cache + never retry) from
+ * transient failures (allow retry on the next publish, with backoff). See
+ * BB#24 F-001 for the bug class this closes.
  */
 let initialized = false;
 let disabledReason: string | null = null;
+let disabledKind: "permanent" | "transient" | null = null;
+let lastTransientFailAtMs = 0;
 let nats: NatsConnection | null = null;
 let signer: Signer | null = null;
-const prevHashStore: PrevHashStore = new InMemoryPrevHashStore();
+// `let` (not `const`) so __resetForTests can swap the instance for test
+// isolation (BB#24 F-005) and __setTestSubstrate can honor an injected
+// store (BB#24 F-006). Previous shape captured the store as `const` and
+// the test hooks couldn't replace it.
+let prevHashStore: PrevHashStore = new InMemoryPrevHashStore();
 
 /** Cell identity — populates `emitted_by` on every envelope. */
 const EMITTED_BY = "sonar-api";
+
+/**
+ * Backoff window for transient NATS connect failures. A burst of mint
+ * events arrives in tight bunches (e.g. when Envio catches up on a chain
+ * range); without backoff, every event would attempt a fresh connect and
+ * hammer the broker during outage. 5s is conservative and operator-friendly.
+ */
+const TRANSIENT_BACKOFF_MS = 5_000;
 
 // --- public types -----------------------------------------------------------
 
@@ -90,62 +125,133 @@ interface HandlerLogger {
   info?(...args: unknown[]): void;
 }
 
+// --- TLS scheme validation (BB#24 F-002) ------------------------------------
+
+/**
+ * Returns the failure reason if NATS_URL is insecure, else null.
+ *
+ * Accepts:
+ *   - `tls://...` or `nats+tls://...` — explicit TLS scheme
+ *   - `nats://...` ONLY when NATS_TLS_CA is provided (nats.js upgrades to TLS)
+ *
+ * Rejects:
+ *   - `nats://...` without NATS_TLS_CA — plaintext
+ *   - Missing scheme — ambiguous; refuse rather than guess
+ *   - Any other scheme — refuse
+ */
+function validateTlsPosture(natsUrl: string, natsTlsCa: string | undefined): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(natsUrl);
+  } catch {
+    return `NATS_URL "${natsUrl}" is not a valid URL`;
+  }
+  const scheme = parsed.protocol.replace(":", "");
+  if (scheme === "tls" || scheme === "nats+tls") {
+    // Explicit TLS scheme — fine even without a custom CA (nats.js uses
+    // system roots). But if NATS_TLS_CA is set we still want it readable
+    // (F-003 — checked separately).
+    return null;
+  }
+  if (scheme === "nats") {
+    if (!natsTlsCa) {
+      return `NATS_URL "${natsUrl}" uses plaintext "nats://" scheme without NATS_TLS_CA — refusing to connect (TLS-only per Sprint-1 design rule)`;
+    }
+    // nats://+CA → nats.js upgrades to TLS via the tls config option.
+    return null;
+  }
+  return `NATS_URL "${natsUrl}" uses unsupported scheme "${scheme}://" — expected tls://, nats+tls://, or nats:// with NATS_TLS_CA`;
+}
+
 // --- substrate init ---------------------------------------------------------
+
+/**
+ * Mark the substrate disabled (permanent). Cached for the process lifetime;
+ * operator must fix config + restart.
+ */
+function markPermanentDisabled(reason: string, log: HandlerLogger): false {
+  initialized = true;
+  disabledReason = reason;
+  disabledKind = "permanent";
+  log.warn(`[events-publisher] permanently disabled: ${reason}`);
+  return false;
+}
+
+/**
+ * Mark a transient failure. Does NOT cache initialized=true so the next
+ * publish will retry (subject to the backoff window). BB#24 F-001 close.
+ */
+function markTransientFailure(reason: string, log: HandlerLogger): false {
+  initialized = false;
+  disabledReason = reason;
+  disabledKind = "transient";
+  lastTransientFailAtMs = Date.now();
+  signer = null;
+  nats = null;
+  log.warn(`[events-publisher] transient failure (will retry after ${TRANSIENT_BACKOFF_MS}ms): ${reason}`);
+  return false;
+}
 
 async function initSubstrate(log: HandlerLogger): Promise<boolean> {
   if (initialized) return disabledReason === null;
-  initialized = true;
+
+  // Transient backoff: if we just had a transient failure, skip this attempt.
+  // The flag `initialized=false` means a future call after the backoff window
+  // will go through full init again.
+  if (disabledKind === "transient" && Date.now() - lastTransientFailAtMs < TRANSIENT_BACKOFF_MS) {
+    return false;
+  }
 
   const natsUrl = process.env.NATS_URL;
   const seedHex = process.env.SONAR_SIGNING_SEED_HEX;
+  const natsTlsCa = process.env.NATS_TLS_CA;
 
-  if (!natsUrl) {
-    disabledReason = "NATS_URL not set";
-    log.warn(`[events-publisher] disabled: ${disabledReason}`);
-    return false;
-  }
-  if (!seedHex) {
-    disabledReason = "SONAR_SIGNING_SEED_HEX not set";
-    log.warn(`[events-publisher] disabled: ${disabledReason}`);
-    return false;
+  // --- PERMANENT-DISABLED checks (cache + never retry) ----------------------
+
+  if (!natsUrl) return markPermanentDisabled("NATS_URL not set", log);
+  if (!seedHex) return markPermanentDisabled("SONAR_SIGNING_SEED_HEX not set", log);
+
+  const tlsReason = validateTlsPosture(natsUrl, natsTlsCa);
+  if (tlsReason) return markPermanentDisabled(tlsReason, log);
+
+  // BB#24 F-003: when NATS_TLS_CA is set but unreadable → refuse. The old
+  // warn-and-continue-with-undefined-CA path is closed; that path could
+  // silently weaken certificate verification.
+  let ca: string | undefined;
+  if (natsTlsCa) {
+    try {
+      ca = readFileSync(natsTlsCa, "utf8");
+    } catch (err) {
+      return markPermanentDisabled(
+        `NATS_TLS_CA at "${natsTlsCa}" is unreadable: ${(err as Error).message}`,
+        log,
+      );
+    }
   }
 
   try {
     signer = await LocalEd25519Signer.fromSeedHex(seedHex, "sonar-api-1");
   } catch (err) {
-    disabledReason = `signer init failed: ${(err as Error).message}`;
-    log.warn(`[events-publisher] disabled: ${disabledReason}`);
-    return false;
+    return markPermanentDisabled(`signer init failed: ${(err as Error).message}`, log);
   }
 
-  // TLS-only per Sprint-1 design invariant. NATS_TLS_CA is a path to the CA
-  // bundle the cluster's JetStream instance is signed with.
-  const tlsCa = process.env.NATS_TLS_CA;
-  const tls = tlsCa ? { ca: safeReadFile(tlsCa, log) } : undefined;
+  // --- TRANSIENT path: NATS connect can fail temporarily --------------------
 
   try {
     nats = await connect({
       servers: natsUrl,
-      ...(tls ? { tls } : {}),
+      ...(ca ? { tls: { ca } } : {}),
     });
-    log.info?.(`[events-publisher] connected to ${natsUrl} (TLS=${tlsCa ? "yes" : "no"})`);
+    log.info?.(`[events-publisher] connected to ${natsUrl} (TLS=${ca ? "with-custom-CA" : "via-scheme"})`);
   } catch (err) {
-    disabledReason = `NATS connect failed: ${(err as Error).message}`;
-    log.warn(`[events-publisher] disabled: ${disabledReason}`);
     nats = null;
-    return false;
+    return markTransientFailure(`NATS connect failed: ${(err as Error).message}`, log);
   }
 
+  initialized = true;
+  disabledReason = null;
+  disabledKind = null;
   return true;
-}
-
-function safeReadFile(path: string, log: HandlerLogger): string | undefined {
-  try {
-    return readFileSync(path, "utf8");
-  } catch (err) {
-    log.warn(`[events-publisher] could not read NATS_TLS_CA at ${path}: ${(err as Error).message}`);
-    return undefined;
-  }
 }
 
 // --- handler-facing API -----------------------------------------------------
@@ -186,9 +292,14 @@ export async function publishMintEvent(args: {
 // --- test-mode injection ----------------------------------------------------
 
 /**
- * Test-only: inject a mock NATS connection + signer + prevHashStore. Allows
- * golden-replay tests to assert publish behavior without spinning up a real
- * JetStream. Resets `initialized` so the next call uses the injected state.
+ * Test-only: inject a mock NATS connection + signer + optional prevHashStore.
+ * Allows golden-replay tests to assert publish behavior without spinning up
+ * a real JetStream. Resets `initialized` to true so the next call uses the
+ * injected state (skipping init).
+ *
+ * BB#24 F-006: opts.prevHashStore is now actually honored (previously the
+ * module-level store was `const` and the comment apologized for ignoring
+ * the parameter). Made `let` in the F-005 fix to enable this.
  */
 export function __setTestSubstrate(opts: {
   nats: { publish: (subject: string, data: Uint8Array, opts?: { headers?: unknown }) => void | Promise<unknown> };
@@ -198,19 +309,24 @@ export function __setTestSubstrate(opts: {
   nats = opts.nats as unknown as NatsConnection;
   signer = opts.signer;
   if (opts.prevHashStore) {
-    // Swap the module-level prevHashStore reference is non-trivial (const).
-    // Instead, drain + re-seed by leaving the in-memory map empty; tests
-    // that need a custom store can use the default InMemoryPrevHashStore
-    // and seed via the signer's own publish flow.
+    prevHashStore = opts.prevHashStore;
   }
   initialized = true;
   disabledReason = null;
+  disabledKind = null;
 }
 
-/** Test-only: reset module state so the next call re-initializes. */
+/**
+ * Test-only: reset module state so the next call re-initializes. Replaces
+ * the module-level prevHashStore with a fresh InMemoryPrevHashStore so
+ * tests start with a clean genesis chain (BB#24 F-005).
+ */
 export function __resetForTests(): void {
   initialized = false;
   disabledReason = null;
+  disabledKind = null;
+  lastTransientFailAtMs = 0;
   nats = null;
   signer = null;
+  prevHashStore = new InMemoryPrevHashStore();
 }

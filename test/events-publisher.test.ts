@@ -106,8 +106,33 @@ describe("events-publisher — substrate disabled (no env vars)", () => {
       publishMintEvent({ log, collectionSlug: "mibera-shadow", payload: samplePayload }),
     ).resolves.toBeUndefined();
     expect(log.warn).toHaveBeenCalledWith(
-      expect.stringContaining("[events-publisher] disabled: NATS_URL not set"),
+      expect.stringContaining("[events-publisher] permanently disabled: NATS_URL not set"),
     );
+  });
+
+  // BB#24 F-002: TLS-only invariant must be enforced. Plaintext nats://
+  // without NATS_TLS_CA → permanently disabled (not silently allowed).
+  it("refuses plaintext NATS_URL without NATS_TLS_CA (BB#24 F-002)", async () => {
+    const log = createMockLog();
+    process.env.NATS_URL = "nats://broker:4222";
+    process.env.SONAR_SIGNING_SEED_HEX = "0".repeat(64);
+    // NATS_TLS_CA intentionally unset
+    await publishMintEvent({ log, collectionSlug: "mibera-shadow", payload: samplePayload });
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining("plaintext"),
+    );
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("permanently disabled"));
+  });
+
+  // BB#24 F-003: NATS_TLS_CA pointing at an unreadable path must fail-closed.
+  it("refuses unreadable NATS_TLS_CA path (BB#24 F-003)", async () => {
+    const log = createMockLog();
+    process.env.NATS_URL = "nats://broker:4222";
+    process.env.SONAR_SIGNING_SEED_HEX = "0".repeat(64);
+    process.env.NATS_TLS_CA = "/tmp/nonexistent-ca-file-bb-24-f-003.pem";
+    await publishMintEvent({ log, collectionSlug: "mibera-shadow", payload: samplePayload });
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("unreadable"));
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("permanently disabled"));
   });
 });
 
