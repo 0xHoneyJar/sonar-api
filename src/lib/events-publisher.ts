@@ -34,6 +34,29 @@
  *   - NATS_TLS_CA, when set, MUST be readable. Unreadable CA → refuse
  *     (config-disabled). The old warn-and-continue path is closed.
  *
+ * mTLS client-cert presentation (Path ε — Railway-hosted nats-server):
+ *   - NATS_TLS_CLIENT_CERT + NATS_TLS_CLIENT_KEY are OPTIONAL env vars that
+ *     hold PEM **bodies** (not paths — Railway service-variables inject the
+ *     full PEM content). When both are set, the nats.js `tls` options
+ *     object includes `cert` + `key` alongside the existing CA, enabling
+ *     mTLS auth against the Path-ε broker (`--tlsverify` on nats-server
+ *     requires + verifies a client cert signed by the cluster CA).
+ *   - Partial config (one set, the other missing) → refuse permanently.
+ *     This is a configuration error, not a transient one — proceeding with
+ *     only one half would either fail the TLS handshake (cert without key)
+ *     or silently fall back to anonymous TLS (key without cert), masking
+ *     a deployment misconfiguration. Mirrors the existing NATS_URL refuse
+ *     path style.
+ *   - The PEM-body convention is asymmetric with NATS_TLS_CA (which is
+ *     still a file path for backward compatibility with the AWS-NATS
+ *     deployment shape). The Path-ε runbook documents this; future work
+ *     may converge both to PEM bodies.
+ *   - Backward-compatible: when neither client-cert env is set, behavior
+ *     is identical to today (CA-only TLS, anonymous client).
+ *
+ *   Reference: ~/Documents/GitHub/loa-freeside/grimoires/loa/specs/
+ *     cluster-events-pillar-v1/go-live-path-epsilon-railway-nats.md §Step 3a
+ *
  * Single-process limitation: `InMemoryPrevHashStore` means a sonar restart
  * resets the chain tip and the next envelope's `prev_hash` will be
  * GENESIS — subscribers with `chainStore` will surface
@@ -210,11 +233,26 @@ async function initSubstrate(log: HandlerLogger): Promise<boolean> {
   const natsUrl = process.env.NATS_URL;
   const seedHex = process.env.SONAR_SIGNING_SEED_HEX;
   const natsTlsCa = process.env.NATS_TLS_CA;
+  // Path-ε mTLS client cert: PEM bodies, not paths. Both-or-neither.
+  // .trim() guards against trailing-newline noise from copy-paste env values
+  // and Railway service-variable round-trips that occasionally normalize CRLF.
+  const clientCert = process.env.NATS_TLS_CLIENT_CERT?.trim() || undefined;
+  const clientKey = process.env.NATS_TLS_CLIENT_KEY?.trim() || undefined;
 
   // --- PERMANENT-DISABLED checks (cache + never retry) ----------------------
 
   if (!natsUrl) return markPermanentDisabled("NATS_URL not set", log);
   if (!seedHex) return markPermanentDisabled("SONAR_SIGNING_SEED_HEX not set", log);
+
+  // Path-ε partial-config refuse: one set without the other is a deployment
+  // misconfiguration. Proceeding either way (cert-without-key, key-without-cert)
+  // masks the error — fail-closed at config-load is the audit-friendly path.
+  if (Boolean(clientCert) !== Boolean(clientKey)) {
+    return markPermanentDisabled(
+      "NATS_TLS_CLIENT_CERT and NATS_TLS_CLIENT_KEY must both be set or both unset (Path-ε mTLS)",
+      log,
+    );
+  }
 
   const tlsReason = validateTlsPosture(natsUrl, natsTlsCa);
   if (tlsReason) return markPermanentDisabled(tlsReason, log);
@@ -247,12 +285,33 @@ async function initSubstrate(log: HandlerLogger): Promise<boolean> {
 
   // --- TRANSIENT path: NATS connect can fail temporarily --------------------
 
+  // TLS options assembly: CA-only (legacy AWS-NATS), CA+client-cert (Path-ε
+  // mTLS), or client-cert-only (system-CA verification + client auth). The
+  // ternary chain keeps the no-TLS-options branch unchanged when neither
+  // CA nor client cert is configured (preserves Sprint-1 default behavior).
+  const tlsOptions =
+    ca || clientCert
+      ? {
+          tls: {
+            ...(ca ? { ca } : {}),
+            ...(clientCert ? { cert: clientCert, key: clientKey } : {}),
+          },
+        }
+      : {};
+
   try {
     nats = await connect({
       servers: natsUrl,
-      ...(ca ? { tls: { ca } } : {}),
+      ...tlsOptions,
     });
-    log.info?.(`[events-publisher] connected to ${natsUrl} (TLS=${ca ? "with-custom-CA" : "via-scheme"})`);
+    const tlsMode = clientCert
+      ? ca
+        ? "mTLS-with-custom-CA"
+        : "mTLS-via-system-CA"
+      : ca
+        ? "with-custom-CA"
+        : "via-scheme";
+    log.info?.(`[events-publisher] connected to ${natsUrl} (TLS=${tlsMode})`);
   } catch (err) {
     nats = null;
     return markTransientFailure(`NATS connect failed: ${(err as Error).message}`, log);
