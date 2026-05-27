@@ -50,6 +50,27 @@
 #     table_schema='ponder' against STAGING_DB_URL and filter the metadata to
 #     only the tables that actually exist in ponder.* (option A — most rigorous,
 #     keeps script self-contained, single new psql call).
+#
+# A-3.6 hardening (2026-05-27, this PR — last change before A-4 production cutover):
+#  - INTROSPECTION-BASED MAPPING. Before A-3.6, the cutover used `.table.name`
+#    (the Postgres table name from the snapshot) verbatim as the PascalCase to
+#    bake into `custom_root_fields.select`. That implicitly assumed envio set NO
+#    `custom_root_fields` on its tables, so the Postgres name == consumer-facing
+#    root field name. That assumption held in the A-3.5 dry-run (verified: zero
+#    tables with custom_root_fields in the envio snapshot), but it's fragile:
+#    if envio ever customized a root field (e.g., `custom_root_fields.select`
+#    set to `"MintEv"` for `MintEvent`), the convention would silently bake the
+#    wrong name and consumer queries against `{ MintEv { … } }` would 404.
+#  - FIX: perform a single GraphQL introspection call against $HASURA_URL BEFORE
+#    the metadata transform, capture the actual consumer-facing `select` root
+#    field names (the bare names without `_aggregate`/`_by_pk` suffixes), and
+#    use THOSE as the source of truth for the PascalCase bake. For the few
+#    ponder-only tables (`pending_emits`, `dead_letter_emits`) with no envio
+#    counterpart, fall back to the existing `snake_to_pascal` convention.
+#  - The introspection map gets passed to jq as a JSON object
+#    `{ <snake_case_table>: <consumer_root_field_pascal> }`. The bake then reads
+#    `$root_map[$snake] // ($snake | snake_to_pascal)` per table — introspection
+#    primary, convention as defensive fallback.
 
 set -euo pipefail
 
@@ -84,6 +105,8 @@ TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
 SNAPSHOT_PATH="/tmp/hasura-metadata-${TIMESTAMP}.json"
 TRANSFORMED_PATH="/tmp/hasura-metadata-${TIMESTAMP}-transformed.json"
 PONDER_TABLES_PATH="/tmp/ponder-tables-${TIMESTAMP}.txt"
+INTROSPECTION_PATH="/tmp/hasura-introspection-${TIMESTAMP}.json"
+ROOT_MAP_PATH="/tmp/hasura-root-map-${TIMESTAMP}.json"
 
 # ─── 1. Export current metadata as snapshot (rollback artifact) ────────
 echo "[cutover] direction=${DIRECTION} timestamp=${TIMESTAMP}"
@@ -132,45 +155,121 @@ if [[ "${DIRECTION}" == "cutover" ]]; then
 
   PONDER_TABLES_JSON=$(jq -R . "${PONDER_TABLES_PATH}" | jq -s 'map(select(length > 0))')
 
+  # ─── A-3.6 hardening: introspect Hasura to learn ACTUAL consumer field names ───
+  # The previous cutover trusted `.table.name` (Postgres name) to equal the
+  # consumer-facing root field name. That holds IFF envio set no custom_root_fields
+  # (verified true in A-3.5 snapshot), but is fragile. Introspection gives us the
+  # bit-exact consumer truth.
+  #
+  # Strategy:
+  #   1. Pull all `queryType.fields[].name` from /v1/graphql introspection.
+  #   2. Filter to "select" root fields only (drop `_aggregate` + `_by_pk` suffixed forms).
+  #   3. For each ponder.* table T_snake, build a map T_snake → consumer_pascal by:
+  #      (a) preferred: find an introspection field F where pascal_to_snake(F) == T_snake.
+  #      (b) fallback: snake_to_pascal(T_snake) — the existing convention.
+  #   4. Inject the map into the jq transform via --argjson root_map.
+  #
+  # If envio HAS customized a root field (currently it has not), the introspected
+  # name wins — the bake reflects production reality, not naming convention.
+  echo "[cutover] introspecting Hasura ${HASURA_URL}/v1/graphql for consumer-facing root field names (A-3.6 hardening)"
+  curl -fSs -X POST "${HASURA_URL}/v1/graphql" \
+    -H "x-hasura-admin-secret: ${HASURA_ADMIN_SECRET}" \
+    -H "Content-Type: application/json" \
+    -d '{"query":"{ __schema { queryType { fields { name } } } }"}' \
+    > "${INTROSPECTION_PATH}"
+
+  INTROSPECT_FIELD_COUNT=$(jq -r '.data.__schema.queryType.fields | length // 0' "${INTROSPECTION_PATH}")
+  if [[ "${INTROSPECT_FIELD_COUNT}" -lt 1 ]]; then
+    echo "[cutover] FAILED — introspection returned no fields. Either Hasura is down or the schema is empty." >&2
+    cat "${INTROSPECTION_PATH}" >&2
+    exit 6
+  fi
+  echo "[cutover] introspection returned ${INTROSPECT_FIELD_COUNT} root fields"
+
+  # Build root_map: { <snake_case_table>: <consumer_pascal_root_field> }.
+  # Pure jq, no external deps. The pascal_to_snake here MUST match the def used
+  # inside the transform below (single source of truth via a sourced jq file is
+  # awkward in bash; we inline-define in both places — they're identical).
   jq --argjson ponder "${PONDER_TABLES_JSON}" '
+    def pascal_to_snake:
+      [splits("(?=[A-Z])") | select(length > 0) | ascii_downcase] | join("_");
+    def snake_to_pascal:
+      split("_") | map([(.[0:1] | ascii_upcase), .[1:]] | add) | join("");
+
+    # 1. Bare select root fields (drop _aggregate / _by_pk).
+    [.data.__schema.queryType.fields[].name | select(test("_aggregate$|_by_pk$") | not)] as $selects
+    # 2. For each ponder snake table, look up the introspected PascalCase whose
+    #    pascal_to_snake form matches. Result: { snake: pascal }.
+    | ($ponder | map({
+        key: .,
+        value: (
+          . as $snake
+          | ($selects | map(select(pascal_to_snake == $snake)) | first)
+          // ($snake | snake_to_pascal)  # fallback: convention
+        )
+      }) | from_entries)
+  ' "${INTROSPECTION_PATH}" > "${ROOT_MAP_PATH}"
+
+  # Fallback-list = ponder tables whose value was synthesized via snake_to_pascal
+  # (i.e., no matching introspection field). Compute by re-running the lookup
+  # and counting cases where the convention would be used.
+  FALLBACK_TABLES_PATH="/tmp/fallback-tables-${TIMESTAMP}.txt"
+  jq --argjson ponder "${PONDER_TABLES_JSON}" '
+    def pascal_to_snake:
+      [splits("(?=[A-Z])") | select(length > 0) | ascii_downcase] | join("_");
+    [.data.__schema.queryType.fields[].name | select(test("_aggregate$|_by_pk$") | not)] as $selects
+    | ($ponder | map(select(
+        . as $snake | ($selects | map(select(pascal_to_snake == $snake)) | length) == 0
+      )))
+  ' "${INTROSPECTION_PATH}" > "${FALLBACK_TABLES_PATH}"
+  FALLBACK_COUNT=$(jq -r 'length' "${FALLBACK_TABLES_PATH}")
+  echo "[cutover] root_map: $(jq 'length' "${ROOT_MAP_PATH}") entries derived | ${FALLBACK_COUNT} fall back to snake_to_pascal convention"
+  if [[ "${FALLBACK_COUNT}" -gt 0 ]]; then
+    echo "[cutover] fallback tables (no envio counterpart — likely ponder-additive): $(jq -c . "${FALLBACK_TABLES_PATH}")"
+  fi
+
+  jq --argjson ponder "${PONDER_TABLES_JSON}" \
+     --slurpfile root_map_slurp "${ROOT_MAP_PATH}" '
     def snake_to_pascal:
       split("_") | map([(.[0:1] | ascii_upcase), .[1:]] | add) | join("");
     def pascal_to_snake:
       [splits("(?=[A-Z])") | select(length > 0) | ascii_downcase] | join("_");
 
+    ($root_map_slurp[0]) as $root_map
     # Belt-scope filter (defect 4): keep only tables whose snake_case form
     # exists in ponder.*. Drops the ~54 out-of-belt envio tables (apdao_*,
     # candies_trade, chain_metadata, HoneyJar_*, …) that A-2 did not port.
-    .sources |= map(
+    | .sources |= map(
       .tables |= map(select(
         (.table.name | pascal_to_snake) as $snake
         | $ponder | index($snake)
       ))
     )
     # Schema flip + table.name PascalCase → snake_case (defect 3) + bake
-    # custom_root_fields (PR #44 / defect 2) using the ORIGINAL PascalCase
-    # because consumer queries use `{ MintEvent { … } }`.
+    # custom_root_fields (PR #44 / defect 2) using the introspection-derived
+    # PascalCase (A-3.6 hardening) with snake_to_pascal as defensive fallback.
     | (.. | objects | select((.schema // null) == "public")) |= (.schema = "ponder")
     | (.. | objects | select(.table? | (.schema // null) == "ponder" and (.name // null) != null))
       |= (
-        .table.name as $original_pascal
-        | .table.name = ($original_pascal | pascal_to_snake)
+        (.table.name | pascal_to_snake) as $snake
+        | ($root_map[$snake] // ($snake | snake_to_pascal)) as $consumer_pascal
+        | .table.name = $snake
         | .configuration = (
             (.configuration // {}) + {
               custom_root_fields: (
                 ((.configuration // {}).custom_root_fields // {}) + {
-                  select: $original_pascal,
-                  select_by_pk: ($original_pascal + "_by_pk"),
-                  select_aggregate: ($original_pascal + "_aggregate"),
-                  insert: ("insert_" + $original_pascal),
-                  insert_one: ("insert_" + $original_pascal + "_one"),
-                  update: ("update_" + $original_pascal),
-                  update_by_pk: ("update_" + $original_pascal + "_by_pk"),
-                  delete: ("delete_" + $original_pascal),
-                  delete_by_pk: ("delete_" + $original_pascal + "_by_pk")
+                  select: $consumer_pascal,
+                  select_by_pk: ($consumer_pascal + "_by_pk"),
+                  select_aggregate: ($consumer_pascal + "_aggregate"),
+                  insert: ("insert_" + $consumer_pascal),
+                  insert_one: ("insert_" + $consumer_pascal + "_one"),
+                  update: ("update_" + $consumer_pascal),
+                  update_by_pk: ("update_" + $consumer_pascal + "_by_pk"),
+                  delete: ("delete_" + $consumer_pascal),
+                  delete_by_pk: ("delete_" + $consumer_pascal + "_by_pk")
                 }
               ),
-              custom_name: $original_pascal
+              custom_name: $consumer_pascal
             }
           )
       )

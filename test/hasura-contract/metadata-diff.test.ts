@@ -249,6 +249,82 @@ describe.skipIf(!BEFORE_PATH || !AFTER_PATH)("Hasura metadata-diff (T-A3.3)", ()
     ).toEqual([]);
   });
 
+  // A-3.6 — introspection-derived mapping assertion.
+  //
+  // The cutover script (post-A-3.6) introspects envio's `__schema.queryType.fields`
+  // BEFORE the metadata transform, builds a `{ snake_case_table → consumer_pascal }`
+  // map, and uses THAT to populate `custom_root_fields.select` (with
+  // `snake_to_pascal` as a defensive fallback for ponder-only tables).
+  //
+  // Without an introspection result captured in-band, the test asserts the
+  // SAME-INVARIANT FORM: for every ponder table T in the after snapshot,
+  // T's custom_root_fields.select MUST equal the corresponding envio table's
+  // table.name in the before snapshot — which is the runtime equivalent of the
+  // introspection-derived name IFF envio has no pre-existing custom_root_fields
+  // (verified true in the A-3.5/A-3.6 dry-runs).
+  //
+  // If envio someday adds a custom_root_field on a tracked table, the test
+  // tightens: we expect the introspection-derived name to be exposed (not the
+  // raw before.table.name). The bake should preserve the envio-side customization
+  // verbatim. Capture an introspection snapshot via env var to enable the
+  // tightened assertion; otherwise this test asserts the simpler invariant.
+  it("custom_root_fields.select matches envio's consumer-facing root field (A-3.6 introspection contract)", () => {
+    // For each ponder.* table T in the AFTER snapshot:
+    //  1. Find the matching envio row in the BEFORE snapshot (via tableKey).
+    //  2. The cutover script's introspection-derived select MUST equal:
+    //     (a) the introspected field name for that table, if HASURA_INTROSPECTION_PATH is set, OR
+    //     (b) before.table.name (the envio Postgres name, which == introspection name
+    //         IFF envio has no custom_root_fields on that table — the A-3.6 invariant).
+    const introspectionPath = process.env.HASURA_INTROSPECTION_PATH;
+    let introspectedSelects: Set<string> | null = null;
+    if (introspectionPath && existsSync(introspectionPath)) {
+      type IntrospectShape = {
+        data?: { __schema?: { queryType?: { fields?: Array<{ name: string }> } } };
+      };
+      const introspect = JSON.parse(readFileSync(introspectionPath, "utf-8")) as IntrospectShape;
+      const fields = introspect.data?.__schema?.queryType?.fields ?? [];
+      introspectedSelects = new Set(
+        fields.map((f) => f.name).filter((n) => !/_aggregate$|_by_pk$/.test(n)),
+      );
+    }
+
+    const mismatches: string[] = [];
+    for (const a of afterTables) {
+      if (a.table.schema !== "ponder") continue;
+      const key = tableKey(a);
+      const beforeRow = beforeByName.get(key);
+      if (!beforeRow) continue; // ponder-only additive table — uses snake_to_pascal fallback (separate test)
+
+      const select = a.configuration?.custom_root_fields?.select;
+      if (!select) {
+        mismatches.push(`${a.table.name}: missing custom_root_fields.select`);
+        continue;
+      }
+
+      // Primary invariant: the baked select MUST equal the envio table.name (which
+      // matches the introspected consumer-facing field when envio has no
+      // custom_root_fields — verified in A-3.5/A-3.6 dry-runs).
+      if (select !== beforeRow.table.name) {
+        mismatches.push(
+          `${a.table.name}.select=${select} != envio table.name=${beforeRow.table.name} (introspection contract violation)`,
+        );
+      }
+
+      // Tightened invariant (when introspection snapshot is available):
+      // the baked select MUST exist in the introspected select-field set.
+      if (introspectedSelects && !introspectedSelects.has(select)) {
+        mismatches.push(
+          `${a.table.name}.select=${select} NOT present in introspected fields (the cutover baked a name no consumer query can reach)`,
+        );
+      }
+    }
+
+    expect(
+      mismatches,
+      `A-3.6 introspection contract violations:\n  ${mismatches.join("\n  ")}`,
+    ).toEqual([]);
+  });
+
   it("preserves relationship count per common table (zero dropped)", () => {
     const drift: Array<{ table: string; before: number; after: number }> = [];
     for (const name of beforeByName.keys()) {

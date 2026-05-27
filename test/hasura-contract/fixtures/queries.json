@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "purpose": "A-3 T-A3.1 — top-5 production query shapes per consumer × 3 consumers = 15 fixtures.",
+    "purpose": "A-3 T-A3.1 — top-5 production query shapes per consumer × 2 consumers = 10 fixtures. (A-3.6: sietch-discord removed — non-Hasura consumer; see docs/A-3.6-sietch-discord-investigation.md.)",
     "source_of_truth": "Real consumer code where available. Synthesized + flagged where not.",
     "schema_naming_caveat": "envio Hasura exposes PascalCase entity names (e.g. `MintEvent`, `MiberaTransfer`, `BadgeHolder`) because envio's entity-name → PostgreSQL table mapping preserves the schema.graphql case. Ponder's `ponder.schema.ts` uses snake_case Postgres table names (e.g. `mint_event`, `mibera_transfer`, `badge_holder`). The cutover script `scripts/cutover-hasura-tracking.sh` jq-bakes `select: .table.name` which is the literal Postgres name → snake_case for Ponder. POST-CUTOVER, queries against `MintEvent` will 404 unless the customization is enhanced to remap to PascalCase. THIS IS A LOAD-BEARING DIVERGENCE that the metadata-diff test (T-A3.3) MUST catch. See docs/A-3-staging-dryrun-runbook.md §Substantive flags.",
     "consumers": {
@@ -14,10 +14,8 @@
         "queries_extracted": 5,
         "notes": "1 real (cubquests->BadgeHolder), 4 synthesized. SYNTHESIS_FLAG=true on the 4 synthesized."
       },
-      "sietch-discord": {
-        "real_source": "NOT FOUND in local checkouts. sietch-discord consumer queries could not be located (searched ~/bonfire, ~/Documents/GitHub).",
-        "queries_extracted": 5,
-        "notes": "All 5 synthesized from envelope subjects (mintDetected, etc.) + read-side shapes inferred from envio schema.graphql. SYNTHESIS_FLAG=true. Operator MUST validate against actual sietch-discord prod query log before A-4 cutover."
+      "_intentionally-absent": {
+        "sietch-discord": "Removed in A-3.6. sietch-discord does not consume envio Hasura — it reads chain via viem and local Postgres via drizzle-orm. See docs/A-3.6-sietch-discord-investigation.md for full citation."
       }
     },
     "expectedShape_semantics": "expectedShape is the GraphQL response shape (i.e. data.<RootField> = array of objects with these keys). The test harness asserts (a) the keys are present, (b) types match (string/number/null), (c) the root field name resolves (no `field 'X' not found` errors per cookbook §C-6)."
@@ -152,71 +150,6 @@
         "type": "object",
         "itemKeys": ["aggregate"],
         "aggregateKeys": ["count", "sum"]
-      }
-    },
-    {
-      "id": "sietch-1-recent-mints-for-mention",
-      "consumer": "sietch-discord",
-      "sourceFile": "synthesized — sietch-discord notification bot reads recent mints to confirm Discord post is canonical",
-      "synthesized": true,
-      "query": "query SietchRecentMintsConfirm($txHash: String!) { MintEvent(where: { transactionHash: { _eq: $txHash } } limit: 5) { id collectionKey tokenId minter transactionHash timestamp } }",
-      "variables": { "txHash": "0x0000000000000000000000000000000000000000000000000000000000000000" },
-      "expectedShape": {
-        "rootField": "MintEvent",
-        "type": "array",
-        "itemKeys": ["id", "collectionKey", "tokenId", "minter", "transactionHash", "timestamp"]
-      }
-    },
-    {
-      "id": "sietch-2-erc1155-mints-by-collection",
-      "consumer": "sietch-discord",
-      "sourceFile": "synthesized — sietch posts erc1155 mints by collection key",
-      "synthesized": true,
-      "query": "query SietchErc1155Mints($collectionKey: String!, $limit: Int!) { Erc1155MintEvent(where: { collectionKey: { _eq: $collectionKey } } limit: $limit order_by: { timestamp: desc }) { id collectionKey tokenId value minter timestamp transactionHash chainId } }",
-      "variables": { "collectionKey": "purupuru-apiculture", "limit": 5 },
-      "expectedShape": {
-        "rootField": "Erc1155MintEvent",
-        "type": "array",
-        "itemKeys": ["id", "collectionKey", "tokenId", "value", "minter", "timestamp", "transactionHash", "chainId"]
-      }
-    },
-    {
-      "id": "sietch-3-mibera-loan-events",
-      "consumer": "sietch-discord",
-      "sourceFile": "synthesized — sietch posts new-loan events as Discord embeds",
-      "synthesized": true,
-      "query": "query SietchMiberaLoans($limit: Int!) { MiberaLoan(limit: $limit order_by: { createdAt: desc }) { id user loanId loanType amount createdAt chainId transactionHash tokenIds } }",
-      "variables": { "limit": 5 },
-      "expectedShape": {
-        "rootField": "MiberaLoan",
-        "type": "array",
-        "itemKeys": ["id", "user", "loanId", "loanType", "amount", "createdAt", "chainId", "transactionHash", "tokenIds"]
-      }
-    },
-    {
-      "id": "sietch-4-nft-burn-summary",
-      "consumer": "sietch-discord",
-      "sourceFile": "synthesized — sietch posts burn-summary (used for Stonehenge channel)",
-      "synthesized": true,
-      "query": "query SietchNftBurnSummary($collectionKey: String!, $limit: Int!) { NftBurn(where: { collectionKey: { _eq: $collectionKey } } limit: $limit order_by: { timestamp: desc }) { id collectionKey tokenId from timestamp blockNumber transactionHash chainId } }",
-      "variables": { "collectionKey": "mibera_vm", "limit": 5 },
-      "expectedShape": {
-        "rootField": "NftBurn",
-        "type": "array",
-        "itemKeys": ["id", "collectionKey", "tokenId", "from", "timestamp", "blockNumber", "transactionHash", "chainId"]
-      }
-    },
-    {
-      "id": "sietch-5-treasury-activity",
-      "consumer": "sietch-discord",
-      "sourceFile": "synthesized — sietch posts treasury moves (TreasuryActivity entity)",
-      "synthesized": true,
-      "query": "query SietchTreasuryActivity($limit: Int!) { TreasuryActivity(limit: $limit order_by: { timestamp: desc }) { id activityType actor amount timestamp chainId transactionHash } }",
-      "variables": { "limit": 5 },
-      "expectedShape": {
-        "rootField": "TreasuryActivity",
-        "type": "array",
-        "itemKeys": ["id", "activityType", "actor", "amount", "timestamp", "chainId", "transactionHash"]
       }
     }
   ]
