@@ -10,8 +10,8 @@
  *      are absent (fail-soft: the indexer continues to work without the
  *      events pillar enabled — useful for local dev + the rollout window).
  *   2. Lazy-connects to NATS on first call (TLS-required per Sprint-1
- *      design invariant; the CA bundle is read from NATS_TLS_CA path
- *      when set).
+ *      design invariant; the CA bundle is read from NATS_TLS_CA as the
+ *      PEM **body** — see the Path-ε convention note below).
  *   3. Catches every publish error and routes it to `ctx.log.warn` —
  *      handlers MUST NOT crash an Envio write because the events pillar
  *      is degraded. The Envio entity write happens FIRST in the handler;
@@ -19,8 +19,8 @@
  *
  * Failure-kind discipline (BB#24 F-001 closed):
  *   - **Permanent (config-disabled)**: env vars missing, scheme rejected,
- *     CA unreadable, signer init failed. These cache `initialized=true` and
- *     never retry — operator must fix config + restart sonar.
+ *     signer init failed. These cache `initialized=true` and never retry —
+ *     operator must fix config + restart sonar.
  *   - **Transient (connection-failed)**: NATS broker unreachable, TLS
  *     handshake failed, socket dropped. These keep `initialized=false` so
  *     the NEXT publish call retries — with a small backoff window so a
@@ -31,31 +31,33 @@
  *     accepts the cluster's `nats://` form when NATS_TLS_CA is provided
  *     because the underlying nats.js client upgrades that to TLS when a
  *     `tls` option is passed). Plaintext-only schemes without CA → refuse.
- *   - NATS_TLS_CA, when set, MUST be readable. Unreadable CA → refuse
- *     (config-disabled). The old warn-and-continue path is closed.
  *
- * mTLS client-cert presentation (Path ε — Railway-hosted nats-server):
- *   - NATS_TLS_CLIENT_CERT + NATS_TLS_CLIENT_KEY are OPTIONAL env vars that
- *     hold PEM **bodies** (not paths — Railway service-variables inject the
- *     full PEM content). When both are set, the nats.js `tls` options
- *     object includes `cert` + `key` alongside the existing CA, enabling
- *     mTLS auth against the Path-ε broker (`--tlsverify` on nats-server
- *     requires + verifies a client cert signed by the cluster CA).
- *   - Partial config (one set, the other missing) → refuse permanently.
- *     This is a configuration error, not a transient one — proceeding with
- *     only one half would either fail the TLS handshake (cert without key)
- *     or silently fall back to anonymous TLS (key without cert), masking
- *     a deployment misconfiguration. Mirrors the existing NATS_URL refuse
- *     path style.
- *   - The PEM-body convention is asymmetric with NATS_TLS_CA (which is
- *     still a file path for backward compatibility with the AWS-NATS
- *     deployment shape). The Path-ε runbook documents this; future work
- *     may converge both to PEM bodies.
- *   - Backward-compatible: when neither client-cert env is set, behavior
- *     is identical to today (CA-only TLS, anonymous client).
+ * Path-ε convention — NATS_TLS_CA / NATS_TLS_CLIENT_CERT / NATS_TLS_CLIENT_KEY
+ * all hold PEM **bodies**, not file paths:
+ *   - Railway service-variable injection wires PEM content directly into
+ *     env vars; no filesystem touch required. Aligned with the dash
+ *     subscriber (loa-freeside PR #242) + characters subscriber so all
+ *     three cluster consumers share one TLS-config convention.
+ *   - Breaking change vs the pre-Path-ε shape: any deployment that set
+ *     NATS_TLS_CA to a filesystem path must switch to PEM content
+ *     (e.g. `NATS_TLS_CA=$(cat /path/to/ca.pem)`). Documented in the
+ *     Path-ε runbook §Step 3.
+ *   - .trim() on env reads guards against trailing-newline noise from
+ *     copy-paste and Railway service-variable CRLF normalization.
+ *   - NATS_TLS_CLIENT_CERT + NATS_TLS_CLIENT_KEY are OPTIONAL. When both
+ *     are set, the nats.js `tls` options object includes `cert` + `key`
+ *     alongside any CA, enabling mTLS auth against the Path-ε broker
+ *     (`--tlsverify` on nats-server requires + verifies a client cert
+ *     signed by the cluster CA).
+ *   - Partial config (one client-cert env set, the other missing) →
+ *     refuse permanently. Proceeding with only one half would either
+ *     fail the TLS handshake (cert without key) or silently fall back to
+ *     anonymous TLS (key without cert), masking a deployment misconfig.
+ *   - Backward-compatible at the connect-shape level: when neither
+ *     client-cert env is set, behavior is CA-only TLS / anonymous client.
  *
  *   Reference: ~/Documents/GitHub/loa-freeside/grimoires/loa/specs/
- *     cluster-events-pillar-v1/go-live-path-epsilon-railway-nats.md §Step 3a
+ *     cluster-events-pillar-v1/go-live-path-epsilon-railway-nats.md §Step 3
  *
  * Single-process limitation: `InMemoryPrevHashStore` means a sonar restart
  * resets the chain tip and the next envelope's `prev_hash` will be
@@ -67,7 +69,6 @@
  * Reference: ~/Documents/GitHub/loa-freeside/packages/events/README.md
  */
 
-import { readFile } from "node:fs/promises";
 import {
   InMemoryPrevHashStore,
   LocalEd25519Signer,
@@ -172,8 +173,7 @@ function validateTlsPosture(natsUrl: string, natsTlsCa: string | undefined): str
   const scheme = parsed.protocol.replace(":", "");
   if (scheme === "tls" || scheme === "nats+tls") {
     // Explicit TLS scheme — fine even without a custom CA (nats.js uses
-    // system roots). But if NATS_TLS_CA is set we still want it readable
-    // (F-003 — checked separately).
+    // system roots).
     return null;
   }
   if (scheme === "nats") {
@@ -232,10 +232,11 @@ async function initSubstrate(log: HandlerLogger): Promise<boolean> {
 
   const natsUrl = process.env.NATS_URL;
   const seedHex = process.env.SONAR_SIGNING_SEED_HEX;
-  const natsTlsCa = process.env.NATS_TLS_CA;
-  // Path-ε mTLS client cert: PEM bodies, not paths. Both-or-neither.
-  // .trim() guards against trailing-newline noise from copy-paste env values
-  // and Railway service-variable round-trips that occasionally normalize CRLF.
+  // Path-ε convention — NATS_TLS_CA / CLIENT_CERT / CLIENT_KEY all hold PEM
+  // **bodies**, not file paths. .trim() guards against trailing-newline
+  // noise from copy-paste env values and Railway service-variable round-trips
+  // that occasionally normalize CRLF.
+  const ca = process.env.NATS_TLS_CA?.trim() || undefined;
   const clientCert = process.env.NATS_TLS_CLIENT_CERT?.trim() || undefined;
   const clientKey = process.env.NATS_TLS_CLIENT_KEY?.trim() || undefined;
 
@@ -254,28 +255,8 @@ async function initSubstrate(log: HandlerLogger): Promise<boolean> {
     );
   }
 
-  const tlsReason = validateTlsPosture(natsUrl, natsTlsCa);
+  const tlsReason = validateTlsPosture(natsUrl, ca);
   if (tlsReason) return markPermanentDisabled(tlsReason, log);
-
-  // BB#24 F-003: when NATS_TLS_CA is set but unreadable → refuse. The old
-  // warn-and-continue-with-undefined-CA path is closed; that path could
-  // silently weaken certificate verification.
-  //
-  // BB#24 rd-2 F-002: use the async fs.promises.readFile so the handler
-  // event loop doesn't block during lazy init. Path is operator-provided
-  // and slow filesystems (network mounts, EFS, container layer hiccups)
-  // would otherwise stall every handler waiting for first publish.
-  let ca: string | undefined;
-  if (natsTlsCa) {
-    try {
-      ca = await readFile(natsTlsCa, "utf8");
-    } catch (err) {
-      return markPermanentDisabled(
-        `NATS_TLS_CA at "${natsTlsCa}" is unreadable: ${(err as Error).message}`,
-        log,
-      );
-    }
-  }
 
   try {
     signer = await LocalEd25519Signer.fromSeedHex(seedHex, "sonar-api-1");
@@ -285,10 +266,11 @@ async function initSubstrate(log: HandlerLogger): Promise<boolean> {
 
   // --- TRANSIENT path: NATS connect can fail temporarily --------------------
 
-  // TLS options assembly: CA-only (legacy AWS-NATS), CA+client-cert (Path-ε
-  // mTLS), or client-cert-only (system-CA verification + client auth). The
-  // ternary chain keeps the no-TLS-options branch unchanged when neither
-  // CA nor client cert is configured (preserves Sprint-1 default behavior).
+  // TLS options assembly: CA-only (system-CA + custom-CA), CA+client-cert
+  // (Path-ε mTLS), or client-cert-only (system-CA verification + client
+  // auth). The ternary chain keeps the no-TLS-options branch unchanged when
+  // neither CA nor client cert is configured (preserves Sprint-1 default
+  // behavior — relies on nats.js scheme-based TLS inference).
   const tlsOptions =
     ca || clientCert
       ? {

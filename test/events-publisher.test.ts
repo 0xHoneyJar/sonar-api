@@ -21,9 +21,6 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { LocalEd25519Signer, type Signer } from "@0xhoneyjar/events";
 
 import {
@@ -127,16 +124,6 @@ describe("events-publisher — substrate disabled (no env vars)", () => {
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("permanently disabled"));
   });
 
-  // BB#24 F-003: NATS_TLS_CA pointing at an unreadable path must fail-closed.
-  it("refuses unreadable NATS_TLS_CA path (BB#24 F-003)", async () => {
-    const log = createMockLog();
-    process.env.NATS_URL = "nats://broker:4222";
-    process.env.SONAR_SIGNING_SEED_HEX = "0".repeat(64);
-    process.env.NATS_TLS_CA = "/tmp/nonexistent-ca-file-bb-24-f-003.pem";
-    await publishMintEvent({ log, collectionSlug: "mibera-shadow", payload: samplePayload });
-    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("unreadable"));
-    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("permanently disabled"));
-  });
 });
 
 // Path-ε mTLS client-cert tests — exercise the init path that reads
@@ -151,32 +138,26 @@ describe("events-publisher — substrate disabled (no env vars)", () => {
 describe("events-publisher — Path-ε mTLS client cert (init path)", () => {
   const ORIG_ENV = { ...process.env };
 
-  // Provide a readable CA file path for tests that need the env-validation
-  // path to reach the connect-options assembly stage.
-  let tmpDir: string;
-  let caPath: string;
-
   // Dummy PEM bodies — content is opaque to the publisher (passed straight
   // through to nats.connect's tls options). Real PEM validation happens at
   // TLS handshake time, which we never reach because connect is mocked OR
   // because the partial-config guard fires before connect.
+  //
+  // Path-ε convention: NATS_TLS_CA / CLIENT_CERT / CLIENT_KEY all hold PEM
+  // **bodies** (not paths) — Railway service-variables inject the content.
+  const FAKE_CA = "-----BEGIN CERTIFICATE-----\nMIIBdummyca\n-----END CERTIFICATE-----\n";
   const FAKE_CLIENT_CERT = "-----BEGIN CERTIFICATE-----\nMIIBdummyclientcert\n-----END CERTIFICATE-----\n";
   const FAKE_CLIENT_KEY = "-----BEGIN PRIVATE KEY-----\nMIIBdummyclientkey\n-----END PRIVATE KEY-----\n";
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "sonar-events-mtls-"));
-    caPath = join(tmpDir, "ca.pem");
-    writeFileSync(caPath, "-----BEGIN CERTIFICATE-----\nMIIBdummyca\n-----END CERTIFICATE-----\n");
-
     process.env.NATS_URL = "tls://broker.example:4222";
     process.env.SONAR_SIGNING_SEED_HEX = "0".repeat(64);
-    process.env.NATS_TLS_CA = caPath;
+    process.env.NATS_TLS_CA = FAKE_CA;
     delete process.env.NATS_TLS_CLIENT_CERT;
     delete process.env.NATS_TLS_CLIENT_KEY;
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
     process.env = { ...ORIG_ENV };
     vi.doUnmock("nats");
   });
@@ -239,12 +220,10 @@ describe("events-publisher — Path-ε mTLS client cert (init path)", () => {
       tls?: { ca?: string; cert?: string; key?: string };
     };
     expect(connectArgs.tls).toBeDefined();
-    expect(connectArgs.tls!.ca).toBe(
-      "-----BEGIN CERTIFICATE-----\nMIIBdummyca\n-----END CERTIFICATE-----\n",
-    );
     // The publisher .trim()s env-var bodies to defend against trailing
     // CRLF / whitespace that Railway service-variables occasionally
     // introduce on copy-paste — assertion matches the documented behavior.
+    expect(connectArgs.tls!.ca).toBe(FAKE_CA.trim());
     expect(connectArgs.tls!.cert).toBe(FAKE_CLIENT_CERT.trim());
     expect(connectArgs.tls!.key).toBe(FAKE_CLIENT_KEY.trim());
   });
@@ -274,7 +253,7 @@ describe("events-publisher — Path-ε mTLS client cert (init path)", () => {
       tls?: { ca?: string; cert?: string; key?: string };
     };
     expect(connectArgs.tls).toBeDefined();
-    expect(connectArgs.tls!.ca).toBeDefined();
+    expect(connectArgs.tls!.ca).toBe(FAKE_CA.trim());
     expect(connectArgs.tls!.cert).toBeUndefined();
     expect(connectArgs.tls!.key).toBeUndefined();
   });
