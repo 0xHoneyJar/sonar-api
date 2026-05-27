@@ -124,15 +124,138 @@ describe("events-publisher — substrate disabled (no env vars)", () => {
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("permanently disabled"));
   });
 
-  // BB#24 F-003: NATS_TLS_CA pointing at an unreadable path must fail-closed.
-  it("refuses unreadable NATS_TLS_CA path (BB#24 F-003)", async () => {
-    const log = createMockLog();
-    process.env.NATS_URL = "nats://broker:4222";
+});
+
+// Path-ε mTLS client-cert tests — exercise the init path that reads
+// NATS_TLS_CLIENT_CERT / NATS_TLS_CLIENT_KEY env vars. These tests rely on
+// nats.connect() being the failure point AFTER our env-validation runs, so
+// the publisher reaches transient-failure state once the partial-config
+// guard is satisfied AND the assertion target is the connect-options object.
+//
+// We intercept nats.connect via vi.mock at the module level so we can:
+//   (a) assert connect options for the both-set case (cert + key passed)
+//   (b) keep the partial-config tests pure (init returns before connect)
+describe("events-publisher — Path-ε mTLS client cert (init path)", () => {
+  const ORIG_ENV = { ...process.env };
+
+  // Dummy PEM bodies — content is opaque to the publisher (passed straight
+  // through to nats.connect's tls options). Real PEM validation happens at
+  // TLS handshake time, which we never reach because connect is mocked OR
+  // because the partial-config guard fires before connect.
+  //
+  // Path-ε convention: NATS_TLS_CA / CLIENT_CERT / CLIENT_KEY all hold PEM
+  // **bodies** (not paths) — Railway service-variables inject the content.
+  const FAKE_CA = "-----BEGIN CERTIFICATE-----\nMIIBdummyca\n-----END CERTIFICATE-----\n";
+  const FAKE_CLIENT_CERT = "-----BEGIN CERTIFICATE-----\nMIIBdummyclientcert\n-----END CERTIFICATE-----\n";
+  const FAKE_CLIENT_KEY = "-----BEGIN PRIVATE KEY-----\nMIIBdummyclientkey\n-----END PRIVATE KEY-----\n";
+
+  beforeEach(() => {
+    process.env.NATS_URL = "tls://broker.example:4222";
     process.env.SONAR_SIGNING_SEED_HEX = "0".repeat(64);
-    process.env.NATS_TLS_CA = "/tmp/nonexistent-ca-file-bb-24-f-003.pem";
+    process.env.NATS_TLS_CA = FAKE_CA;
+    delete process.env.NATS_TLS_CLIENT_CERT;
+    delete process.env.NATS_TLS_CLIENT_KEY;
+  });
+
+  afterEach(() => {
+    process.env = { ...ORIG_ENV };
+    vi.doUnmock("nats");
+  });
+
+  it("refuses partial config: NATS_TLS_CLIENT_CERT set without NATS_TLS_CLIENT_KEY (permanently disabled)", async () => {
+    process.env.NATS_TLS_CLIENT_CERT = FAKE_CLIENT_CERT;
+    // NATS_TLS_CLIENT_KEY intentionally unset
+    const log = createMockLog();
     await publishMintEvent({ log, collectionSlug: "mibera-shadow", payload: samplePayload });
-    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("unreadable"));
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("permanently disabled"));
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining("NATS_TLS_CLIENT_CERT and NATS_TLS_CLIENT_KEY must both be set or both unset"),
+    );
+  });
+
+  it("refuses partial config: NATS_TLS_CLIENT_KEY set without NATS_TLS_CLIENT_CERT (permanently disabled)", async () => {
+    process.env.NATS_TLS_CLIENT_KEY = FAKE_CLIENT_KEY;
+    // NATS_TLS_CLIENT_CERT intentionally unset
+    const log = createMockLog();
+    await publishMintEvent({ log, collectionSlug: "mibera-shadow", payload: samplePayload });
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("permanently disabled"));
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining("NATS_TLS_CLIENT_CERT and NATS_TLS_CLIENT_KEY must both be set or both unset"),
+    );
+  });
+
+  it("both env vars set → connect options include cert + key alongside ca", async () => {
+    // Capture the options nats.connect was called with by mocking the module.
+    // Use vi.resetModules() + vi.doMock so the publisher's `import { connect }
+    // from "nats"` resolves to our spy on this re-import.
+    process.env.NATS_TLS_CLIENT_CERT = FAKE_CLIENT_CERT;
+    process.env.NATS_TLS_CLIENT_KEY = FAKE_CLIENT_KEY;
+
+    const connectSpy = vi.fn(async () => ({
+      publish: vi.fn(),
+      close: vi.fn(),
+      drain: vi.fn(),
+    }));
+    vi.resetModules();
+    vi.doMock("nats", () => ({ connect: connectSpy }));
+
+    // Re-import the publisher AFTER the mock is in place. The re-imported
+    // module is FRESH (vi.resetModules cleared the cache), distinct from
+    // the static-imported one used by the other tests in this file — but
+    // we still call __resetForTests on it to defend against any leftover
+    // singleton state in case vi.resetModules + dynamic-import semantics
+    // ever evolve.
+    const reimported = await import("../src/lib/events-publisher");
+    reimported.__resetForTests();
+    const log = createMockLog();
+    await reimported.publishMintEvent({
+      log,
+      collectionSlug: "mibera-shadow",
+      payload: samplePayload,
+    });
+
+    expect(connectSpy).toHaveBeenCalledTimes(1);
+    const connectArgs = connectSpy.mock.calls[0]![0] as {
+      servers: string;
+      tls?: { ca?: string; cert?: string; key?: string };
+    };
+    expect(connectArgs.tls).toBeDefined();
+    // The publisher .trim()s env-var bodies to defend against trailing
+    // CRLF / whitespace that Railway service-variables occasionally
+    // introduce on copy-paste — assertion matches the documented behavior.
+    expect(connectArgs.tls!.ca).toBe(FAKE_CA.trim());
+    expect(connectArgs.tls!.cert).toBe(FAKE_CLIENT_CERT.trim());
+    expect(connectArgs.tls!.key).toBe(FAKE_CLIENT_KEY.trim());
+  });
+
+  it("backward-compat: neither client-cert env set → tls options omit cert/key (CA-only)", async () => {
+    // Neither NATS_TLS_CLIENT_CERT nor NATS_TLS_CLIENT_KEY set.
+    const connectSpy = vi.fn(async () => ({
+      publish: vi.fn(),
+      close: vi.fn(),
+      drain: vi.fn(),
+    }));
+    vi.resetModules();
+    vi.doMock("nats", () => ({ connect: connectSpy }));
+
+    const reimported = await import("../src/lib/events-publisher");
+    reimported.__resetForTests();
+    const log = createMockLog();
+    await reimported.publishMintEvent({
+      log,
+      collectionSlug: "mibera-shadow",
+      payload: samplePayload,
+    });
+
+    expect(connectSpy).toHaveBeenCalledTimes(1);
+    const connectArgs = connectSpy.mock.calls[0]![0] as {
+      servers: string;
+      tls?: { ca?: string; cert?: string; key?: string };
+    };
+    expect(connectArgs.tls).toBeDefined();
+    expect(connectArgs.tls!.ca).toBe(FAKE_CA.trim());
+    expect(connectArgs.tls!.cert).toBeUndefined();
+    expect(connectArgs.tls!.key).toBeUndefined();
   });
 });
 
