@@ -25,7 +25,14 @@ COPY . .
 # 6-chain consolidated belt) as a Railway service variable (passed as build arg + runtime env).
 ARG BELT_CONFIG=config.mibera.yaml
 ENV BELT_CONFIG=${BELT_CONFIG}
-RUN pnpm install --frozen-lockfile && pnpm envio codegen --config "${BELT_CONFIG}"
+# pnpm 10+ disables postinstall scripts by default (security change). Sonar's
+# postinstall (rebuild-events-dist.sh) materializes @0xhoneyjar/events from the
+# cluster-pinned loa-freeside SHA into node_modules — without it, sonar's runtime
+# imports of @0xhoneyjar/events crash with ERR_MODULE_NOT_FOUND. Run it
+# EXPLICITLY here. Path ε 2026-05-27.
+RUN pnpm install --frozen-lockfile && \
+    bash scripts/rebuild-events-dist.sh && \
+    pnpm envio codegen --config "${BELT_CONFIG}"
 ENV TUI_OFF=true
 # Env-gated re-init: steady-state RESUMES from the last checkpoint (safe default).
 # STRICT gate: only the literal ENVIO_RESTART=1 forces a fresh init — ENVIO_RESTART=false/0
