@@ -1,0 +1,94 @@
+# Dockerfile.belt-ponder — Ponder 0.16.6 belt-indexer for Railway.
+#
+# Replaces the envio Dockerfile.belt for the migration to Ponder substrate
+# (sonar-ponder-migration-v1 · sprint A-1 · T-A1.4 · IMP-004 HIGH_CONSENSUS).
+#
+# What this builds:
+#   - Node 22 (Ponder requirement; cluster default since path-ε)
+#   - pnpm 10.11.0 via corepack (matches packageManager pin in package.json)
+#   - git (required by scripts/rebuild-events-dist.sh — materializes
+#     @0xhoneyjar/events from loa-freeside cluster.eventsPin.sha into
+#     node_modules; same gap pattern as Dockerfile.belt)
+#   - `pnpm install --frozen-lockfile` + events-dist rebuild
+#   - Ponder runtime via `pnpm ponder start --config <BELT_CONFIG>`
+#
+# What this does NOT do (vs Dockerfile.belt):
+#   - NO `envio codegen` step (Ponder uses TypeScript schema; no codegen needed)
+#   - NO patch-envio-instrumentation (envio is gone)
+#   - NO --restart env-gated dance (Ponder uses Postgres checkpoint table; resume is automatic)
+#
+# Runtime env vars (Railway service variables; see SDD §7.2):
+#   BELT_CONFIG          = ponder.config.mibera.ts (blue) | ponder.config.ts (green, post-B-1)
+#   DATABASE_URL         = composed Railway internal postgres URL
+#   DATABASE_SCHEMA      = ponder  (REQUIRED — cookbook §C-1)
+#   PONDER_RPC_URL_1     = http://erpc.railway.internal:4000/main/evm/1
+#   PONDER_RPC_URL_8453  = http://erpc.railway.internal:4000/main/evm/8453
+#   PONDER_RPC_URL_80094 = http://erpc.railway.internal:4000/main/evm/80094
+#   NATS_URL             = tls://nats.0xhoneyjar.xyz:48352
+#   NATS_AUTH_TOKEN      = per-belt mTLS cert
+#   PONDER_TUI           = false  (Railway is non-interactive)
+#   PONDER_LOG_LEVEL     = info   (debug during cold-sync diagnostics)
+
+FROM node:22-bookworm-slim
+
+# Cache-bust marker. Railway BuildKit dedupes against cached image despite source
+# changes; a content change in the Dockerfile itself reliably busts the cache.
+# Bump when the deploy needs a forced rebuild (same pattern as Dockerfile.belt).
+ARG CACHE_BUST=ponder-migration-A-1-2026-05-27
+
+# git: required by scripts/rebuild-events-dist.sh (clones loa-freeside at the
+# cluster.eventsPin.sha and materializes packages/events into node_modules).
+# ca-certificates: TLS for HTTPS clones + RPC.
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && corepack enable && corepack prepare pnpm@10.11.0 --activate
+
+WORKDIR /app
+COPY . .
+
+# BELT_CONFIG selects which Ponder config this image builds + runs.
+# Default = blue (Mibera, 3 chains). Green (6-chain consolidated) flips this
+# via Railway service variable + build arg.
+ARG BELT_CONFIG=ponder.config.mibera.ts
+ENV BELT_CONFIG=${BELT_CONFIG}
+
+# pnpm 10+ disables postinstall scripts by default. Sonar's postinstall
+# (rebuild-events-dist.sh) materializes @0xhoneyjar/events from the
+# cluster-pinned loa-freeside SHA. Run it EXPLICITLY (same lesson as
+# Dockerfile.belt's path-ε fix).
+RUN pnpm install --frozen-lockfile && \
+    bash scripts/rebuild-events-dist.sh
+
+# ─── Railway resource limits (IMP-004 HIGH_CONSENSUS · T-A1.4 AC) ───────
+# Memory ceiling + CPU request documented inline for the operator-set
+# Railway service config. Railway does not honor in-Dockerfile resource
+# directives — these are SET in the Railway service "Resources" pane.
+# Values chosen conservatively for the Mibera blue belt (3 chains,
+# moderate Berachain volume + dense Base friend.tech leg):
+#
+#   Memory ceiling:  2.0 GiB   (cold-sync peak observed via envio runs;
+#                                Ponder's profiling-based prefetch +
+#                                Postgres connection pool should not exceed
+#                                this without an indexing-handler bug)
+#   CPU request:     1.0 vCPU  (Ponder is single-process Node; one vCPU
+#                                is the realistic upper bound on useful
+#                                concurrency for sync + indexing)
+#
+# IMP-004 enforcement (cross-reference):
+#   - This is the BLUE-belt budget. Green's 6-chain parallel sync (B-1 + B-4)
+#     should set 4.0 GiB / 2.0 vCPU pending T-B1.7 per-chain throughput
+#     measurement (sprint plan T-B1.7).
+#   - OOM-check during cold-sync is T-B4.9 (Phase B production validation).
+#   - If the service OOMs during blue cold-sync (A-4), the operator should
+#     bump the ceiling AND open a beads task to investigate handler
+#     memory pressure — do NOT just keep bumping the ceiling indefinitely.
+
+# Disable Ponder's interactive TUI for Railway logs.
+ENV PONDER_TUI=false
+# Default log level. Override to `debug` via Railway env during cold-sync diagnostics.
+ENV PONDER_LOG_LEVEL=info
+
+# Resume is automatic in Ponder (Postgres checkpoint table). No ENVIO_RESTART dance.
+# `ponder start` reads --config from $BELT_CONFIG. DATABASE_SCHEMA env var sets the
+# Postgres schema namespace (cookbook §C-1). The container MUST have DATABASE_SCHEMA=ponder.
+CMD ["sh", "-c", "exec pnpm ponder start --config \"$BELT_CONFIG\""]
