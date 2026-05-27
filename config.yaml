@@ -556,8 +556,14 @@ chains:
     start_block: 13090020 # Earliest block - Milady contract deployment
     # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
     rpc:
-      url: http://erpc.railway.internal:4000/main/evm/1
-      for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/1
+
+        for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/1
+
+        for: live
     contracts:
       # Native HoneyJar contracts on Ethereum
       - name: HoneyJar
@@ -597,8 +603,14 @@ chains:
     start_block: 102894033
     # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
     rpc:
-      url: http://erpc.railway.internal:4000/main/evm/42161
-      for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/42161
+
+        for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/42161
+
+        for: live
     contracts:
       - name: HoneyJar
         address:
@@ -609,8 +621,14 @@ chains:
     start_block: 18071873
     # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
     rpc:
-      url: http://erpc.railway.internal:4000/main/evm/7777777
-      for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/7777777
+
+        for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/7777777
+
+        for: live
     contracts:
       - name: HoneyJar
         address:
@@ -621,8 +639,14 @@ chains:
     start_block: 107558369  # Mirror Observability deployment (July 30, 2023) - earliest for Mibera articles
     # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
     rpc:
-      url: http://erpc.railway.internal:4000/main/evm/10
-      for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/10
+
+        for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/10
+
+        for: live
     contracts:
       - name: HoneyJar
         address:
@@ -658,8 +682,14 @@ chains:
     start_block: 2430439  # friend.tech start block (earliest contract)
     # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
     rpc:
-      url: http://erpc.railway.internal:4000/main/evm/8453
-      for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/8453
+
+        for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/8453
+
+        for: live
     contracts:
       - name: HoneyJar
         address:
@@ -702,8 +732,14 @@ chains:
     # eRPC's Postgres cache layer — both change the math substantially. Re-add
     # hypersync_config later if/when a HyperSync SKU is on the cluster's plan.
     rpc:
-      url: http://erpc.railway.internal:4000/main/evm/80094
-      for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/80094
+
+        for: sync
+
+      - url: http://erpc.railway.internal:4000/main/evm/80094
+
+        for: live
     contracts:
       # AquaberaVault forwarder on Berachain Mainnet
       - name: AquaberaVault
