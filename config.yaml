@@ -671,12 +671,17 @@ chains:
   # Berachain Mainnet (DO NOT CHANGE THIS ID)
   - id: 80094
     start_block: 8221 # BgtToken deployment — earliest contract on Berachain
-    # Explicit HyperSync endpoint — Envio's auto-discovery on v3.0.0-alpha.14
-    # appears to miss Berachain (the other 5 chains caught up via HyperSync,
-    # Berachain fell back to RPC and was 10+ hours behind on f35fad6 backfill).
-    # Endpoint verified live: https://berachain.hypersync.xyz/height → 200.
-    hypersync_config:
-      url: https://berachain.hypersync.xyz
+    # Path ε 2026-05-27: switched from HyperSync → JSON-RPC via eRPC. The free-tier
+    # Envio token had HyperSync access (just rate-limited under load); the cluster's
+    # paid Envio upgrade is to HyperRPC (a separate product on a separate SKU).
+    # HyperRPC is JSON-RPC compatible so it slots through eRPC's existing
+    # multi-upstream proxy alongside the free Berachain cluster (publicnode/official/
+    # drpc/tenderly/sentio + HyperRPC as a 6th high-quality upstream). The historical
+    # "RPC fallback was 10+ hours behind" finding (commit f35fad6) pre-dates HyperRPC +
+    # eRPC's Postgres cache layer — both change the math substantially. Re-add
+    # hypersync_config later if/when a HyperSync SKU is on the cluster's plan.
+    rpc_config:
+      url: http://erpc.railway.internal:4000/main/evm/80094
     contracts:
       # AquaberaVault forwarder on Berachain Mainnet
       - name: AquaberaVault
