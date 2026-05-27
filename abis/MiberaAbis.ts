@@ -68,3 +68,18 @@ export const FriendtechSharesAbi = parseAbi([
 export const Erc20TransferAbi = parseAbi([
   "event Transfer(address indexed from, address indexed to, uint256 value)",
 ] as const);
+
+// MiberaPremint — Participated / Refunded (Berachain 80094)
+// F-3 re-dispatch (A-2): contract added to ponder.config.mibera.ts so the
+// premint handler can register against it.
+export const MiberaPremintAbi = parseAbi([
+  "event Participated(uint256 indexed phase, address indexed user, uint256 amount)",
+  "event Refunded(uint256 indexed phase, address indexed user, uint256 amount)",
+] as const);
+
+// AquaberaVaultDirect — Deposit / Withdraw (Berachain 80094)
+// F-6 re-dispatch (A-2). The vault is a Uniswap V3-style WBERA/HENLO pool.
+export const AquaberaVaultDirectAbi = parseAbi([
+  "event Deposit(address indexed sender, address indexed to, uint256 shares, uint256 amount0, uint256 amount1)",
+  "event Withdraw(address indexed sender, address indexed to, uint256 shares, uint256 amount0, uint256 amount1)",
+] as const);

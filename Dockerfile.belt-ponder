@@ -52,6 +52,24 @@ COPY . .
 ARG BELT_CONFIG=ponder.config.mibera.ts
 ENV BELT_CONFIG=${BELT_CONFIG}
 
+# A-2 discovery: Ponder 0.16.6 globs `<rootDir>/src/**/*.{js,mjs,ts,mts}` and
+# fails the build if ANY file errors at module-load. envio's handlers at
+# `src/handlers/*.ts` import `from "generated"` (envio's runtime types) which
+# is absent in this Docker image (we don't run envio codegen for the Ponder
+# belt). Solution: PUT PONDER IN A SEPARATE ROOTDIR.
+#
+# `ponder-runtime/` contains:
+#   - ponder.config.mibera.ts (re-exports the repo-root A-1 file)
+#   - ponder.schema.ts        (re-exports the repo-root A-1 file)
+#   - src/index.ts            (handler registrations)
+#   - src/api/index.ts        (Hono app — Ponder REQUIRES this per cookbook §D-2)
+#   - src/handlers/*.ts       (ported handlers)
+#   - src/lib/*.ts            (sync-status, reorg-safe-emit, nats-publisher, etc)
+#
+# Documented in docs/A-2-handler-port-summary.md §Design decisions.
+ARG PONDER_ROOT=ponder-runtime
+ENV PONDER_ROOT=${PONDER_ROOT}
+
 # pnpm 10+ disables postinstall scripts by default. Sonar's postinstall
 # (rebuild-events-dist.sh) materializes @0xhoneyjar/events from the
 # cluster-pinned loa-freeside SHA. Run it EXPLICITLY (same lesson as
@@ -89,6 +107,7 @@ ENV PONDER_TUI=false
 ENV PONDER_LOG_LEVEL=info
 
 # Resume is automatic in Ponder (Postgres checkpoint table). No ENVIO_RESTART dance.
-# `ponder start` reads --config from $BELT_CONFIG. DATABASE_SCHEMA env var sets the
-# Postgres schema namespace (cookbook §C-1). The container MUST have DATABASE_SCHEMA=ponder.
-CMD ["sh", "-c", "exec pnpm ponder start --config \"$BELT_CONFIG\""]
+# `ponder start` reads --config from $BELT_CONFIG and --root from $PONDER_ROOT.
+# DATABASE_SCHEMA env var sets the Postgres schema namespace (cookbook §C-1).
+# The container MUST have DATABASE_SCHEMA=ponder.
+CMD ["sh", "-c", "exec pnpm ponder start --root \"$PONDER_ROOT\" --config \"$BELT_CONFIG\""]
