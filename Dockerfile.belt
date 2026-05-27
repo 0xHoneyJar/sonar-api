@@ -16,7 +16,7 @@ FROM node:22-bookworm-slim
 # Path ε HyperSync-strip 2026-05-27 — build-context bust marker (Railway BuildKit
 # was deduplicating against an old cached image despite source changes; a content
 # change in the Dockerfile itself reliably busts the cache).
-ARG CACHE_BUST=path-epsilon-2026-05-27-hs-strip
+ARG CACHE_BUST=path-epsilon-t2-runtime-instrumentation-2026-05-27
 # git: required by scripts/rebuild-events-dist.sh which clones loa-freeside at
 # the cluster.eventsPin.sha + materializes packages/events into node_modules.
 # Path ε 2026-05-27 — same gap pattern as freeside-characters Dockerfile (apt git).
@@ -36,6 +36,7 @@ ENV BELT_CONFIG=${BELT_CONFIG}
 # EXPLICITLY here. Path ε 2026-05-27.
 RUN pnpm install --frozen-lockfile && \
     bash scripts/rebuild-events-dist.sh && \
+    node scripts/patch-envio-instrumentation.js && \
     pnpm envio codegen --config "${BELT_CONFIG}"
 ENV TUI_OFF=true
 # Env-gated re-init: steady-state RESUMES from the last checkpoint (safe default).
