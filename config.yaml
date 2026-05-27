@@ -553,6 +553,9 @@ chains:
   # Ethereum Mainnet
   - id: 1
     start_block: 13090020 # Earliest block - Milady contract deployment
+    # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
+    rpc_config:
+      url: http://erpc.railway.internal:4000/main/evm/1
     contracts:
       # Native HoneyJar contracts on Ethereum
       - name: HoneyJar
@@ -590,6 +593,9 @@ chains:
   # Arbitrum
   - id: 42161
     start_block: 102894033
+    # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
+    rpc_config:
+      url: http://erpc.railway.internal:4000/main/evm/42161
     contracts:
       - name: HoneyJar
         address:
@@ -598,6 +604,9 @@ chains:
   # Zora
   - id: 7777777
     start_block: 18071873
+    # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
+    rpc_config:
+      url: http://erpc.railway.internal:4000/main/evm/7777777
     contracts:
       - name: HoneyJar
         address:
@@ -606,6 +615,9 @@ chains:
   # Optimism
   - id: 10
     start_block: 107558369  # Mirror Observability deployment (July 30, 2023) - earliest for Mibera articles
+    # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
+    rpc_config:
+      url: http://erpc.railway.internal:4000/main/evm/10
     contracts:
       - name: HoneyJar
         address:
@@ -639,6 +651,9 @@ chains:
   # Base
   - id: 8453
     start_block: 2430439  # friend.tech start block (earliest contract)
+    # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
+    rpc_config:
+      url: http://erpc.railway.internal:4000/main/evm/8453
     contracts:
       - name: HoneyJar
         address:

@@ -102,6 +102,18 @@ rateLimiters:
       rules: [{ method: "*", maxCount: 25, period: 1s }]
     - id: bud-eth-drpc
       rules: [{ method: "*", maxCount: 25, period: 1s }]
+    # Arbitrum + Zora HyperRPC upstreams (added 2026-05-27 Path ε HyperSync-strip).
+    # Per-chain HyperRPC budgets — paid pay-per-use, 100 req/s circuit-breaker each.
+    - id: bud-arbitrum-hyperrpc
+      rules: [{ method: "*", maxCount: 100, period: 1s }]
+    - id: bud-zora-hyperrpc
+      rules: [{ method: "*", maxCount: 100, period: 1s }]
+    - id: bud-eth-hyperrpc
+      rules: [{ method: "*", maxCount: 100, period: 1s }]
+    - id: bud-op-hyperrpc
+      rules: [{ method: "*", maxCount: 100, period: 1s }]
+    - id: bud-base-hyperrpc
+      rules: [{ method: "*", maxCount: 100, period: 1s }]
 
 projects:
   - id: main
@@ -156,6 +168,30 @@ projects:
             retry:
               maxAttempts: 5
               delay: 300ms
+      # ── Arbitrum 42161 — Mibera ecosystem leg (HoneyJar2). Added Path ε
+      # HyperSync-strip 2026-05-27. HyperRPC as primary + free upstreams as fallback.
+      - architecture: evm
+        evm:
+          chainId: 42161
+        failsafe:
+          - matchMethod: "*"
+            timeout:
+              duration: 30s
+            retry:
+              maxAttempts: 5
+              delay: 300ms
+      # ── Zora 7777777 — Mibera ecosystem leg (HoneyJar3 + Mibera ERC1155).
+      # Added Path ε HyperSync-strip 2026-05-27.
+      - architecture: evm
+        evm:
+          chainId: 7777777
+        failsafe:
+          - matchMethod: "*"
+            timeout:
+              duration: 30s
+            retry:
+              maxAttempts: 5
+              delay: 300ms
 
     # ── L1 upstreams — Berachain 80094 public cluster (S0-T1 + S2-T3 verified) ────────
     # All anonymous / no-API-key / $0. getLogs-capable cluster = 5 nodes; berachain-apis
@@ -193,14 +229,50 @@ projects:
         endpoint: https://berachain.rpc.sentio.xyz
         rateLimitBudget: bud-sentio
 
-      # ── Envio HyperRPC (Berachain) — PAID, high-quality JSON-RPC. Added Path ε
-      # 2026-05-27 to substitute for HyperSync (separate Envio product on a separate
-      # paid SKU). Token injected via HYPERRPC_TOKEN env var (SDD §10.3: no inline
-      # credentials). When this upstream is healthy + the free cluster has any 429,
-      # eRPC's auto-prioritization will route to HyperRPC.
+      # ── HyperRPC PAID upstreams for ALL chains (added Path ε HyperSync-strip
+      # 2026-05-27). Per `project_erpc-postgres-becomes-hypersync`, this is the
+      # cluster-owned substitute for HyperSync's batch product — eRPC + Postgres
+      # cache + per-chain HyperRPC as a high-quality wire-layer. Token injected
+      # via HYPERRPC_TOKEN env var (SDD §10.3: no inline credentials). eRPC's
+      # auto-prioritization routes here when free upstreams throttle.
       - id: berachain-hyperrpc
         endpoint: https://80094.rpc.hypersync.xyz
         rateLimitBudget: bud-hyperrpc
+        jsonRpc:
+          headers:
+            Authorization: "Bearer ${HYPERRPC_TOKEN}"
+
+      - id: eth-hyperrpc
+        endpoint: https://1.rpc.hypersync.xyz
+        rateLimitBudget: bud-eth-hyperrpc
+        jsonRpc:
+          headers:
+            Authorization: "Bearer ${HYPERRPC_TOKEN}"
+
+      - id: op-hyperrpc
+        endpoint: https://10.rpc.hypersync.xyz
+        rateLimitBudget: bud-op-hyperrpc
+        jsonRpc:
+          headers:
+            Authorization: "Bearer ${HYPERRPC_TOKEN}"
+
+      - id: base-hyperrpc
+        endpoint: https://8453.rpc.hypersync.xyz
+        rateLimitBudget: bud-base-hyperrpc
+        jsonRpc:
+          headers:
+            Authorization: "Bearer ${HYPERRPC_TOKEN}"
+
+      - id: arbitrum-hyperrpc
+        endpoint: https://42161.rpc.hypersync.xyz
+        rateLimitBudget: bud-arbitrum-hyperrpc
+        jsonRpc:
+          headers:
+            Authorization: "Bearer ${HYPERRPC_TOKEN}"
+
+      - id: zora-hyperrpc
+        endpoint: https://7777777.rpc.hypersync.xyz
+        rateLimitBudget: bud-zora-hyperrpc
         jsonRpc:
           headers:
             Authorization: "Bearer ${HYPERRPC_TOKEN}"
