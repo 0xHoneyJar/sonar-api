@@ -295,8 +295,9 @@ chains:
     # cluster (publicnode/tenderly/drpc). Slower backfill on dense ranges; accepts
     # the trade for cluster-owned chain-read substrate (memory
     # erpc-postgres-becomes-hypersync).
-    rpc_config:
+    rpc:
       url: http://erpc.railway.internal:4000/main/evm/8453
+      for: sync
     contracts:
       - name: FriendtechShares
         address:
