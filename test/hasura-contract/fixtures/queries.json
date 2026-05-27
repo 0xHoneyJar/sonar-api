@@ -1,0 +1,223 @@
+{
+  "_meta": {
+    "purpose": "A-3 T-A3.1 — top-5 production query shapes per consumer × 3 consumers = 15 fixtures.",
+    "source_of_truth": "Real consumer code where available. Synthesized + flagged where not.",
+    "schema_naming_caveat": "envio Hasura exposes PascalCase entity names (e.g. `MintEvent`, `MiberaTransfer`, `BadgeHolder`) because envio's entity-name → PostgreSQL table mapping preserves the schema.graphql case. Ponder's `ponder.schema.ts` uses snake_case Postgres table names (e.g. `mint_event`, `mibera_transfer`, `badge_holder`). The cutover script `scripts/cutover-hasura-tracking.sh` jq-bakes `select: .table.name` which is the literal Postgres name → snake_case for Ponder. POST-CUTOVER, queries against `MintEvent` will 404 unless the customization is enhanced to remap to PascalCase. THIS IS A LOAD-BEARING DIVERGENCE that the metadata-diff test (T-A3.3) MUST catch. See docs/A-3-staging-dryrun-runbook.md §Substantive flags.",
+    "consumers": {
+      "freeside-score": {
+        "real_source": "score-mibera/trigger/utils/envio-client.ts (commit-current)",
+        "queries_extracted": 5,
+        "notes": "All 5 are real production query shapes used by the scoring pipeline."
+      },
+      "mediums": {
+        "real_source": "Mixed — cubquests-interface/lib/blockchain/envio.ts (BadgeHolder) is one real source. The remaining 4 are synthesized from the medium-blink/world-sources query shapes implied by score reads + envelope subjects. Operator should validate against actual mediums prod query log before A-4 cutover.",
+        "queries_extracted": 5,
+        "notes": "1 real (cubquests->BadgeHolder), 4 synthesized. SYNTHESIS_FLAG=true on the 4 synthesized."
+      },
+      "sietch-discord": {
+        "real_source": "NOT FOUND in local checkouts. sietch-discord consumer queries could not be located (searched ~/bonfire, ~/Documents/GitHub).",
+        "queries_extracted": 5,
+        "notes": "All 5 synthesized from envelope subjects (mintDetected, etc.) + read-side shapes inferred from envio schema.graphql. SYNTHESIS_FLAG=true. Operator MUST validate against actual sietch-discord prod query log before A-4 cutover."
+      }
+    },
+    "expectedShape_semantics": "expectedShape is the GraphQL response shape (i.e. data.<RootField> = array of objects with these keys). The test harness asserts (a) the keys are present, (b) types match (string/number/null), (c) the root field name resolves (no `field 'X' not found` errors per cookbook §C-6)."
+  },
+  "fixtures": [
+    {
+      "id": "score-1-friendtech-trades",
+      "consumer": "freeside-score",
+      "sourceFile": "score-mibera/trigger/utils/envio-client.ts QUERIES.FRIENDTECH_TRADES",
+      "synthesized": false,
+      "query": "query FriendtechTrades($limit: Int!, $offset: Int!, $subject: String!, $isBuy: Boolean!) { FriendtechTrade(where: { subject: { _eq: $subject }, isBuy: { _eq: $isBuy } } limit: $limit offset: $offset order_by: { timestamp: desc }) { id trader subject isBuy shareAmount ethAmount timestamp chainId transactionHash blockNumber } }",
+      "variables": { "limit": 10, "offset": 0, "subject": "0x1defc6b7320f9480f3b2d77e396a942f2803559d", "isBuy": true },
+      "expectedShape": {
+        "rootField": "FriendtechTrade",
+        "type": "array",
+        "itemKeys": ["id", "trader", "subject", "isBuy", "shareAmount", "ethAmount", "timestamp", "chainId", "transactionHash", "blockNumber"]
+      }
+    },
+    {
+      "id": "score-2-mibera-staking-deposits",
+      "consumer": "freeside-score",
+      "sourceFile": "score-mibera/trigger/utils/envio-client.ts QUERIES.MIBERA_STAKING_DEPOSITS",
+      "synthesized": false,
+      "query": "query MiberaStakingDeposits($limit: Int!, $offset: Int!, $stakingContract: String!) { MiberaTransfer(where: { to: { _eq: $stakingContract }, isMint: { _eq: false } } limit: $limit offset: $offset order_by: { timestamp: desc }) { id from to tokenId timestamp chainId transactionHash blockNumber } }",
+      "variables": { "limit": 10, "offset": 0, "stakingContract": "0x242b7126f3c4e4f8cbd7f62571293e63e9b0a4e1" },
+      "expectedShape": {
+        "rootField": "MiberaTransfer",
+        "type": "array",
+        "itemKeys": ["id", "from", "to", "tokenId", "timestamp", "chainId", "transactionHash", "blockNumber"]
+      }
+    },
+    {
+      "id": "score-3-mibera-mints",
+      "consumer": "freeside-score",
+      "sourceFile": "score-mibera/trigger/utils/envio-client.ts QUERIES.MIBERA_MINTS",
+      "synthesized": false,
+      "query": "query MiberaMints($limit: Int!, $offset: Int!) { MiberaTransfer(where: { isMint: { _eq: true } } limit: $limit offset: $offset order_by: { timestamp: desc }) { id from to tokenId isMint timestamp chainId transactionHash blockNumber } }",
+      "variables": { "limit": 10, "offset": 0 },
+      "expectedShape": {
+        "rootField": "MiberaTransfer",
+        "type": "array",
+        "itemKeys": ["id", "from", "to", "tokenId", "isMint", "timestamp", "chainId", "transactionHash", "blockNumber"]
+      }
+    },
+    {
+      "id": "score-4-bgt-boosts",
+      "consumer": "freeside-score",
+      "sourceFile": "score-mibera/trigger/utils/envio-client.ts QUERIES.BGT_BOOSTS",
+      "synthesized": false,
+      "query": "query BgtBoosts($limit: Int!, $offset: Int!, $validatorPubkey: String!) { BgtBoostEvent(where: { validatorPubkey: { _eq: $validatorPubkey } } limit: $limit offset: $offset order_by: { timestamp: desc }) { id account validatorPubkey amount timestamp chainId transactionHash blockNumber } }",
+      "variables": { "limit": 10, "offset": 0, "validatorPubkey": "0xb6380cbd103b20dbde1a47df1d1cc299f01dda8966e10a395e4430ba2871f719529ea5cd9ffa9d48625b0d96dd77fb50" },
+      "expectedShape": {
+        "rootField": "BgtBoostEvent",
+        "type": "array",
+        "itemKeys": ["id", "account", "validatorPubkey", "amount", "timestamp", "chainId", "transactionHash", "blockNumber"]
+      }
+    },
+    {
+      "id": "score-5-mint-events",
+      "consumer": "freeside-score",
+      "sourceFile": "score-mibera/trigger/utils/envio-client.ts QUERIES.MINT_EVENTS",
+      "synthesized": false,
+      "query": "query MintEvents($limit: Int!, $offset: Int!, $collectionKey: String!) { MintEvent(where: { collectionKey: { _eq: $collectionKey } } limit: $limit offset: $offset order_by: { timestamp: desc }) { id collectionKey tokenId minter timestamp chainId transactionHash blockNumber } }",
+      "variables": { "limit": 10, "offset": 0, "collectionKey": "mibera_vm" },
+      "expectedShape": {
+        "rootField": "MintEvent",
+        "type": "array",
+        "itemKeys": ["id", "collectionKey", "tokenId", "minter", "timestamp", "chainId", "transactionHash", "blockNumber"]
+      }
+    },
+    {
+      "id": "mediums-1-badge-holders",
+      "consumer": "mediums",
+      "sourceFile": "cubquests-interface/lib/blockchain/envio.ts getBadgeHoldersFromEnvio",
+      "synthesized": false,
+      "query": "query GetBadgeHolders($limit: Int!, $offset: Int!) { BadgeHolder(limit: $limit offset: $offset) { id address holdings } }",
+      "variables": { "limit": 10, "offset": 0 },
+      "expectedShape": {
+        "rootField": "BadgeHolder",
+        "type": "array",
+        "itemKeys": ["id", "address", "holdings"]
+      }
+    },
+    {
+      "id": "mediums-2-mint-events-by-collection",
+      "consumer": "mediums",
+      "sourceFile": "synthesized — medium-blink read pattern (per nftMintDetected envelope subject + collectionKey discrim)",
+      "synthesized": true,
+      "query": "query MediumsMintsByCollection($limit: Int!, $collectionKey: String!) { MintEvent(where: { collectionKey: { _eq: $collectionKey } } limit: $limit order_by: { blockNumber: desc }) { id collectionKey tokenId minter blockNumber transactionHash } }",
+      "variables": { "limit": 5, "collectionKey": "mibera_shadow" },
+      "expectedShape": {
+        "rootField": "MintEvent",
+        "type": "array",
+        "itemKeys": ["id", "collectionKey", "tokenId", "minter", "blockNumber", "transactionHash"]
+      }
+    },
+    {
+      "id": "mediums-3-aquabera-deposits-recent",
+      "consumer": "mediums",
+      "sourceFile": "synthesized — aquabera blink renderer expects most-recent N deposits for medium feed",
+      "synthesized": true,
+      "query": "query AquaberaRecentDeposits($limit: Int!) { AquaberaDeposit(limit: $limit order_by: { timestamp: desc }) { id user vault token0Amount token1Amount timestamp transactionHash } }",
+      "variables": { "limit": 5 },
+      "expectedShape": {
+        "rootField": "AquaberaDeposit",
+        "type": "array",
+        "itemKeys": ["id", "user", "vault", "token0Amount", "token1Amount", "timestamp", "transactionHash"]
+      }
+    },
+    {
+      "id": "mediums-4-action-by-actor",
+      "consumer": "mediums",
+      "sourceFile": "synthesized — action-stream blink pattern (look up recent activity per address)",
+      "synthesized": true,
+      "query": "query ActionsByActor($actor: String!, $limit: Int!) { Action(where: { actor: { _eq: $actor } } limit: $limit order_by: { timestamp: desc }) { id actionType actor primaryCollection timestamp chainId txHash numeric1 context } }",
+      "variables": { "actor": "0x0000000000000000000000000000000000000001", "limit": 10 },
+      "expectedShape": {
+        "rootField": "Action",
+        "type": "array",
+        "itemKeys": ["id", "actionType", "actor", "primaryCollection", "timestamp", "chainId", "txHash", "numeric1", "context"]
+      }
+    },
+    {
+      "id": "mediums-5-paddle-supply-aggregate",
+      "consumer": "mediums",
+      "sourceFile": "synthesized — paddle medium-blink supply aggregate (count + sum-amount)",
+      "synthesized": true,
+      "query": "query PaddleSupplyAggregate { PaddleSupply_aggregate { aggregate { count sum { mintAmount } } } }",
+      "variables": {},
+      "expectedShape": {
+        "rootField": "PaddleSupply_aggregate",
+        "type": "object",
+        "itemKeys": ["aggregate"],
+        "aggregateKeys": ["count", "sum"]
+      }
+    },
+    {
+      "id": "sietch-1-recent-mints-for-mention",
+      "consumer": "sietch-discord",
+      "sourceFile": "synthesized — sietch-discord notification bot reads recent mints to confirm Discord post is canonical",
+      "synthesized": true,
+      "query": "query SietchRecentMintsConfirm($txHash: String!) { MintEvent(where: { transactionHash: { _eq: $txHash } } limit: 5) { id collectionKey tokenId minter transactionHash timestamp } }",
+      "variables": { "txHash": "0x0000000000000000000000000000000000000000000000000000000000000000" },
+      "expectedShape": {
+        "rootField": "MintEvent",
+        "type": "array",
+        "itemKeys": ["id", "collectionKey", "tokenId", "minter", "transactionHash", "timestamp"]
+      }
+    },
+    {
+      "id": "sietch-2-erc1155-mints-by-collection",
+      "consumer": "sietch-discord",
+      "sourceFile": "synthesized — sietch posts erc1155 mints by collection key",
+      "synthesized": true,
+      "query": "query SietchErc1155Mints($collectionKey: String!, $limit: Int!) { Erc1155MintEvent(where: { collectionKey: { _eq: $collectionKey } } limit: $limit order_by: { timestamp: desc }) { id collectionKey tokenId value minter timestamp transactionHash chainId } }",
+      "variables": { "collectionKey": "purupuru-apiculture", "limit": 5 },
+      "expectedShape": {
+        "rootField": "Erc1155MintEvent",
+        "type": "array",
+        "itemKeys": ["id", "collectionKey", "tokenId", "value", "minter", "timestamp", "transactionHash", "chainId"]
+      }
+    },
+    {
+      "id": "sietch-3-mibera-loan-events",
+      "consumer": "sietch-discord",
+      "sourceFile": "synthesized — sietch posts new-loan events as Discord embeds",
+      "synthesized": true,
+      "query": "query SietchMiberaLoans($limit: Int!) { MiberaLoan(limit: $limit order_by: { createdAt: desc }) { id user loanId loanType amount createdAt chainId transactionHash tokenIds } }",
+      "variables": { "limit": 5 },
+      "expectedShape": {
+        "rootField": "MiberaLoan",
+        "type": "array",
+        "itemKeys": ["id", "user", "loanId", "loanType", "amount", "createdAt", "chainId", "transactionHash", "tokenIds"]
+      }
+    },
+    {
+      "id": "sietch-4-nft-burn-summary",
+      "consumer": "sietch-discord",
+      "sourceFile": "synthesized — sietch posts burn-summary (used for Stonehenge channel)",
+      "synthesized": true,
+      "query": "query SietchNftBurnSummary($collectionKey: String!, $limit: Int!) { NftBurn(where: { collectionKey: { _eq: $collectionKey } } limit: $limit order_by: { timestamp: desc }) { id collectionKey tokenId from timestamp blockNumber transactionHash chainId } }",
+      "variables": { "collectionKey": "mibera_vm", "limit": 5 },
+      "expectedShape": {
+        "rootField": "NftBurn",
+        "type": "array",
+        "itemKeys": ["id", "collectionKey", "tokenId", "from", "timestamp", "blockNumber", "transactionHash", "chainId"]
+      }
+    },
+    {
+      "id": "sietch-5-treasury-activity",
+      "consumer": "sietch-discord",
+      "sourceFile": "synthesized — sietch posts treasury moves (TreasuryActivity entity)",
+      "synthesized": true,
+      "query": "query SietchTreasuryActivity($limit: Int!) { TreasuryActivity(limit: $limit order_by: { timestamp: desc }) { id activityType actor amount timestamp chainId transactionHash } }",
+      "variables": { "limit": 5 },
+      "expectedShape": {
+        "rootField": "TreasuryActivity",
+        "type": "array",
+        "itemKeys": ["id", "activityType", "actor", "amount", "timestamp", "chainId", "transactionHash"]
+      }
+    }
+  ]
+}

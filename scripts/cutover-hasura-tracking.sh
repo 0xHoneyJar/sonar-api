@@ -65,7 +65,16 @@ echo "[cutover] metadata snapshot WRITTEN (size=$(wc -c < "${SNAPSHOT_PATH}") by
 # atomic — no window where consumers see prefixed `ponder_*` names (C-6).
 if [[ "${DIRECTION}" == "cutover" ]]; then
   echo "[cutover] transforming metadata: schema public → ponder + custom_root_fields bake"
+  # snake_to_pascal: maps Ponder's snake_case Postgres table names
+  # (`mint_event`, `badge_holder`) to PascalCase GraphQL root fields
+  # (`MintEvent`, `BadgeHolder`). Required because envio's consumer queries
+  # use PascalCase entity names — see runbook §Flag 1 (CRITICAL load-bearing).
+  # NB: explicit parens around `(.[0:1] | ascii_upcase)` matter — without them
+  # jq parses `[.[0:1] | ascii_upcase, .[1:]]` as `[.[0:1] | (ascii_upcase, .[1:])]`
+  # and the slice `.[1:]` gets applied to the single uppercased char (empty).
   jq '
+    def snake_to_pascal:
+      split("_") | map([(.[0:1] | ascii_upcase), .[1:]] | add) | join("");
     (.. | objects | select((.schema // null) == "public")) |= (.schema = "ponder")
     | (.. | objects | select(.table? | (.schema // null) == "ponder" and (.name // null) != null))
       |= (
@@ -73,18 +82,18 @@ if [[ "${DIRECTION}" == "cutover" ]]; then
           (.configuration // {}) + {
             custom_root_fields: (
               ((.configuration // {}).custom_root_fields // {}) + {
-                select: .table.name,
-                select_by_pk: ((.table.name) + "_by_pk"),
-                select_aggregate: ((.table.name) + "_aggregate"),
-                insert: (("insert_") + (.table.name)),
-                insert_one: (("insert_") + (.table.name) + "_one"),
-                update: (("update_") + (.table.name)),
-                update_by_pk: (("update_") + (.table.name) + "_by_pk"),
-                delete: (("delete_") + (.table.name)),
-                delete_by_pk: (("delete_") + (.table.name) + "_by_pk")
+                select: (.table.name | snake_to_pascal),
+                select_by_pk: ((.table.name | snake_to_pascal) + "_by_pk"),
+                select_aggregate: ((.table.name | snake_to_pascal) + "_aggregate"),
+                insert: ("insert_" + (.table.name | snake_to_pascal)),
+                insert_one: ("insert_" + (.table.name | snake_to_pascal) + "_one"),
+                update: ("update_" + (.table.name | snake_to_pascal)),
+                update_by_pk: ("update_" + (.table.name | snake_to_pascal) + "_by_pk"),
+                delete: ("delete_" + (.table.name | snake_to_pascal)),
+                delete_by_pk: ("delete_" + (.table.name | snake_to_pascal) + "_by_pk")
               }
             ),
-            custom_name: .table.name
+            custom_name: (.table.name | snake_to_pascal)
           }
         )
       )
