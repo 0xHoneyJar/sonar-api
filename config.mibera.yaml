@@ -289,6 +289,14 @@ chains:
   #   rpc: { url: http://erpc.railway.internal:4000/main/evm/8453, for: sync }
   - id: 8453
     start_block: 2430439 # friend.tech start block (earliest contract; FriendtechShares inherits this floor)
+    # Path ε HyperSync-strip 2026-05-27 — operator deleted the HyperSync token; the
+    # 2026-05-21 break-glass (dense friend.tech backfill) is no longer accessible.
+    # Returning to sovereign realtime via eRPC + HyperRPC paid + multi-upstream Base
+    # cluster (publicnode/tenderly/drpc). Slower backfill on dense ranges; accepts
+    # the trade for cluster-owned chain-read substrate (memory
+    # erpc-postgres-becomes-hypersync).
+    rpc_config:
+      url: http://erpc.railway.internal:4000/main/evm/8453
     contracts:
       - name: FriendtechShares
         address:
