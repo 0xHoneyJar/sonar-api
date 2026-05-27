@@ -15,6 +15,7 @@ import { STAKING_CONTRACT_KEYS } from "./mibera-staking/constants";
 import { isMarketplaceAddress } from "./marketplaces/constants";
 import { recordAction } from "../lib/actions";
 import { isBurnAddress, isMintFromZero } from "../lib/mint-detection";
+import { setTokenOwner } from "../lib/set-token-owner";
 
 const ZERO = ZERO_ADDRESS.toLowerCase();
 
@@ -155,6 +156,20 @@ export const handleTrackedErc721Transfer = TrackedErc721.Transfer.handler(
       // Don't adjust holder counts - they were never decremented on deposit
       return;
     }
+
+    // Write per-token ownership index (Token entity) for tracked collections
+    // (apdao_seat, fractures, lore, mibera_tarot, …). Staking-skip is enforced
+    // inside the helper — see set-token-owner.ts. Closes inventory-api gap
+    // (project_token-entity-gap.md).
+    await setTokenOwner({
+      context,
+      collection: contractAddress,
+      chainId,
+      tokenId,
+      from,
+      to,
+      timestamp,
+    });
 
     // Normal transfer handling
     await adjustHolder({
