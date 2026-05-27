@@ -9,6 +9,7 @@
 #                               writes Envio entities as before.
 # See src/lib/events-publisher.ts and the cluster-events-pillar-v1 build doc.
 name: thj-indexer
+# Cache-bust: Path ε rpc-fix deploy 2026-05-27 (Railway BuildKit cache evicted by content change)
 contracts:
   - name: HoneyJar
     handler: src/EventHandlers.ts
