@@ -124,6 +124,16 @@ if [[ "$HAS_VALID_SCHEMA_VERSION" == "true" && "$HAS_VALID_SOURCE_SHA" == "true"
   exit 0
 fi
 
+# Path ε hotfix (2026-05-27): if schema-version fingerprint matches but
+# SOURCE_SHA doesn'''t, trust the schema literal alone. The dist'''s
+# SOURCE_SHA file references the PARENT commit of where dist was committed
+# (chicken-and-egg) — strict SOURCE_SHA match is impossible to satisfy when
+# dist is committed upstream. Mirrors freeside-characters#114 relax.
+if [[ "$HAS_VALID_SCHEMA_VERSION" == "true" ]]; then
+  echo "$TAG dist/ has valid acvp-l1-v2 schema fingerprint (SOURCE_SHA=$(cat "$EVENTS_DIR/dist/SOURCE_SHA" 2>/dev/null || echo "missing") vs expected $COMMIT_SHA — accepting upstream dist) — skipping rebuild"
+  exit 0
+fi
+
 echo "$TAG Rebuilding ${PKG_NAME} dist from loa-freeside@${COMMIT_SHA:0:12}..."
 echo "$TAG Schema version fingerprint present: $HAS_VALID_SCHEMA_VERSION"
 echo "$TAG Source SHA valid: $HAS_VALID_SOURCE_SHA"
