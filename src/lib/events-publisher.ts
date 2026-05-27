@@ -44,7 +44,7 @@
  * Reference: ~/Documents/GitHub/loa-freeside/packages/events/README.md
  */
 
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import {
   InMemoryPrevHashStore,
   LocalEd25519Signer,
@@ -198,6 +198,11 @@ async function initSubstrate(log: HandlerLogger): Promise<boolean> {
   // Transient backoff: if we just had a transient failure, skip this attempt.
   // The flag `initialized=false` means a future call after the backoff window
   // will go through full init again.
+  //
+  // BB#24 rd-2 F-001: the caller (publishMintEvent) emits an audit-trail
+  // log line when this path returns false so transient backoff doesn't
+  // silently drop accepted events. See `publishMintEvent` below for the
+  // loss-accounting log.
   if (disabledKind === "transient" && Date.now() - lastTransientFailAtMs < TRANSIENT_BACKOFF_MS) {
     return false;
   }
@@ -217,10 +222,15 @@ async function initSubstrate(log: HandlerLogger): Promise<boolean> {
   // BB#24 F-003: when NATS_TLS_CA is set but unreadable → refuse. The old
   // warn-and-continue-with-undefined-CA path is closed; that path could
   // silently weaken certificate verification.
+  //
+  // BB#24 rd-2 F-002: use the async fs.promises.readFile so the handler
+  // event loop doesn't block during lazy init. Path is operator-provided
+  // and slow filesystems (network mounts, EFS, container layer hiccups)
+  // would otherwise stall every handler waiting for first publish.
   let ca: string | undefined;
   if (natsTlsCa) {
     try {
-      ca = readFileSync(natsTlsCa, "utf8");
+      ca = await readFile(natsTlsCa, "utf8");
     } catch (err) {
       return markPermanentDisabled(
         `NATS_TLS_CA at "${natsTlsCa}" is unreadable: ${(err as Error).message}`,
@@ -269,7 +279,22 @@ export async function publishMintEvent(args: {
   payload: MintEventPayload;
 }): Promise<void> {
   const ready = await initSubstrate(args.log);
-  if (!ready || !nats || !signer) return;
+
+  // BB#24 rd-2 F-001: when the substrate is disabled (permanent or
+  // transient-backoff), the publish call would silently drop the event.
+  // Emit an audit-trail log line per dropped event so operators can
+  // replay from indexer entity state if needed. Event identity (chain,
+  // contract, token_id, tx_hash) is sufficient for replay: sonar's
+  // Envio Postgres has the durable record; the events pillar can be
+  // re-published from there during recovery.
+  if (!ready || !nats || !signer) {
+    args.log.warn(
+      `[events-publisher] DROPPED publish (substrate ${disabledKind ?? "uninitialized"} — ${disabledReason ?? "unknown"}): ` +
+        `chain=${args.payload.chain_id} contract=${args.payload.contract} token_id=${args.payload.token_id} ` +
+        `tx=${args.payload.transaction_hash} collection=${args.collectionSlug}`,
+    );
+    return;
+  }
 
   const subject = nftMintDetectedTopic({ collectionSlug: args.collectionSlug });
 
