@@ -24,6 +24,7 @@ import type {
   MiberaStaker as MiberaStakerEntity,
 } from "generated";
 import { recordAction } from "../lib/actions";
+import { publishMintEvent } from "../lib/events-publisher";
 import { isMintFromZero, isBurnTransfer, isBurnAddress } from "../lib/mint-detection";
 import { BERACHAIN_ID, ZERO_ADDRESS } from "./constants";
 import { STAKING_CONTRACT_KEYS } from "./mibera-staking/constants";
@@ -126,6 +127,22 @@ export const handleMiberaCollectionTransfer = MiberaCollection.Transfer.handler(
           tokenId: tokenId.toString(),
           contract: MIBERA_COLLECTION_ADDRESS,
           amountPaid: amountPaid.toString(),
+        },
+      });
+
+      // Events-pillar v1: publish main Mibera ERC-721 mint envelope on NATS.
+      // Subject: nft.mint.detected.mibera-collection.v1. Fail-soft.
+      await publishMintEvent({
+        log: context.log,
+        collectionSlug: "mibera-collection",
+        payload: {
+          chain_id: BERACHAIN_ID,
+          contract: MIBERA_COLLECTION_ADDRESS,
+          token_id: tokenId.toString(),
+          minter: to,
+          block_number: Number(blockNumber),
+          transaction_hash: txHash,
+          timestamp: new Date(Number(timestamp) * 1000).toISOString(),
         },
       });
     }

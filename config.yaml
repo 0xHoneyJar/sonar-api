@@ -1,4 +1,13 @@
 # yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+#
+# Runtime env vars (read by handlers, not by envio):
+#   NATS_URL                  — JetStream connection URI (TLS-only)
+#   NATS_TLS_CA               — path to CA bundle for the cluster's NATS instance
+#   SONAR_SIGNING_SEED_HEX    — 32-byte (64 hex chars) Ed25519 seed for the
+#                               events-pillar signer. Absent → publish layer
+#                               stays disabled (fail-soft); the indexer still
+#                               writes Envio entities as before.
+# See src/lib/events-publisher.ts and the cluster-events-pillar-v1 build doc.
 name: thj-indexer
 contracts:
   - name: HoneyJar

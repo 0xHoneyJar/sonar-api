@@ -22,6 +22,7 @@ import {
 import type { handlerContext } from "generated";
 
 import { recordAction } from "../lib/actions";
+import { publishMintEvent } from "../lib/events-publisher";
 import { isMintFromZero, isBurnAddress } from "../lib/mint-detection";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -96,6 +97,25 @@ export const handlePuruApicultureSingle = PuruApiculture1155.TransferSingle.hand
           operator: operatorLower,
           contract: contractAddress,
           from: fromLower,
+        },
+      });
+
+      // Events-pillar v1: publish PuruPuru ERC-1155 mint envelope. All 4
+      // puru-family contracts (apiculture, elemental_jani, boarding_passes,
+      // introducing_kizuna) share the single `purupuru-apiculture.v1` subject
+      // per the build doc — per-contract discrimination is the consumer's
+      // job via the `contract` payload field. Fail-soft.
+      await publishMintEvent({
+        log: context.log,
+        collectionSlug: "purupuru-apiculture",
+        payload: {
+          chain_id: chainId,
+          contract: contractAddress,
+          token_id: tokenId.toString(),
+          minter: toLower,
+          block_number: event.block.number,
+          transaction_hash: txHash,
+          timestamp: new Date(Number(timestamp) * 1000).toISOString(),
         },
       });
     } else if (isBurn) {
@@ -247,6 +267,22 @@ export const handlePuruApicultureBatch = PuruApiculture1155.TransferBatch.handle
             contract: contractAddress,
             from: fromLower,
             batchIndex: index,
+          },
+        });
+
+        // Events-pillar v1: publish one envelope per token in the batch.
+        // Subject: nft.mint.detected.purupuru-apiculture.v1. Fail-soft.
+        await publishMintEvent({
+          log: context.log,
+          collectionSlug: "purupuru-apiculture",
+          payload: {
+            chain_id: chainId,
+            contract: contractAddress,
+            token_id: tokenId.toString(),
+            minter: toLower,
+            block_number: event.block.number,
+            transaction_hash: txHash,
+            timestamp: new Date(Number(timestamp) * 1000).toISOString(),
           },
         });
       } else if (isBurn) {

@@ -15,6 +15,8 @@
 
 import { GeneralMints, MintEvent } from "generated";
 
+import { publishMintEvent } from "../lib/events-publisher";
+
 export const handleVmMinted = GeneralMints.Minted.handler(
   async ({ event, context }) => {
     const { user, tokenId, traits } = event.params;
@@ -45,5 +47,24 @@ export const handleVmMinted = GeneralMints.Minted.handler(
       );
       // Do NOT create a new MintEvent here - let the Transfer handler handle creation
     }
+
+    // Events-pillar v1: publish the MST mint envelope on NATS. Includes the
+    // encoded_traits from the Minted event payload (MST/VM-only). Fail-soft —
+    // any publish error is logged via context.log.warn, the Envio write above
+    // is the durable record. See ../lib/events-publisher.ts.
+    await publishMintEvent({
+      log: context.log,
+      collectionSlug: "mibera-shadow",
+      payload: {
+        chain_id: event.chainId,
+        contract: event.srcAddress.toLowerCase(),
+        token_id: tokenId.toString(),
+        minter: user.toLowerCase(),
+        block_number: event.block.number,
+        transaction_hash: txHash,
+        timestamp: new Date(Number(event.block.timestamp) * 1000).toISOString(),
+        encoded_traits: traits,
+      },
+    });
   }
 );

@@ -13,6 +13,7 @@
 import { MiberaSets, Erc1155MintEvent } from "generated";
 
 import { recordAction } from "../lib/actions";
+import { publishMintEvent } from "../lib/events-publisher";
 import { isMintOrAirdrop } from "../lib/mint-detection";
 import { isMarketplaceAddress } from "./marketplaces/constants";
 
@@ -102,6 +103,22 @@ export const handleMiberaSetsSingle = MiberaSets.TransferSingle.handler(
           operator: operatorLower,
           contract: contractAddress,
           from: fromLower,
+        },
+      });
+
+      // Events-pillar v1: publish Mibera Sets mint envelope.
+      // Subject: nft.mint.detected.mibera-sets.v1. Fail-soft.
+      await publishMintEvent({
+        log: context.log,
+        collectionSlug: "mibera-sets",
+        payload: {
+          chain_id: chainId,
+          contract: contractAddress,
+          token_id: tokenId.toString(),
+          minter: toLower,
+          block_number: event.block.number,
+          transaction_hash: event.transaction.hash,
+          timestamp: new Date(Number(timestamp) * 1000).toISOString(),
         },
       });
     } else {
@@ -208,6 +225,22 @@ export const handleMiberaSetsBatch = MiberaSets.TransferBatch.handler(
             contract: contractAddress,
             from: fromLower,
             batchIndex: index,
+          },
+        });
+
+        // Events-pillar v1: publish one envelope per token in the batch.
+        // Subject: nft.mint.detected.mibera-sets.v1. Fail-soft.
+        await publishMintEvent({
+          log: context.log,
+          collectionSlug: "mibera-sets",
+          payload: {
+            chain_id: chainId,
+            contract: contractAddress,
+            token_id: tokenId.toString(),
+            minter: toLower,
+            block_number: event.block.number,
+            transaction_hash: txHash,
+            timestamp: new Date(Number(timestamp) * 1000).toISOString(),
           },
         });
       } else {
