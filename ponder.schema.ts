@@ -535,6 +535,68 @@ export const treasuryStats = onchainTable("treasury_stats", (t) => ({
 }));
 
 // ─────────────────────────────────────────────────────────────────────────
+// AquaberaVaultDirect — WBERA/HENLO LP vault (Berachain 80094)
+//
+// Added in A-2 F-6 re-dispatch. Entity shapes are a faithful column-by-column
+// port of envio's schema.graphql definitions (AquaberaDeposit, AquaberaWithdrawal,
+// AquaberaBuilder, AquaberaStats). The handler at
+// ponder-runtime/src/handlers/aquabera-vault-direct.ts requires all four.
+// ─────────────────────────────────────────────────────────────────────────
+
+export const aquaberaDeposit = onchainTable("aquabera_deposit", (t) => ({
+  id: t.text().primaryKey(),               // tx_hash_logIndex
+  amount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),   // WBERA
+  shares: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),   // LP tokens
+  timestamp: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  transactionHash: t.hex().notNull(),
+  from: t.hex().notNull(),                 // depositor address
+  isWallContribution: t.boolean().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+export const aquaberaWithdrawal = onchainTable("aquabera_withdrawal", (t) => ({
+  id: t.text().primaryKey(),               // tx_hash_logIndex
+  amount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),   // WBERA
+  shares: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),   // LP tokens
+  timestamp: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  transactionHash: t.hex().notNull(),
+  from: t.hex().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+export const aquaberaBuilder = onchainTable("aquabera_builder", (t) => ({
+  id: t.text().primaryKey(),               // user address (lowercase)
+  address: t.hex().notNull(),
+  totalDeposited: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalWithdrawn: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  netDeposited: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  currentShares: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  depositCount: t.integer().notNull(),
+  withdrawalCount: t.integer().notNull(),
+  firstDepositTime: t.bigint(),
+  lastActivityTime: t.bigint().notNull(),
+  isWallContract: t.boolean().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+export const aquaberaStats = onchainTable("aquabera_stats", (t) => ({
+  id: t.text().primaryKey(),               // "global" singleton
+  totalBera: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalShares: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalDeposited: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalWithdrawn: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  uniqueBuilders: t.integer().notNull(),
+  depositCount: t.integer().notNull(),
+  withdrawalCount: t.integer().notNull(),
+  wallContributions: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  wallDepositCount: t.integer().notNull(),
+  lastUpdateTime: t.bigint().notNull(),
+  chainId: t.integer(),
+}));
+
+// ─────────────────────────────────────────────────────────────────────────
 // NATS outbox — pending_emits (SDD §3.3 + cookbook §T-A0.9 + §R-1)
 //
 // Reorg-safe + idempotent NATS publishing.
@@ -577,5 +639,79 @@ export const pendingEmits = onchainTable(
     publishedAtIdx: index().on(table.publishedAt),
     // Production triage: which envelopes for this tx are still pending? (R-1)
     txHashEnvelopeIdx: index().on(table.txHash, table.envelopeType),
+  }),
+);
+
+// ─────────────────────────────────────────────────────────────────────────
+// NATS outbox — dead_letter_emits (SDD §3.3 extension + SKP-002 CRITICAL via T-A2.9)
+//
+// Per Sprint A-2 T-A2.9 acceptance criteria: rows that fail to publish after
+// max 10 attempts OR sit in pending state >5min get moved here for operator
+// triage (alert fires at the 5min threshold). Same column shape as
+// pending_emits + DLQ-specific columns:
+//   - failedAt: when the row was DLQ'd
+//   - reason: discriminant ("max-attempts" | "stale-timeout")
+//   - finalError: last lastError value at DLQ time
+//
+// Why a separate table (not a flag on pending_emits):
+//   - The block-tick handler's hot-path scan (publishedAt IS NULL AND
+//     targetBlock <= head) MUST stay tight. Filtering out DLQ'd rows would
+//     either add a WHERE clause that hits the index poorly OR require a
+//     compound index. Separate table keeps the hot path clean.
+//   - Operator triage queries against dead_letter_emits don't compete with
+//     real-time outbox-flush IO.
+//
+// The Action entity from envio's schema is REQUIRED for A-2 handler ports —
+// every Mibera handler calls recordAction(). Added below.
+// ─────────────────────────────────────────────────────────────────────────
+
+export const deadLetterEmits = onchainTable(
+  "dead_letter_emits",
+  (t) => ({
+    id: t.text().primaryKey(),                // SAME id as the source pending_emits row (deterministic)
+    chainId: t.integer().notNull(),
+    txHash: t.hex().notNull(),
+    logIndex: t.integer().notNull(),
+    envelopeType: t.text().notNull(),
+    eventBlock: t.bigint().notNull(),
+    targetBlock: t.bigint().notNull(),
+    envelopeJson: t.text().notNull(),
+    attemptCount: t.integer().notNull(),
+    lastError: t.text(),
+    failedAt: t.bigint().notNull(),           // unix ms timestamp
+    reason: t.text().notNull(),               // "max-attempts" | "stale-timeout"
+  }),
+  (table) => ({
+    failedAtIdx: index().on(table.failedAt),
+    chainIdx: index().on(table.chainId, table.failedAt),
+  }),
+);
+
+// ─────────────────────────────────────────────────────────────────────────
+// Action — generic activity feed used by every Mibera handler via lib/actions
+// (envio schema.graphql §1-12). REQUIRED for A-2 handler ports; the entity
+// was missing from A-1's blue-belt-scoped schema and is added here.
+//
+// Identical column shape to envio's Action entity (schema.graphql §1-12).
+// ─────────────────────────────────────────────────────────────────────────
+
+export const action = onchainTable(
+  "action",
+  (t) => ({
+    id: t.text().primaryKey(),                // typically `${txHash}_${logIndex}` (+ suffix)
+    actionType: t.text().notNull(),           // "mint" | "burn" | "transfer" | "premint_participate" | ...
+    actor: t.hex().notNull(),                 // wallet that performed the action (lowercased)
+    primaryCollection: t.text(),              // optional collection key
+    timestamp: t.bigint().notNull(),
+    chainId: t.integer().notNull(),
+    txHash: t.hex().notNull(),
+    numeric1: t.numeric({ precision: 78, scale: 0, mode: "bigint" }),
+    numeric2: t.numeric({ precision: 78, scale: 0, mode: "bigint" }),
+    context: t.text(),                        // JSON-encoded arbitrary context blob
+  }),
+  (table) => ({
+    // Drives the activity-feed queries used by missions + UI surfaces.
+    actorIdx: index().on(table.actor, table.timestamp),
+    actionTypeIdx: index().on(table.actionType, table.timestamp),
   }),
 );

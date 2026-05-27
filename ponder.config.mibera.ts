@@ -33,6 +33,8 @@ import {
   SeaportAbi,
   FriendtechSharesAbi,
   Erc20TransferAbi,
+  MiberaPremintAbi,
+  AquaberaVaultDirectAbi,
 } from "./abis/MiberaAbis";
 
 // ─── Per-chain RPC URLs (eRPC internal Railway endpoints) ──────────────
@@ -46,6 +48,9 @@ import {
 const RPC_ETH  = process.env.PONDER_RPC_URL_1     ?? "https://eth.merkle.io";
 const RPC_BASE = process.env.PONDER_RPC_URL_8453  ?? "https://mainnet.base.org";
 const RPC_BERA = process.env.PONDER_RPC_URL_80094 ?? "https://rpc.berachain.com";
+// F-3 re-dispatch: Optimism added to host MiberaSets / MiberaZora1155 contracts
+// (per envio config.mibera.yaml chain id 10). eRPC routes /main/evm/10 by default.
+const RPC_OP   = process.env.PONDER_RPC_URL_10    ?? "https://mainnet.optimism.io";
 
 // ─── Berachain contract addresses (from config.mibera.yaml) ────────────
 const MIBERA_LIQUID_BACKING       = "0xaa04F13994A7fCd86F3BbbF4054d239b88F2744d";
@@ -53,6 +58,9 @@ const MIBERA_COLLECTION           = "0x6666397dfe9a8c469bf65dc744cb1c733416c420"
 const PADDLEFI_VAULT              = "0x242b7126F3c4E4F8CbD7f62571293e63E9b0a4E1";
 const BGT_TOKEN                   = "0x656b95E550C07a9ffe548Bd4085c72418Ceb1dBa";
 const CUB_BADGES_1155             = "0x574617ab9788e614b3eb3f7bd61334720d9e1aac";
+// F-3 / F-6 re-dispatch: contracts added so corresponding handlers activate.
+const MIBERA_PREMINT              = "0xdd5F6f41B250644E5678D77654309a5b6A5f4D55"; // Berachain (per envio config.yaml)
+const AQUABERA_VAULT_DIRECT       = "0x04fD6a7B02E2e48caedaD7135420604de5f834f8"; // Berachain
 
 const CANDIES_MARKET_1155 = [
   "0x80283fbF2b8E50f6Ddf9bfc4a90A8336Bc90E38F",       // mibera_drugs / mibera_candies
@@ -85,6 +93,34 @@ const SEAPORT_V16                 = "0x0000000000000068F116a894984e2DB1123eB395"
 const FRIENDTECH_SHARES           = "0xCF205808Ed36593aa40a44F10c7f7C2F67d4A4d4";
 const MIBERA_MAKER_333_TOKEN      = "0x120756ccc6f0cefb43a753e1f2534377c2694bb4";
 
+// F-6 re-dispatch: TrackedErc20 supports MULTIPLE token addresses on Base.
+// Verbatim from envio config.yaml's TrackedErc20 contract block (Base chain):
+// HENLO + miberamaker + 5 HENLOCKED tier tokens. The handler routes by
+// TOKEN_CONFIGS[contractAddress] (ponder-runtime/src/handlers/tracked-erc20.ts).
+const TRACKED_ERC20_BASE = [
+  "0xb2f776e9c1c926c4b2e54182fac058da9af0b6a5",        // HENLO
+  "0x120756ccc6f0cefb43a753e1f2534377c2694bb4",        // MiberaMaker333
+  "0xf0edfc3e122db34773293e0e5b2c3a58492e7338",        // HENLOCKED tier — hlkd1b
+  "0x8ab854dc0672d7a13a85399a56cb628fb22102d6",        // HENLOCKED tier — hlkd690m
+  "0xf07fa3ece9741d408d643748ff85710bedef25ba",        // HENLOCKED tier — hlkd420m
+  "0x37dd8850919ebdca911c383211a70839a94b0539",        // HENLOCKED tier — hlkd330m
+  "0x7bdf98ddeed209cfa26bd2352b470ac8b5485ec5",        // HENLOCKED tier — hlkd100m
+] as const;
+
+// F-6 re-dispatch: PuruApiculture1155 multi-deploy on Base (4 collections).
+// Per envio config.yaml comment + addresses.
+const PURU_APICULTURE_1155 = [
+  "0x6cfb9280767a3596ee6af887d900014a755ffc75",        // Apiculture Szn 0 (Zora)
+  "0xcd3ab1B6E95cdB40A19286d863690Eb407335B21",        // puru_elemental_jani
+  "0x154a563ab6c037bd0f041ac91600ffa9fe2f5fa0",        // puru_boarding_passes
+  "0x85A72EEe14dcaA1CCC5616DF39AcdE212280DcCB",        // puru_introducing_kizuna
+] as const;
+
+// ─── Optimism (10) contract addresses ───────────────────────────────────
+// F-3 re-dispatch: Optimism MiberaSets / MiberaZora1155 (per envio config.mibera.yaml).
+const MIBERA_SETS_OP              = "0x886d2176d899796cd1affa07eff07b9b2b80f1be";
+const MIBERA_ZORA_1155_OP         = "0x427a8f2e608e185eece69aca15e535cd6c36aad8";
+
 // ─── Ethereum (1) contract addresses ────────────────────────────────────
 const MILADY_COLLECTION           = "0x5af0d9827e0c53e4799bb226655a1de152a425a5";
 
@@ -96,12 +132,15 @@ const MILADY_COLLECTION           = "0x5af0d9827e0c53e4799bb226655a1de152a425a5"
 const BERA_START_BLOCK = 8221;          // BgtToken deployment (earliest contract on Bera)
 const BASE_START_BLOCK = 2430439;       // FriendtechShares deployment
 const ETH_START_BLOCK  = 13090020;      // Milady contract deployment
+const OP_START_BLOCK   = 112614910;     // MiberaZora1155 OP deployment (earlier of OP contracts)
 
 export default createConfig({
   chains: {
     ethereum:  { id: 1,     rpc: RPC_ETH  },
     base:      { id: 8453,  rpc: RPC_BASE },
     berachain: { id: 80094, rpc: RPC_BERA },
+    // F-3 re-dispatch: Optimism added for MiberaSets / MiberaZora1155.
+    optimism:  { id: 10,    rpc: RPC_OP   },
   },
   // SDD §3.1 + cookbook §C-1: NO `schema` key on database. Schema namespace
   // is controlled via DATABASE_SCHEMA env or --schema CLI. The belt-ponder
@@ -118,6 +157,23 @@ export default createConfig({
       abi: MiberaLiquidBackingAbi,
       address: MIBERA_LIQUID_BACKING,
       startBlock: 3971122,
+    },
+
+    // F-3 re-dispatch: MiberaPremint (Berachain) — Participated + Refunded.
+    // Start block from envio config.yaml MiberaPremint block.
+    MiberaPremint: {
+      chain: "berachain",
+      abi: MiberaPremintAbi,
+      address: MIBERA_PREMINT,
+      startBlock: 2731326,
+    },
+
+    // F-6 re-dispatch: AquaberaVaultDirect (Berachain) — Deposit + Withdraw.
+    AquaberaVaultDirect: {
+      chain: "berachain",
+      abi: AquaberaVaultDirectAbi,
+      address: AQUABERA_VAULT_DIRECT,
+      startBlock: 1871321,
     },
 
     MiberaCollection: {
@@ -185,11 +241,25 @@ export default createConfig({
       startBlock: BASE_START_BLOCK,
     },
 
-    MiberaMaker333: {
+    // F-6 re-dispatch: TrackedErc20 supersedes the single-token MiberaMaker333.
+    // 7 token addresses (HENLO + miberamaker + 5 HENLOCKED tiers). Routed by
+    // TOKEN_CONFIGS in ponder-runtime/src/handlers/tracked-erc20.ts.
+    // start_block uses miberamaker's deployment (33657372) — earliest of the
+    // tokens that are A-1-blue-belt scope; the HENLO/HENLOCKED prior history
+    // is captured starting from this floor (envio uses the same approach).
+    TrackedErc20: {
       chain: "base",
       abi: Erc20TransferAbi,
-      address: MIBERA_MAKER_333_TOKEN,
+      address: TRACKED_ERC20_BASE,
       startBlock: 33657372,
+    },
+
+    // F-6 re-dispatch: PuruApiculture1155 (Base) — 4 deploys.
+    PuruApiculture1155: {
+      chain: "base",
+      abi: Erc1155Abi,
+      address: PURU_APICULTURE_1155,
+      startBlock: 13803165,
     },
 
     // ─── Contracts (Ethereum 1) ────────────────────────────────────────
@@ -198,6 +268,20 @@ export default createConfig({
       abi: Erc721TransferAbi,
       address: MILADY_COLLECTION,
       startBlock: ETH_START_BLOCK,
+    },
+
+    // ─── Contracts (Optimism 10) — F-3 re-dispatch ────────────────────
+    MiberaSets: {
+      chain: "optimism",
+      abi: Erc1155Abi,
+      address: MIBERA_SETS_OP,
+      startBlock: 125031052,
+    },
+    MiberaZora1155: {
+      chain: "optimism",
+      abi: Erc1155Abi,
+      address: MIBERA_ZORA_1155_OP,
+      startBlock: OP_START_BLOCK,
     },
   },
 
@@ -221,6 +305,12 @@ export default createConfig({
       chain: "berachain",
       interval: 1,
       startBlock: BERA_START_BLOCK,
+    },
+    // F-3 re-dispatch: Optimism outbox flush for MiberaSets / MiberaZora1155.
+    OutboxFlushOp: {
+      chain: "optimism",
+      interval: 1,
+      startBlock: OP_START_BLOCK,
     },
   },
 });
