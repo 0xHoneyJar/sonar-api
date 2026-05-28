@@ -26,11 +26,13 @@ const app = new Hono();
 // Default Ponder graphql at /graphql — UNCHANGED contract per AC-3 (G-8 LOCKED).
 app.use("/graphql", graphql({ db, schema }));
 
-// Liveness — process is up.
-app.get("/health", (c: any) => c.json({ status: "ok", role: "ponder-belt-indexer" }));
-
-// Readiness defers to Ponder's built-in /ready endpoint (200 once realtime,
-// per SDD §10.3 + cookbook §T-A0.10 gate 2). The HTTP server attaches /ready
-// automatically — we don't need a hand-rolled handler here.
+// Liveness + readiness defer to Ponder 0.16.6's built-in /health + /ready
+// endpoints (attached automatically by the HTTP server). Ponder RESERVES both
+// routes internally — a hand-rolled `app.get("/health", …)` here makes the API
+// stage fail to build ("API route /health is reserved for internal use") and
+// crash-loops the process on boot (caught at A-4 production cutover 2026-05-28;
+// the A-0..A-3.5 suite tested handlers in isolation and never ran a full
+// `ponder start`). Liveness role-tagging, if needed later, must use a
+// non-reserved path (e.g. /livez). Per SDD §10.3 + cookbook §T-A0.10 gate 2.
 
 export default app;
