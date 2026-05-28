@@ -26,6 +26,7 @@ import type {
 import { recordAction } from "../lib/actions";
 import { publishMintEvent } from "../lib/events-publisher";
 import { isMintFromZero, isBurnTransfer, isBurnAddress } from "../lib/mint-detection";
+import { setTokenOwner } from "../lib/set-token-owner";
 import { BERACHAIN_ID, ZERO_ADDRESS } from "./constants";
 import { STAKING_CONTRACT_KEYS } from "./mibera-staking/constants";
 
@@ -90,6 +91,21 @@ export const handleMiberaCollectionTransfer = MiberaCollection.Transfer.handler(
       chainId: BERACHAIN_ID,
     };
     context.MiberaTransfer.set(transfer);
+
+    // =========================================================================
+    // 1b. Write per-token ownership index (Token entity).
+    //     Closes the inventory-api ownership gap (project_token-entity-gap.md).
+    //     Staking-skip is enforced inside the helper — see set-token-owner.ts.
+    // =========================================================================
+    await setTokenOwner({
+      context,
+      collection: MIBERA_COLLECTION_ADDRESS,
+      chainId: BERACHAIN_ID,
+      tokenId,
+      from,
+      to,
+      timestamp,
+    });
 
     // =========================================================================
     // 2. Handle mints - MintActivity + mint action
