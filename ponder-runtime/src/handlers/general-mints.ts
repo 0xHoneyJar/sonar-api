@@ -179,13 +179,13 @@ ponder.on("GeneralMints:Minted", async ({ event, context }: any) => {
     await context.db
       .update(mintEvent, { id: transferEventId })
       .set({ encodedTraits: traits });
-    context.log.info(
+    console.log(
       `[GeneralMints:Minted] Enriched traits for tokenId ${tokenId}: ${traits}`,
     );
   } else {
     // Transfer handler should have created it. Warn but do NOT create here —
     // creation stays the Transfer handler's responsibility (vm-minted.ts:44).
-    context.log.warn(
+    console.warn(
       `[GeneralMints:Minted] No existing MintEvent for txHash ${txHash}, ` +
         `tokenId ${tokenId}. Expected at logIndex ${transferLogIndex}.`,
     );
