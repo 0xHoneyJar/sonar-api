@@ -22,13 +22,37 @@ import { dirname, resolve } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-export const MAP_PATH = resolve(
+/** The T-M1 (40-entity Mibera) map — the historical default. */
+export const T_M1_MAP_PATH = resolve(
   __dirname,
   "../../grimoires/loa/migration/t-m1-entity-column-map.yaml",
 );
 
-/** The 4 transform kinds present in the map's `transform:` field. */
-export type TransformKind = "rename" | "jsonb_to_text" | "array_to_json_text";
+/**
+ * The active map path. Defaults to the T-M1 map; an operator may point the
+ * loader at a different map (e.g. the B-1 green-belt map) via the
+ * MIGRATION_MAP_PATH env var. The 40-entity invariant only applies to the
+ * default T-M1 path (see loadEntityMap).
+ */
+export const MAP_PATH =
+  process.env.MIGRATION_MAP_PATH && process.env.MIGRATION_MAP_PATH.trim() !== ""
+    ? resolve(process.env.MIGRATION_MAP_PATH)
+    : T_M1_MAP_PATH;
+
+/**
+ * Transform kinds present in the map's `transform:` field.
+ *   rename               : camelCase -> snake_case, identical type.
+ *   jsonb_to_text        : envio jsonb -> ponder text (JSON.stringify).
+ *   array_to_json_text   : envio array<bigint>/array<string> -> ponder text.
+ *   timestamp_to_bigint  : ** GREEN-BELT-ONLY DRIFT ** envio `Timestamp` scalar
+ *                          (pg timestamp/timestamptz) -> ponder bigint (epoch
+ *                          seconds). The 40-set Mibera map has none of these.
+ */
+export type TransformKind =
+  | "rename"
+  | "jsonb_to_text"
+  | "array_to_json_text"
+  | "timestamp_to_bigint";
 
 export interface ColumnMap {
   envio: string; // envio (source) column name, camelCase verbatim
@@ -119,7 +143,9 @@ function parseFlowMap(line: string): Record<string, string> {
 }
 
 function normalisePolicy(raw: string): StartBlockPolicy {
-  const r = raw.trim();
+  // T-M1 leaves the value bare; the green-belt map double-quotes it. Strip a
+  // single layer of surrounding double-quotes before matching.
+  const r = raw.trim().replace(/^"(.*)"$/, "$1").trim();
   if (r.startsWith("boundary EXACTLY")) return "boundary";
   if (r.startsWith("boundary - finalityOverlap") || r.startsWith("boundary − finalityOverlap"))
     return "boundary-overlap";
@@ -128,7 +154,12 @@ function normalisePolicy(raw: string): StartBlockPolicy {
 
 function normaliseTransform(raw: string): TransformKind {
   const r = raw.trim();
-  if (r === "rename" || r === "jsonb_to_text" || r === "array_to_json_text")
+  if (
+    r === "rename" ||
+    r === "jsonb_to_text" ||
+    r === "array_to_json_text" ||
+    r === "timestamp_to_bigint"
+  )
     return r;
   throw new Error(`unrecognised transform kind: '${raw}'`);
 }
@@ -267,10 +298,18 @@ export function loadEntityMap(path: string = MAP_PATH): EntityMapDoc {
   if (current) doc.entities.push(current);
 
   // ── invariants (fail fast on drift) ──
-  if (doc.entities.length !== 40)
-    throw new Error(
-      `expected 40 entities in map, parsed ${doc.entities.length}`,
-    );
+  // The exact-40 count is a T-M1-specific drift guard (the Mibera set has a
+  // fixed 40 entities). Other maps (e.g. the B-1 green-belt map with 44 live
+  // entities) only need at least one entity. We key the strict check off the
+  // resolved path being the T-M1 default.
+  if (path === T_M1_MAP_PATH) {
+    if (doc.entities.length !== 40)
+      throw new Error(
+        `expected 40 entities in T-M1 map, parsed ${doc.entities.length}`,
+      );
+  } else if (doc.entities.length < 1) {
+    throw new Error(`expected >= 1 entity in map ${path}, parsed 0`);
+  }
   for (const e of doc.entities) {
     if (!e.ponder_table)
       throw new Error(`entity ${e.envio_table} missing ponder_table`);

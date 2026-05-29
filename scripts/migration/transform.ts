@@ -130,6 +130,14 @@ function convert(col: ColumnMap, value: unknown): unknown {
       return jsonbToText(value);
     case "array_to_json_text":
       return arrayToJsonText(value);
+    case "timestamp_to_bigint":
+      // GREEN-BELT drift: envio `Timestamp` scalar (pg timestamp/timestamptz)
+      // -> ponder bigint (epoch seconds). The SELECT already did the
+      // `EXTRACT(EPOCH FROM ...)::bigint::text` conversion (see buildSelect),
+      // so the value arrives here as a bigint-shaped string. Pass it through —
+      // the DST bigint column accepts the string form on insert, exactly like
+      // the numeric/bigint rename path.
+      return value;
     case "rename":
     default:
       // pure rename — pass the value through. pg has already typed it
@@ -154,6 +162,13 @@ function buildSelect(e: EntityMap, srcSchema: string): string {
       if (c.transform === "jsonb_to_text") {
         // jsonb -> text via ::text so we receive a JSON string directly.
         return `${src}::text AS ${qIdent(c.envio)}`;
+      }
+      if (c.transform === "timestamp_to_bigint") {
+        // GREEN-BELT drift: envio Timestamp scalar is a pg timestamp/timestamptz;
+        // ponder target is bigint epoch seconds. EXTRACT(EPOCH ...) yields a
+        // double precision (e.g. 1715000000); ::bigint truncates the fractional
+        // part, ::text hands us a bigint-shaped string the DST bigint accepts.
+        return `EXTRACT(EPOCH FROM ${src})::bigint::text AS ${qIdent(c.envio)}`;
       }
       // numeric/bigint columns: cast to text so large uint256 values survive
       // without float coercion; the DST numeric/bigint column accepts the
