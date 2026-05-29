@@ -29,6 +29,10 @@
 
 import "./handlers/outbox-flush";
 import "./handlers/mibera-collection";
+// GeneralMints:Transfer + GeneralMints:Minted — frees Ruggy (registered in
+// ponder.config.mibera.ts:218 but previously had no handler → mints silently
+// discarded). Ports envio src/handlers/mints.ts + vm-minted.ts.
+import "./handlers/general-mints";
 import "./handlers/paddlefi";
 import "./handlers/friendtech";
 
