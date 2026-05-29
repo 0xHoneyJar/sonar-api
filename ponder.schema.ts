@@ -715,3 +715,166 @@ export const action = onchainTable(
     actionTypeIdx: index().on(table.actionType, table.timestamp),
   }),
 );
+
+// ─────────────────────────────────────────────────────────────────────────
+// green-belt: henlo (B-1 Group D)
+//
+// SOURCE OF TRUTH: grimoires/loa/migration/b-1-green-belt-map.yaml
+//   (entities HenloHolder … HenloSourceBurner — every column ported verbatim,
+//    incl. NULL/NOT NULL).
+//
+// Contract: TrackedErc20 (HENLO token 0xb2f7…6a5; Base 8453 + Berachain 80094).
+//   The HENLO token is the only TOKEN_CONFIGS entry with burnTracking +
+//   holderStats = true. The shared TrackedTokenBalance entity is already in the
+//   blue belt (tracked_token_balance above); these 8 are the green-belt gap.
+//
+// Type mapping (per the map's ponder_type column — note: address columns are
+// `text` in the map, so t.text() NOT t.hex()):
+//   text PK                     → t.text().primaryKey()
+//   text NOT NULL / NULL        → t.text().notNull() / t.text()
+//   numeric(78,0) NOT NULL/NULL → t.numeric({ precision: 78, scale: 0, mode: "bigint" })[.notNull()]
+//   bigint (int8) NOT NULL/NULL → t.bigint()[.notNull()]
+//   integer (int4) NOT NULL/NULL→ t.integer()[.notNull()]
+//
+// Envio source: src/handlers/tracked-erc20/holder-stats.ts (HenloHolder,
+//   HenloHolderStats) + burn-tracking.ts (HenloBurn, HenloBurnStats,
+//   HenloGlobalBurnStats, HenloBurner, HenloChainBurner, HenloSourceBurner).
+// ─────────────────────────────────────────────────────────────────────────
+
+// HenloHolder — id = holder address (lowercase). rollup-lww (balance LWW per transfer).
+export const henloHolder = onchainTable(
+  "henlo_holder",
+  (t) => ({
+    id: t.text().primaryKey(),               // address
+    address: t.text().notNull(),             // @index per envio
+    balance: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    firstTransferTime: t.bigint(),
+    lastActivityTime: t.bigint().notNull(),
+    chainId: t.integer().notNull(),
+  }),
+  (table) => ({
+    addressIdx: index().on(table.address),
+  }),
+);
+
+// HenloHolderStats — id = chainId.toString(). rollup (uniqueHolders/totalSupply additive).
+export const henloHolderStats = onchainTable("henlo_holder_stats", (t) => ({
+  id: t.text().primaryKey(),                 // chainId
+  chainId: t.integer().notNull(),
+  uniqueHolders: t.integer().notNull(),
+  totalSupply: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  lastUpdateTime: t.bigint().notNull(),
+}));
+
+// HenloBurn — id = `${txHash}_${logIndex}`. append (one row per burn event).
+export const henloBurn = onchainTable("henlo_burn", (t) => ({
+  id: t.text().primaryKey(),                 // txHash_logIndex
+  amount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  timestamp: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  transactionHash: t.text().notNull(),
+  from: t.text().notNull(),
+  source: t.text().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// HenloBurnStats — id = `${chainId}_${source}` and `${chainId}_total`. rollup.
+export const henloBurnStats = onchainTable("henlo_burn_stats", (t) => ({
+  id: t.text().primaryKey(),                 // chainId_source | chainId_total
+  chainId: t.integer().notNull(),
+  source: t.text().notNull(),
+  totalBurned: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  burnCount: t.integer().notNull(),
+  uniqueBurners: t.integer().notNull(),
+  lastBurnTime: t.bigint(),
+  firstBurnTime: t.bigint(),
+}));
+
+// HenloGlobalBurnStats — id = "global" singleton. rollup (all additive).
+export const henloGlobalBurnStats = onchainTable("henlo_global_burn_stats", (t) => ({
+  id: t.text().primaryKey(),                 // "global"
+  totalBurnedAllChains: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalBurnedMainnet: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalBurnedTestnet: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  burnCountAllChains: t.integer().notNull(),
+  incineratorBurns: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  overunderBurns: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  beratrackrBurns: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  userBurns: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  uniqueBurners: t.integer().notNull(),
+  incineratorUniqueBurners: t.integer().notNull(),
+  lastUpdateTime: t.bigint().notNull(),
+}));
+
+// HenloBurner — id = burner address. rollup-lww (materialized unique-burner; first-seen).
+export const henloBurner = onchainTable("henlo_burner", (t) => ({
+  id: t.text().primaryKey(),                 // burner address
+  address: t.text().notNull(),
+  firstBurnTime: t.bigint(),
+  chainId: t.integer().notNull(),
+}));
+
+// HenloChainBurner — id = `${chainId}_${burnerId}`. rollup-lww (first-seen per chain).
+export const henloChainBurner = onchainTable("henlo_chain_burner", (t) => ({
+  id: t.text().primaryKey(),                 // chainId_burnerAddress
+  chainId: t.integer().notNull(),
+  address: t.text().notNull(),
+  firstBurnTime: t.bigint(),
+}));
+
+// HenloSourceBurner — id = `${chainId}_${source}_${burnerId}`. rollup-lww (first-seen per source).
+export const henloSourceBurner = onchainTable("henlo_source_burner", (t) => ({
+  id: t.text().primaryKey(),                 // chainId_source_burnerAddress
+  chainId: t.integer().notNull(),
+  source: t.text().notNull(),
+  address: t.text().notNull(),
+  firstBurnTime: t.bigint(),
+}));
+
+// ─────────────────────────────────────────────────────────────────────────
+// green-belt: mirror (B-1 Group H)
+//
+// SOURCE OF TRUTH: grimoires/loa/migration/b-1-green-belt-map.yaml
+//   (entities MirrorArticlePurchase + MirrorArticleStats — every column
+//    ported verbatim, incl. NULL/NOT NULL).
+//
+// Contract: MirrorObservability (Optimism 10) — WritingEditionPurchased.
+//   The handler (ponder-runtime/src/handlers/mirror-observability.ts) filters
+//   to Mibera article clones and writes both tables.
+//
+// Type mapping (per the map's ponder_type column — note: address + tx-hash
+// columns are `text` in the map, so t.text() NOT t.hex()):
+//   text PK                     → t.text().primaryKey()
+//   text NOT NULL / NULL        → t.text().notNull() / t.text()
+//   numeric(78,0) NOT NULL/NULL → t.numeric({ precision: 78, scale: 0, mode: "bigint" })[.notNull()]
+//   bigint (int8) NOT NULL/NULL → t.bigint()[.notNull()]
+//   integer (int4) NOT NULL/NULL→ t.integer()[.notNull()]
+//
+// Envio source: src/handlers/mirror-observability.ts (WritingEditionPurchased
+//   → context.MirrorArticlePurchase.set + context.MirrorArticleStats.set/get).
+// ─────────────────────────────────────────────────────────────────────────
+
+// MirrorArticlePurchase — id = `${txHash}_${logIndex}`. APPEND (one row per purchase event).
+export const mirrorArticlePurchase = onchainTable("mirror_article_purchase", (t) => ({
+  id: t.text().primaryKey(),                 // txHash_logIndex
+  clone: t.text().notNull(),
+  tokenId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  recipient: t.text().notNull(),
+  price: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  message: t.text(),                         // nullable per envio (message || undefined)
+  timestamp: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  transactionHash: t.text().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// MirrorArticleStats — id = `${cloneLower}_${chainId}`. ROLLUP (additive counters).
+export const mirrorArticleStats = onchainTable("mirror_article_stats", (t) => ({
+  id: t.text().primaryKey(),                 // cloneLower_chainId
+  clone: t.text().notNull(),
+  totalPurchases: t.integer().notNull(),
+  totalRevenue: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  uniqueCollectors: t.integer().notNull(),
+  lastPurchaseTime: t.bigint(),              // nullable per the map
+  chainId: t.integer().notNull(),
+}));

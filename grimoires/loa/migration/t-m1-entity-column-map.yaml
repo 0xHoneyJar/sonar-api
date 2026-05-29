@@ -1,0 +1,661 @@
+# T-M1 — Entity + column mapping (machine-readable companion)
+# Source-of-truth for T-M2 transform. Generated from grounded reads:
+#   envio  SOURCE: schema.graphql + generated/src/Indexer.res (ReScript entity types)
+#   ponder TARGET: ponder.schema.ts (onchainTable defs) + ponder-runtime/src/handlers/** (classification)
+# Envio Postgres columns are camelCase VERBATIM (relation fields get _id suffix; Table.res:94).
+# Ponder Postgres columns are snake_case (onchain.js:134 toSnakeCase). Both tables under DATABASE_SCHEMA.
+# Every ponder PK is the single text column `id`. UPSERT on id.
+schema_version: 1
+cycle: sonar-ponder-migration-v1
+task: T-M1
+envio_source_schema: public        # envio blue Postgres-3vIC, public.* (PascalCase tables)
+ponder_target_schema: ponder       # Postgres-vRR1, ponder.* (snake_case tables)
+boundaries:
+  eth: 25184952
+  base: 46537425
+  berachain: 21424739
+  optimism: 152132710
+finality_overlap_note: >-
+  Per-chain margin set in T-M2. append-only entities use startBlock = boundary - finalityOverlap
+  (safe to re-index overlap; PK-collision = onConflictDoNothing SKIP). additive-rollup + rollup-lww
+  entities use startBlock = boundary EXACTLY (NO overlap) per T-M0 Appendix B finding 3 — re-indexing
+  overlap blocks re-applies increments already baked into envio frozen totals => double-count.
+classification_legend:
+  append-only-event:  ponder handler insert(...).onConflictDoNothing() OR single .set() — overlap-safe
+  additive-rollup:    ponder handler read-modify-write increment / onConflictDoUpdate counter — overlap double-counts
+  rollup-lww-state:   onConflictDoUpdate / update().set() last-write-wins STATE (not additive counter) — overlap-sensitive, treat as no-overlap
+  "*-no-handler":     table defined in ponder.schema.ts but NO ponder handler writes it (not registered in ponder-runtime/src/index.ts). Classified by ENVIO source semantics. Ponder will NOT index it forward; frozen-import only; startBlock policy informational.
+entities:
+  - envio_table: BadgeHolder            # public."BadgeHolder"
+    ponder_table: badge_holder          # ponder.badge_holder
+    classification: rollup-no-handler
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "ENVIO src/handlers/badges1155.ts:192-198 totalBadges=nextTotal + holdings accumulation — additive-rollup. NO ponder handler (CubBadges1155 not registered in ponder index.ts). Frozen-import only."
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: address, ponder: address, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalBadges, ponder: total_badges, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalAmount, ponder: total_amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: holdings, ponder: holdings, envio_type: jsonb NOT NULL, ponder_type: text NOT NULL, transform: jsonb_to_text, note: "envio jsonb -> ponder text: serialize JSON to string" }
+      - { envio: updatedAt, ponder: updated_at, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+  - envio_table: BadgeAmount            # public."BadgeAmount"
+    ponder_table: badge_amount          # ponder.badge_amount
+    classification: rollup-no-handler
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "ENVIO src/handlers/badges1155.ts:201-224 per-badge amount recompute — derived/rollup. NO ponder handler. Frozen-import only."
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: holder_id, ponder: holder_id, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: badgeId, ponder: badge_id, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: amount, ponder: amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: updatedAt, ponder: updated_at, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+  - envio_table: BadgeBalance            # public."BadgeBalance"
+    ponder_table: badge_balance          # ponder.badge_balance
+    classification: rollup-no-handler
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "ENVIO src/handlers/badges1155.ts:108-112 nextBalance=currentBalance+amountDelta — additive-rollup. NO ponder handler. Frozen-import only."
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: holder_id, ponder: holder_id, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: contract, ponder: contract, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: tokenId, ponder: token_id, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: amount, ponder: amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: updatedAt, ponder: updated_at, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+  - envio_table: BgtBoostEvent            # public."BgtBoostEvent"
+    ponder_table: bgt_boost_event          # ponder.bgt_boost_event
+    classification: append-no-handler
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "ENVIO src/handlers/bgt.ts:100 context.BgtBoostEvent.set() single deterministic id — append. NO ponder handler ports BgtToken:QueueBoost (not in index.ts / config). Frozen-import only."
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: account, ponder: account, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: validatorPubkey, ponder: validator_pubkey, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: amount, ponder: amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: transactionFrom, ponder: transaction_from, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: CandiesInventory            # public."CandiesInventory"
+    ponder_table: candies_inventory          # ponder.candies_inventory
+    classification: rollup-no-handler
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "ENVIO src/handlers/mints1155.ts:101-109 currentSupply+quantity / mintCount+1 read-modify-write — additive-rollup. NO ponder handler. Frozen-import only."
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: contract, ponder: contract, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: tokenId, ponder: token_id, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: currentSupply, ponder: current_supply, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: mintCount, ponder: mint_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: lastMintTime, ponder: last_mint_time, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: CandiesBacking            # public."CandiesBacking"
+    ponder_table: candies_backing          # ponder.candies_backing
+    classification: append-no-handler
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "ENVIO src/handlers/mints1155.ts:64-73 get-then-set dedup-by-txHash, no increment — append/idempotent. NO ponder handler. Frozen-import only."
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: user, ponder: user, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: amount, ponder: amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: DailyRfvSnapshot            # public."DailyRfvSnapshot"
+    ponder_table: daily_rfv_snapshot          # ponder.daily_rfv_snapshot
+    classification: rollup-lww
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "rfv.ts:49-61 insert(dailyRfvSnapshot).onConflictDoUpdate(() => ({rfv:newRFV})) — last-write-wins per day, NOT additive"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: day, ponder: day, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: rfv, ponder: rfv, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: Erc1155MintEvent            # public."Erc1155MintEvent"
+    ponder_table: erc1155_mint_event          # ponder.erc1155_mint_event
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "mibera-sets.ts:104-118 / mibera-zora.ts:77-91 / puru-apiculture1155.ts:72-86 insert(erc1155MintEvent).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: collectionKey, ponder: collection_key, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: tokenId, ponder: token_id, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: value, ponder: value, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: minter, ponder: minter, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: operator, ponder: operator, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: FriendtechTrade            # public."FriendtechTrade"
+    ponder_table: friendtech_trade          # ponder.friendtech_trade
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "friendtech.ts:45-61 insert(friendtechTrade).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: trader, ponder: trader, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: subject, ponder: subject, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: subjectKey, ponder: subject_key, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: isBuy, ponder: is_buy, envio_type: boolean NOT NULL, ponder_type: boolean NOT NULL, transform: rename }
+      - { envio: shareAmount, ponder: share_amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: ethAmount, ponder: eth_amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: supply, ponder: supply, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: FriendtechHolder            # public."FriendtechHolder"
+    ponder_table: friendtech_holder          # ponder.friendtech_holder
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "friendtech.ts:72-78 update(friendtechHolder).set({balance: newBalance, totalBought: existing+amt})"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: subject, ponder: subject, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: subjectKey, ponder: subject_key, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: holder, ponder: holder, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: balance, ponder: balance, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalBought, ponder: total_bought, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalSold, ponder: total_sold, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: firstTradeTime, ponder: first_trade_time, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: lastTradeTime, ponder: last_trade_time, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: FriendtechSubjectStats            # public."FriendtechSubjectStats"
+    ponder_table: friendtech_subject_stats          # ponder.friendtech_subject_stats
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "friendtech.ts:108-117 update(friendtechSubjectStats).set({totalTrades: existing+1, totalVolumeEth: existing+eth})"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: subject, ponder: subject, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: subjectKey, ponder: subject_key, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: totalSupply, ponder: total_supply, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: uniqueHolders, ponder: unique_holders, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalTrades, ponder: total_trades, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalBuys, ponder: total_buys, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalSells, ponder: total_sells, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalVolumeEth, ponder: total_volume_eth, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: lastTradeTime, ponder: last_trade_time, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: MiberaLoan            # public."MiberaLoan"
+    ponder_table: mibera_loan          # ponder.mibera_loan
+    classification: rollup-lww
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "loans.ts:43-60 insert.onConflictDoNothing on create; loans.ts:108-113/treasury.ts:55-60 update().set status-flip (REPAID/DEFAULTED) — state mutation, not additive"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: loanId, ponder: loan_id, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: loanType, ponder: loan_type, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: user, ponder: user, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: tokenIds, ponder: token_ids, envio_type: "numeric[] / array<bigint> NOT NULL", ponder_type: text NOT NULL, transform: array_to_json_text, note: "envio array<bigint> (pg numeric[]) -> ponder text: JSON.stringify(ids.map(String))" }
+      - { envio: amount, ponder: amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: expiry, ponder: expiry, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: status, ponder: status, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: createdAt, ponder: created_at, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: repaidAt, ponder: repaid_at, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: defaultedAt, ponder: defaulted_at, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: MiberaLoanStats            # public."MiberaLoanStats"
+    ponder_table: mibera_loan_stats          # ponder.mibera_loan_stats
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "shared.ts:112-126 setLoanStats insert.onConflictDoUpdate; loans.ts:64-70 totalActiveLoans+1 / totalLoansCreated+1 read-modify-write"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: totalActiveLoans, ponder: total_active_loans, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalLoansCreated, ponder: total_loans_created, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalLoansRepaid, ponder: total_loans_repaid, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalLoansDefaulted, ponder: total_loans_defaulted, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalAmountLoaned, ponder: total_amount_loaned, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalNftsWithLoans, ponder: total_nfts_with_loans, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: MiberaOrder            # public."MiberaOrder"
+    ponder_table: mibera_order          # ponder.mibera_order
+    classification: append-no-handler
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "ENVIO src/handlers/mints1155.ts:35-45 context.MiberaOrder.set() append. NO ponder handler (CandiesMarket1155 not registered in ponder index.ts). Frozen-import only."
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: user, ponder: user, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: tokenId, ponder: token_id, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: amount, ponder: amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: MiberaStakedToken            # public."MiberaStakedToken"
+    ponder_table: mibera_staked_token          # ponder.mibera_staked_token
+    classification: rollup-lww
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "mibera-collection.ts:429-433 insert.onConflictDoUpdate; 476 update().set state-flip (isStaked/withdrawnAt) — NOT additive increment"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: stakingContract, ponder: staking_contract, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: contractAddress, ponder: contract_address, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: tokenId, ponder: token_id, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: owner, ponder: owner, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: isStaked, ponder: is_staked, envio_type: boolean NOT NULL, ponder_type: boolean NOT NULL, transform: rename }
+      - { envio: depositedAt, ponder: deposited_at, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: depositTxHash, ponder: deposit_tx_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: depositBlockNumber, ponder: deposit_block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: withdrawnAt, ponder: withdrawn_at, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: withdrawTxHash, ponder: withdraw_tx_hash, envio_type: text NULL, ponder_type: text (hex / bytea-as-text) NULL, transform: rename }
+      - { envio: withdrawBlockNumber, ponder: withdraw_block_number, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: MiberaStaker            # public."MiberaStaker"
+    ponder_table: mibera_staker          # ponder.mibera_staker
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "mibera-collection.ts:439-443 update(miberaStaker).set({currentStakedCount: existing+1, totalDeposits: existing+1})"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: stakingContract, ponder: staking_contract, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: contractAddress, ponder: contract_address, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: address, ponder: address, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: currentStakedCount, ponder: current_staked_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalDeposits, ponder: total_deposits, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalWithdrawals, ponder: total_withdrawals, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: firstDepositTime, ponder: first_deposit_time, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: lastActivityTime, ponder: last_activity_time, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: MiberaTransfer            # public."MiberaTransfer"
+    ponder_table: mibera_transfer          # ponder.mibera_transfer
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "mibera-collection.ts:98-111 insert(miberaTransfer).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: from, ponder: from, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: to, ponder: to, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: tokenId, ponder: token_id, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: isMint, ponder: is_mint, envio_type: boolean NOT NULL, ponder_type: boolean NOT NULL, transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: MintActivity            # public."MintActivity"
+    ponder_table: mint_activity          # ponder.mint_activity
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "mibera-collection.ts:118-135 insert(mintActivity).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: user, ponder: user, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: contract, ponder: contract, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: tokenStandard, ponder: token_standard, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: tokenId, ponder: token_id, envio_type: numeric (BigInt) NULL, ponder_type: "numeric(78,0) NULL", transform: rename }
+      - { envio: quantity, ponder: quantity, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: amountPaid, ponder: amount_paid, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: activityType, ponder: activity_type, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: operator, ponder: operator, envio_type: text NULL, ponder_type: text (hex / bytea-as-text) NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: MintEvent            # public."MintEvent"
+    ponder_table: mint_event          # ponder.mint_event
+    classification: append-no-handler
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "ENVIO src/handlers/mints.ts:75 context.MintEvent.set() single deterministic id — append. NO ponder handler ports GeneralMints to mint_event (GeneralMints contract not registered). Frozen-import only."
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: collectionKey, ponder: collection_key, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: tokenId, ponder: token_id, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: minter, ponder: minter, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: encodedTraits, ponder: encoded_traits, envio_type: text NULL, ponder_type: text NULL, transform: rename }
+  - envio_table: NftBurn            # public."NftBurn"
+    ponder_table: nft_burn          # ponder.nft_burn
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "mibera-collection.ts:177-189 insert(nftBurn).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: collectionKey, ponder: collection_key, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: tokenId, ponder: token_id, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: from, ponder: from, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: NftBurnStats            # public."NftBurnStats"
+    ponder_table: nft_burn_stats          # ponder.nft_burn_stats
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "mibera-collection.ts:194-201 update(nftBurnStats).set({totalBurned: existing.totalBurned + 1})"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: collectionKey, ponder: collection_key, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: totalBurned, ponder: total_burned, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: uniqueBurners, ponder: unique_burners, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: lastBurnTime, ponder: last_burn_time, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: firstBurnTime, ponder: first_burn_time, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+  - envio_table: PaddleSupply            # public."PaddleSupply"
+    ponder_table: paddle_supply          # ponder.paddle_supply
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "paddlefi.ts:40-52 insert(paddleSupply).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: minter, ponder: minter, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: mintAmount, ponder: mint_amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: mintTokens, ponder: mint_tokens, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: PaddleSupplier            # public."PaddleSupplier"
+    ponder_table: paddle_supplier          # ponder.paddle_supplier
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "paddlefi.ts:58-63 update(paddleSupplier).set({totalSupplied: existing+mintAmount, supplyCount: existing+1})"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: address, ponder: address, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: totalSupplied, ponder: total_supplied, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalPTokens, ponder: total_p_tokens, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: supplyCount, ponder: supply_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: firstSupplyTime, ponder: first_supply_time, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: lastActivityTime, ponder: last_activity_time, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: PaddlePawn            # public."PaddlePawn"
+    ponder_table: paddle_pawn          # ponder.paddle_pawn
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "paddlefi.ts:112-123 insert(paddlePawn).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: borrower, ponder: borrower, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: nftIds, ponder: nft_ids, envio_type: "numeric[] / array<bigint> NOT NULL", ponder_type: text NOT NULL, transform: array_to_json_text, note: "envio array<bigint> (pg numeric[]) -> ponder text: JSON.stringify(ids.map(String))" }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: PaddleBorrower            # public."PaddleBorrower"
+    ponder_table: paddle_borrower          # ponder.paddle_borrower
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "paddlefi.ts:129-134 update(paddleBorrower).set({totalNftsPawned: existing+len, pawnCount: existing+1})"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: address, ponder: address, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: totalNftsPawned, ponder: total_nfts_pawned, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: currentNftsPawned, ponder: current_nfts_pawned, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: pawnCount, ponder: pawn_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: firstPawnTime, ponder: first_pawn_time, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: lastActivityTime, ponder: last_activity_time, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: PaddleLiquidation            # public."PaddleLiquidation"
+    ponder_table: paddle_liquidation          # ponder.paddle_liquidation
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "paddlefi.ts:185-198 insert(paddleLiquidation).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: liquidator, ponder: liquidator, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: borrower, ponder: borrower, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: repayAmount, ponder: repay_amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: nftIds, ponder: nft_ids, envio_type: "numeric[] / array<bigint> NOT NULL", ponder_type: text NOT NULL, transform: array_to_json_text, note: "envio array<bigint> (pg numeric[]) -> ponder text: JSON.stringify(ids.map(String))" }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: PremintParticipation            # public."PremintParticipation"
+    ponder_table: premint_participation          # ponder.premint_participation
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "mibera-premint.ts:38-50 insert(premintParticipation).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: phase, ponder: phase, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: user, ponder: user, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: amount, ponder: amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: PremintRefund            # public."PremintRefund"
+    ponder_table: premint_refund          # ponder.premint_refund
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "mibera-premint.ts:157-169 insert(premintRefund).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: phase, ponder: phase, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: user, ponder: user, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: amount, ponder: amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: PremintPhaseStats            # public."PremintPhaseStats"
+    ponder_table: premint_phase_stats          # ponder.premint_phase_stats
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "mibera-premint.ts:100-106 update(premintPhaseStats).set({totalContributed: phaseTotal+amount, participationCount: existing+1})"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: phase, ponder: phase, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalContributed, ponder: total_contributed, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalRefunded, ponder: total_refunded, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: netContribution, ponder: net_contribution, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: uniqueParticipants, ponder: unique_participants, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: participationCount, ponder: participation_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: refundCount, ponder: refund_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: PremintUser            # public."PremintUser"
+    ponder_table: premint_user          # ponder.premint_user
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "mibera-premint.ts:63-69 update(premintUser).set({totalContributed: existing+amount, participationCount: existing+1})"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: user, ponder: user, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: totalContributed, ponder: total_contributed, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalRefunded, ponder: total_refunded, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: netContribution, ponder: net_contribution, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: participationCount, ponder: participation_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: refundCount, ponder: refund_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: firstParticipationTime, ponder: first_participation_time, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: lastActivityTime, ponder: last_activity_time, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: TrackedHolder            # public."TrackedHolder"
+    ponder_table: tracked_holder          # ponder.tracked_holder
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "mibera-collection.ts:368-369 update(trackedHolder).set({tokenCount: nextCount}); puru-apiculture1155.ts:400-403 same"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: contract, ponder: contract, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: collectionKey, ponder: collection_key, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: address, ponder: address, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: tokenCount, ponder: token_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: TrackedTokenBalance            # public."TrackedTokenBalance"
+    ponder_table: tracked_token_balance          # ponder.tracked_token_balance
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "tracked-erc20.ts:197-202/227-232 update(trackedTokenBalance).set({balance: existing.balance +/- value})"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: address, ponder: address, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: tokenAddress, ponder: token_address, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: tokenKey, ponder: token_key, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: balance, ponder: balance, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: lastUpdated, ponder: last_updated, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+  - envio_table: TreasuryItem            # public."TreasuryItem"
+    ponder_table: treasury_item          # ponder.treasury_item
+    classification: rollup-lww
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "treasury.ts:147-158/237-245/323-335 update(treasuryItem).set state-flip (isTreasuryOwned/purchased*) — state mutation, not additive"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: tokenId, ponder: token_id, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: isTreasuryOwned, ponder: is_treasury_owned, envio_type: boolean NOT NULL, ponder_type: boolean NOT NULL, transform: rename }
+      - { envio: acquiredAt, ponder: acquired_at, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: acquiredVia, ponder: acquired_via, envio_type: text NULL, ponder_type: text NULL, transform: rename }
+      - { envio: acquiredTxHash, ponder: acquired_tx_hash, envio_type: text NULL, ponder_type: text (hex / bytea-as-text) NULL, transform: rename }
+      - { envio: purchasedAt, ponder: purchased_at, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: purchasedBy, ponder: purchased_by, envio_type: text NULL, ponder_type: text (hex / bytea-as-text) NULL, transform: rename }
+      - { envio: purchasedTxHash, ponder: purchased_tx_hash, envio_type: text NULL, ponder_type: text (hex / bytea-as-text) NULL, transform: rename }
+      - { envio: purchasePrice, ponder: purchase_price, envio_type: numeric (BigInt) NULL, ponder_type: "numeric(78,0) NULL", transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: TreasuryActivity            # public."TreasuryActivity"
+    ponder_table: treasury_activity          # ponder.treasury_activity
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "rfv.ts:65-78 / treasury.ts:73-86 insert(treasuryActivity).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: activityType, ponder: activity_type, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: tokenId, ponder: token_id, envio_type: numeric (BigInt) NULL, ponder_type: "numeric(78,0) NULL", transform: rename }
+      - { envio: user, ponder: user, envio_type: text NULL, ponder_type: text (hex / bytea-as-text) NULL, transform: rename }
+      - { envio: amount, ponder: amount, envio_type: numeric (BigInt) NULL, ponder_type: "numeric(78,0) NULL", transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: TreasuryStats            # public."TreasuryStats"
+    ponder_table: treasury_stats          # ponder.treasury_stats
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "shared.ts:92-107 setStats insert.onConflictDoUpdate; treasury.ts:182-184 totalItemsOwned+1 read-modify-write"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: totalItemsOwned, ponder: total_items_owned, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalItemsEverOwned, ponder: total_items_ever_owned, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalItemsSold, ponder: total_items_sold, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: realFloorValue, ponder: real_floor_value, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: lastRfvUpdate, ponder: last_rfv_update, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: lastActivityAt, ponder: last_activity_at, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: AquaberaDeposit            # public."AquaberaDeposit"
+    ponder_table: aquabera_deposit          # ponder.aquabera_deposit
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "aquabera-vault-direct.ts:66-79 insert(aquaberaDeposit).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: amount, ponder: amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: shares, ponder: shares, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: from, ponder: from, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: isWallContribution, ponder: is_wall_contribution, envio_type: boolean NOT NULL, ponder_type: boolean NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: AquaberaWithdrawal            # public."AquaberaWithdrawal"
+    ponder_table: aquabera_withdrawal          # ponder.aquabera_withdrawal
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "aquabera-vault-direct.ts:199-211 insert(aquaberaWithdrawal).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: amount, ponder: amount, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: shares, ponder: shares, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: blockNumber, ponder: block_number, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: transactionHash, ponder: transaction_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: from, ponder: from, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: AquaberaBuilder            # public."AquaberaBuilder"
+    ponder_table: aquabera_builder          # ponder.aquabera_builder
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "aquabera-vault-direct.ts:86-96 update(aquaberaBuilder).set({totalDeposited: existing+wbera, depositCount: existing+1})"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: address, ponder: address, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: totalDeposited, ponder: total_deposited, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalWithdrawn, ponder: total_withdrawn, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: netDeposited, ponder: net_deposited, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: currentShares, ponder: current_shares, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: depositCount, ponder: deposit_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: withdrawalCount, ponder: withdrawal_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: firstDepositTime, ponder: first_deposit_time, envio_type: numeric (BigInt) NULL, ponder_type: bigint (int8) NULL, transform: rename }
+      - { envio: lastActivityTime, ponder: last_activity_time, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: isWallContract, ponder: is_wall_contract, envio_type: boolean NOT NULL, ponder_type: boolean NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+  - envio_table: AquaberaStats            # public."AquaberaStats"
+    ponder_table: aquabera_stats          # ponder.aquabera_stats
+    classification: rollup
+    start_block_policy: boundary EXACTLY (no overlap — T-M0 double-count fix)
+    handler_evidence: "aquabera-vault-direct.ts:121-136 update(aquaberaStats).set({totalBera: existing+wbera, depositCount: existing+1})"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: totalBera, ponder: total_bera, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalShares, ponder: total_shares, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalDeposited, ponder: total_deposited, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalWithdrawn, ponder: total_withdrawn, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: uniqueBuilders, ponder: unique_builders, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: depositCount, ponder: deposit_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: withdrawalCount, ponder: withdrawal_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: wallContributions, ponder: wall_contributions, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: wallDepositCount, ponder: wall_deposit_count, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: lastUpdateTime, ponder: last_update_time, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NULL, ponder_type: integer (int4) NULL, transform: rename }
+  - envio_table: Action            # public."Action"
+    ponder_table: action          # ponder.action
+    classification: append
+    start_block_policy: boundary - finalityOverlap
+    handler_evidence: "record-action.ts:105 onConflictDoNothing; + every handler insert(action).onConflictDoNothing()"
+    pk: [id]
+    columns:
+      - { envio: id, ponder: id, envio_type: text NOT NULL, ponder_type: text NOT NULL PK, transform: rename }
+      - { envio: actionType, ponder: action_type, envio_type: text NOT NULL, ponder_type: text NOT NULL, transform: rename }
+      - { envio: actor, ponder: actor, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: primaryCollection, ponder: primary_collection, envio_type: text NULL, ponder_type: text NULL, transform: rename }
+      - { envio: timestamp, ponder: timestamp, envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId, ponder: chain_id, envio_type: integer NOT NULL, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: txHash, ponder: tx_hash, envio_type: text NOT NULL, ponder_type: text (hex / bytea-as-text) NOT NULL, transform: rename }
+      - { envio: numeric1, ponder: numeric1, envio_type: numeric (BigInt) NULL, ponder_type: "numeric(78,0) NULL", transform: rename }
+      - { envio: numeric2, ponder: numeric2, envio_type: numeric (BigInt) NULL, ponder_type: "numeric(78,0) NULL", transform: rename }
+      - { envio: context, ponder: context, envio_type: text NULL, ponder_type: text NULL, transform: rename }

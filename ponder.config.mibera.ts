@@ -129,10 +129,13 @@ const MILADY_COLLECTION           = "0x5af0d9827e0c53e4799bb226655a1de152a425a5"
 // Block-tick outbox handlers anchor at this floor — historical sweep before
 // startBlock is unnecessary because the outbox-flush handler is a real-time
 // concern (D-1 in the cookbook).
-const BERA_START_BLOCK = 8221;          // BgtToken deployment (earliest contract on Bera)
-const BASE_START_BLOCK = 2430439;       // FriendtechShares deployment
-const ETH_START_BLOCK  = 13090020;      // Milady contract deployment
-const OP_START_BLOCK   = 112614910;     // MiberaZora1155 OP deployment (earlier of OP contracts)
+// T-M2 boundary re-grounding (2026-05-28): per-chain startBlocks set to the
+// envio migration boundary so ponder forward-indexes from the boundary, frozen
+// history below it is immutable. append-only-pure OP contracts get boundary−600.
+const BERA_START_BLOCK = 21424739;      // berachain boundary
+const BASE_START_BLOCK = 46537425;      // base boundary
+const ETH_START_BLOCK  = 25184952;      // ethereum boundary
+const OP_START_BLOCK   = 152132110;     // optimism boundary − 600 (append-only-pure)
 
 export default createConfig({
   chains: {
@@ -156,7 +159,7 @@ export default createConfig({
       chain: "berachain",
       abi: MiberaLiquidBackingAbi,
       address: MIBERA_LIQUID_BACKING,
-      startBlock: 3971122,
+      startBlock: 21424739,
     },
 
     // F-3 re-dispatch: MiberaPremint (Berachain) — Participated + Refunded.
@@ -165,7 +168,7 @@ export default createConfig({
       chain: "berachain",
       abi: MiberaPremintAbi,
       address: MIBERA_PREMINT,
-      startBlock: 2731326,
+      startBlock: 21424739,
     },
 
     // F-6 re-dispatch: AquaberaVaultDirect (Berachain) — Deposit + Withdraw.
@@ -173,35 +176,35 @@ export default createConfig({
       chain: "berachain",
       abi: AquaberaVaultDirectAbi,
       address: AQUABERA_VAULT_DIRECT,
-      startBlock: 1871321,
+      startBlock: 21424739,
     },
 
     MiberaCollection: {
       chain: "berachain",
       abi: Erc721TransferAbi,
       address: MIBERA_COLLECTION,
-      startBlock: 3837808,
+      startBlock: 21424739,
     },
 
     PaddleFi: {
       chain: "berachain",
       abi: PaddleFiAbi,
       address: PADDLEFI_VAULT,
-      startBlock: 5604652,
+      startBlock: 21424739,
     },
 
     BgtToken: {
       chain: "berachain",
       abi: BgtTokenAbi,
       address: BGT_TOKEN,
-      startBlock: 8221,
+      startBlock: 21424739,
     },
 
     CubBadges1155: {
       chain: "berachain",
       abi: Erc1155Abi,
       address: CUB_BADGES_1155,
-      startBlock: 1080991,
+      startBlock: 21424739,
     },
 
     CandiesMarket1155: {
@@ -209,28 +212,28 @@ export default createConfig({
       abi: Erc1155Abi,
       // Ponder accepts an array of addresses for multi-deploy contracts.
       address: CANDIES_MARKET_1155,
-      startBlock: 3716959,           // earliest of the two
+      startBlock: 21424739,          // berachain boundary (T-M2)
     },
 
     GeneralMints: {
       chain: "berachain",
       abi: GeneralMintsAbi,
       address: GENERAL_MINTS,
-      startBlock: 4130866,
+      startBlock: 21424739,
     },
 
     TrackedErc721Bera: {
       chain: "berachain",
       abi: Erc721TransferAbi,
       address: TRACKED_ERC721_BERA,
-      startBlock: 4029732,
+      startBlock: 21424739,
     },
 
     Seaport: {
       chain: "berachain",
       abi: SeaportAbi,
       address: SEAPORT_V16,
-      startBlock: 3837808,
+      startBlock: 21424739,
     },
 
     // ─── Contracts (Base 8453) ─────────────────────────────────────────
@@ -251,7 +254,7 @@ export default createConfig({
       chain: "base",
       abi: Erc20TransferAbi,
       address: TRACKED_ERC20_BASE,
-      startBlock: 33657372,
+      startBlock: 46537425,
     },
 
     // F-6 re-dispatch: PuruApiculture1155 (Base) — 4 deploys.
@@ -259,7 +262,7 @@ export default createConfig({
       chain: "base",
       abi: Erc1155Abi,
       address: PURU_APICULTURE_1155,
-      startBlock: 13803165,
+      startBlock: 46537425,
     },
 
     // ─── Contracts (Ethereum 1) ────────────────────────────────────────
@@ -275,7 +278,7 @@ export default createConfig({
       chain: "optimism",
       abi: Erc1155Abi,
       address: MIBERA_SETS_OP,
-      startBlock: 125031052,
+      startBlock: 152132110,
     },
     MiberaZora1155: {
       chain: "optimism",

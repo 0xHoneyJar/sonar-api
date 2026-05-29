@@ -1,0 +1,1048 @@
+# B-1 — Green-belt entity + column mapping (machine-readable companion)
+# Source-of-truth for the B-1 transform extension (extends scripts/migration/entity-map.ts).
+# Mirrors the T-M1 format (grimoires/loa/migration/t-m1-entity-column-map.yaml).
+#
+# Grounded double-sided (NO inferred columns):
+#   envio  SOURCE: schema.graphql (GraphQL entity defs) + generated/src/Indexer.res
+#                  (ReScript entity `type t` records — the canonical Postgres column types).
+#                  Envio Postgres columns are camelCase VERBATIM; relation fields get `_id`
+#                  suffix (e.g. WithdrawalRequest.batch -> batch_id; Indexer.res:813).
+#   ponder TARGET: PROPOSED. ponder.schema.ts does NOT yet contain ANY green-belt table
+#                  (verified: it has exactly the 40 Mibera onchainTable defs + 2 runtime-
+#                  excluded). snake_case names below follow ponder's onchain.js toSnakeCase
+#                  (same rule the 40 used). Every PK is single text column `id`. UPSERT on id.
+#
+# GREEN BELT = ALL 93 envio entities (schema.graphql) MINUS the 40 Mibera in-scope (T-M1).
+#   93 - 40 = 53 green-belt entities.
+#
+# Of the 53: 43 are LIVE (a handler writes them) and 10 are DEAD (defined in schema.graphql
+# but NO handler writes them — 0 rows; excluded from import). See `dead_entities:` below.
+#
+# Type-drift legend (transforms beyond pure snake_case rename):
+#   rename             : camelCase -> snake_case, identical type.
+#   jsonb_to_text      : envio jsonb -> ponder text (JSON.stringify). [40-set precedent: badge_holder.holdings]
+#   array_to_json_text : envio array<bigint>/array<string> (pg _numeric/_text) -> ponder text;
+#                        MUST be JSON.stringify(arr.map(String)), NOT a ::text cast.
+#   timestamp_to_bigint: ** GREEN-BELT-ONLY DRIFT ** envio `Timestamp` scalar is stored as
+#                        Js.Date.t => Postgres `timestamp`/`timestamptz`, NOT bigint. The 40
+#                        Mibera set has NO Timestamp-scalar columns (all their times are BigInt).
+#                        Ponder target is `bigint` (epoch seconds). Transform MUST convert
+#                        the pg timestamp to epoch: EXTRACT(EPOCH FROM col)::bigint (or
+#                        Math.floor(date.getTime()/1000) in TS). Affects the validator family
+#                        + withdrawal family (the 906k-row leader).
+#
+# Classification legend (same as T-M1 — operationalizes the T-M0 double-count finding):
+#   append             : handler insert/set with deterministic txHash_logIndex id, no read-modify-write -> overlap-safe -> startBlock = boundary - finalityOverlap
+#   append-running     : append-keyed (one row per event) BUT each row carries cumulative running totals copied from prior row (previousRewards + delta). Idempotent on replay IF prior present, but treat as no-overlap (startBlock = boundary) to be safe. (validator rewards/deposits)
+#   rollup             : read-modify-write additive counter / onConflictDoUpdate increment -> overlap double-counts -> startBlock = boundary EXACTLY (no overlap)
+#   rollup-lww         : last-write-wins STATE mutation (status flip / latest snapshot), not additive -> overlap-sensitive -> startBlock = boundary EXACTLY
+#   *-no-handler       : LIVE in envio but NO ponder handler exists yet (gap). Classified by ENVIO source semantics. Frozen-imports fine; ponder will NOT index it forward until a handler is ported. start_block_policy is informational until the handler lands.
+#
+# HANDLER-GAP (the key B-1 finding): of the 44 LIVE green-belt entities, ZERO have a ponder
+# handler today (ponder-runtime/src/index.ts registers only the 15 Mibera-set handler files;
+# none write a green-belt entity). So ALL 44 are `*-no-handler` and frozen-import-only until
+# their envio handler is PORTED. The per-entity `ponder_handler_gap` + `envio_handler` fields
+# below are the work estimate. See b-1-handler-gap.md for the grouped roll-up.
+
+schema_version: 1
+cycle: sonar-ponder-migration-v1
+task: B-1
+envio_source_schema: public        # envio blue Postgres-3vIC, public.* (PascalCase tables)
+ponder_target_schema: ponder       # Postgres-vRR1, ponder.* (snake_case tables) — PROPOSED additions
+
+# All 6 envio chains (config.yaml:553-957). The 40 Mibera used 4 (eth/base/bera/op);
+# the green belt adds Arbitrum (42161) + Zora (7777777) for the HoneyJar genesis spread.
+chains:
+  ethereum:  { id: 1,        boundary_known: 25184952 }   # eth boundary (T-M1)
+  base:      { id: 8453,     boundary_known: 46537425 }   # base boundary (T-M1)
+  berachain: { id: 80094,    boundary_known: 21424739 }   # bera boundary (T-M1)
+  optimism:  { id: 10,       boundary_known: 152132710 }  # op boundary (T-M1)
+  arbitrum:  { id: 42161,    boundary_known: null }        # GREEN-BELT-NEW — re-ground from envio chain_metadata.latest_processed_block before T-M2-style import
+  zora:      { id: 7777777,  boundary_known: null }        # GREEN-BELT-NEW — re-ground boundary
+
+boundary_note: >-
+  The 4 Mibera-shared chains already have verified boundaries (T-M1). Arbitrum + Zora are
+  NEW chains the green belt introduces (HoneyJar genesis only); their per-chain
+  latest_processed_block boundary MUST be re-grounded from envio chain_metadata before any
+  import — DO NOT reuse the Mibera boundaries for them.
+
+# ── DEAD entities (defined in schema.graphql, NO handler writes them, 0 rows) ──
+# Excluded from import + schema additions. Verified 0 `context.<Entity>.` writer files in src/.
+dead_entities:
+  - { entity: CandiesTrade,                    reason: "trading-system entity; contract commented out in config.yaml:848-850 (CandiesTrade contract 'TODO: Add address after deployment'); 0 writers" }
+  - { entity: MiberaTrade,                     reason: "trading-system entity; contract commented out in config.yaml:845-847; 0 writers" }
+  - { entity: TradeStats,                      reason: "trading-system aggregate for MiberaTrade/CandiesTrade; both source contracts disabled; 0 writers" }
+  - { entity: GlobalCollectionStat,            reason: "schema-defined + type-referenced in honey-jar-nfts.ts but NO context.GlobalCollectionStat.set writer; 0 rows" }
+  - { entity: HoneyJar_Approval,               reason: "auto-scaffold event entity (HoneyJar_*); no handler writes it; 0 writers" }
+  - { entity: HoneyJar_ApprovalForAll,         reason: "auto-scaffold event entity; 0 writers" }
+  - { entity: HoneyJar_BaseURISet,             reason: "auto-scaffold event entity; 0 writers" }
+  - { entity: HoneyJar_OwnershipTransferred,   reason: "auto-scaffold event entity; 0 writers" }
+  - { entity: HoneyJar_SetGenerated,           reason: "auto-scaffold event entity; 0 writers" }
+  - { entity: HoneyJar_Transfer,               reason: "auto-scaffold event entity; the LIVE HJ transfer write goes to the generic Transfer/Mint/Token/Holder entities via honey-jar-nfts.ts, NOT HoneyJar_Transfer; 0 writers" }
+  # NOTE: pre-import VERIFY each dead entity = 0 rows in blue 3vIC (read-only count). If any
+  #       has rows, it was written by a path not visible to static analysis — escalate.
+
+# ── LIVE green-belt entities (44) ──
+# Grouped by community/contract-family for the handler-gap roll-up.
+entities:
+
+  # ════════════════════════════════════════════════════════════════════════
+  # GROUP A — VALIDATOR-REWARDS / FATBERA family (Berachain · envio src/handlers/fatbera.ts)
+  # Contracts: FatBeraDeposits, FatBeraAccounting, BeaconDeposit, BlockRewardController,
+  #            AutomatedStake, ValidatorWithdrawalModule, ValidatorDepositRouter (config.yaml:856-885)
+  # Largest single green-belt entity lives here: ValidatorBlockRewards 906,771 rows.
+  # ** Timestamp-scalar drift concentrated here (timestamp_to_bigint). **
+  # ════════════════════════════════════════════════════════════════════════
+  - envio_table: ValidatorBlockRewards
+    ponder_table: validator_block_rewards
+    community: validator-rewards
+    chain: berachain
+    rows_known: 906771
+    classification: append-running-no-handler
+    start_block_policy: "boundary EXACTLY (append-running carries cumulatives; no overlap)"
+    envio_handler: "src/handlers/fatbera.ts:67-69 context.ValidatorBlockRewards.set (id=`${blockNumber}_${pubkey}`; running totals = previousRewards + delta) via handleBlockRewardProcessed"
+    ponder_handler_gap: "MISSING — no ponder handler for BlockRewardController. Port fatbera.ts reward path (depends on LatestValidatorDeposit lookup)."
+    pk: [id]
+    columns:
+      - { envio: id,                       ponder: id,                        envio_type: text NOT NULL,            ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: pubkey,                   ponder: pubkey,                    envio_type: text NOT NULL,            ponder_type: text NOT NULL,           transform: rename }
+      - { envio: blockHeight,              ponder: block_height,              envio_type: integer NOT NULL,         ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalBlockRewards,        ponder: total_block_rewards,       envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp,                ponder: timestamp,                 envio_type: "timestamp (Timestamp scalar / Js.Date.t) NOT NULL", ponder_type: bigint (int8) NOT NULL, transform: timestamp_to_bigint, note: "Indexer.res:764 timestamp: Js.Date.t -> pg timestamp. Convert to epoch bigint: EXTRACT(EPOCH FROM ...)::bigint" }
+      - { envio: nextTimestamp,            ponder: next_timestamp,            envio_type: numeric (BigInt) NOT NULL, ponder_type: bigint (int8) NOT NULL,  transform: rename, note: "nextTimestamp is BigInt in schema, NOT the Timestamp scalar — pure rename" }
+      - { envio: baseRate,                 ponder: base_rate,                 envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: rewardRate,               ponder: reward_rate,               envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: rewardCount,              ponder: reward_count,              envio_type: integer NOT NULL,         ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: stakerReward,             ponder: staker_reward,             envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: validatorReward,          ponder: validator_reward,          envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalStakerRewards,       ponder: total_staker_rewards,      envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalValidatorRewards,    ponder: total_validator_rewards,   envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: outstandingStakerRewards, ponder: outstanding_staker_rewards, envio_type: numeric (BigInt) NOT NULL, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+
+  - envio_table: ValidatorDeposits
+    ponder_table: validator_deposits
+    community: validator-rewards
+    chain: berachain
+    rows_known: null
+    classification: append-running-no-handler
+    start_block_policy: "boundary EXACTLY"
+    envio_handler: "src/handlers/fatbera.ts:52 context.ValidatorDeposits.set (handleValidatorDepositRequested / BeaconDeposit path)"
+    ponder_handler_gap: "MISSING — port fatbera.ts deposit path (BeaconDeposit + ValidatorDepositRouter)."
+    pk: [id]
+    columns:
+      - { envio: id,                envio_type: text NOT NULL,            ponder: id,                ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: pubkey,            envio_type: text NOT NULL,            ponder: pubkey,            ponder_type: text NOT NULL,           transform: rename }
+      - { envio: blockHeight,       envio_type: integer NOT NULL,         ponder: block_height,      ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: timestamp,         envio_type: "timestamp (Timestamp scalar) NOT NULL", ponder: timestamp, ponder_type: bigint (int8) NOT NULL, transform: timestamp_to_bigint, note: "Indexer.res:771 Js.Date.t" }
+      - { envio: depositAmount,     envio_type: numeric (BigInt) NOT NULL, ponder: deposit_amount,    ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalDeposited,    envio_type: numeric (BigInt) NOT NULL, ponder: total_deposited,   ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: depositCount,      envio_type: integer NOT NULL,         ponder: deposit_count,     ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: outstandingFatBERA, envio_type: numeric (BigInt) NOT NULL, ponder: outstanding_fat_bera, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+
+  - envio_table: LatestValidatorDeposit
+    ponder_table: latest_validator_deposit
+    community: validator-rewards
+    chain: berachain
+    rows_known: null
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY"
+    envio_handler: "src/handlers/fatbera.ts:53 context.LatestValidatorDeposit.set (singleton per validator pubkey — latest state, O(1) lookup)"
+    ponder_handler_gap: "MISSING — port with ValidatorDeposits."
+    pk: [id]
+    columns:
+      - { envio: id,                envio_type: text NOT NULL,            ponder: id,                ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: pubkey,            envio_type: text NOT NULL,            ponder: pubkey,            ponder_type: text NOT NULL,           transform: rename }
+      - { envio: blockHeight,       envio_type: integer NOT NULL,         ponder: block_height,      ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: timestamp,         envio_type: "timestamp (Timestamp scalar) NOT NULL", ponder: timestamp, ponder_type: bigint (int8) NOT NULL, transform: timestamp_to_bigint, note: "Indexer.res:482 Js.Date.t" }
+      - { envio: depositAmount,     envio_type: numeric (BigInt) NOT NULL, ponder: deposit_amount,    ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalDeposited,    envio_type: numeric (BigInt) NOT NULL, ponder: total_deposited,   ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: depositCount,      envio_type: integer NOT NULL,         ponder: deposit_count,     ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: outstandingFatBERA, envio_type: numeric (BigInt) NOT NULL, ponder: outstanding_fat_bera, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+
+  - envio_table: LatestValidatorReward
+    ponder_table: latest_validator_reward
+    community: validator-rewards
+    chain: berachain
+    rows_known: null
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY"
+    envio_handler: "src/handlers/fatbera.ts:70 context.LatestValidatorReward.set (singleton per validator — latest reward state)"
+    ponder_handler_gap: "MISSING — port with ValidatorBlockRewards."
+    pk: [id]
+    columns:
+      - { envio: id,                       envio_type: text NOT NULL,            ponder: id,                        ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: pubkey,                   envio_type: text NOT NULL,            ponder: pubkey,                    ponder_type: text NOT NULL,           transform: rename }
+      - { envio: blockHeight,              envio_type: integer NOT NULL,         ponder: block_height,              ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalBlockRewards,        envio_type: numeric (BigInt) NOT NULL, ponder: total_block_rewards,       ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp,                envio_type: "timestamp (Timestamp scalar) NOT NULL", ponder: timestamp, ponder_type: bigint (int8) NOT NULL, transform: timestamp_to_bigint, note: "Indexer.res:489 Js.Date.t" }
+      - { envio: nextTimestamp,            envio_type: numeric (BigInt) NOT NULL, ponder: next_timestamp,            ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: baseRate,                 envio_type: numeric (BigInt) NOT NULL, ponder: base_rate,                 ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: rewardRate,               envio_type: numeric (BigInt) NOT NULL, ponder: reward_rate,               ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: rewardCount,              envio_type: integer NOT NULL,         ponder: reward_count,              ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: stakerReward,             envio_type: numeric (BigInt) NOT NULL, ponder: staker_reward,             ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: validatorReward,          envio_type: numeric (BigInt) NOT NULL, ponder: validator_reward,          ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalStakerRewards,       envio_type: numeric (BigInt) NOT NULL, ponder: total_staker_rewards,      ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalValidatorRewards,    envio_type: numeric (BigInt) NOT NULL, ponder: total_validator_rewards,   ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: outstandingStakerRewards, envio_type: numeric (BigInt) NOT NULL, ponder: outstanding_staker_rewards, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+
+  - envio_table: ValidatorWithdrawalTotals
+    ponder_table: validator_withdrawal_totals
+    community: validator-rewards
+    chain: berachain
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY"
+    envio_handler: "src/handlers/fatbera.ts:600 context.ValidatorWithdrawalTotals.set (withdrawalCount/totalWithdrawn accumulate — additive)"
+    ponder_handler_gap: "MISSING — port ValidatorWithdrawalModule path."
+    pk: [id]
+    columns:
+      - { envio: id,                      envio_type: text NOT NULL,            ponder: id,                       ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: cometBFTPublicKey,       envio_type: text NOT NULL,            ponder: comet_bft_public_key,     ponder_type: text NOT NULL,           transform: rename }
+      - { envio: totalWithdrawn,          envio_type: numeric (BigInt) NOT NULL, ponder: total_withdrawn,          ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: withdrawalCount,         envio_type: integer NOT NULL,         ponder: withdrawal_count,         ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalFees,               envio_type: numeric (BigInt) NOT NULL, ponder: total_fees,               ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: lastWithdrawalAmount,    envio_type: numeric (BigInt) NOT NULL, ponder: last_withdrawal_amount,   ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: lastWithdrawalBlock,     envio_type: integer NOT NULL,         ponder: last_withdrawal_block,    ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: lastWithdrawalTimestamp, envio_type: "timestamp (Timestamp scalar) NOT NULL", ponder: last_withdrawal_timestamp, ponder_type: bigint (int8) NOT NULL, transform: timestamp_to_bigint, note: "Indexer.res:778 Js.Date.t" }
+      - { envio: lastWithdrawalSafe,      envio_type: text NOT NULL,            ponder: last_withdrawal_safe,     ponder_type: text NOT NULL,           transform: rename }
+      - { envio: lastWithdrawalInitiator, envio_type: text NOT NULL,            ponder: last_withdrawal_initiator, ponder_type: text NOT NULL,          transform: rename }
+
+  - envio_table: WithdrawalBatch
+    ponder_table: withdrawal_batch
+    community: validator-rewards
+    chain: berachain
+    rows_known: null
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY"
+    envio_handler: "src/handlers/fatbera.ts:477/519/524/549 context.WithdrawalBatch.set (state accrues uniqueUsers/userAddresses across requests)"
+    ponder_handler_gap: "MISSING — port FatBera withdrawal-batch path."
+    pk: [id]
+    columns:
+      - { envio: id,                      envio_type: text NOT NULL,            ponder: id,                       ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: batchId,                 envio_type: integer NOT NULL,         ponder: batch_id,                 ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalAmount,             envio_type: numeric (BigInt) NOT NULL, ponder: total_amount,             ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: startTime,               envio_type: "timestamp (Timestamp scalar) NOT NULL", ponder: start_time, ponder_type: bigint (int8) NOT NULL, transform: timestamp_to_bigint, note: "Indexer.res:799 Js.Date.t" }
+      - { envio: uniqueUsers,             envio_type: integer NOT NULL,         ponder: unique_users,             ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: userAddresses,           envio_type: "text[] (array<string> / pg _text) NOT NULL", ponder: user_addresses, ponder_type: text NOT NULL, transform: array_to_json_text, note: "** NEW DRIFT: string[] (NOT bigint[]). JSON.stringify(addresses), NOT ::text cast. Indexer.res:799 userAddresses: array<string> **" }
+      - { envio: blockHeight,             envio_type: integer NOT NULL,         ponder: block_height,             ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: transactionHash,         envio_type: text NOT NULL,            ponder: transaction_hash,         ponder_type: text NOT NULL,           transform: rename }
+      - { envio: status,                  envio_type: text NOT NULL,            ponder: status,                   ponder_type: text NOT NULL,           transform: rename }
+      - { envio: predictedWithdrawalBlock, envio_type: integer NOT NULL,        ponder: predicted_withdrawal_block, ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: WithdrawalRequest
+    ponder_table: withdrawal_request
+    community: validator-rewards
+    chain: berachain
+    rows_known: null
+    classification: append-no-handler
+    start_block_policy: "boundary - finalityOverlap (append; deterministic id)"
+    envio_handler: "src/handlers/fatbera.ts:466 context.WithdrawalRequest.set"
+    ponder_handler_gap: "MISSING — port with WithdrawalBatch."
+    pk: [id]
+    relation_note: "envio `batch: WithdrawalBatch!` relation -> pg column `batch_id` (Indexer.res:813 batch_id: id). Ponder: model as a plain text column `batch_id` (text FK-by-convention)."
+    columns:
+      - { envio: id,              envio_type: text NOT NULL,            ponder: id,               ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: user,            envio_type: text NOT NULL,            ponder: user,             ponder_type: text NOT NULL,           transform: rename }
+      - { envio: batch_id,        envio_type: text NOT NULL,            ponder: batch_id,         ponder_type: text NOT NULL,           transform: rename, note: "relation field; already _id-suffixed in envio pg" }
+      - { envio: amount,          envio_type: numeric (BigInt) NOT NULL, ponder: amount,           ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp,       envio_type: "timestamp (Timestamp scalar) NOT NULL", ponder: timestamp, ponder_type: bigint (int8) NOT NULL, transform: timestamp_to_bigint, note: "Indexer.res:813 Js.Date.t" }
+      - { envio: blockHeight,     envio_type: integer NOT NULL,         ponder: block_height,     ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: transactionHash, envio_type: text NOT NULL,            ponder: transaction_hash, ponder_type: text NOT NULL,           transform: rename }
+
+  - envio_table: WithdrawalFulfillment
+    ponder_table: withdrawal_fulfillment
+    community: validator-rewards
+    chain: berachain
+    rows_known: null
+    classification: append-no-handler
+    start_block_policy: "boundary - finalityOverlap (append)"
+    envio_handler: "src/handlers/fatbera.ts:564 context.WithdrawalFulfillment.set"
+    ponder_handler_gap: "MISSING — port with WithdrawalBatch."
+    pk: [id]
+    relation_note: "envio `batch` relation -> pg `batch_id` (Indexer.res:806)."
+    columns:
+      - { envio: id,              envio_type: text NOT NULL,            ponder: id,               ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: user,            envio_type: text NOT NULL,            ponder: user,             ponder_type: text NOT NULL,           transform: rename }
+      - { envio: batch_id,        envio_type: text NOT NULL,            ponder: batch_id,         ponder_type: text NOT NULL,           transform: rename }
+      - { envio: amount,          envio_type: numeric (BigInt) NOT NULL, ponder: amount,           ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp,       envio_type: "timestamp (Timestamp scalar) NOT NULL", ponder: timestamp, ponder_type: bigint (int8) NOT NULL, transform: timestamp_to_bigint, note: "Indexer.res:806 Js.Date.t" }
+      - { envio: blockHeight,     envio_type: integer NOT NULL,         ponder: block_height,     ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: transactionHash, envio_type: text NOT NULL,            ponder: transaction_hash, ponder_type: text NOT NULL,           transform: rename }
+
+  - envio_table: FatBeraDeposit
+    ponder_table: fatbera_deposit
+    community: validator-rewards
+    chain: berachain
+    rows_known: 2336
+    classification: append-no-handler
+    start_block_policy: "boundary - finalityOverlap (append; deterministic id)"
+    envio_handler: "src/handlers/fatbera.ts:164 context.FatBeraDeposit.set (handleFatBeraDeposit)"
+    ponder_handler_gap: "MISSING — port FatBeraDeposits/FatBeraAccounting deposit path."
+    pk: [id]
+    columns:
+      - { envio: id,              envio_type: text NOT NULL,            ponder: id,               ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: collectionKey,   envio_type: text NOT NULL,            ponder: collection_key,   ponder_type: text NOT NULL,           transform: rename }
+      - { envio: depositor,       envio_type: text NOT NULL,            ponder: depositor,        ponder_type: text NOT NULL,           transform: rename }
+      - { envio: recipient,       envio_type: text NOT NULL,            ponder: recipient,        ponder_type: text NOT NULL,           transform: rename }
+      - { envio: amount,          envio_type: numeric (BigInt) NOT NULL, ponder: amount,           ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: shares,          envio_type: numeric (BigInt) NOT NULL, ponder: shares,           ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: transactionFrom, envio_type: text NULL,                ponder: transaction_from, ponder_type: text NULL,               transform: rename }
+      - { envio: timestamp,       envio_type: numeric (BigInt) NOT NULL, ponder: timestamp,        ponder_type: bigint (int8) NOT NULL,  transform: rename, note: "FatBeraDeposit.timestamp is BigInt in schema (NOT Timestamp scalar) — pure rename. Indexer.res:300 timestamp: bigint" }
+      - { envio: blockNumber,     envio_type: numeric (BigInt) NOT NULL, ponder: block_number,     ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: transactionHash, envio_type: text NOT NULL,            ponder: transaction_hash, ponder_type: text NOT NULL,           transform: rename }
+      - { envio: chainId,         envio_type: integer NOT NULL,         ponder: chain_id,         ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  # ════════════════════════════════════════════════════════════════════════
+  # GROUP B — HONEYJAR GENESIS family (6 chains! eth/arb/zora/op/base/bera ·
+  #            envio src/handlers/honey-jar-nfts.ts)
+  # Contracts: HoneyJar (+HoneyJar2..6Eth, Honeycomb) across all 6 chains. The generic
+  #            Transfer/Token/Holder/Mint/UserBalance/CollectionStat entities.
+  # This is the multi-chain genesis NFT spread. Transfer 354,492 · Token 130,921 ·
+  #            Mint 105,622 · Holder 49,237 · UserBalance 35,968.
+  # ════════════════════════════════════════════════════════════════════════
+  - envio_table: Transfer
+    ponder_table: transfer
+    community: honeyjar-genesis
+    chains: [ethereum, arbitrum, zora, optimism, base, berachain]
+    rows_known: 354492
+    classification: append-no-handler
+    start_block_policy: "boundary - finalityOverlap (append; id=txHash_logIndex, .set only)"
+    envio_handler: "src/handlers/honey-jar-nfts.ts:51-64 context.Transfer.set; ALSO src/handlers/crayons.ts:23 context.Transfer.set (Crayons collections, Berachain). Two writers -> one ponder table."
+    ponder_handler_gap: "MISSING — port honey-jar-nfts.ts Transfer path (all HoneyJar/Honeycomb contracts on 6 chains) + crayons.ts."
+    pk: [id]
+    columns:
+      - { envio: id,              envio_type: text NOT NULL,            ponder: id,               ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: tokenId,         envio_type: numeric (BigInt) NOT NULL, ponder: token_id,         ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: from,            envio_type: text NOT NULL,            ponder: from,             ponder_type: text NOT NULL,           transform: rename }
+      - { envio: to,              envio_type: text NOT NULL,            ponder: to,               ponder_type: text NOT NULL,           transform: rename }
+      - { envio: timestamp,       envio_type: numeric (BigInt) NOT NULL, ponder: timestamp,        ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: blockNumber,     envio_type: numeric (BigInt) NOT NULL, ponder: block_number,     ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: transactionHash, envio_type: text NOT NULL,            ponder: transaction_hash, ponder_type: text NOT NULL,           transform: rename }
+      - { envio: collection,      envio_type: text NOT NULL,            ponder: collection,       ponder_type: text NOT NULL,           transform: rename }
+      - { envio: chainId,         envio_type: integer NOT NULL,         ponder: chain_id,         ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: Token
+    ponder_table: token
+    community: honeyjar-genesis
+    chains: [ethereum, arbitrum, zora, optimism, base, berachain]
+    rows_known: 130921
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY (state: owner/isBurned/lastTransferTime mutate per transfer)"
+    envio_handler: "src/handlers/honey-jar-nfts.ts:198-221 context.Token.get/set (owner + isBurned + lastTransferTime last-write-wins)"
+    ponder_handler_gap: "MISSING — port with honey-jar-nfts.ts."
+    pk: [id]
+    columns:
+      - { envio: id,               envio_type: text NOT NULL,            ponder: id,                ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: collection,       envio_type: text NOT NULL,            ponder: collection,        ponder_type: text NOT NULL,           transform: rename }
+      - { envio: chainId,          envio_type: integer NOT NULL,         ponder: chain_id,          ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: tokenId,          envio_type: numeric (BigInt) NOT NULL, ponder: token_id,          ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: owner,            envio_type: text NOT NULL,            ponder: owner,             ponder_type: text NOT NULL,           transform: rename }
+      - { envio: isBurned,         envio_type: boolean NOT NULL,         ponder: is_burned,         ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: mintedAt,         envio_type: numeric (BigInt) NOT NULL, ponder: minted_at,         ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: lastTransferTime, envio_type: numeric (BigInt) NOT NULL, ponder: last_transfer_time, ponder_type: bigint (int8) NOT NULL, transform: rename }
+
+  - envio_table: Mint
+    ponder_table: mint
+    community: honeyjar-genesis
+    chains: [ethereum, arbitrum, zora, optimism, base, berachain]
+    rows_known: 105622
+    classification: append-no-handler
+    start_block_policy: "boundary - finalityOverlap (append; id=txHash_logIndex_mint, .set only)"
+    envio_handler: "src/handlers/honey-jar-nfts.ts:148-160 context.Mint.set"
+    ponder_handler_gap: "MISSING — port with honey-jar-nfts.ts."
+    pk: [id]
+    columns:
+      - { envio: id,              envio_type: text NOT NULL,            ponder: id,               ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: tokenId,         envio_type: numeric (BigInt) NOT NULL, ponder: token_id,         ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: to,              envio_type: text NOT NULL,            ponder: to,               ponder_type: text NOT NULL,           transform: rename }
+      - { envio: timestamp,       envio_type: numeric (BigInt) NOT NULL, ponder: timestamp,        ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: blockNumber,     envio_type: numeric (BigInt) NOT NULL, ponder: block_number,     ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: transactionHash, envio_type: text NOT NULL,            ponder: transaction_hash, ponder_type: text NOT NULL,           transform: rename }
+      - { envio: collection,      envio_type: text NOT NULL,            ponder: collection,       ponder_type: text NOT NULL,           transform: rename }
+      - { envio: chainId,         envio_type: integer NOT NULL,         ponder: chain_id,         ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: Holder
+    ponder_table: holder
+    community: honeyjar-genesis
+    chains: [ethereum, arbitrum, zora, optimism, base, berachain]
+    rows_known: 49237
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY (balance/totalMinted accumulate)"
+    envio_handler: "src/handlers/honey-jar-nfts.ts:276-289 context.Holder.set (balance +/- ; totalMinted +1 — additive)"
+    ponder_handler_gap: "MISSING — port with honey-jar-nfts.ts."
+    pk: [id]
+    columns:
+      - { envio: id,               envio_type: text NOT NULL,            ponder: id,                ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: address,          envio_type: text NOT NULL,            ponder: address,           ponder_type: text NOT NULL,           transform: rename }
+      - { envio: balance,          envio_type: integer NOT NULL,         ponder: balance,           ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalMinted,      envio_type: integer NOT NULL,         ponder: total_minted,      ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: lastActivityTime, envio_type: numeric (BigInt) NOT NULL, ponder: last_activity_time, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: firstMintTime,    envio_type: numeric (BigInt) NULL,    ponder: first_mint_time,   ponder_type: bigint (int8) NULL,      transform: rename }
+      - { envio: collection,       envio_type: text NOT NULL,            ponder: collection,        ponder_type: text NOT NULL,           transform: rename }
+      - { envio: chainId,          envio_type: integer NOT NULL,         ponder: chain_id,          ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: UserBalance
+    ponder_table: user_balance
+    community: honeyjar-genesis
+    chains: [ethereum, arbitrum, zora, optimism, base, berachain]
+    rows_known: 35968
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY (cross-chain balance/minted counters accumulate)"
+    envio_handler: "src/handlers/honey-jar-nfts.ts context.UserBalance.set (per-generation cross-chain balance rollup)"
+    ponder_handler_gap: "MISSING — port with honey-jar-nfts.ts."
+    pk: [id]
+    columns:
+      - { envio: id,               envio_type: text NOT NULL,            ponder: id,                ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: address,          envio_type: text NOT NULL,            ponder: address,           ponder_type: text NOT NULL,           transform: rename }
+      - { envio: generation,       envio_type: integer NOT NULL,         ponder: generation,        ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: balanceHomeChain, envio_type: integer NOT NULL,         ponder: balance_home_chain, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: balanceEthereum,  envio_type: integer NOT NULL,         ponder: balance_ethereum,  ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: balanceBerachain, envio_type: integer NOT NULL,         ponder: balance_berachain, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: balanceTotal,     envio_type: integer NOT NULL,         ponder: balance_total,     ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: mintedHomeChain,  envio_type: integer NOT NULL,         ponder: minted_home_chain, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: mintedEthereum,   envio_type: integer NOT NULL,         ponder: minted_ethereum,   ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: mintedBerachain,  envio_type: integer NOT NULL,         ponder: minted_berachain,  ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: mintedTotal,      envio_type: integer NOT NULL,         ponder: minted_total,      ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: lastActivityTime, envio_type: numeric (BigInt) NOT NULL, ponder: last_activity_time, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: firstMintTime,    envio_type: numeric (BigInt) NULL,    ponder: first_mint_time,   ponder_type: bigint (int8) NULL,      transform: rename }
+
+  - envio_table: CollectionStat
+    ponder_table: collection_stat
+    community: honeyjar-genesis
+    chains: [ethereum, arbitrum, zora, optimism, base, berachain]
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY (totalSupply/totalMinted/totalBurned accumulate)"
+    envio_handler: "src/handlers/honey-jar-nfts.ts:401-445 context.CollectionStat.get/set (additive counters)"
+    ponder_handler_gap: "MISSING — port with honey-jar-nfts.ts."
+    pk: [id]
+    columns:
+      - { envio: id,            envio_type: text NOT NULL,            ponder: id,             ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: collection,    envio_type: text NOT NULL,            ponder: collection,     ponder_type: text NOT NULL,           transform: rename }
+      - { envio: totalSupply,   envio_type: integer NOT NULL,         ponder: total_supply,   ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalMinted,   envio_type: integer NOT NULL,         ponder: total_minted,   ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalBurned,   envio_type: integer NOT NULL,         ponder: total_burned,   ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: uniqueHolders, envio_type: integer NOT NULL,         ponder: unique_holders, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: lastMintTime,  envio_type: numeric (BigInt) NULL,    ponder: last_mint_time, ponder_type: bigint (int8) NULL,      transform: rename }
+      - { envio: chainId,       envio_type: integer NOT NULL,         ponder: chain_id,       ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  # ════════════════════════════════════════════════════════════════════════
+  # GROUP C — MONEYCOMB-VAULT family (Berachain · envio src/handlers/moneycomb-vault.ts)
+  # Contract: MoneycombVault (config.yaml:770-773). HJ-burn vault.
+  # ════════════════════════════════════════════════════════════════════════
+  - envio_table: Vault
+    ponder_table: vault
+    community: moneycomb-vault
+    chain: berachain
+    rows_known: null
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY (isActive/shares/burnedGenN state mutate)"
+    envio_handler: "src/handlers/moneycomb-vault.ts context.Vault.set (state: shares/isActive/burnedGen1..6/totalBurned)"
+    ponder_handler_gap: "MISSING — port moneycomb-vault.ts (AccountOpened/Closed/HJBurned/SharesMinted/RewardClaimed)."
+    pk: [id]
+    columns:
+      - { envio: id,               envio_type: text NOT NULL,            ponder: id,                ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: user,             envio_type: text NOT NULL,            ponder: user,              ponder_type: text NOT NULL,           transform: rename }
+      - { envio: accountIndex,     envio_type: integer NOT NULL,         ponder: account_index,     ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: honeycombId,      envio_type: numeric (BigInt) NOT NULL, ponder: honeycomb_id,      ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: isActive,         envio_type: boolean NOT NULL,         ponder: is_active,         ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: shares,           envio_type: numeric (BigInt) NOT NULL, ponder: shares,            ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalBurned,      envio_type: integer NOT NULL,         ponder: total_burned,      ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: burnedGen1,       envio_type: boolean NOT NULL,         ponder: burned_gen1,       ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: burnedGen2,       envio_type: boolean NOT NULL,         ponder: burned_gen2,       ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: burnedGen3,       envio_type: boolean NOT NULL,         ponder: burned_gen3,       ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: burnedGen4,       envio_type: boolean NOT NULL,         ponder: burned_gen4,       ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: burnedGen5,       envio_type: boolean NOT NULL,         ponder: burned_gen5,       ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: burnedGen6,       envio_type: boolean NOT NULL,         ponder: burned_gen6,       ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: createdAt,        envio_type: numeric (BigInt) NOT NULL, ponder: created_at,        ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: closedAt,         envio_type: numeric (BigInt) NULL,    ponder: closed_at,         ponder_type: bigint (int8) NULL,      transform: rename }
+      - { envio: lastActivityTime, envio_type: numeric (BigInt) NOT NULL, ponder: last_activity_time, ponder_type: bigint (int8) NOT NULL, transform: rename }
+
+  - envio_table: VaultActivity
+    ponder_table: vault_activity
+    community: moneycomb-vault
+    chain: berachain
+    rows_known: null
+    classification: append-no-handler
+    start_block_policy: "boundary - finalityOverlap (append event log)"
+    envio_handler: "src/handlers/moneycomb-vault.ts context.VaultActivity.set"
+    ponder_handler_gap: "MISSING — port with moneycomb-vault.ts."
+    pk: [id]
+    columns:
+      - { envio: id,              envio_type: text NOT NULL,            ponder: id,               ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: user,            envio_type: text NOT NULL,            ponder: user,             ponder_type: text NOT NULL,           transform: rename }
+      - { envio: accountIndex,    envio_type: integer NOT NULL,         ponder: account_index,    ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: activityType,    envio_type: text NOT NULL,            ponder: activity_type,    ponder_type: text NOT NULL,           transform: rename }
+      - { envio: timestamp,       envio_type: numeric (BigInt) NOT NULL, ponder: timestamp,        ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: blockNumber,     envio_type: numeric (BigInt) NOT NULL, ponder: block_number,     ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: transactionHash, envio_type: text NOT NULL,            ponder: transaction_hash, ponder_type: text NOT NULL,           transform: rename }
+      - { envio: honeycombId,     envio_type: numeric (BigInt) NULL,    ponder: honeycomb_id,     ponder_type: "numeric(78,0) NULL",    transform: rename }
+      - { envio: hjGen,           envio_type: integer NULL,             ponder: hj_gen,           ponder_type: integer (int4) NULL,     transform: rename }
+      - { envio: shares,          envio_type: numeric (BigInt) NULL,    ponder: shares,           ponder_type: "numeric(78,0) NULL",    transform: rename }
+      - { envio: reward,          envio_type: numeric (BigInt) NULL,    ponder: reward,           ponder_type: "numeric(78,0) NULL",    transform: rename }
+
+  - envio_table: UserVaultSummary
+    ponder_table: user_vault_summary
+    community: moneycomb-vault
+    chain: berachain
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY (totalVaults/activeVaults/totalShares accumulate)"
+    envio_handler: "src/handlers/moneycomb-vault.ts context.UserVaultSummary.set (additive aggregate)"
+    ponder_handler_gap: "MISSING — port with moneycomb-vault.ts."
+    pk: [id]
+    columns:
+      - { envio: id,                  envio_type: text NOT NULL,            ponder: id,                   ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: user,                envio_type: text NOT NULL,            ponder: user,                 ponder_type: text NOT NULL,           transform: rename }
+      - { envio: totalVaults,         envio_type: integer NOT NULL,         ponder: total_vaults,         ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: activeVaults,        envio_type: integer NOT NULL,         ponder: active_vaults,        ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalShares,         envio_type: numeric (BigInt) NOT NULL, ponder: total_shares,         ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalRewardsClaimed, envio_type: numeric (BigInt) NOT NULL, ponder: total_rewards_claimed, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalHJsBurned,      envio_type: integer NOT NULL,         ponder: total_hjs_burned,     ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: firstVaultTime,      envio_type: numeric (BigInt) NULL,    ponder: first_vault_time,     ponder_type: bigint (int8) NULL,      transform: rename }
+      - { envio: lastActivityTime,    envio_type: numeric (BigInt) NOT NULL, ponder: last_activity_time,   ponder_type: bigint (int8) NOT NULL,  transform: rename }
+
+  # ════════════════════════════════════════════════════════════════════════
+  # GROUP D — HENLO-HOLDER + HENLO-BURN family (envio src/handlers/tracked-erc20/*)
+  # Contract: TrackedErc20 (HENLO + HENLOCKED tiers; Base + Berachain · config.yaml:703,923).
+  # Burn-tracking via burn-tracking.ts; holder via holder-stats.ts.
+  # HenloHolder 46,073. NOTE: the tracked_token_balance entity (this same TrackedErc20
+  # contract) is ALREADY in the 40 Mibera set — the Henlo* entities are the gap.
+  # ════════════════════════════════════════════════════════════════════════
+  - envio_table: HenloHolder
+    ponder_table: henlo_holder
+    community: henlo
+    chains: [base, berachain]
+    rows_known: 46073
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY (balance last-write-wins per transfer)"
+    envio_handler: "src/handlers/tracked-erc20/holder-stats.ts context.HenloHolder.set (balance = current +/- value)"
+    ponder_handler_gap: "MISSING — port tracked-erc20/holder-stats.ts (the LIVE tracked-erc20.ts ponder handler ports tracked_token_balance ONLY, not the Henlo* derivatives)."
+    pk: [id]
+    columns:
+      - { envio: id,                envio_type: text NOT NULL,            ponder: id,                 ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: address,           envio_type: text NOT NULL,            ponder: address,            ponder_type: text NOT NULL,           transform: rename }
+      - { envio: balance,           envio_type: numeric (BigInt) NOT NULL, ponder: balance,            ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: firstTransferTime, envio_type: numeric (BigInt) NULL,    ponder: first_transfer_time, ponder_type: bigint (int8) NULL,     transform: rename }
+      - { envio: lastActivityTime,  envio_type: numeric (BigInt) NOT NULL, ponder: last_activity_time, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId,           envio_type: integer NOT NULL,         ponder: chain_id,           ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: HenloHolderStats
+    ponder_table: henlo_holder_stats
+    community: henlo
+    chains: [base, berachain]
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY"
+    envio_handler: "src/handlers/tracked-erc20/holder-stats.ts context.HenloHolderStats.set"
+    ponder_handler_gap: "MISSING — port with holder-stats.ts."
+    pk: [id]
+    columns:
+      - { envio: id,             envio_type: text NOT NULL,            ponder: id,              ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: chainId,        envio_type: integer NOT NULL,         ponder: chain_id,        ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: uniqueHolders,  envio_type: integer NOT NULL,         ponder: unique_holders,  ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalSupply,    envio_type: numeric (BigInt) NOT NULL, ponder: total_supply,    ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: lastUpdateTime, envio_type: numeric (BigInt) NOT NULL, ponder: last_update_time, ponder_type: bigint (int8) NOT NULL, transform: rename }
+
+  - envio_table: HenloBurn
+    ponder_table: henlo_burn
+    community: henlo
+    chains: [base, berachain]
+    rows_known: null
+    classification: append-no-handler
+    start_block_policy: "boundary - finalityOverlap (append; id=txHash_logIndex)"
+    envio_handler: "src/handlers/tracked-erc20/burn-tracking.ts context.HenloBurn.set"
+    ponder_handler_gap: "MISSING — port burn-tracking.ts."
+    pk: [id]
+    columns:
+      - { envio: id,              envio_type: text NOT NULL,            ponder: id,               ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: amount,          envio_type: numeric (BigInt) NOT NULL, ponder: amount,           ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp,       envio_type: numeric (BigInt) NOT NULL, ponder: timestamp,        ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: blockNumber,     envio_type: numeric (BigInt) NOT NULL, ponder: block_number,     ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: transactionHash, envio_type: text NOT NULL,            ponder: transaction_hash, ponder_type: text NOT NULL,           transform: rename }
+      - { envio: from,            envio_type: text NOT NULL,            ponder: from,             ponder_type: text NOT NULL,           transform: rename }
+      - { envio: source,          envio_type: text NOT NULL,            ponder: source,           ponder_type: text NOT NULL,           transform: rename }
+      - { envio: chainId,         envio_type: integer NOT NULL,         ponder: chain_id,         ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: HenloBurnStats
+    ponder_table: henlo_burn_stats
+    community: henlo
+    chains: [base, berachain]
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY"
+    envio_handler: "src/handlers/tracked-erc20/burn-tracking.ts context.HenloBurnStats.set (totalBurned/burnCount additive)"
+    ponder_handler_gap: "MISSING — port with burn-tracking.ts."
+    pk: [id]
+    columns:
+      - { envio: id,            envio_type: text NOT NULL,            ponder: id,             ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: chainId,       envio_type: integer NOT NULL,         ponder: chain_id,       ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: source,        envio_type: text NOT NULL,            ponder: source,         ponder_type: text NOT NULL,           transform: rename }
+      - { envio: totalBurned,   envio_type: numeric (BigInt) NOT NULL, ponder: total_burned,   ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: burnCount,     envio_type: integer NOT NULL,         ponder: burn_count,     ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: uniqueBurners, envio_type: integer NOT NULL,         ponder: unique_burners, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: lastBurnTime,  envio_type: numeric (BigInt) NULL,    ponder: last_burn_time, ponder_type: bigint (int8) NULL,      transform: rename }
+      - { envio: firstBurnTime, envio_type: numeric (BigInt) NULL,    ponder: first_burn_time, ponder_type: bigint (int8) NULL,     transform: rename }
+
+  - envio_table: HenloGlobalBurnStats
+    ponder_table: henlo_global_burn_stats
+    community: henlo
+    chains: [base, berachain]
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY"
+    envio_handler: "src/handlers/tracked-erc20/burn-tracking.ts context.HenloGlobalBurnStats.set (singleton 'global'; all additive)"
+    ponder_handler_gap: "MISSING — port with burn-tracking.ts."
+    pk: [id]
+    columns:
+      - { envio: id,                       envio_type: text NOT NULL,            ponder: id,                          ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: totalBurnedAllChains,     envio_type: numeric (BigInt) NOT NULL, ponder: total_burned_all_chains,     ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalBurnedMainnet,       envio_type: numeric (BigInt) NOT NULL, ponder: total_burned_mainnet,        ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalBurnedTestnet,       envio_type: numeric (BigInt) NOT NULL, ponder: total_burned_testnet,        ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: burnCountAllChains,       envio_type: integer NOT NULL,         ponder: burn_count_all_chains,       ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: incineratorBurns,         envio_type: numeric (BigInt) NOT NULL, ponder: incinerator_burns,           ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: overunderBurns,           envio_type: numeric (BigInt) NOT NULL, ponder: overunder_burns,             ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: beratrackrBurns,          envio_type: numeric (BigInt) NOT NULL, ponder: beratrackr_burns,            ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: userBurns,                envio_type: numeric (BigInt) NOT NULL, ponder: user_burns,                  ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: uniqueBurners,            envio_type: integer NOT NULL,         ponder: unique_burners,              ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: incineratorUniqueBurners, envio_type: integer NOT NULL,         ponder: incinerator_unique_burners,  ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: lastUpdateTime,           envio_type: numeric (BigInt) NOT NULL, ponder: last_update_time,            ponder_type: bigint (int8) NOT NULL,  transform: rename }
+
+  - envio_table: HenloBurner
+    ponder_table: henlo_burner
+    community: henlo
+    chains: [base, berachain]
+    rows_known: null
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY (materialized unique-burner; first-seen)"
+    envio_handler: "src/handlers/tracked-erc20/burn-tracking.ts:126 context.HenloBurner.set"
+    ponder_handler_gap: "MISSING — port with burn-tracking.ts."
+    pk: [id]
+    columns:
+      - { envio: id,            envio_type: text NOT NULL,            ponder: id,             ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: address,       envio_type: text NOT NULL,            ponder: address,        ponder_type: text NOT NULL,           transform: rename }
+      - { envio: firstBurnTime, envio_type: numeric (BigInt) NULL,    ponder: first_burn_time, ponder_type: bigint (int8) NULL,     transform: rename }
+      - { envio: chainId,       envio_type: integer NOT NULL,         ponder: chain_id,       ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: HenloChainBurner
+    ponder_table: henlo_chain_burner
+    community: henlo
+    chains: [base, berachain]
+    rows_known: null
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY (materialized; first-seen per chain)"
+    envio_handler: "src/handlers/tracked-erc20/burn-tracking.ts:138 chainBurnerStore.set (accessed via extendedContext cast)"
+    ponder_handler_gap: "MISSING — port with burn-tracking.ts."
+    pk: [id]
+    columns:
+      - { envio: id,            envio_type: text NOT NULL,            ponder: id,             ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: chainId,       envio_type: integer NOT NULL,         ponder: chain_id,       ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: address,       envio_type: text NOT NULL,            ponder: address,        ponder_type: text NOT NULL,           transform: rename }
+      - { envio: firstBurnTime, envio_type: numeric (BigInt) NULL,    ponder: first_burn_time, ponder_type: bigint (int8) NULL,     transform: rename }
+
+  - envio_table: HenloSourceBurner
+    ponder_table: henlo_source_burner
+    community: henlo
+    chains: [base, berachain]
+    rows_known: null
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY (materialized; first-seen per source)"
+    envio_handler: "src/handlers/tracked-erc20/burn-tracking.ts:151 sourceBurnerStore.set (accessed via extendedContext cast)"
+    ponder_handler_gap: "MISSING — port with burn-tracking.ts."
+    pk: [id]
+    columns:
+      - { envio: id,            envio_type: text NOT NULL,            ponder: id,             ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: chainId,       envio_type: integer NOT NULL,         ponder: chain_id,       ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: source,        envio_type: text NOT NULL,            ponder: source,         ponder_type: text NOT NULL,           transform: rename }
+      - { envio: address,       envio_type: text NOT NULL,            ponder: address,        ponder_type: text NOT NULL,           transform: rename }
+      - { envio: firstBurnTime, envio_type: numeric (BigInt) NULL,    ponder: first_burn_time, ponder_type: bigint (int8) NULL,     transform: rename }
+
+  # ════════════════════════════════════════════════════════════════════════
+  # GROUP E — HENLOCKER VAULT family (Berachain · envio src/handlers/henlo-vault.ts)
+  # Contract: HenloVault (config.yaml:918-921). HENLOCKED token round/epoch system.
+  # ════════════════════════════════════════════════════════════════════════
+  - envio_table: HenloVaultRound
+    ponder_table: henlo_vault_round
+    community: henlo
+    chain: berachain
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY (totalDeposits/userDeposits accumulate)"
+    envio_handler: "src/handlers/henlo-vault.ts:233-237 context.HenloVaultRound.set"
+    ponder_handler_gap: "MISSING — port henlo-vault.ts."
+    pk: [id]
+    columns:
+      - { envio: id,                envio_type: text NOT NULL,            ponder: id,                 ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: strike,            envio_type: numeric (BigInt) NOT NULL, ponder: strike,             ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: epochId,           envio_type: numeric (BigInt) NOT NULL, ponder: epoch_id,           ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: exists,            envio_type: boolean NOT NULL,         ponder: exists,             ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: closed,            envio_type: boolean NOT NULL,         ponder: closed,             ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: depositsPaused,    envio_type: boolean NOT NULL,         ponder: deposits_paused,    ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: timestamp,         envio_type: numeric (BigInt) NOT NULL, ponder: timestamp,          ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: depositLimit,      envio_type: numeric (BigInt) NOT NULL, ponder: deposit_limit,      ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalDeposits,     envio_type: numeric (BigInt) NOT NULL, ponder: total_deposits,     ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: whaleDeposits,     envio_type: numeric (BigInt) NOT NULL, ponder: whale_deposits,     ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: userDeposits,      envio_type: numeric (BigInt) NOT NULL, ponder: user_deposits,      ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: remainingCapacity, envio_type: numeric (BigInt) NOT NULL, ponder: remaining_capacity, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: canRedeem,         envio_type: boolean NOT NULL,         ponder: can_redeem,         ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: chainId,           envio_type: integer NOT NULL,         ponder: chain_id,           ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: HenloVaultDeposit
+    ponder_table: henlo_vault_deposit
+    community: henlo
+    chain: berachain
+    rows_known: null
+    classification: append-no-handler
+    start_block_policy: "boundary - finalityOverlap (append; id=txHash_logIndex)"
+    envio_handler: "src/handlers/henlo-vault.ts:204 context.HenloVaultDeposit.set"
+    ponder_handler_gap: "MISSING — port with henlo-vault.ts."
+    pk: [id]
+    columns:
+      - { envio: id,              envio_type: text NOT NULL,            ponder: id,               ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: user,            envio_type: text NOT NULL,            ponder: user,             ponder_type: text NOT NULL,           transform: rename }
+      - { envio: strike,          envio_type: numeric (BigInt) NOT NULL, ponder: strike,           ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: epochId,         envio_type: numeric (BigInt) NOT NULL, ponder: epoch_id,         ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: amount,          envio_type: numeric (BigInt) NOT NULL, ponder: amount,           ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: timestamp,       envio_type: numeric (BigInt) NOT NULL, ponder: timestamp,        ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: transactionHash, envio_type: text NOT NULL,            ponder: transaction_hash, ponder_type: text NOT NULL,           transform: rename }
+      - { envio: chainId,         envio_type: integer NOT NULL,         ponder: chain_id,         ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: HenloVaultBalance
+    ponder_table: henlo_vault_balance
+    community: henlo
+    chain: berachain
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY (balance accumulates per strike)"
+    envio_handler: "src/handlers/henlo-vault.ts:213-226 context.HenloVaultBalance.set (balance = existing + amount)"
+    ponder_handler_gap: "MISSING — port with henlo-vault.ts."
+    pk: [id]
+    columns:
+      - { envio: id,          envio_type: text NOT NULL,            ponder: id,           ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: user,        envio_type: text NOT NULL,            ponder: user,         ponder_type: text NOT NULL,           transform: rename }
+      - { envio: strike,      envio_type: numeric (BigInt) NOT NULL, ponder: strike,       ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: balance,     envio_type: numeric (BigInt) NOT NULL, ponder: balance,      ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: lastUpdated, envio_type: numeric (BigInt) NOT NULL, ponder: last_updated, ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: chainId,     envio_type: integer NOT NULL,         ponder: chain_id,     ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: HenloVaultEpoch
+    ponder_table: henlo_vault_epoch
+    community: henlo
+    chain: berachain
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY (totalDeposits/totalMatched accumulate)"
+    envio_handler: "src/handlers/henlo-vault.ts context.HenloVaultEpoch.set"
+    ponder_handler_gap: "MISSING — port with henlo-vault.ts."
+    pk: [id]
+    columns:
+      - { envio: id,                   envio_type: text NOT NULL,            ponder: id,                     ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: epochId,              envio_type: numeric (BigInt) NOT NULL, ponder: epoch_id,               ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: strike,               envio_type: numeric (BigInt) NOT NULL, ponder: strike,                 ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: closed,               envio_type: boolean NOT NULL,         ponder: closed,                 ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: depositsPaused,       envio_type: boolean NOT NULL,         ponder: deposits_paused,        ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: timestamp,            envio_type: numeric (BigInt) NOT NULL, ponder: timestamp,              ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: depositLimit,         envio_type: numeric (BigInt) NOT NULL, ponder: deposit_limit,          ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalDeposits,        envio_type: numeric (BigInt) NOT NULL, ponder: total_deposits,         ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: reservoir,            envio_type: text NOT NULL,            ponder: reservoir,              ponder_type: text NOT NULL,           transform: rename }
+      - { envio: totalWhitelistDeposit, envio_type: numeric (BigInt) NOT NULL, ponder: total_whitelist_deposit, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalMatched,         envio_type: numeric (BigInt) NOT NULL, ponder: total_matched,          ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: chainId,              envio_type: integer NOT NULL,         ponder: chain_id,               ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: HenloVaultStats
+    ponder_table: henlo_vault_stats
+    community: henlo
+    chain: berachain
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY (totalDeposits/totalUsers accumulate)"
+    envio_handler: "src/handlers/henlo-vault.ts:246-249 context.HenloVaultStats.set"
+    ponder_handler_gap: "MISSING — port with henlo-vault.ts."
+    pk: [id]
+    columns:
+      - { envio: id,            envio_type: text NOT NULL,            ponder: id,           ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: totalDeposits, envio_type: numeric (BigInt) NOT NULL, ponder: total_deposits, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalUsers,    envio_type: integer NOT NULL,         ponder: total_users,  ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalRounds,   envio_type: integer NOT NULL,         ponder: total_rounds, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalEpochs,   envio_type: integer NOT NULL,         ponder: total_epochs, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: chainId,       envio_type: integer NOT NULL,         ponder: chain_id,     ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: HenloVaultUser
+    ponder_table: henlo_vault_user
+    community: henlo
+    chain: berachain
+    rows_known: null
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY (first/last activity state)"
+    envio_handler: "src/handlers/henlo-vault.ts:256 context.HenloVaultUser.set"
+    ponder_handler_gap: "MISSING — port with henlo-vault.ts."
+    pk: [id]
+    columns:
+      - { envio: id,                envio_type: text NOT NULL,            ponder: id,                 ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: user,              envio_type: text NOT NULL,            ponder: user,               ponder_type: text NOT NULL,           transform: rename }
+      - { envio: firstDepositTime,  envio_type: numeric (BigInt) NULL,    ponder: first_deposit_time, ponder_type: bigint (int8) NULL,      transform: rename }
+      - { envio: lastActivityTime,  envio_type: numeric (BigInt) NOT NULL, ponder: last_activity_time, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId,           envio_type: integer NOT NULL,         ponder: chain_id,           ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  # ════════════════════════════════════════════════════════════════════════
+  # GROUP F — SET & FORGETTI VAULT family (Berachain · envio src/handlers/sf-vaults.ts)
+  # Contracts: SFVaultERC4626, SFMultiRewards, SFVaultStrategyWrapper (config.yaml:891-916).
+  # NOTE: there is a stub src/SFVaultHandlers.ts + a config.sf-vaults.yaml; the live handler
+  #       logic is sf-vaults.ts (40KB).
+  # ════════════════════════════════════════════════════════════════════════
+  - envio_table: SFPosition
+    ponder_table: sf_position
+    community: set-and-forgetti
+    chain: berachain
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY (shares + cumulative flows accumulate)"
+    envio_handler: "src/handlers/sf-vaults.ts context.SFPosition.set"
+    ponder_handler_gap: "MISSING — port sf-vaults.ts (large; 40KB; deposit/withdraw/stake/unstake/claim across vault+strategy migration)."
+    pk: [id]
+    columns:
+      - { envio: id,                 envio_type: text NOT NULL,            ponder: id,                  ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: user,               envio_type: text NOT NULL,            ponder: user,                ponder_type: text NOT NULL,           transform: rename }
+      - { envio: vault,              envio_type: text NOT NULL,            ponder: vault,               ponder_type: text NOT NULL,           transform: rename }
+      - { envio: multiRewards,       envio_type: text NOT NULL,            ponder: multi_rewards,       ponder_type: text NOT NULL,           transform: rename }
+      - { envio: kitchenToken,       envio_type: text NOT NULL,            ponder: kitchen_token,       ponder_type: text NOT NULL,           transform: rename }
+      - { envio: strategy,           envio_type: text NOT NULL,            ponder: strategy,            ponder_type: text NOT NULL,           transform: rename }
+      - { envio: kitchenTokenSymbol, envio_type: text NOT NULL,            ponder: kitchen_token_symbol, ponder_type: text NOT NULL,          transform: rename }
+      - { envio: vaultShares,        envio_type: numeric (BigInt) NOT NULL, ponder: vault_shares,        ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: stakedShares,       envio_type: numeric (BigInt) NOT NULL, ponder: staked_shares,       ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalShares,        envio_type: numeric (BigInt) NOT NULL, ponder: total_shares,        ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalDeposited,     envio_type: numeric (BigInt) NOT NULL, ponder: total_deposited,     ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalWithdrawn,     envio_type: numeric (BigInt) NOT NULL, ponder: total_withdrawn,     ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalClaimed,       envio_type: numeric (BigInt) NOT NULL, ponder: total_claimed,       ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: firstDepositAt,     envio_type: numeric (BigInt) NOT NULL, ponder: first_deposit_at,    ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: lastActivityAt,     envio_type: numeric (BigInt) NOT NULL, ponder: last_activity_at,    ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: chainId,            envio_type: integer NOT NULL,         ponder: chain_id,            ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: SFVaultStats
+    ponder_table: sf_vault_stats
+    community: set-and-forgetti
+    chain: berachain
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY"
+    envio_handler: "src/handlers/sf-vaults.ts context.SFVaultStats.set (additive aggregates)"
+    ponder_handler_gap: "MISSING — port with sf-vaults.ts."
+    pk: [id]
+    columns:
+      - { envio: id,                 envio_type: text NOT NULL,            ponder: id,                   ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: vault,              envio_type: text NOT NULL,            ponder: vault,                ponder_type: text NOT NULL,           transform: rename }
+      - { envio: kitchenToken,       envio_type: text NOT NULL,            ponder: kitchen_token,        ponder_type: text NOT NULL,           transform: rename }
+      - { envio: kitchenTokenSymbol, envio_type: text NOT NULL,            ponder: kitchen_token_symbol, ponder_type: text NOT NULL,           transform: rename }
+      - { envio: strategy,           envio_type: text NOT NULL,            ponder: strategy,             ponder_type: text NOT NULL,           transform: rename }
+      - { envio: totalDeposited,     envio_type: numeric (BigInt) NOT NULL, ponder: total_deposited,      ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalWithdrawn,     envio_type: numeric (BigInt) NOT NULL, ponder: total_withdrawn,      ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalStaked,        envio_type: numeric (BigInt) NOT NULL, ponder: total_staked,         ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalUnstaked,      envio_type: numeric (BigInt) NOT NULL, ponder: total_unstaked,       ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalClaimed,       envio_type: numeric (BigInt) NOT NULL, ponder: total_claimed,        ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: uniqueDepositors,   envio_type: integer NOT NULL,         ponder: unique_depositors,    ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: activePositions,    envio_type: integer NOT NULL,         ponder: active_positions,     ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: depositCount,       envio_type: integer NOT NULL,         ponder: deposit_count,        ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: withdrawalCount,    envio_type: integer NOT NULL,         ponder: withdrawal_count,     ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: claimCount,         envio_type: integer NOT NULL,         ponder: claim_count,          ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: firstDepositAt,     envio_type: numeric (BigInt) NULL,    ponder: first_deposit_at,     ponder_type: bigint (int8) NULL,      transform: rename }
+      - { envio: lastActivityAt,     envio_type: numeric (BigInt) NOT NULL, ponder: last_activity_at,     ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: chainId,            envio_type: integer NOT NULL,         ponder: chain_id,             ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: SFMultiRewardsPosition
+    ponder_table: sf_multi_rewards_position
+    community: set-and-forgetti
+    chain: berachain
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY"
+    envio_handler: "src/handlers/sf-vaults.ts context.SFMultiRewardsPosition.set"
+    ponder_handler_gap: "MISSING — port with sf-vaults.ts."
+    pk: [id]
+    columns:
+      - { envio: id,            envio_type: text NOT NULL,            ponder: id,             ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: user,          envio_type: text NOT NULL,            ponder: user,           ponder_type: text NOT NULL,           transform: rename }
+      - { envio: vault,         envio_type: text NOT NULL,            ponder: vault,          ponder_type: text NOT NULL,           transform: rename }
+      - { envio: multiRewards,  envio_type: text NOT NULL,            ponder: multi_rewards,  ponder_type: text NOT NULL,           transform: rename }
+      - { envio: stakedShares,  envio_type: numeric (BigInt) NOT NULL, ponder: staked_shares,  ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalStaked,   envio_type: numeric (BigInt) NOT NULL, ponder: total_staked,   ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalUnstaked, envio_type: numeric (BigInt) NOT NULL, ponder: total_unstaked, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: totalClaimed,  envio_type: numeric (BigInt) NOT NULL, ponder: total_claimed,  ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: firstStakeAt,  envio_type: numeric (BigInt) NULL,    ponder: first_stake_at, ponder_type: bigint (int8) NULL,      transform: rename }
+      - { envio: lastActivityAt, envio_type: numeric (BigInt) NOT NULL, ponder: last_activity_at, ponder_type: bigint (int8) NOT NULL, transform: rename }
+      - { envio: chainId,       envio_type: integer NOT NULL,         ponder: chain_id,       ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: SFVaultStrategy
+    ponder_table: sf_vault_strategy
+    community: set-and-forgetti
+    chain: berachain
+    rows_known: null
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY (isActive/activeTo state flips on migration)"
+    envio_handler: "src/handlers/sf-vaults.ts context.SFVaultStrategy.set"
+    ponder_handler_gap: "MISSING — port with sf-vaults.ts."
+    pk: [id]
+    columns:
+      - { envio: id,                 envio_type: text NOT NULL,            ponder: id,                   ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: vault,              envio_type: text NOT NULL,            ponder: vault,                ponder_type: text NOT NULL,           transform: rename }
+      - { envio: strategy,           envio_type: text NOT NULL,            ponder: strategy,             ponder_type: text NOT NULL,           transform: rename }
+      - { envio: multiRewards,       envio_type: text NOT NULL,            ponder: multi_rewards,        ponder_type: text NOT NULL,           transform: rename }
+      - { envio: kitchenToken,       envio_type: text NOT NULL,            ponder: kitchen_token,        ponder_type: text NOT NULL,           transform: rename }
+      - { envio: kitchenTokenSymbol, envio_type: text NOT NULL,            ponder: kitchen_token_symbol, ponder_type: text NOT NULL,           transform: rename }
+      - { envio: activeFrom,         envio_type: numeric (BigInt) NOT NULL, ponder: active_from,          ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: activeTo,           envio_type: numeric (BigInt) NULL,    ponder: active_to,            ponder_type: bigint (int8) NULL,      transform: rename }
+      - { envio: isActive,           envio_type: boolean NOT NULL,         ponder: is_active,            ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: chainId,            envio_type: integer NOT NULL,         ponder: chain_id,             ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: LatestVaultStrategy
+    ponder_table: latest_vault_strategy
+    community: set-and-forgetti
+    chain: berachain
+    rows_known: null
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY (singleton per vault — latest)"
+    envio_handler: "src/handlers/sf-vaults.ts context.LatestVaultStrategy.set"
+    ponder_handler_gap: "MISSING — port with sf-vaults.ts."
+    pk: [id]
+    columns:
+      - { envio: id,                 envio_type: text NOT NULL,            ponder: id,                   ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: vault,              envio_type: text NOT NULL,            ponder: vault,                ponder_type: text NOT NULL,           transform: rename }
+      - { envio: strategy,           envio_type: text NOT NULL,            ponder: strategy,             ponder_type: text NOT NULL,           transform: rename }
+      - { envio: multiRewards,       envio_type: text NOT NULL,            ponder: multi_rewards,        ponder_type: text NOT NULL,           transform: rename }
+      - { envio: kitchenToken,       envio_type: text NOT NULL,            ponder: kitchen_token,        ponder_type: text NOT NULL,           transform: rename }
+      - { envio: kitchenTokenSymbol, envio_type: text NOT NULL,            ponder: kitchen_token_symbol, ponder_type: text NOT NULL,           transform: rename }
+      - { envio: chainId,            envio_type: integer NOT NULL,         ponder: chain_id,             ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  # ════════════════════════════════════════════════════════════════════════
+  # GROUP G — APDAO AUCTION-HOUSE family (Berachain · envio src/handlers/apdao-auction.ts)
+  # Contract: ApdaoAuctionHouse proxy (config.yaml:953-956). ApiologyDAO seat auctions.
+  # ApdaoBid 2,692 rows. NOTE: there is also an origin branch feat/apdao-seat-tracked.
+  # ════════════════════════════════════════════════════════════════════════
+  - envio_table: ApdaoAuction
+    ponder_table: apdao_auction
+    community: apdao
+    chain: berachain
+    rows_known: null
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY (bidCount + settled state mutate per bid/settle)"
+    envio_handler: "src/handlers/apdao-auction.ts:62/111/138/167 context.ApdaoAuction.set"
+    ponder_handler_gap: "MISSING — port apdao-auction.ts (AuctionCreated/AuctionBid/AuctionExtended/AuctionSettled)."
+    pk: [id]
+    columns:
+      - { envio: id,              envio_type: text NOT NULL,            ponder: id,               ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: apdaoId,         envio_type: numeric (BigInt) NOT NULL, ponder: apdao_id,         ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: startTime,       envio_type: numeric (BigInt) NOT NULL, ponder: start_time,       ponder_type: bigint (int8) NOT NULL,  transform: rename, note: "ApdaoAuction.startTime is BigInt in schema (NOT Timestamp scalar). Indexer.res:174 startTime: bigint" }
+      - { envio: endTime,         envio_type: numeric (BigInt) NOT NULL, ponder: end_time,         ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: winner,          envio_type: text NULL,                ponder: winner,           ponder_type: text NULL,               transform: rename }
+      - { envio: amount,          envio_type: numeric (BigInt) NULL,    ponder: amount,           ponder_type: "numeric(78,0) NULL",    transform: rename }
+      - { envio: settled,         envio_type: boolean NOT NULL,         ponder: settled,          ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: bidCount,        envio_type: integer NOT NULL,         ponder: bid_count,        ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: createdAt,       envio_type: numeric (BigInt) NOT NULL, ponder: created_at,       ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: settledAt,       envio_type: numeric (BigInt) NULL,    ponder: settled_at,       ponder_type: bigint (int8) NULL,      transform: rename }
+      - { envio: transactionHash, envio_type: text NOT NULL,            ponder: transaction_hash, ponder_type: text NOT NULL,           transform: rename }
+      - { envio: chainId,         envio_type: integer NOT NULL,         ponder: chain_id,         ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: ApdaoBid
+    ponder_table: apdao_bid
+    community: apdao
+    chain: berachain
+    rows_known: 2692
+    classification: append-no-handler
+    start_block_policy: "boundary - finalityOverlap (append; id=txHash_logIndex)"
+    envio_handler: "src/handlers/apdao-auction.ts:102 context.ApdaoBid.set"
+    ponder_handler_gap: "MISSING — port with apdao-auction.ts."
+    pk: [id]
+    columns:
+      - { envio: id,              envio_type: text NOT NULL,            ponder: id,               ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: apdaoId,         envio_type: numeric (BigInt) NOT NULL, ponder: apdao_id,         ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: sender,          envio_type: text NOT NULL,            ponder: sender,           ponder_type: text NOT NULL,           transform: rename }
+      - { envio: value,           envio_type: numeric (BigInt) NOT NULL, ponder: value,            ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: extended,        envio_type: boolean NOT NULL,         ponder: extended,         ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: timestamp,       envio_type: numeric (BigInt) NOT NULL, ponder: timestamp,        ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: blockNumber,     envio_type: numeric (BigInt) NOT NULL, ponder: block_number,     ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: transactionHash, envio_type: text NOT NULL,            ponder: transaction_hash, ponder_type: text NOT NULL,           transform: rename }
+      - { envio: chainId,         envio_type: integer NOT NULL,         ponder: chain_id,         ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: ApdaoQueuedToken
+    ponder_table: apdao_queued_token
+    community: apdao
+    chain: berachain
+    rows_known: null
+    classification: rollup-lww-no-handler
+    start_block_policy: "boundary EXACTLY (isQueued/removedAt state flip)"
+    envio_handler: "src/handlers/apdao-auction.ts:212 context.ApdaoQueuedToken.set"
+    ponder_handler_gap: "MISSING — port with apdao-auction.ts."
+    pk: [id]
+    columns:
+      - { envio: id,              envio_type: text NOT NULL,            ponder: id,               ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: tokenId,         envio_type: numeric (BigInt) NOT NULL, ponder: token_id,         ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: owner,           envio_type: text NOT NULL,            ponder: owner,            ponder_type: text NOT NULL,           transform: rename }
+      - { envio: queuedAt,        envio_type: numeric (BigInt) NOT NULL, ponder: queued_at,        ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: transactionHash, envio_type: text NOT NULL,            ponder: transaction_hash, ponder_type: text NOT NULL,           transform: rename }
+      - { envio: isQueued,        envio_type: boolean NOT NULL,         ponder: is_queued,        ponder_type: boolean NOT NULL,        transform: rename }
+      - { envio: removedAt,       envio_type: numeric (BigInt) NULL,    ponder: removed_at,       ponder_type: bigint (int8) NULL,      transform: rename }
+      - { envio: chainId,         envio_type: integer NOT NULL,         ponder: chain_id,         ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: ApdaoAuctionStats
+    ponder_table: apdao_auction_stats
+    community: apdao
+    chain: berachain
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY (totalAuctions/totalBids/totalVolume accumulate)"
+    envio_handler: "src/handlers/apdao-auction.ts:66/116/175 context.ApdaoAuctionStats.set"
+    ponder_handler_gap: "MISSING — port with apdao-auction.ts."
+    pk: [id]
+    columns:
+      - { envio: id,              envio_type: text NOT NULL,            ponder: id,               ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: totalAuctions,   envio_type: integer NOT NULL,         ponder: total_auctions,   ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalSettled,    envio_type: integer NOT NULL,         ponder: total_settled,    ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalBids,       envio_type: integer NOT NULL,         ponder: total_bids,       ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalVolume,     envio_type: numeric (BigInt) NOT NULL, ponder: total_volume,     ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: lastAuctionTime, envio_type: numeric (BigInt) NULL,    ponder: last_auction_time, ponder_type: bigint (int8) NULL,     transform: rename }
+      - { envio: lastSettledTime, envio_type: numeric (BigInt) NULL,    ponder: last_settled_time, ponder_type: bigint (int8) NULL,     transform: rename }
+      - { envio: chainId,         envio_type: integer NOT NULL,         ponder: chain_id,         ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  # ════════════════════════════════════════════════════════════════════════
+  # GROUP H — MIRROR ARTICLE family (Optimism · envio src/handlers/mirror-observability.ts)
+  # Contract: MirrorObservability (config.yaml:666-668). WritingEditions article purchases.
+  # ════════════════════════════════════════════════════════════════════════
+  - envio_table: MirrorArticlePurchase
+    ponder_table: mirror_article_purchase
+    community: mirror
+    chain: optimism
+    rows_known: null
+    classification: append-no-handler
+    start_block_policy: "boundary - finalityOverlap (append; id=txHash_logIndex)"
+    envio_handler: "src/handlers/mirror-observability.ts:67 context.MirrorArticlePurchase.set"
+    ponder_handler_gap: "MISSING — port mirror-observability.ts (WritingEditionPurchased)."
+    pk: [id]
+    columns:
+      - { envio: id,              envio_type: text NOT NULL,            ponder: id,               ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: clone,           envio_type: text NOT NULL,            ponder: clone,            ponder_type: text NOT NULL,           transform: rename }
+      - { envio: tokenId,         envio_type: numeric (BigInt) NOT NULL, ponder: token_id,         ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: recipient,       envio_type: text NOT NULL,            ponder: recipient,        ponder_type: text NOT NULL,           transform: rename }
+      - { envio: price,           envio_type: numeric (BigInt) NOT NULL, ponder: price,            ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: message,         envio_type: text NULL,                ponder: message,          ponder_type: text NULL,               transform: rename }
+      - { envio: timestamp,       envio_type: numeric (BigInt) NOT NULL, ponder: timestamp,        ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: blockNumber,     envio_type: numeric (BigInt) NOT NULL, ponder: block_number,     ponder_type: bigint (int8) NOT NULL,  transform: rename }
+      - { envio: transactionHash, envio_type: text NOT NULL,            ponder: transaction_hash, ponder_type: text NOT NULL,           transform: rename }
+      - { envio: chainId,         envio_type: integer NOT NULL,         ponder: chain_id,         ponder_type: integer (int4) NOT NULL, transform: rename }
+
+  - envio_table: MirrorArticleStats
+    ponder_table: mirror_article_stats
+    community: mirror
+    chain: optimism
+    rows_known: null
+    classification: rollup-no-handler
+    start_block_policy: "boundary EXACTLY (totalPurchases/totalRevenue accumulate)"
+    envio_handler: "src/handlers/mirror-observability.ts:95-112 context.MirrorArticleStats.set"
+    ponder_handler_gap: "MISSING — port with mirror-observability.ts."
+    pk: [id]
+    columns:
+      - { envio: id,               envio_type: text NOT NULL,            ponder: id,                ponder_type: text NOT NULL PK,        transform: rename }
+      - { envio: clone,            envio_type: text NOT NULL,            ponder: clone,             ponder_type: text NOT NULL,           transform: rename }
+      - { envio: totalPurchases,   envio_type: integer NOT NULL,         ponder: total_purchases,   ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalRevenue,     envio_type: numeric (BigInt) NOT NULL, ponder: total_revenue,     ponder_type: "numeric(78,0) NOT NULL", transform: rename }
+      - { envio: uniqueCollectors, envio_type: integer NOT NULL,         ponder: unique_collectors, ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: lastPurchaseTime, envio_type: numeric (BigInt) NULL,    ponder: last_purchase_time, ponder_type: bigint (int8) NULL,     transform: rename }
+      - { envio: chainId,          envio_type: integer NOT NULL,         ponder: chain_id,          ponder_type: integer (int4) NOT NULL, transform: rename }

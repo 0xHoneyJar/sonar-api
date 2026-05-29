@@ -260,3 +260,4 @@ grimoires/loa/ledger.json.bak*
 #   grimoires/loa/runbooks/           (framework-shipped runbooks)
 #   grimoires/loa/known-failures.md   (shared zone)
 #   grimoires/loa/ledger.json         (project sprint ledger)
+grimoires/loa/migration/green-hasura-meta.pre-colconfig.json
