@@ -830,3 +830,51 @@ export const henloSourceBurner = onchainTable("henlo_source_burner", (t) => ({
   address: t.text().notNull(),
   firstBurnTime: t.bigint(),
 }));
+
+// ─────────────────────────────────────────────────────────────────────────
+// green-belt: mirror (B-1 Group H)
+//
+// SOURCE OF TRUTH: grimoires/loa/migration/b-1-green-belt-map.yaml
+//   (entities MirrorArticlePurchase + MirrorArticleStats — every column
+//    ported verbatim, incl. NULL/NOT NULL).
+//
+// Contract: MirrorObservability (Optimism 10) — WritingEditionPurchased.
+//   The handler (ponder-runtime/src/handlers/mirror-observability.ts) filters
+//   to Mibera article clones and writes both tables.
+//
+// Type mapping (per the map's ponder_type column — note: address + tx-hash
+// columns are `text` in the map, so t.text() NOT t.hex()):
+//   text PK                     → t.text().primaryKey()
+//   text NOT NULL / NULL        → t.text().notNull() / t.text()
+//   numeric(78,0) NOT NULL/NULL → t.numeric({ precision: 78, scale: 0, mode: "bigint" })[.notNull()]
+//   bigint (int8) NOT NULL/NULL → t.bigint()[.notNull()]
+//   integer (int4) NOT NULL/NULL→ t.integer()[.notNull()]
+//
+// Envio source: src/handlers/mirror-observability.ts (WritingEditionPurchased
+//   → context.MirrorArticlePurchase.set + context.MirrorArticleStats.set/get).
+// ─────────────────────────────────────────────────────────────────────────
+
+// MirrorArticlePurchase — id = `${txHash}_${logIndex}`. APPEND (one row per purchase event).
+export const mirrorArticlePurchase = onchainTable("mirror_article_purchase", (t) => ({
+  id: t.text().primaryKey(),                 // txHash_logIndex
+  clone: t.text().notNull(),
+  tokenId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  recipient: t.text().notNull(),
+  price: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  message: t.text(),                         // nullable per envio (message || undefined)
+  timestamp: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  transactionHash: t.text().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// MirrorArticleStats — id = `${cloneLower}_${chainId}`. ROLLUP (additive counters).
+export const mirrorArticleStats = onchainTable("mirror_article_stats", (t) => ({
+  id: t.text().primaryKey(),                 // cloneLower_chainId
+  clone: t.text().notNull(),
+  totalPurchases: t.integer().notNull(),
+  totalRevenue: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  uniqueCollectors: t.integer().notNull(),
+  lastPurchaseTime: t.bigint(),              // nullable per the map
+  chainId: t.integer().notNull(),
+}));

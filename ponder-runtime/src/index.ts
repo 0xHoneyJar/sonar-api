@@ -47,3 +47,10 @@ import "./handlers/mibera-premint";
 import "./handlers/tracked-erc20";
 import "./handlers/puru-apiculture1155";
 import "./handlers/aquabera-vault-direct";
+
+// B-1 green-belt (Group H) — Mirror article purchases (Optimism 10).
+// MirrorObservability is in ponder.config.ts (the green-belt config), NOT in
+// ponder.config.mibera.ts (the LIVE green). This handler's registration
+// requires the green-belt config to be ACTIVE — build/typecheck with
+// BELT_CONFIG=ponder.config.ts.
+import "./handlers/mirror-observability";

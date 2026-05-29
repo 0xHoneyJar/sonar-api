@@ -18,6 +18,7 @@
     "src/**/*.ts",
     "tests/**/*.ts",
     "ponder.config.mibera.ts",
+    "ponder.config.ts",
     "ponder.schema.ts",
     "ponder-env.d.ts"
   ],
