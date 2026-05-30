@@ -43,6 +43,7 @@ import { createConfig } from "ponder";
 import miberaConfig from "./ponder.config.mibera";
 import { MirrorObservabilityAbi } from "./abis/MirrorObservabilityAbi";
 import { ApdaoAuctionHouseAbi } from "./abis/ApdaoAuctionHouseAbi";
+import { MoneycombVaultAbi } from "./abis/MoneycombVaultAbi";
 
 // ─── Optimism (10) green-belt contract addresses ────────────────────────
 // Mirror's WritingEditions observability contract (per envio config.yaml
@@ -64,6 +65,20 @@ const APDAO_AUCTION_HOUSE_BERA = "0xE840929cd47c6a1cf0f5D9b6d0C6277075680A0b";
 // per event, so any overlap with the frozen import would double-count / re-flip
 // state. Boundary = 21424739 (identical to the blue-belt BERA_START_BLOCK).
 const BERA_APDAO_START_BLOCK = 21424739;
+
+// ─── Group C (MoneycombVault · Berachain 80094) ──────────────────────────
+// MoneycombVault — events emit from here (per envio config.yaml MoneycombVault
+// + src/handlers/moneycomb-vault.ts; address config.yaml:772). HJ-burn vault.
+const MONEYCOMB_VAULT_BERA = "0x9279b2227b57f349a0ce552b25af341e735f6309";
+
+// Berachain migration boundary (rollup → pin EXACTLY, no finality overlap).
+// vault (isActive/shares/burnedGenN/totalBurned mutate) + user_vault_summary
+// (totalVaults/activeVaults/totalShares accumulate) are rollups, so any overlap
+// with the frozen import would re-flip state / double-count. Forward-index from
+// the boundary; pre-boundary history comes from the frozen import — NOT envio's
+// deploy block (6954915, per config.yaml:773). Boundary = 21424739 (identical
+// to the blue-belt BERA_START_BLOCK / the Group-G apdao boundary).
+const BERA_MONEYCOMB_START_BLOCK = 21424739;
 
 export default createConfig({
   // Chains + database carried over VERBATIM from the blue-belt config.
@@ -97,6 +112,18 @@ export default createConfig({
       abi: ApdaoAuctionHouseAbi,
       address: APDAO_AUCTION_HOUSE_BERA,
       startBlock: BERA_APDAO_START_BLOCK,
+    },
+
+    // ─── Green-belt: Group C (MoneycombVault · Berachain 80094) ─────────
+    // MoneycombVault — AccountOpened / AccountClosed / HJBurned / SharesMinted /
+    // RewardClaimed. Required for the ponder.on("MoneycombVault:<Event>")
+    // registrations in ponder-runtime/src/handlers/moneycomb-vault.ts.
+    // Berachain (80094) is already a chain in ponder.config.mibera.ts.
+    MoneycombVault: {
+      chain: "berachain",
+      abi: MoneycombVaultAbi,
+      address: MONEYCOMB_VAULT_BERA,
+      startBlock: BERA_MONEYCOMB_START_BLOCK,
     },
   },
 

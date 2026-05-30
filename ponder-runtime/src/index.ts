@@ -86,3 +86,12 @@ import "./handlers/mirror-observability";
 // requires the green-belt config to be ACTIVE — build/typecheck with
 // BELT_CONFIG=ponder.config.ts.
 import "./handlers/apdao-auction";
+
+// B-1 green-belt (Group C) — MoneycombVault HJ-burn vaults (Berachain 80094).
+// MoneycombVault is in ponder.config.ts (the green-belt config), NOT in
+// ponder.config.mibera.ts (the LIVE green). Ports envio src/handlers/
+// moneycomb-vault.ts: AccountOpened/AccountClosed/HJBurned/SharesMinted/
+// RewardClaimed → vault / vault_activity / user_vault_summary. No NATS.
+// Registration requires the green-belt config to be ACTIVE — build/typecheck
+// with BELT_CONFIG=ponder.config.ts.
+import "./handlers/moneycomb-vault";

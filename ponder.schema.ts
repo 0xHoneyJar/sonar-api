@@ -959,3 +959,81 @@ export const apdaoAuctionStats = onchainTable("apdao_auction_stats", (t) => ({
   lastSettledTime: t.bigint(),               // nullable per the map
   chainId: t.integer().notNull(),
 }));
+
+// ─────────────────────────────────────────────────────────────────────────
+// green-belt: moneycomb-vault (B-1 Group C)
+//
+// SOURCE OF TRUTH: grimoires/loa/migration/b-1-green-belt-map.yaml:433-503
+//   (entities Vault + VaultActivity + UserVaultSummary — every column ported
+//    verbatim, incl. NULL/NOT NULL + ponder_type).
+//
+// Contract: MoneycombVault (Berachain 80094, 0x9279b2227b57f349a0ce552b25af341e735f6309)
+//   — per-account HJ-burn vaults. The handler
+//   (ponder-runtime/src/handlers/moneycomb-vault.ts) ports the envio
+//   src/handlers/moneycomb-vault.ts lifecycle: AccountOpened / AccountClosed /
+//   HJBurned / SharesMinted / RewardClaimed.
+//
+// Type mapping (per the map's ponder_type column — note: address (user) +
+// tx-hash (transaction_hash) columns are `text` in the map, so t.text() NOT
+// t.hex(), mirroring the mirror-article + apdao green-belt tables above):
+//   text PK                     → t.text().primaryKey()
+//   text NOT NULL / NULL        → t.text().notNull() / t.text()
+//   numeric(78,0) NOT NULL/NULL → t.numeric({ precision: 78, scale: 0, mode: "bigint" })[.notNull()]
+//   bigint (int8) NOT NULL/NULL → t.bigint()[.notNull()]
+//   integer (int4) NOT NULL/NULL→ t.integer()[.notNull()]
+//
+// NO chain_id column: the envio Vault/VaultActivity/UserVaultSummary entities
+// have no chainId field (MoneycombVault is Berachain-only; map has no chain_id
+// for any of the 3 entities). The handler does NOT write a chainId column —
+// matches the envio source exactly. createdAt/closedAt/lastActivityTime/
+// timestamp/blockNumber/firstVaultTime are BigInt (NOT the Timestamp scalar) in
+// the envio schema → ponder t.bigint(); no timestamp_to_bigint drift applies.
+// ─────────────────────────────────────────────────────────────────────────
+
+// Vault — id = `${userLower}_${accountIndex}`. ROLLUP-LWW (isActive/shares/burnedGenN/totalBurned mutate).
+export const vault = onchainTable("vault", (t) => ({
+  id: t.text().primaryKey(),                 // userLower_accountIndex
+  user: t.text().notNull(),
+  accountIndex: t.integer().notNull(),
+  honeycombId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  isActive: t.boolean().notNull(),
+  shares: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalBurned: t.integer().notNull(),
+  burnedGen1: t.boolean().notNull(),
+  burnedGen2: t.boolean().notNull(),
+  burnedGen3: t.boolean().notNull(),
+  burnedGen4: t.boolean().notNull(),
+  burnedGen5: t.boolean().notNull(),
+  burnedGen6: t.boolean().notNull(),
+  createdAt: t.bigint().notNull(),
+  closedAt: t.bigint(),                       // nullable (set on close)
+  lastActivityTime: t.bigint().notNull(),
+}));
+
+// VaultActivity — id = `${txHash}_${logIndex}`. APPEND (one row per activity event).
+export const vaultActivity = onchainTable("vault_activity", (t) => ({
+  id: t.text().primaryKey(),                 // txHash_logIndex
+  user: t.text().notNull(),
+  accountIndex: t.integer().notNull(),
+  activityType: t.text().notNull(),          // ACCOUNT_OPENED|ACCOUNT_CLOSED|HJ_BURNED|SHARES_MINTED|REWARD_CLAIMED
+  timestamp: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  transactionHash: t.text().notNull(),
+  honeycombId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }), // nullable
+  hjGen: t.integer(),                         // nullable
+  shares: t.numeric({ precision: 78, scale: 0, mode: "bigint" }),      // nullable
+  reward: t.numeric({ precision: 78, scale: 0, mode: "bigint" }),      // nullable
+}));
+
+// UserVaultSummary — id = `${userLower}`. ROLLUP (additive aggregate per user).
+export const userVaultSummary = onchainTable("user_vault_summary", (t) => ({
+  id: t.text().primaryKey(),                 // userLower
+  user: t.text().notNull(),
+  totalVaults: t.integer().notNull(),
+  activeVaults: t.integer().notNull(),
+  totalShares: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalRewardsClaimed: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalHJsBurned: t.integer().notNull(),
+  firstVaultTime: t.bigint(),                 // nullable per the map
+  lastActivityTime: t.bigint().notNull(),
+}));
