@@ -142,3 +142,20 @@ import "./handlers/fatbera";
 // requires the green-belt config to be ACTIVE — build/typecheck with
 // BELT_CONFIG=ponder.config.ts.
 import "./handlers/sf-vaults";
+
+// B-1 green-belt (Group B — the FINAL group · 6 chains · 2 NEW chains) — HoneyJar
+// genesis (ethereum 1 / arbitrum 42161 / zora 7777777 / optimism 10 / base 8453 /
+// berachain 80094). The HoneyJar collection family (HoneyJar, HoneyJar2..5Eth,
+// Honeycomb, CrayonsFactory) is in ponder.config.ts (the green-belt config), NOT
+// ponder.config.mibera.ts (the LIVE green). Ports envio src/handlers/honey-jar-nfts.ts
+// (the multi-chain NFT transfer/mint/token/holder/collection_stat rollups + the
+// CROSS-CHAIN user_balance aggregate id=`${generation}_${address}`) + the
+// src/handlers/crayons.ts factory-discovery skeleton → transfer / mint / token /
+// holder / user_balance / collection_stat. The envio isPreload two-pass is dropped
+// (ponder reads holders inline, single-pass, sequential order); the POST-mutation
+// holder return semantics that drive the uniqueHolders adjustment are preserved
+// byte-for-byte. MiladyCollection is NOT registered (already live in
+// ponder.config.mibera.ts:269). No NATS → no OutboxFlush for the 2 new chains.
+// Registration requires the green-belt config to be ACTIVE — build/typecheck with
+// BELT_CONFIG=ponder.config.ts.
+import "./handlers/honey-jar-nfts";
