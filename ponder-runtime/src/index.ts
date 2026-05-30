@@ -108,3 +108,20 @@ import "./handlers/moneycomb-vault";
 // requires the green-belt config to be ACTIVE — build/typecheck with
 // BELT_CONFIG=ponder.config.ts.
 import "./handlers/henlo-vault";
+
+// B-1 green-belt (Group A — the LARGEST + most complex) — validator-rewards /
+// FatBera (Berachain 80094). The 7 validator contracts (FatBeraDeposits,
+// FatBeraAccounting, BeaconDeposit, BlockRewardController, AutomatedStake,
+// ValidatorWithdrawalModule, ValidatorDepositRouter) are in ponder.config.ts
+// (the green-belt config), NOT ponder.config.mibera.ts (the LIVE green). Ports
+// envio src/handlers/fatbera.ts (10 handlers) + src/handlers/fatbera-core.ts
+// (reward-split + capacity-redistribution math) → validator_block_rewards (the
+// 906k-row table) / validator_deposits / latest_validator_deposit /
+// latest_validator_reward / validator_withdrawal_totals / withdrawal_batch /
+// withdrawal_request / withdrawal_fulfillment / fatbera_deposit (+ action via
+// recordAction). The order-sensitive Latest* read-before-write lookups +
+// reward-split arithmetic are preserved verbatim (the envio isPreload two-pass
+// is dropped — ponder reads singletons inline, single-pass, in sequential event
+// order). No NATS. Registration requires the green-belt config to be ACTIVE —
+// build/typecheck with BELT_CONFIG=ponder.config.ts.
+import "./handlers/fatbera";

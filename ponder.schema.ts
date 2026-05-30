@@ -1151,3 +1151,176 @@ export const henloVaultUser = onchainTable("henlo_vault_user", (t) => ({
   lastActivityTime: t.bigint().notNull(),
   chainId: t.integer().notNull(),
 }));
+
+// ─────────────────────────────────────────────────────────────────────────
+// green-belt: validator-rewards / FatBera (B-1 Group A — the LARGEST group)
+//
+// SOURCE OF TRUTH: grimoires/loa/migration/b-1-green-belt-map.yaml:96-293
+//   (entities ValidatorBlockRewards + ValidatorDeposits + LatestValidatorDeposit
+//    + LatestValidatorReward + ValidatorWithdrawalTotals + WithdrawalBatch +
+//    WithdrawalRequest + WithdrawalFulfillment + FatBeraDeposit — every column
+//    ported verbatim, incl. NULL/NOT NULL + ponder_type).
+//
+// Contracts (7, all Berachain 80094): FatBeraDeposits, FatBeraAccounting,
+//   BeaconDeposit, BlockRewardController, AutomatedStake,
+//   ValidatorWithdrawalModule, ValidatorDepositRouter (config.yaml:856-885;
+//   event sigs config.yaml:360-422). The handler
+//   (ponder-runtime/src/handlers/fatbera.ts) ports the envio
+//   src/handlers/fatbera.ts (10 handlers) + the src/handlers/fatbera-core.ts
+//   math/constants (validator state + reward-split + capacity redistribution).
+//
+// Type mapping (per the map's ponder_type column — note: pubkey / cometBFTPublicKey
+// / user / safe / initiator / depositor / recipient / transaction_hash /
+// collection_key / status are ALL `text` in the map, so t.text() NOT t.hex(),
+// mirroring the apdao + moneycomb + henlo-vault green-belt tables above):
+//   text PK                     → t.text().primaryKey()
+//   text NOT NULL / NULL        → t.text().notNull() / t.text()
+//   numeric(78,0) NOT NULL/NULL → t.numeric({ precision: 78, scale: 0, mode: "bigint" })[.notNull()]
+//   bigint (int8) NOT NULL/NULL → t.bigint()[.notNull()]
+//   integer (int4) NOT NULL/NULL→ t.integer()[.notNull()]
+//
+// ** Timestamp-scalar drift (timestamp_to_bigint) is concentrated in this group.
+//    The envio `Timestamp` scalar (Js.Date.t → pg timestamp) maps to ponder
+//    `t.bigint()` (epoch SECONDS). The IMPORT transform does the EXTRACT(EPOCH)
+//    conversion (out of handler scope). The PONDER HANDLER writes
+//    event.block.timestamp directly — already a bigint epoch-seconds value in
+//    ponder 0.16.6 — so NO conversion is needed in the forward-index path.
+//    Affected cols below carry an inline `// timestamp_to_bigint` marker.
+//    Exceptions (BigInt in the envio schema, NOT the Timestamp scalar → pure
+//    rename): validator_block_rewards.next_timestamp,
+//    latest_validator_reward.next_timestamp, fatbera_deposit.timestamp,
+//    fatbera_deposit.block_number — these are plain `t.bigint()`.
+// ─────────────────────────────────────────────────────────────────────────
+
+// ValidatorBlockRewards — id = `${blockNumber}_${pubkey}`. APPEND-RUNNING (one
+// row per BlockRewardProcessed; cumulative totals carried from prior row).
+// THE LARGEST green-belt table (906,771 rows frozen-imported).
+export const validatorBlockRewards = onchainTable("validator_block_rewards", (t) => ({
+  id: t.text().primaryKey(),                 // blockNumber_pubkey
+  pubkey: t.text().notNull(),
+  blockHeight: t.integer().notNull(),
+  totalBlockRewards: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  timestamp: t.bigint().notNull(),           // timestamp_to_bigint
+  nextTimestamp: t.bigint().notNull(),       // BigInt in schema (NOT Timestamp scalar) — pure rename
+  baseRate: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  rewardRate: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  rewardCount: t.integer().notNull(),
+  stakerReward: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  validatorReward: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalStakerRewards: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalValidatorRewards: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  outstandingStakerRewards: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+}));
+
+// ValidatorDeposits — id = `${blockHeight}_${pubkey}[_${suffix}]`. APPEND-RUNNING
+// (one row per deposit-affecting event; cumulative totals carried from latest).
+export const validatorDeposits = onchainTable("validator_deposits", (t) => ({
+  id: t.text().primaryKey(),                 // blockHeight_pubkey[_suffix]
+  pubkey: t.text().notNull(),
+  blockHeight: t.integer().notNull(),
+  timestamp: t.bigint().notNull(),           // timestamp_to_bigint
+  depositAmount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalDeposited: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  depositCount: t.integer().notNull(),
+  outstandingFatBera: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+}));
+
+// LatestValidatorDeposit — id = `${pubkey}`. ROLLUP-LWW (singleton per validator;
+// latest deposit state, the O(1) read-before-write lookup the deposit path needs).
+export const latestValidatorDeposit = onchainTable("latest_validator_deposit", (t) => ({
+  id: t.text().primaryKey(),                 // pubkey
+  pubkey: t.text().notNull(),
+  blockHeight: t.integer().notNull(),
+  timestamp: t.bigint().notNull(),           // timestamp_to_bigint
+  depositAmount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalDeposited: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  depositCount: t.integer().notNull(),
+  outstandingFatBera: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+}));
+
+// LatestValidatorReward — id = `${pubkey}`. ROLLUP-LWW (singleton per validator;
+// latest reward state, the O(1) read-before-write lookup the reward path needs).
+export const latestValidatorReward = onchainTable("latest_validator_reward", (t) => ({
+  id: t.text().primaryKey(),                 // pubkey
+  pubkey: t.text().notNull(),
+  blockHeight: t.integer().notNull(),
+  totalBlockRewards: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  timestamp: t.bigint().notNull(),           // timestamp_to_bigint
+  nextTimestamp: t.bigint().notNull(),       // BigInt in schema (NOT Timestamp scalar) — pure rename
+  baseRate: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  rewardRate: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  rewardCount: t.integer().notNull(),
+  stakerReward: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  validatorReward: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalStakerRewards: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalValidatorRewards: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  outstandingStakerRewards: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+}));
+
+// ValidatorWithdrawalTotals — id = `${pubkey}`. ROLLUP (additive withdrawalCount/
+// totalWithdrawn/totalFees + LWW last-withdrawal snapshot).
+export const validatorWithdrawalTotals = onchainTable("validator_withdrawal_totals", (t) => ({
+  id: t.text().primaryKey(),                 // pubkey
+  cometBftPublicKey: t.text().notNull(),
+  totalWithdrawn: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  withdrawalCount: t.integer().notNull(),
+  totalFees: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  lastWithdrawalAmount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  lastWithdrawalBlock: t.integer().notNull(),
+  lastWithdrawalTimestamp: t.bigint().notNull(), // timestamp_to_bigint
+  lastWithdrawalSafe: t.text().notNull(),
+  lastWithdrawalInitiator: t.text().notNull(),
+}));
+
+// WithdrawalBatch — id = `${batchId}`. ROLLUP-LWW (uniqueUsers/userAddresses
+// accrue across requests; status flips open→full→pending→fulfilled).
+export const withdrawalBatch = onchainTable("withdrawal_batch", (t) => ({
+  id: t.text().primaryKey(),                 // batchId (string)
+  batchId: t.integer().notNull(),
+  totalAmount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  startTime: t.bigint().notNull(),           // timestamp_to_bigint
+  uniqueUsers: t.integer().notNull(),
+  userAddresses: t.text().notNull(),         // array_to_json_text: JSON.stringify(string[])
+  blockHeight: t.integer().notNull(),
+  transactionHash: t.text().notNull(),
+  status: t.text().notNull(),
+  predictedWithdrawalBlock: t.integer().notNull(),
+}));
+
+// WithdrawalRequest — id = `${blockHeight}_${txHash}_${logIndex}`. APPEND.
+// `batch_id` is the envio relation field (already _id-suffixed) → plain text FK.
+export const withdrawalRequest = onchainTable("withdrawal_request", (t) => ({
+  id: t.text().primaryKey(),                 // blockHeight_txHash_logIndex
+  user: t.text().notNull(),
+  batchId: t.text().notNull(),               // pg column batch_id (envio relation)
+  amount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  timestamp: t.bigint().notNull(),           // timestamp_to_bigint
+  blockHeight: t.integer().notNull(),
+  transactionHash: t.text().notNull(),
+}));
+
+// WithdrawalFulfillment — id = `${blockHeight}_${txHash}_${logIndex}`. APPEND.
+export const withdrawalFulfillment = onchainTable("withdrawal_fulfillment", (t) => ({
+  id: t.text().primaryKey(),                 // blockHeight_txHash_logIndex
+  user: t.text().notNull(),
+  batchId: t.text().notNull(),               // pg column batch_id (envio relation)
+  amount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  timestamp: t.bigint().notNull(),           // timestamp_to_bigint
+  blockHeight: t.integer().notNull(),
+  transactionHash: t.text().notNull(),
+}));
+
+// FatBeraDeposit — id = `${txHash}_${logIndex}`. APPEND (one row per Deposit).
+export const fatberaDeposit = onchainTable("fatbera_deposit", (t) => ({
+  id: t.text().primaryKey(),                 // txHash_logIndex
+  collectionKey: t.text().notNull(),
+  depositor: t.text().notNull(),
+  recipient: t.text().notNull(),
+  amount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  shares: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  transactionFrom: t.text(),                 // nullable per the map
+  timestamp: t.bigint().notNull(),           // BigInt in schema (NOT Timestamp scalar) — pure rename
+  blockNumber: t.bigint().notNull(),
+  transactionHash: t.text().notNull(),
+  chainId: t.integer().notNull(),
+}));
