@@ -878,3 +878,84 @@ export const mirrorArticleStats = onchainTable("mirror_article_stats", (t) => ({
   lastPurchaseTime: t.bigint(),              // nullable per the map
   chainId: t.integer().notNull(),
 }));
+
+// ─────────────────────────────────────────────────────────────────────────
+// green-belt: apdao auction-house (B-1 Group G)
+//
+// SOURCE OF TRUTH: grimoires/loa/migration/b-1-green-belt-map.yaml
+//   (entities ApdaoAuction + ApdaoBid + ApdaoQueuedToken + ApdaoAuctionStats —
+//    every column ported verbatim, incl. NULL/NOT NULL + ponder_type).
+//
+// Contract: ApdaoAuctionHouse proxy (Berachain 80094) — ApiologyDAO seat
+//   auctions. The handler (ponder-runtime/src/handlers/apdao-auction.ts) ports
+//   the envio src/handlers/apdao-auction.ts lifecycle (AuctionCreated /
+//   AuctionBid / AuctionExtended / AuctionSettled) + queue events
+//   (TokensAddedToAuctionQueue / TokensRemovedFromAuctionQueue).
+//
+// Type mapping (per the map's ponder_type column — note: address (winner /
+// sender / owner) + tx-hash columns are `text` in the map, so t.text() NOT
+// t.hex(), mirroring the mirror-article green-belt tables above):
+//   text PK                     → t.text().primaryKey()
+//   text NOT NULL / NULL        → t.text().notNull() / t.text()
+//   numeric(78,0) NOT NULL/NULL → t.numeric({ precision: 78, scale: 0, mode: "bigint" })[.notNull()]
+//   bigint (int8) NOT NULL/NULL → t.bigint()[.notNull()]
+//   integer (int4) NOT NULL/NULL→ t.integer()[.notNull()]
+//
+// NOTE on the bigint columns: ApdaoAuction.startTime/endTime are BigInt in the
+// envio schema (NOT the Timestamp scalar — Indexer.res:174 confirms `bigint`),
+// so they map to ponder `t.bigint()` — same as createdAt/settledAt/queuedAt/
+// timestamp. No timestamp_to_bigint drift conversion applies to this group.
+// ─────────────────────────────────────────────────────────────────────────
+
+// ApdaoAuction — id = `${chainId}_${apdaoId}`. ROLLUP-LWW (bidCount/settled mutate per bid/settle).
+export const apdaoAuction = onchainTable("apdao_auction", (t) => ({
+  id: t.text().primaryKey(),                 // chainId_apdaoId
+  apdaoId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  startTime: t.bigint().notNull(),
+  endTime: t.bigint().notNull(),
+  winner: t.text(),                          // nullable (set on settle)
+  amount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }), // nullable (set on settle)
+  settled: t.boolean().notNull(),
+  bidCount: t.integer().notNull(),
+  createdAt: t.bigint().notNull(),
+  settledAt: t.bigint(),                      // nullable (set on settle)
+  transactionHash: t.text().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// ApdaoBid — id = `${txHash}_${logIndex}`. APPEND (one row per bid event).
+export const apdaoBid = onchainTable("apdao_bid", (t) => ({
+  id: t.text().primaryKey(),                 // txHash_logIndex
+  apdaoId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  sender: t.text().notNull(),
+  value: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  extended: t.boolean().notNull(),
+  timestamp: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  transactionHash: t.text().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// ApdaoQueuedToken — id = `${chainId}_${tokenId}`. ROLLUP-LWW (isQueued/removedAt flip).
+export const apdaoQueuedToken = onchainTable("apdao_queued_token", (t) => ({
+  id: t.text().primaryKey(),                 // chainId_tokenId
+  tokenId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  owner: t.text().notNull(),
+  queuedAt: t.bigint().notNull(),
+  transactionHash: t.text().notNull(),
+  isQueued: t.boolean().notNull(),
+  removedAt: t.bigint(),                      // nullable (set on dequeue)
+  chainId: t.integer().notNull(),
+}));
+
+// ApdaoAuctionStats — id = `${chainId}_global`. ROLLUP (additive counters + volume).
+export const apdaoAuctionStats = onchainTable("apdao_auction_stats", (t) => ({
+  id: t.text().primaryKey(),                 // chainId_global
+  totalAuctions: t.integer().notNull(),
+  totalSettled: t.integer().notNull(),
+  totalBids: t.integer().notNull(),
+  totalVolume: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  lastAuctionTime: t.bigint(),               // nullable per the map
+  lastSettledTime: t.bigint(),               // nullable per the map
+  chainId: t.integer().notNull(),
+}));
