@@ -95,3 +95,16 @@ import "./handlers/apdao-auction";
 // Registration requires the green-belt config to be ACTIVE — build/typecheck
 // with BELT_CONFIG=ponder.config.ts.
 import "./handlers/moneycomb-vault";
+
+// B-1 green-belt (Group E) — HENLOCKER vault (Berachain 80094).
+// HenloVault is in ponder.config.ts (the green-belt config), NOT in
+// ponder.config.mibera.ts (the LIVE green). Ports envio src/handlers/
+// henlo-vault.ts HenloVault* lifecycle: Mint / RoundOpened / RoundClosed /
+// DepositsPaused / DepositsUnpaused / MintFromReservoir / Redeem / ReservoirSet
+// → henlo_vault_round / henlo_vault_deposit / henlo_vault_balance /
+// henlo_vault_epoch / henlo_vault_stats / henlo_vault_user. The envio handler
+// ALSO writes tracked_token_balance (Group D / TrackedErc20, already live in
+// tracked-erc20.ts) — that path is NOT ported here. No NATS. Registration
+// requires the green-belt config to be ACTIVE — build/typecheck with
+// BELT_CONFIG=ponder.config.ts.
+import "./handlers/henlo-vault";

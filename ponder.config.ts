@@ -38,12 +38,25 @@
 //   isQueued), so any overlap with the frozen import would double-count or
 //   re-flip state. Forward-index from the boundary; pre-boundary history comes
 //   from the frozen import — NOT envio's deploy block (5206807).
+//
+// ─── Group E (HenloVault · HENLOCKER vault) ──────────────────────────────
+//   HenloVault (Berachain 80094) — HENLOCKER round/epoch/deposit system.
+//   Address 0x42069E3BF367C403b632CF9cD5a8d61e2c0c44fC.
+//   startBlock = the Berachain migration boundary 21424739 EXACTLY (no
+//   overlap): henlo_vault_round/_balance/_epoch/_stats/_user are rollups
+//   (deposit totals + counters accumulate; closed/paused/canRedeem flip), so
+//   any overlap with the frozen import would double-count / re-flip state.
+//   Forward-index from the boundary; pre-boundary history comes from the
+//   frozen import — NOT envio's deploy block (2041392). The envio handler also
+//   writes tracked_token_balance (Group D / TrackedErc20, already live) — that
+//   path is NOT ported here; only the henlo_vault_* writes.
 
 import { createConfig } from "ponder";
 import miberaConfig from "./ponder.config.mibera";
 import { MirrorObservabilityAbi } from "./abis/MirrorObservabilityAbi";
 import { ApdaoAuctionHouseAbi } from "./abis/ApdaoAuctionHouseAbi";
 import { MoneycombVaultAbi } from "./abis/MoneycombVaultAbi";
+import { HenloVaultAbi } from "./abis/HenloVaultAbi";
 
 // ─── Optimism (10) green-belt contract addresses ────────────────────────
 // Mirror's WritingEditions observability contract (per envio config.yaml
@@ -79,6 +92,27 @@ const MONEYCOMB_VAULT_BERA = "0x9279b2227b57f349a0ce552b25af341e735f6309";
 // deploy block (6954915, per config.yaml:773). Boundary = 21424739 (identical
 // to the blue-belt BERA_START_BLOCK / the Group-G apdao boundary).
 const BERA_MONEYCOMB_START_BLOCK = 21424739;
+
+// ─── Group E (HenloVault · Berachain 80094) ──────────────────────────────
+// HenloVault — events emit from here (per envio config.yaml HenloVault +
+// src/handlers/henlo-vault.ts; address config.yaml:920). HENLOCKER round/epoch
+// /deposit system. NOTE: the envio handler ALSO writes tracked_token_balance
+// (the Group-D / 40-Mibera TrackedErc20 path, already ported in
+// tracked-erc20.ts + registered as TrackedErc20 in ponder.config.mibera.ts).
+// This registration covers HenloVault events ONLY; TrackedErc20 is NOT
+// re-registered for Group E.
+const HENLO_VAULT_BERA = "0x42069E3BF367C403b632CF9cD5a8d61e2c0c44fC";
+
+// Berachain migration boundary (rollup → pin EXACTLY, no finality overlap).
+// henlo_vault_round / _balance / _epoch / _stats / _user are rollups
+// (totalDeposits/userDeposits/whaleDeposits/balance/totalUsers/totalRounds/
+// totalEpochs accumulate; closed/depositsPaused/canRedeem mutate), so any
+// overlap with the frozen import would double-count / re-flip state.
+// Forward-index from the boundary; pre-boundary history comes from the frozen
+// import — NOT envio's deploy block (2041392, per config.yaml:921). Boundary =
+// 21424739 (identical to the blue-belt BERA_START_BLOCK / the Group-G apdao /
+// Group-C moneycomb boundaries).
+const BERA_HENLO_VAULT_START_BLOCK = 21424739;
 
 export default createConfig({
   // Chains + database carried over VERBATIM from the blue-belt config.
@@ -124,6 +158,24 @@ export default createConfig({
       abi: MoneycombVaultAbi,
       address: MONEYCOMB_VAULT_BERA,
       startBlock: BERA_MONEYCOMB_START_BLOCK,
+    },
+
+    // ─── Green-belt: Group E (HenloVault · Berachain 80094) ─────────────
+    // HenloVault — Mint / RoundOpened / RoundClosed / DepositsPaused /
+    // DepositsUnpaused / MintFromReservoir / Redeem / ReservoirSet. Required
+    // for the ponder.on("HenloVault:<Event>") registrations in
+    // ponder-runtime/src/handlers/henlo-vault.ts → henlo_vault_round /
+    // henlo_vault_deposit / henlo_vault_balance / henlo_vault_epoch /
+    // henlo_vault_stats / henlo_vault_user. The tracked_token_balance path the
+    // envio handler also writes is NOT ported here (Group D / TrackedErc20,
+    // already live). No NATS. Berachain (80094) is already a chain in
+    // ponder.config.mibera.ts. Registration requires the green-belt config to
+    // be ACTIVE — build/typecheck with BELT_CONFIG=ponder.config.ts.
+    HenloVault: {
+      chain: "berachain",
+      abi: HenloVaultAbi,
+      address: HENLO_VAULT_BERA,
+      startBlock: BERA_HENLO_VAULT_START_BLOCK,
     },
   },
 
