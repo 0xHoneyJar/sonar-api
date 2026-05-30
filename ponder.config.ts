@@ -66,6 +66,11 @@ import {
   ValidatorWithdrawalModuleAbi,
   ValidatorDepositRouterAbi,
 } from "./abis/FatBeraAbis";
+import {
+  SFVaultERC4626Abi,
+  SFMultiRewardsAbi,
+  SFVaultStrategyWrapperAbi,
+} from "./abis/SfVaultAbis";
 
 // ─── Optimism (10) green-belt contract addresses ────────────────────────
 // Mirror's WritingEditions observability contract (per envio config.yaml
@@ -156,6 +161,68 @@ const VALIDATOR_DEPOSIT_ROUTER_BERA = "0x989212D8227a8957b9247e1966046B47a7a63D6
 // import. ** Live correctness of the forward append-running totals + the
 // Latest* singletons must be RLAI-graded at green-v3 boot (see report). **
 const BERA_FATBERA_START_BLOCK = 21424739;
+
+// ─── Group F (Set & Forgetti vault · Berachain 80094) ─────────────────────
+// The 3 SF contracts (config.yaml:891-916). All Berachain-only. Addresses
+// VERBATIM from config.yaml (lowercased — ponder accepts mixed-case hex but the
+// envio handler lowercases at every boundary, and these addresses index the
+// same logs regardless of case). Each contract is registered with its 5 static
+// addresses (the prior green-belt static-registration pattern; no factory).
+//
+//   SFVaultERC4626        (5 vault addresses)         — config.yaml:892-897
+//   SFVaultStrategyWrapper(5 strategy addresses)      — config.yaml:901-906
+//   SFMultiRewards        (5 MultiRewards addresses)  — config.yaml:910-915
+//
+// ** DYNAMIC-REGISTRATION GAP (RLAI-at-boot item — see sf-vaults.ts header) **
+// The envio handler ALSO dynamically registers NEW MultiRewards contracts at
+// runtime (SFVaultERC4626.StrategyUpdated.contractRegister +
+// SFVaultStrategyWrapper.MultiRewardsUpdated.contractRegister → addSFMultiRewards).
+// Ponder has no handler-time addContract; the prior groups all use static
+// address registration, and the dynamic path is NOT in the Group-F gap inventory
+// (b-1-handler-gap.md §"Group F" lists 3 contracts × 5 static addrs). The 5
+// static SFMultiRewards addresses below ARE the current "new" MultiRewards set
+// (config.yaml comments mark all 5 "(new)"; they equal the 5 values in the
+// handler's STRATEGY_TO_MULTI_REWARDS map). So the live set is covered; events
+// from any FUTURE MultiRewards created post-boundary that is not one of these 5
+// would be missed until added here. This is the documented dynamic-registration
+// parity gap to RLAI-grade at green-v3 boot.
+const SF_VAULT_ERC4626_BERA = [
+  "0x3bec4140eda07911208d4fc06b2f5adb7b5237fb", // HLKD1B Vault
+  "0x335d150495f6c8483773abc0e4fa5780dd270e78", // HLKD690M Vault
+  "0x2e2bdfdd4b786703b374aeeaa44195698a699dd1", // HLKD420M Vault
+  "0x91f321a8791fb899c6b860b9f54940c68cb45aed", // HLKD330M Vault
+  "0xee1087ec5d6a0a673c046b9acb15c93b7adb95ca", // HLKD100M Vault
+] as const;
+const SF_VAULT_STRATEGY_WRAPPER_BERA = [
+  "0x39748c56511c02eb7be22225c4699f59fbb55b8f", // HLKD1B Strategy
+  "0x447d56af16a0cfaff96536c7fd54f46bf56e160e", // HLKD690M Strategy
+  "0xffa9dbbff80f736cde9e41427c0335f866854a9a", // HLKD420M Strategy
+  "0x3032a263c651d9237b74cd6d47baf1345bf0930e", // HLKD330M Strategy
+  "0xaee9aea23783057cbc890684464570ad9723be01", // HLKD100M Strategy
+] as const;
+const SF_MULTI_REWARDS_BERA = [
+  "0x34b3668e2ad47ccfe3c53e24a0606b911d1f6a8f", // HLKD1B MultiRewards (new)
+  "0xd1cbf8f7f310947a7993abbd7fd6113794e353da", // HLKD690M MultiRewards (new)
+  "0x827b7ea9fdb4322dbc6f9bf72c04871be859f20c", // HLKD420M MultiRewards (new)
+  "0xacd0177bfcbc3760b03c87808b5423945f6bfaec", // HLKD330M MultiRewards (new)
+  "0xb5b312fbf7eb145485ece55b862db94d626efa0f", // HLKD100M MultiRewards (new)
+] as const;
+
+// Berachain migration boundary — pin EXACTLY (no finality overlap), 21424739.
+// sf_position / sf_vault_stats / sf_multi_rewards_position are rollups (shares +
+// cumulative deposit/withdraw/stake/claim flows accumulate per event), and
+// sf_vault_strategy / latest_vault_strategy are rollup-lww (isActive/activeTo
+// state flips on migration; the singleton latest tracks the current strategy),
+// so any overlap with the frozen import would double-count the flows or re-flip
+// the migration state. Forward-index from the boundary; pre-boundary history
+// comes from the frozen import — NOT envio's deploy blocks (vault 14937664 /
+// strategy 14937670 / multiRewards 15407908 per config.yaml:898/907/916).
+// Boundary = 21424739 (identical to the blue-belt BERA_START_BLOCK / the
+// Group-G apdao / Group-C moneycomb / Group-E henlo-vault / Group-A fatbera
+// boundaries). ** Live correctness of the forward position-rollup arithmetic +
+// the Latest*/strategy-migration ordering must be RLAI-graded at green-v3 boot
+// (see report + sf-vaults.ts header). **
+const BERA_SF_START_BLOCK = 21424739;
 
 export default createConfig({
   // Chains + database carried over VERBATIM from the blue-belt config.
@@ -278,6 +345,39 @@ export default createConfig({
       abi: ValidatorDepositRouterAbi,
       address: VALIDATOR_DEPOSIT_ROUTER_BERA,
       startBlock: BERA_FATBERA_START_BLOCK,
+    },
+
+    // ─── Green-belt: Group F (Set & Forgetti vault · Berachain 80094) ───
+    // The 3 SF contracts (5 static addresses each). Required for the
+    // ponder.on(...) registrations in ponder-runtime/src/handlers/sf-vaults.ts:
+    //   SFVaultERC4626:Deposit                → sf_position / sf_vault_stats (+ action)
+    //   SFVaultERC4626:Withdraw               → sf_position / sf_vault_stats (+ action)
+    //   SFVaultERC4626:StrategyUpdated        → sf_vault_strategy / latest_vault_strategy / sf_vault_stats (+ action)
+    //   SFVaultStrategyWrapper:MultiRewardsUpdated → sf_vault_strategy / latest_vault_strategy / sf_vault_stats
+    //   SFMultiRewards:Staked                 → sf_position / sf_vault_stats / sf_multi_rewards_position (+ action)
+    //   SFMultiRewards:Withdrawn              → sf_position / sf_vault_stats / sf_multi_rewards_position (+ action)
+    //   SFMultiRewards:RewardPaid             → sf_position / sf_vault_stats / sf_multi_rewards_position (+ action)
+    //   SFMultiRewards:RebatePaid             → action only
+    // No NATS. Registration requires the green-belt config to be ACTIVE —
+    // build/typecheck with BELT_CONFIG=ponder.config.ts. Berachain (80094) is
+    // already a chain in ponder.config.mibera.ts.
+    SFVaultERC4626: {
+      chain: "berachain",
+      abi: SFVaultERC4626Abi,
+      address: [...SF_VAULT_ERC4626_BERA],
+      startBlock: BERA_SF_START_BLOCK,
+    },
+    SFMultiRewards: {
+      chain: "berachain",
+      abi: SFMultiRewardsAbi,
+      address: [...SF_MULTI_REWARDS_BERA],
+      startBlock: BERA_SF_START_BLOCK,
+    },
+    SFVaultStrategyWrapper: {
+      chain: "berachain",
+      abi: SFVaultStrategyWrapperAbi,
+      address: [...SF_VAULT_STRATEGY_WRAPPER_BERA],
+      startBlock: BERA_SF_START_BLOCK,
     },
   },
 
