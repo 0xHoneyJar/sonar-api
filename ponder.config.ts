@@ -27,10 +27,22 @@
 //   overlap): the handler touches mirror_article_stats, a ROLLUP (additive
 //   counters), so forward-index from the boundary; pre-boundary history comes
 //   from the frozen import — NOT envio's deploy block.
+//
+// ─── Group G (ApDAO auction-house) ───────────────────────────────────────
+//   ApdaoAuctionHouse proxy (Berachain 80094) — ApiologyDAO seat auctions.
+//   Address 0xE840929cd47c6a1cf0f5D9b6d0C6277075680A0b.
+//   startBlock = the Berachain migration boundary 21424739 EXACTLY (no
+//   overlap, per b-1-plan §2.3): apdao touches rollup entities
+//   (apdao_auction bidCount/settled mutate per bid/settle; apdao_auction_stats
+//   accumulates totalAuctions/totalBids/totalVolume; apdao_queued_token flips
+//   isQueued), so any overlap with the frozen import would double-count or
+//   re-flip state. Forward-index from the boundary; pre-boundary history comes
+//   from the frozen import — NOT envio's deploy block (5206807).
 
 import { createConfig } from "ponder";
 import miberaConfig from "./ponder.config.mibera";
 import { MirrorObservabilityAbi } from "./abis/MirrorObservabilityAbi";
+import { ApdaoAuctionHouseAbi } from "./abis/ApdaoAuctionHouseAbi";
 
 // ─── Optimism (10) green-belt contract addresses ────────────────────────
 // Mirror's WritingEditions observability contract (per envio config.yaml
@@ -41,6 +53,17 @@ const MIRROR_OBSERVABILITY_OP = "0x4c2393aae4f0ad55dfd4ddcfa192f817d1b28d1f";
 // mirror_article_stats accumulates totalPurchases / totalRevenue, so any
 // overlap with the frozen import would double-count. Boundary = 152132710.
 const OP_MIRROR_START_BLOCK = 152132710;
+
+// ─── Berachain (80094) green-belt contract addresses ────────────────────
+// ApdaoAuctionHouse proxy — events emit from here (per envio config.yaml
+// ApdaoAuctionHouse + src/handlers/apdao-auction.ts; address config.yaml:954).
+const APDAO_AUCTION_HOUSE_BERA = "0xE840929cd47c6a1cf0f5D9b6d0C6277075680A0b";
+
+// Berachain migration boundary (rollup → pin EXACTLY, no finality overlap).
+// apdao_auction / apdao_auction_stats / apdao_queued_token mutate or accumulate
+// per event, so any overlap with the frozen import would double-count / re-flip
+// state. Boundary = 21424739 (identical to the blue-belt BERA_START_BLOCK).
+const BERA_APDAO_START_BLOCK = 21424739;
 
 export default createConfig({
   // Chains + database carried over VERBATIM from the blue-belt config.
@@ -61,6 +84,19 @@ export default createConfig({
       abi: MirrorObservabilityAbi,
       address: MIRROR_OBSERVABILITY_OP,
       startBlock: OP_MIRROR_START_BLOCK,
+    },
+
+    // ─── Green-belt: Group G (ApDAO · Berachain 80094) ──────────────────
+    // ApdaoAuctionHouse — AuctionCreated / AuctionBid / AuctionExtended /
+    // AuctionSettled + TokensAddedToAuctionQueue / TokensRemovedFromAuctionQueue.
+    // Required for the ponder.on("ApdaoAuctionHouse:<Event>") registrations in
+    // ponder-runtime/src/handlers/apdao-auction.ts. Berachain (80094) is
+    // already a chain in ponder.config.mibera.ts.
+    ApdaoAuctionHouse: {
+      chain: "berachain",
+      abi: ApdaoAuctionHouseAbi,
+      address: APDAO_AUCTION_HOUSE_BERA,
+      startBlock: BERA_APDAO_START_BLOCK,
     },
   },
 

@@ -76,3 +76,13 @@ import "./handlers/candies-market1155";
 // requires the green-belt config to be ACTIVE — build/typecheck with
 // BELT_CONFIG=ponder.config.ts.
 import "./handlers/mirror-observability";
+
+// B-1 green-belt (Group G) — ApDAO seat auctions (Berachain 80094).
+// ApdaoAuctionHouse is in ponder.config.ts (the green-belt config), NOT in
+// ponder.config.mibera.ts (the LIVE green). Ports envio src/handlers/
+// apdao-auction.ts: AuctionCreated/AuctionBid/AuctionExtended/AuctionSettled +
+// TokensAddedToAuctionQueue/TokensRemovedFromAuctionQueue → apdao_auction /
+// apdao_bid / apdao_queued_token / apdao_auction_stats. No NATS. Registration
+// requires the green-belt config to be ACTIVE — build/typecheck with
+// BELT_CONFIG=ponder.config.ts.
+import "./handlers/apdao-auction";
