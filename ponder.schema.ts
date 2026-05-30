@@ -1037,3 +1037,117 @@ export const userVaultSummary = onchainTable("user_vault_summary", (t) => ({
   firstVaultTime: t.bigint(),                 // nullable per the map
   lastActivityTime: t.bigint().notNull(),
 }));
+
+// ─────────────────────────────────────────────────────────────────────────
+// green-belt: HENLOCKER vault (B-1 Group E)
+//
+// SOURCE OF TRUTH: grimoires/loa/migration/b-1-green-belt-map.yaml:660-785
+//   (entities HenloVaultRound + HenloVaultDeposit + HenloVaultBalance +
+//    HenloVaultEpoch + HenloVaultStats + HenloVaultUser — every column ported
+//    verbatim, incl. NULL/NOT NULL + ponder_type).
+//
+// Contract: HenloVault (Berachain 80094, 0x42069E3BF367C403b632CF9cD5a8d61e2c0c44fC)
+//   — HENLOCKER round/epoch/deposit system. The handler
+//   (ponder-runtime/src/handlers/henlo-vault.ts) ports the envio
+//   src/handlers/henlo-vault.ts HenloVault* lifecycle: Mint / RoundOpened /
+//   RoundClosed / DepositsPaused / DepositsUnpaused / MintFromReservoir /
+//   Redeem / ReservoirSet.
+//
+// SCOPE NOTE (grounded — b-1-handler-gap.md §"Group E"): the envio handler ALSO
+//   writes `tracked_token_balance` (the Group-D / 40-Mibera TrackedErc20 path,
+//   ALREADY ported in tracked-erc20.ts). That table is NOT re-defined or
+//   re-written here — these 6 tables are the HenloVault*-only gap.
+//
+// Type mapping (per the map's ponder_type column — note the strike/epochId/
+// amount/deposit_limit/total_* columns are `numeric(78,0)` (BigInt uint256/
+// uint64/uint48 accumulators), while the timestamp/last_updated/*_time columns
+// are `bigint (int8)`; address (user/reservoir) + tx-hash columns are `text`,
+// so t.text() NOT t.hex(), mirroring the apdao + moneycomb green-belt tables):
+//   text PK                     → t.text().primaryKey()
+//   text NOT NULL / NULL        → t.text().notNull() / t.text()
+//   numeric(78,0) NOT NULL/NULL → t.numeric({ precision: 78, scale: 0, mode: "bigint" })[.notNull()]
+//   bigint (int8) NOT NULL/NULL → t.bigint()[.notNull()]
+//   integer (int4) NOT NULL/NULL→ t.integer()[.notNull()]
+//   boolean NOT NULL            → t.boolean().notNull()
+//
+// chainId IS present on all 6 entities (envio event.chainId → context.chain.id;
+// Berachain 80094) — unlike moneycomb, the HenloVault entities carry chain_id.
+// timestamp/lastUpdated/firstDepositTime/lastActivityTime are BigInt (NOT the
+// Timestamp scalar) in the envio schema → ponder t.bigint(); no
+// timestamp_to_bigint drift conversion applies to this group.
+// ─────────────────────────────────────────────────────────────────────────
+
+// HenloVaultRound — id = `${strike}_${epochId}_${chainId}`. ROLLUP-LWW (totalDeposits/userDeposits/whaleDeposits/remainingCapacity/closed/depositsPaused/canRedeem mutate).
+export const henloVaultRound = onchainTable("henlo_vault_round", (t) => ({
+  id: t.text().primaryKey(),                 // strike_epochId_chainId
+  strike: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  epochId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  exists: t.boolean().notNull(),
+  closed: t.boolean().notNull(),
+  depositsPaused: t.boolean().notNull(),
+  timestamp: t.bigint().notNull(),
+  depositLimit: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalDeposits: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  whaleDeposits: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  userDeposits: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  remainingCapacity: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  canRedeem: t.boolean().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// HenloVaultDeposit — id = `${txHash}_${logIndex}`. APPEND (one row per Mint event).
+export const henloVaultDeposit = onchainTable("henlo_vault_deposit", (t) => ({
+  id: t.text().primaryKey(),                 // txHash_logIndex
+  user: t.text().notNull(),
+  strike: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  epochId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  amount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  timestamp: t.bigint().notNull(),
+  transactionHash: t.text().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// HenloVaultBalance — id = `${userLower}_${strike}_${chainId}`. ROLLUP (balance accumulates per strike, decrements on Redeem).
+export const henloVaultBalance = onchainTable("henlo_vault_balance", (t) => ({
+  id: t.text().primaryKey(),                 // userLower_strike_chainId
+  user: t.text().notNull(),
+  strike: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  balance: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  lastUpdated: t.bigint().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// HenloVaultEpoch — id = `${epochId}_${chainId}`. ROLLUP-LWW (closed/depositsPaused/reservoir mutate).
+export const henloVaultEpoch = onchainTable("henlo_vault_epoch", (t) => ({
+  id: t.text().primaryKey(),                 // epochId_chainId
+  epochId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  strike: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  closed: t.boolean().notNull(),
+  depositsPaused: t.boolean().notNull(),
+  timestamp: t.bigint().notNull(),
+  depositLimit: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalDeposits: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  reservoir: t.text().notNull(),
+  totalWhitelistDeposit: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalMatched: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// HenloVaultStats — id = `${chainId}`. ROLLUP singleton (additive counters per chain).
+export const henloVaultStats = onchainTable("henlo_vault_stats", (t) => ({
+  id: t.text().primaryKey(),                 // chainId
+  totalDeposits: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalUsers: t.integer().notNull(),
+  totalRounds: t.integer().notNull(),
+  totalEpochs: t.integer().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// HenloVaultUser — id = `${userLower}_${chainId}`. ROLLUP-LWW (first/last activity state).
+export const henloVaultUser = onchainTable("henlo_vault_user", (t) => ({
+  id: t.text().primaryKey(),                 // userLower_chainId
+  user: t.text().notNull(),
+  firstDepositTime: t.bigint(),              // nullable per the map
+  lastActivityTime: t.bigint().notNull(),
+  chainId: t.integer().notNull(),
+}));
