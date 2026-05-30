@@ -125,3 +125,20 @@ import "./handlers/henlo-vault";
 // order). No NATS. Registration requires the green-belt config to be ACTIVE —
 // build/typecheck with BELT_CONFIG=ponder.config.ts.
 import "./handlers/fatbera";
+
+// B-1 green-belt (Group F — the LARGEST handler, rated L) — Set & Forgetti
+// vault (Berachain 80094). The 3 SF contracts (SFVaultERC4626, SFMultiRewards,
+// SFVaultStrategyWrapper) are in ponder.config.ts (the green-belt config), NOT
+// ponder.config.mibera.ts (the LIVE green). Ports envio src/handlers/sf-vaults.ts
+// (~40KB): Deposit/Withdraw (sf_position/sf_vault_stats) + StrategyUpdated/
+// MultiRewardsUpdated (sf_vault_strategy/latest_vault_strategy — the strategy-
+// migration state machine) + Staked/Withdrawn/RewardPaid/RebatePaid
+// (sf_multi_rewards_position — per-MultiRewards position tracking across old/new
+// contracts) + action via recordAction. RPC view reads (multiRewardsAddress() /
+// stakingToken()) route through context.client (envio's createEffect). The
+// envio contractRegister dynamic-MultiRewards registration is DROPPED (ponder has
+// no handler-time addContract; the 5 static SFMultiRewards addresses cover the
+// current "new" set — documented RLAI-at-boot parity gap). No NATS. Registration
+// requires the green-belt config to be ACTIVE — build/typecheck with
+// BELT_CONFIG=ponder.config.ts.
+import "./handlers/sf-vaults";

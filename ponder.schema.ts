@@ -1324,3 +1324,159 @@ export const fatberaDeposit = onchainTable("fatbera_deposit", (t) => ({
   transactionHash: t.text().notNull(),
   chainId: t.integer().notNull(),
 }));
+
+// ─────────────────────────────────────────────────────────────────────────
+// green-belt: Set & Forgetti vault (B-1 Group F — the LARGEST handler)
+//
+// SOURCE OF TRUTH: grimoires/loa/migration/b-1-green-belt-map.yaml:787-913
+//   (entities SFPosition + SFVaultStats + SFMultiRewardsPosition +
+//    SFVaultStrategy + LatestVaultStrategy — every column ported verbatim,
+//    incl. NULL/NOT NULL + ponder_type) + envio schema.graphql:638-726.
+//
+// Contracts (3, all Berachain 80094): SFVaultERC4626, SFMultiRewards,
+//   SFVaultStrategyWrapper (config.yaml:891-916; event sigs config.yaml:433-475).
+//   The handler (ponder-runtime/src/handlers/sf-vaults.ts) ports the envio
+//   src/handlers/sf-vaults.ts vault lifecycle: Deposit / Withdraw +
+//   StrategyUpdated (strategy-migration tracking) + MultiRewardsUpdated +
+//   Staked / Withdrawn / RewardPaid / RebatePaid (MultiRewards staking/claims),
+//   with per-MultiRewards position tracking across old/new contracts.
+//
+// Type mapping (per the map's ponder_type column — note: user / vault /
+// multi_rewards / kitchen_token / strategy / kitchen_token_symbol are ALL
+// `text` in the map, so t.text() NOT t.hex(), mirroring the apdao + moneycomb +
+// henlo-vault + fatbera green-belt tables above):
+//   text PK                     → t.text().primaryKey()
+//   text NOT NULL / NULL        → t.text().notNull() / t.text()
+//   numeric(78,0) NOT NULL/NULL → t.numeric({ precision: 78, scale: 0, mode: "bigint" })[.notNull()]
+//   bigint (int8) NOT NULL/NULL → t.bigint()[.notNull()]
+//   integer (int4) NOT NULL/NULL→ t.integer()[.notNull()]
+//   boolean NOT NULL            → t.boolean().notNull()
+//
+// chain_id IS present on all 5 entities (envio event.chainId → BERACHAIN_ID
+// 80094, hardcoded in the envio source; the ponder port uses context.chain.id,
+// identical value since SF is Berachain-only). The map's BigInt timestamp
+// columns (first_deposit_at, last_activity_at, active_from, active_to,
+// first_stake_at) are `bigint (int8)` — the envio source already wraps these as
+// BigInt(event.block.timestamp) (NOT the Timestamp scalar), so they map to
+// ponder t.bigint() as PURE renames; NO timestamp_to_bigint Date-drift
+// conversion applies to this group (same as apdao / moneycomb).
+//
+// @index parity: the envio schema marks SFPosition.user/.vault,
+// SFMultiRewardsPosition.user, SFVaultStrategy.vault/.strategy/.multiRewards,
+// and LatestVaultStrategy.multiRewards with @index (schema.graphql:640-722).
+// Ponder indexes are declared as the second onchainTable arg, mirroring
+// mibera_loan / mint_activity / tracked_holder above.
+// ─────────────────────────────────────────────────────────────────────────
+
+// SFPosition — id = `${chainId}_${user}_${vault}`. ROLLUP-LWW (vault/staked/
+// total shares + cumulative deposit/withdraw/claim flows accumulate per event).
+export const sfPosition = onchainTable(
+  "sf_position",
+  (t) => ({
+    id: t.text().primaryKey(),                 // chainId_user_vault
+    user: t.text().notNull(),                  // @index per envio
+    vault: t.text().notNull(),                 // @index per envio
+    multiRewards: t.text().notNull(),
+    kitchenToken: t.text().notNull(),
+    strategy: t.text().notNull(),
+    kitchenTokenSymbol: t.text().notNull(),
+    vaultShares: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    stakedShares: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    totalShares: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    totalDeposited: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    totalWithdrawn: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    totalClaimed: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    firstDepositAt: t.bigint().notNull(),      // BigInt(timestamp) — pure rename
+    lastActivityAt: t.bigint().notNull(),      // BigInt(timestamp) — pure rename
+    chainId: t.integer().notNull(),
+  }),
+  (table) => ({
+    userIdx: index().on(table.user),
+    vaultIdx: index().on(table.vault),
+  }),
+);
+
+// SFVaultStats — id = `${chainId}_${vault}`. ROLLUP (additive aggregates per pot).
+export const sfVaultStats = onchainTable("sf_vault_stats", (t) => ({
+  id: t.text().primaryKey(),                   // chainId_vault
+  vault: t.text().notNull(),
+  kitchenToken: t.text().notNull(),
+  kitchenTokenSymbol: t.text().notNull(),
+  strategy: t.text().notNull(),
+  totalDeposited: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalWithdrawn: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalStaked: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalUnstaked: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalClaimed: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  uniqueDepositors: t.integer().notNull(),
+  activePositions: t.integer().notNull(),
+  depositCount: t.integer().notNull(),
+  withdrawalCount: t.integer().notNull(),
+  claimCount: t.integer().notNull(),
+  firstDepositAt: t.bigint(),                  // nullable per the map
+  lastActivityAt: t.bigint().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// SFMultiRewardsPosition — id = `${chainId}_${user}_${multiRewards}`. ROLLUP
+// (per-MultiRewards staked/lifetime flows; the strategy-migration tracking key).
+export const sfMultiRewardsPosition = onchainTable(
+  "sf_multi_rewards_position",
+  (t) => ({
+    id: t.text().primaryKey(),                 // chainId_user_multiRewards
+    user: t.text().notNull(),                  // @index per envio
+    vault: t.text().notNull(),
+    multiRewards: t.text().notNull(),
+    stakedShares: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    totalStaked: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    totalUnstaked: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    totalClaimed: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    firstStakeAt: t.bigint(),                  // nullable per the map
+    lastActivityAt: t.bigint().notNull(),
+    chainId: t.integer().notNull(),
+  }),
+  (table) => ({
+    userIdx: index().on(table.user),
+  }),
+);
+
+// SFVaultStrategy — id = `${chainId}_${vault}_${strategy}`. ROLLUP-LWW
+// (isActive/activeTo state flips on strategy migration; historical tracking).
+export const sfVaultStrategy = onchainTable(
+  "sf_vault_strategy",
+  (t) => ({
+    id: t.text().primaryKey(),                 // chainId_vault_strategy
+    vault: t.text().notNull(),                 // @index per envio
+    strategy: t.text().notNull(),              // @index per envio
+    multiRewards: t.text().notNull(),          // @index per envio
+    kitchenToken: t.text().notNull(),
+    kitchenTokenSymbol: t.text().notNull(),
+    activeFrom: t.bigint().notNull(),          // BigInt(timestamp) — pure rename
+    activeTo: t.bigint(),                       // nullable (set on migration)
+    isActive: t.boolean().notNull(),
+    chainId: t.integer().notNull(),
+  }),
+  (table) => ({
+    vaultIdx: index().on(table.vault),
+    strategyIdx: index().on(table.strategy),
+    multiRewardsIdx: index().on(table.multiRewards),
+  }),
+);
+
+// LatestVaultStrategy — id = `${vault}` (lowercase). ROLLUP-LWW (singleton per
+// vault — the O(1) current-active-strategy lookup the deposit/stake path needs).
+export const latestVaultStrategy = onchainTable(
+  "latest_vault_strategy",
+  (t) => ({
+    id: t.text().primaryKey(),                 // vault address (lowercase)
+    vault: t.text().notNull(),
+    strategy: t.text().notNull(),
+    multiRewards: t.text().notNull(),          // @index per envio
+    kitchenToken: t.text().notNull(),
+    kitchenTokenSymbol: t.text().notNull(),
+    chainId: t.integer().notNull(),
+  }),
+  (table) => ({
+    multiRewardsIdx: index().on(table.multiRewards),
+  }),
+);
