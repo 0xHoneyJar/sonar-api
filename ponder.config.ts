@@ -57,6 +57,15 @@ import { MirrorObservabilityAbi } from "./abis/MirrorObservabilityAbi";
 import { ApdaoAuctionHouseAbi } from "./abis/ApdaoAuctionHouseAbi";
 import { MoneycombVaultAbi } from "./abis/MoneycombVaultAbi";
 import { HenloVaultAbi } from "./abis/HenloVaultAbi";
+import {
+  FatBeraDepositsAbi,
+  FatBeraAccountingAbi,
+  BeaconDepositAbi,
+  BlockRewardControllerAbi,
+  AutomatedStakeAbi,
+  ValidatorWithdrawalModuleAbi,
+  ValidatorDepositRouterAbi,
+} from "./abis/FatBeraAbis";
 
 // ─── Optimism (10) green-belt contract addresses ────────────────────────
 // Mirror's WritingEditions observability contract (per envio config.yaml
@@ -113,6 +122,40 @@ const HENLO_VAULT_BERA = "0x42069E3BF367C403b632CF9cD5a8d61e2c0c44fC";
 // 21424739 (identical to the blue-belt BERA_START_BLOCK / the Group-G apdao /
 // Group-C moneycomb boundaries).
 const BERA_HENLO_VAULT_START_BLOCK = 21424739;
+
+// ─── Group A (validator-rewards / FatBera · Berachain 80094) ──────────────
+// The 7 validator-rewards contracts (config.yaml:856-885). All Berachain-only.
+// Addresses VERBATIM from config.yaml. ValidatorWithdrawalModule has THREE
+// addresses (config.yaml:877-880) — passed as an address array (same shape
+// ponder.config.mibera.ts uses for multi-address contracts).
+const FATBERA_DEPOSITS_BERA = "0xBAE11292a3E693AF73651BDa350d752AE4A391d4";
+const FATBERA_ACCOUNTING_BERA = "0xBAE11292a3E693AF73651BDa350d752AE4A391d4";
+const BEACON_DEPOSIT_BERA = "0x4242424242424242424242424242424242424242";
+const BLOCK_REWARD_CONTROLLER_BERA = "0x1ae7dd7ae06f6c58b4524d9c1f816094b1bccd8e";
+const AUTOMATED_STAKE_BERA = "0x8ba92925c156ea522Cd80b4633bd0a9824c3bcdf";
+const VALIDATOR_WITHDRAWAL_MODULE_BERA = [
+  "0x81Da3e3E0C0C541038646AcE201EA17c4274bbcb",
+  "0xE9f68A1cFe403f84C7bD37a590CfE390A3250324",
+  "0x56c70E5eFbA5f18B04d17bBC580b6d37B3AFE5Ed",
+] as const;
+const VALIDATOR_DEPOSIT_ROUTER_BERA = "0x989212D8227a8957b9247e1966046B47a7a63D64";
+
+// Berachain migration boundary — pin EXACTLY (no finality overlap), 21424739.
+// Per the B-1 dispatch brief: ALL 7 Group-A contracts forward-index from the
+// boundary, NOT envio's deploy blocks (1066385 / 1966971). The validator family
+// mixes append-running (validator_block_rewards / validator_deposits carry
+// cumulative running totals copied from the prior latest row), rollup-lww
+// (latest_validator_deposit / latest_validator_reward / withdrawal_batch), and
+// rollup (validator_withdrawal_totals additive counters). Append-running rows
+// are only correct if the prior latest row is present, and the rollups
+// double-count / re-flip on overlap — so any overlap with the frozen import
+// would corrupt the running totals + the latest-snapshot singletons. Boundary =
+// 21424739 (identical to the blue-belt BERA_START_BLOCK / the Group-G apdao /
+// Group-C moneycomb / Group-E henlo-vault boundaries). Pre-boundary history
+// (incl. the 906,771-row validator_block_rewards table) comes from the frozen
+// import. ** Live correctness of the forward append-running totals + the
+// Latest* singletons must be RLAI-graded at green-v3 boot (see report). **
+const BERA_FATBERA_START_BLOCK = 21424739;
 
 export default createConfig({
   // Chains + database carried over VERBATIM from the blue-belt config.
@@ -176,6 +219,65 @@ export default createConfig({
       abi: HenloVaultAbi,
       address: HENLO_VAULT_BERA,
       startBlock: BERA_HENLO_VAULT_START_BLOCK,
+    },
+
+    // ─── Green-belt: Group A (validator-rewards / FatBera · Berachain 80094) ─
+    // The 7 validator-rewards contracts. Required for the ponder.on(...)
+    // registrations in ponder-runtime/src/handlers/fatbera.ts:
+    //   FatBeraDeposits:Deposit                              → fatbera_deposit + validator_deposits / latest_validator_deposit
+    //   FatBeraAccounting:RewardAdded                        → validator_block_rewards / latest_validator_reward (proportional redistribution)
+    //   FatBeraAccounting:WithdrawalRequested                → withdrawal_request / withdrawal_batch
+    //   FatBeraAccounting:BatchStarted                       → withdrawal_batch (status → pending; opens next)
+    //   FatBeraAccounting:WithdrawalFulfilled                → withdrawal_fulfillment / withdrawal_batch (status → fulfilled)
+    //   BeaconDeposit:Deposit                                → validator_deposits / latest_validator_deposit
+    //   BlockRewardController:BlockRewardProcessed           → validator_block_rewards / latest_validator_reward (THE 906k-row producer)
+    //   AutomatedStake:WithdrawUnwrapAndStakeExecuted        → validator_deposits / latest_validator_deposit (outstandingFatBERA decrement)
+    //   ValidatorWithdrawalModule:ValidatorWithdrawalRequested → validator_withdrawal_totals + validator_deposits / latest_validator_deposit
+    //   ValidatorDepositRouter:ValidatorDepositRequested     → validator_deposits / latest_validator_deposit (capacity + redistribution)
+    // No NATS. Registration requires the green-belt config to be ACTIVE —
+    // build/typecheck with BELT_CONFIG=ponder.config.ts. Berachain (80094) is
+    // already a chain in ponder.config.mibera.ts.
+    FatBeraDeposits: {
+      chain: "berachain",
+      abi: FatBeraDepositsAbi,
+      address: FATBERA_DEPOSITS_BERA,
+      startBlock: BERA_FATBERA_START_BLOCK,
+    },
+    FatBeraAccounting: {
+      chain: "berachain",
+      abi: FatBeraAccountingAbi,
+      address: FATBERA_ACCOUNTING_BERA,
+      startBlock: BERA_FATBERA_START_BLOCK,
+    },
+    BeaconDeposit: {
+      chain: "berachain",
+      abi: BeaconDepositAbi,
+      address: BEACON_DEPOSIT_BERA,
+      startBlock: BERA_FATBERA_START_BLOCK,
+    },
+    BlockRewardController: {
+      chain: "berachain",
+      abi: BlockRewardControllerAbi,
+      address: BLOCK_REWARD_CONTROLLER_BERA,
+      startBlock: BERA_FATBERA_START_BLOCK,
+    },
+    AutomatedStake: {
+      chain: "berachain",
+      abi: AutomatedStakeAbi,
+      address: AUTOMATED_STAKE_BERA,
+      startBlock: BERA_FATBERA_START_BLOCK,
+    },
+    ValidatorWithdrawalModule: {
+      chain: "berachain",
+      abi: ValidatorWithdrawalModuleAbi,
+      address: [...VALIDATOR_WITHDRAWAL_MODULE_BERA],
+      startBlock: BERA_FATBERA_START_BLOCK,
+    },
+    ValidatorDepositRouter: {
+      chain: "berachain",
+      abi: ValidatorDepositRouterAbi,
+      address: VALIDATOR_DEPOSIT_ROUTER_BERA,
+      startBlock: BERA_FATBERA_START_BLOCK,
     },
   },
 
