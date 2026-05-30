@@ -53,6 +53,8 @@
 
 import { createConfig } from "ponder";
 import miberaConfig from "./ponder.config.mibera";
+import { Erc721TransferAbi } from "./abis/MiberaAbis";
+import { CrayonsFactoryAbi } from "./abis/CrayonsFactoryAbi";
 import { MirrorObservabilityAbi } from "./abis/MirrorObservabilityAbi";
 import { ApdaoAuctionHouseAbi } from "./abis/ApdaoAuctionHouseAbi";
 import { MoneycombVaultAbi } from "./abis/MoneycombVaultAbi";
@@ -224,10 +226,88 @@ const SF_MULTI_REWARDS_BERA = [
 // (see report + sf-vaults.ts header). **
 const BERA_SF_START_BLOCK = 21424739;
 
+// ─── Group B (HoneyJar genesis · 6 chains · the FINAL group) ──────────────
+// The HoneyJar collection family (honey-jar-nfts.ts + crayons.ts). This is the
+// ONLY group that spans 6 chains and INTRODUCES 2 NEW chains to ponder.config:
+// Arbitrum (42161) + Zora (7777777). The 4 Mibera-shared chains (eth/base/bera/op)
+// already exist in ponder.config.mibera.ts; we spread that config's chains and
+// ADD the two new ones below (the mibera config is NOT modified).
+//
+// New-chain RPCs — match the mibera config's declaration style exactly
+// (ponder.config.mibera.ts:48-53): `const RPC_* = process.env.PONDER_RPC_URL_<id>
+// ?? "<public-fallback>"`. eRPC already routes /main/evm/42161 + /main/evm/7777777
+// upstream (config.yaml:607/625) — this only adds the ponder.config chain entries.
+const RPC_ARB  = process.env.PONDER_RPC_URL_42161   ?? "https://arb1.arbitrum.io/rpc";
+const RPC_ZORA = process.env.PONDER_RPC_URL_7777777 ?? "https://rpc.zora.energy";
+
+// HoneyJar / Honeycomb / HoneyJar*Eth contract addresses (VERBATIM from
+// config.yaml per-chain network blocks, chains 1/42161/7777777/10/8453/80094).
+// HoneyJar + Honeycomb are MULTI-CHAIN — registered via ponder's per-chain
+// `chain: { <name>: { address, startBlock } }` form (the L0-remint HoneyJar*Eth
+// are ethereum-only). MiladyCollection (config.yaml:597) is NOT registered here —
+// it is ALREADY live in ponder.config.mibera.ts:269 (re-registering would
+// double-index + collide). CrayonsCollection is commented out in config.yaml
+// (no addresses) → not registered. The Erc721 ABI (abis/MiberaAbis.ts) is
+// REUSED for all HJ/Honeycomb Transfer events (standard ERC721 Transfer); only
+// CrayonsFactory needs a new minimal ABI (Factory__NewERC721Base).
+const HJ_ETH        = ["0xa20cf9b0874c3e46b344deaeea9c2e0c3e1db37d", "0x98dc31a9648f04e23e4e36b0456d1951531c2a05"] as const; // HoneyJar1 + HoneyJar6 (config.yaml:571-572)
+const HJ_ARB        = "0x1b2751328f41d1a0b91f3710edcd33e996591b72"; // HoneyJar2 (config.yaml:617)
+const HJ_ZORA       = "0xe798c4d40bc050bc93c7f3b149a0dfe5cfc49fb0"; // HoneyJar3 (config.yaml:635)
+const HJ_OP         = "0xe1d16cc75c9f39a2e0f5131eb39d4b634b23f301"; // HoneyJar4 (config.yaml:653)
+const HJ_BASE       = "0xbad7b49d985bbfd3a22706c447fb625a28f048b4"; // HoneyJar5 (config.yaml:696)
+const HJ_BERA       = [
+  "0xedc5dfd6f37464cc91bbce572b6fe2c97f1bc7b3", // HoneyJar1 Bera
+  "0x1c6c24cac266c791c4ba789c3ec91f04331725bd", // HoneyJar2 Bera
+  "0xf1e4a550772fabfc35b28b51eb8d0b6fcd1c4878", // HoneyJar3 Bera
+  "0xdb602ab4d6bd71c8d11542a9c8c936877a9a4f45", // HoneyJar4 Bera
+  "0x0263728e7f59f315c17d3c180aeade027a375f17", // HoneyJar5 Bera
+  "0xb62a9a21d98478f477e134e175fd2003c15cb83a", // HoneyJar6 Bera
+] as const; // config.yaml:757-762
+const HONEYCOMB_ETH  = "0xcb0477d1af5b8b05795d89d59f4667b59eae9244"; // config.yaml:577
+const HONEYCOMB_BERA = "0x886d2176d899796cd1affa07eff07b9b2b80f1be"; // config.yaml:767
+const HONEYJAR2_ETH  = "0x3f4dd25ba6fb6441bfd1a869cbda6a511966456d"; // HoneyJar2 L0 remint (config.yaml:582)
+const HONEYJAR3_ETH  = "0x49f3915a52e137e597d6bf11c73e78c68b082297"; // HoneyJar3 L0 remint (config.yaml:586)
+const HONEYJAR4_ETH  = "0x0b820623485dcfb1c40a70c55755160f6a42186d"; // HoneyJar4 L0 remint (config.yaml:590)
+const HONEYJAR5_ETH  = "0x39eb35a84752b4bd3459083834af1267d276a54c"; // HoneyJar5 L0 remint (config.yaml:594)
+const CRAYONS_FACTORY_BERA = "0xF1c7d49B39a5aCa29ead398ad9A7024ed6837F87"; // config.yaml:778
+
+// Per-chain migration boundaries — pin EXACTLY (no finality overlap). ALL Group-B
+// contracts write rollup entities (holder/token/collection_stat/user_balance
+// accumulate/mutate per transfer) ALONGSIDE the append transfer/mint, so per the
+// migration's per-entity double-count rule every chain pins to its boundary
+// EXACTLY. Boundaries are envio chain_metadata.latest_processed_block (T-M1 +
+// dual-verified against the live source today; the blue belt is frozen so these
+// are stable). Forward-index from the boundary; ALL pre-boundary history (incl.
+// the 354,492-row transfer / 130,921-row token tables) comes from the frozen
+// import — NOT the contracts' config.yaml deploy blocks.
+//   - ethereum (1):    boundary = blue-belt ETH_START_BLOCK (25184952)
+//   - optimism (10):   boundary = 152132710 EXACTLY — matches the merged
+//                       OP_MIRROR_START_BLOCK, NOT the mibera config's 152132110
+//                       (which is boundary−600 for append-only-pure Mibera; the
+//                       HJ rollups need the exact boundary, no overlap).
+//   - base (8453):     boundary = blue-belt BASE_START_BLOCK (46537425)
+//   - berachain (80094): boundary = blue-belt BERA_START_BLOCK (21424739)
+//   - arbitrum (42161):  GREEN-BELT-NEW boundary 467123902 (re-grounded today)
+//   - zora (7777777):    GREEN-BELT-NEW boundary 46585178 (re-grounded today)
+// ** Arbitrum + Zora are NEW chains → their cold-sync from boundary + the
+// cross-chain user_balance aggregation must be RLAI-graded at green-v3 boot. **
+const ETH_HJ_START_BLOCK  = 25184952;
+const OP_HJ_START_BLOCK   = 152132710; // EXACT boundary (NOT the mibera 152132110)
+const BASE_HJ_START_BLOCK = 46537425;
+const BERA_HJ_START_BLOCK = 21424739;
+const ARB_HJ_START_BLOCK  = 467123902; // GREEN-BELT-NEW chain
+const ZORA_HJ_START_BLOCK = 46585178;  // GREEN-BELT-NEW chain
+
 export default createConfig({
-  // Chains + database carried over VERBATIM from the blue-belt config.
-  // Optimism (10) is already a chain in ponder.config.mibera.ts.
-  chains: miberaConfig.chains,
+  // Chains + database carried over VERBATIM from the blue-belt config, PLUS the
+  // 2 NEW chains Group B introduces (Arbitrum 42161 + Zora 7777777). The mibera
+  // config (4 chains: eth/base/bera/op) is spread, NOT edited — we only ADD the
+  // two new entries here. Declaration style matches ponder.config.mibera.ts:142-146.
+  chains: {
+    ...miberaConfig.chains,
+    arbitrum: { id: 42161,   rpc: RPC_ARB  },
+    zora:     { id: 7777777, rpc: RPC_ZORA },
+  },
   database: miberaConfig.database,
 
   contracts: {
@@ -378,6 +458,79 @@ export default createConfig({
       abi: SFVaultStrategyWrapperAbi,
       address: [...SF_VAULT_STRATEGY_WRAPPER_BERA],
       startBlock: BERA_SF_START_BLOCK,
+    },
+
+    // ─── Green-belt: Group B (HoneyJar genesis · 6 chains · the FINAL group) ─
+    // The HoneyJar collection family. Required for the ponder.on(...)
+    // registrations in ponder-runtime/src/handlers/honey-jar-nfts.ts:
+    //   HoneyJar:Transfer        (6 chains; collection resolved via address map)
+    //   HoneyJar2Eth:Transfer    (ethereum; collectionOverride "HoneyJar2")
+    //   HoneyJar3Eth:Transfer    (ethereum; collectionOverride "HoneyJar3")
+    //   HoneyJar4Eth:Transfer    (ethereum; collectionOverride "HoneyJar4")
+    //   HoneyJar5Eth:Transfer    (ethereum; collectionOverride "HoneyJar5")
+    //   Honeycomb:Transfer       (ethereum + berachain)
+    //   CrayonsFactory:Factory__NewERC721Base (berachain · discovery skeleton)
+    // → transfer / mint / token / holder / user_balance / collection_stat.
+    // No NATS (honey-jar-nfts.ts emits no events → no OutboxFlush for arb/zora).
+    // MiladyCollection is NOT registered (already live in ponder.config.mibera.ts:269).
+    // Registration requires the green-belt config to be ACTIVE — build/typecheck
+    // with BELT_CONFIG=ponder.config.ts. Erc721 ABI REUSED for all HJ/Honeycomb.
+
+    // HoneyJar — multi-chain (per-chain address + boundary startBlock).
+    HoneyJar: {
+      abi: Erc721TransferAbi,
+      chain: {
+        ethereum:  { address: [...HJ_ETH],  startBlock: ETH_HJ_START_BLOCK },
+        arbitrum:  { address: HJ_ARB,       startBlock: ARB_HJ_START_BLOCK },
+        zora:      { address: HJ_ZORA,      startBlock: ZORA_HJ_START_BLOCK },
+        optimism:  { address: HJ_OP,        startBlock: OP_HJ_START_BLOCK },
+        base:      { address: HJ_BASE,      startBlock: BASE_HJ_START_BLOCK },
+        berachain: { address: [...HJ_BERA], startBlock: BERA_HJ_START_BLOCK },
+      },
+    },
+
+    // Honeycomb — multi-chain (ethereum + berachain).
+    Honeycomb: {
+      abi: Erc721TransferAbi,
+      chain: {
+        ethereum:  { address: HONEYCOMB_ETH,  startBlock: ETH_HJ_START_BLOCK },
+        berachain: { address: HONEYCOMB_BERA, startBlock: BERA_HJ_START_BLOCK },
+      },
+    },
+
+    // HoneyJar L0-remint contracts (ethereum-only). Each overrides the
+    // collection in the handler ("HoneyJar2".."HoneyJar5").
+    HoneyJar2Eth: {
+      chain: "ethereum",
+      abi: Erc721TransferAbi,
+      address: HONEYJAR2_ETH,
+      startBlock: ETH_HJ_START_BLOCK,
+    },
+    HoneyJar3Eth: {
+      chain: "ethereum",
+      abi: Erc721TransferAbi,
+      address: HONEYJAR3_ETH,
+      startBlock: ETH_HJ_START_BLOCK,
+    },
+    HoneyJar4Eth: {
+      chain: "ethereum",
+      abi: Erc721TransferAbi,
+      address: HONEYJAR4_ETH,
+      startBlock: ETH_HJ_START_BLOCK,
+    },
+    HoneyJar5Eth: {
+      chain: "ethereum",
+      abi: Erc721TransferAbi,
+      address: HONEYJAR5_ETH,
+      startBlock: ETH_HJ_START_BLOCK,
+    },
+
+    // CrayonsFactory (berachain) — Factory__NewERC721Base discovery event only.
+    CrayonsFactory: {
+      chain: "berachain",
+      abi: CrayonsFactoryAbi,
+      address: CRAYONS_FACTORY_BERA,
+      startBlock: BERA_HJ_START_BLOCK,
     },
   },
 

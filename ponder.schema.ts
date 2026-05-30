@@ -1480,3 +1480,131 @@ export const latestVaultStrategy = onchainTable(
     multiRewardsIdx: index().on(table.multiRewards),
   }),
 );
+
+// ─────────────────────────────────────────────────────────────────────────
+// B-1 green-belt — Group B (HoneyJar genesis · honey-jar-nfts.ts + crayons.ts)
+//
+// The 6 GENERIC entities the HoneyJar collection family writes across 6 chains
+// (ethereum 1 / arbitrum 42161 / zora 7777777 / optimism 10 / base 8453 /
+// berachain 80094). Sources of truth:
+//   - envio schema.graphql:14-24 (Transfer), 269-278 (Mint), 280-289 (Holder),
+//     300-309 (CollectionStat), 326-335 (Token), 337-351 (UserBalance)
+//   - column map: grimoires/loa/migration/b-1-green-belt-map.yaml §"GROUP B"
+//
+// Column types follow the map's transform=rename rows VERBATIM:
+//   - tokenId (uint256)            → numeric(78,0) mode:"bigint"  (NFT-id-safe)
+//   - timestamp / blockNumber /    → t.bigint()  (int64-safe; not user-controlled)
+//     mintedAt / lastTransferTime /
+//     lastActivityTime
+//   - firstMintTime / lastMintTime → t.bigint() NULLABLE (envio NULL; the only
+//                                     two nullable columns in the group)
+//   - from / to / address / owner /→ t.text()  (the envio handler stores LOWERCASED
+//     collection / transactionHash /  strings, NOT viem 0x-typed hex; preserving
+//     id                              t.text() keeps byte-parity with the frozen
+//                                     import — same precedent as moneycomb vault.*)
+//   - balance / totalMinted /      → t.integer()  (int4 counters)
+//     totalSupply / uniqueHolders /
+//     generation / balance* / minted* /
+//     chainId
+//
+// @index parity from schema.graphql: Holder.address @index + Holder.collection
+// @index (lines 282, 287). Transfer/Mint/Token/CollectionStat/UserBalance carry
+// NO @index in the envio schema → PK-only (matches the green-belt schema's
+// PK-only tables; the index-parity rule honors the envio source exactly).
+//
+// EXCLUDED (dead per the map, lines 75-81): GlobalCollectionStat (type-referenced
+// in honey-jar-nfts.ts but never .set; 0 writers) + the 6 HoneyJar_* auto-scaffold
+// event entities. NOT created here.
+// ─────────────────────────────────────────────────────────────────────────
+
+// Transfer — APPEND (id = `${txHash}_${logIndex}`; honey-jar-nfts.ts:51-64 +
+// crayons.ts:23 both write here — one ponder table, two envio writers).
+export const transfer = onchainTable("transfer", (t) => ({
+  id: t.text().primaryKey(),
+  tokenId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  from: t.text().notNull(),
+  to: t.text().notNull(),
+  timestamp: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  transactionHash: t.text().notNull(),
+  collection: t.text().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// Mint — APPEND (id = `${txHash}_${logIndex}_mint`; honey-jar-nfts.ts:148-160).
+export const mint = onchainTable("mint", (t) => ({
+  id: t.text().primaryKey(),
+  tokenId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  to: t.text().notNull(),
+  timestamp: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  transactionHash: t.text().notNull(),
+  collection: t.text().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// Token — ROLLUP-LWW (id = `${collection}_${chainId}_${tokenId}`; owner /
+// isBurned / lastTransferTime last-write-wins; honey-jar-nfts.ts:197-221).
+export const token = onchainTable("token", (t) => ({
+  id: t.text().primaryKey(),
+  collection: t.text().notNull(),
+  chainId: t.integer().notNull(),
+  tokenId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  owner: t.text().notNull(),
+  isBurned: t.boolean().notNull(),
+  mintedAt: t.bigint().notNull(),
+  lastTransferTime: t.bigint().notNull(),
+}));
+
+// Holder — ROLLUP (id = `${collection}_${chainId}_${address}`; balance +/- ,
+// totalMinted +1; honey-jar-nfts.ts:271-293). @index: address + collection.
+export const holder = onchainTable(
+  "holder",
+  (t) => ({
+    id: t.text().primaryKey(),
+    address: t.text().notNull(),               // @index per envio schema.graphql:282
+    balance: t.integer().notNull(),
+    totalMinted: t.integer().notNull(),
+    lastActivityTime: t.bigint().notNull(),
+    firstMintTime: t.bigint(),                 // nullable (envio NULL)
+    collection: t.text().notNull(),            // @index per envio schema.graphql:287
+    chainId: t.integer().notNull(),
+  }),
+  (table) => ({
+    addressIdx: index().on(table.address),
+    collectionIdx: index().on(table.collection),
+  }),
+);
+
+// UserBalance — ROLLUP (id = `${generation}_${address}` — CROSS-CHAIN; per-
+// generation balance/minted counters aggregate across ALL chains;
+// honey-jar-nfts.ts:314-384). NO chainId column — the cross-chain aggregate is
+// the entire point of this entity.
+export const userBalance = onchainTable("user_balance", (t) => ({
+  id: t.text().primaryKey(),
+  address: t.text().notNull(),
+  generation: t.integer().notNull(),
+  balanceHomeChain: t.integer().notNull(),
+  balanceEthereum: t.integer().notNull(),
+  balanceBerachain: t.integer().notNull(),
+  balanceTotal: t.integer().notNull(),
+  mintedHomeChain: t.integer().notNull(),
+  mintedEthereum: t.integer().notNull(),
+  mintedBerachain: t.integer().notNull(),
+  mintedTotal: t.integer().notNull(),
+  lastActivityTime: t.bigint().notNull(),
+  firstMintTime: t.bigint(),                   // nullable (envio NULL)
+}));
+
+// CollectionStat — ROLLUP (id = `${collection}_${chainId}`; totalSupply /
+// totalMinted / totalBurned / uniqueHolders accumulate; honey-jar-nfts.ts:400-445).
+export const collectionStat = onchainTable("collection_stat", (t) => ({
+  id: t.text().primaryKey(),
+  collection: t.text().notNull(),
+  totalSupply: t.integer().notNull(),
+  totalMinted: t.integer().notNull(),
+  totalBurned: t.integer().notNull(),
+  uniqueHolders: t.integer().notNull(),
+  lastMintTime: t.bigint(),                    // nullable (envio NULL)
+  chainId: t.integer().notNull(),
+}));
