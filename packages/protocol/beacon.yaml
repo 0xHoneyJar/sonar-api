@@ -55,20 +55,28 @@ is_not:
 composes_with: {}
 
 # ─── ACVP invariants (verifiability discipline) ───────────────────────────
-# ASPIRATIONAL. The proof_artifact paths are placeholders — no tests/acvp/
-# directory exists in sonar-api today. The blue-green promotion gate (PRD r2
-# FR-4) is a runtime reconciliation, not a unit-test binding. Future cycle:
-# port the score-api footprint reconciliation (AC-R7) + the per-chain
-# getLogs-liar verification discipline (KF-012) into tests/acvp/.
+# All three are declared `status: aspirational` (KF-012: no tests/acvp/ directory
+# exists in sonar-api yet — these are bound by the blue-green promotion gate, a
+# runtime reconciliation, not a unit-test binding). `status: aspirational` is the
+# schema-declared signal that loa-freeside doctor reads: an aspirational invariant
+# MUST also appear (dated) in loa-freeside .freeside/acvp-aspirational-allowlist.yaml
+# — which it does (all three, through 2026-08-30). Result: doctor reports `warn`
+# with a countdown (contract_status: aspirational), not a hard error. Promote each
+# to `status: active` (and delete its allowlist row) once the proof lands:
+# port the score-api footprint reconciliation (AC-R7) + the per-chain getLogs-liar
+# verification discipline (KF-012) into tests/acvp/.
 
 acvp_invariants:
   - id: event_completeness
+    status: aspirational
     scope: "No event drops between block N and N+1 for any indexed contract source on any chain"
     proof_artifact: "tests/acvp/event_completeness.test.ts"   # ASPIRATIONAL — see KF-012 in grimoires/loa/known-failures.md
   - id: monotonicity
+    status: aspirational
     scope: "latest_processed_block on a given chainId never decreases on the live alias (reorgs handled in-belt)"
     proof_artifact: "tests/acvp/monotonicity.test.ts"          # ASPIRATIONAL — bound by the promotion gate (PRD FR-4)
   - id: audit_replay
+    status: aspirational
     scope: "Reindexing the consolidated belt from per-chain start_block produces byte-identical Action / Transfer / MintEvent rows"
     proof_artifact: "tests/acvp/audit_replay.test.ts"          # ASPIRATIONAL — bound by the green-vs-blue reconciliation gate
 
