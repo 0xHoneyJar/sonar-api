@@ -65,6 +65,8 @@ composes_with: {}
 # to `status: active` (and delete its allowlist row) once the proof lands:
 # port the score-api footprint reconciliation (AC-R7) + the per-chain getLogs-liar
 # verification discipline (KF-012) into tests/acvp/.
+# Countdown owner (the 2026-08-30 expiry has a tracked owner, not a silent
+# deadline): loa-freeside bead arrakis-2vj2 gates the KF-012 port before expiry.
 
 acvp_invariants:
   - id: event_completeness
