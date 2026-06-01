@@ -40,8 +40,11 @@ code outside `/implement`") mechanical for review skills rather than prose-only.
 | Report-authoring review (`red-teaming`, `bridgebuilder-review`; `write_files: true`) | `NotebookEdit`, `Bash(git add/commit/push *)` | Legitimately write STATE-zone reports/vision/lore, so `Write` is retained; app-code prevention is governed by **zones**, and the implementation-only git mutations are removed |
 
 **`REVIEW_WRITE_EXCEPTIONS`** (in `validate-skill-capabilities.sh`):
-`red-teaming`, `bridgebuilder-review`, `spiraling`. These `role: review` skills
-keep `Write` by design. The validator emits a WARN for any *other* `role: review`
+`red-teaming`, `bridgebuilder-review`, `spiraling`, `autonomous-agent`,
+`run-bridge`, `run-mode`. These `role: review` skills keep `Write` by design —
+the adversarial/report authors write STATE-zone artifacts, and the autonomous
+orchestrators dispatch implementation through the harness (which runs inside
+`/implement`, where writes are sanctioned). The validator emits a WARN for any *other* `role: review`
 skill that declares `write_files: true` without disallowing `Write` — surfacing
 a new C-PROC-001 gap at lint time. `disallowed-tools` is tool-granular, not
 path-granular; it cannot express "no `src/` writes but yes `grimoires/` writes",
