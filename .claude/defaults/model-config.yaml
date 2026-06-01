@@ -845,9 +845,19 @@ agents:
 #   `providers.<provider>.models`. Live probe (with API keys) is the
 #   operator's responsibility on opt-in.
 tier_groups:
+  # cycle-114 FR-8: informational-only effort hints per tier. NOT consumed by
+  # the FR-3.9 resolver or any dispatch path this cycle — purely advisory for
+  # operators and the Empirical Model Economy roll-up (which reports cost by
+  # effort). A future cycle may wire binding behavior; until then these values
+  # MUST NOT change model resolution. Pinned by tests/unit/cycle-114-tier-effort-hints.bats.
+  effort_hints:
+    max: xhigh
+    mid: medium
+    cheap: low
+    tiny: low
   mappings:
     max:
-      anthropic: opus              # → claude-opus-4-7
+      anthropic: opus              # → claude-opus-4-8 (cycle-114 retarget)
       openai: gpt-5.5-pro          # top-of-OpenAI per probe-confirmation
       google: gemini-3.1-pro       # → gemini-3.1-pro-preview
     cheap:
