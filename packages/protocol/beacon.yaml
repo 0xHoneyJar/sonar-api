@@ -35,6 +35,7 @@ is:
     - "Normalizes cross-cutting Action / Mint / Transfer / Holder rows via shared lib/actions.ts"
     - "Serves cycle-c verification reads + per-event entities + running aggregates (e.g. PaddleSupplier)"
     - "Promotes additive-only schema changes blue-green behind a fixed alias (zero consumer downtime)"
+    - "Badge-LEADERBOARD reads (total badges per holder) carry a CANONICAL deterministic order — query BadgeHolder with order_by [{totalBadges: desc}, {updatedAt: asc}, {id: asc}]. Determinism is GUARANTEED by the final {id: asc} (unique holder address) — required because updatedAt (= event.block.timestamp, set in src/handlers/badges1155.ts) can collide for same-block transfers and is a last-activity approximation of 'who reached the count first', NOT an immutable first-reached marker (a dedicated firstReachedAt is a follow-up — arrakis-dogfood-sonar-firstreached-and-beacon-contracts). NB: this is a BadgeHolder query — BadgeBalance (per-token holdings: holder_id/tokenId/amount) does NOT expose totalBadges and errors 'field not found'. Consumers MUST use this order to inherit a stable ranking instead of re-sorting privately; surfaced 2026-06-03 by the cubquests badge-leaderboard dogfood shadow (count=196/195/193 tie bands)."
 
 # ─── Anti-scope (the discipline-forcing field) ────────────────────────────
 
