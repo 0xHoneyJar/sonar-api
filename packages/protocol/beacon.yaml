@@ -35,6 +35,7 @@ is:
     - "Normalizes cross-cutting Action / Mint / Transfer / Holder rows via shared lib/actions.ts"
     - "Serves cycle-c verification reads + per-event entities + running aggregates (e.g. PaddleSupplier)"
     - "Promotes additive-only schema changes blue-green behind a fixed alias (zero consumer downtime)"
+    - "Badge-holder leaderboard reads carry a CANONICAL deterministic order — query BadgeHolder/BadgeBalance with order_by [{totalBadges: desc}, {updatedAt: asc}] (equal badge-counts rank by who reached the count first). Consumers MUST use this order to inherit a stable ranking instead of re-sorting privately; surfaced 2026-06-03 by the cubquests badge-leaderboard dogfood shadow (without the updatedAt tie-break, equal-count holders rank non-deterministically and consumers disagree — e.g. the count=196/195/193 bands)."
 
 # ─── Anti-scope (the discipline-forcing field) ────────────────────────────
 
