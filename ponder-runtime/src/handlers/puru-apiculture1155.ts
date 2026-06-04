@@ -487,6 +487,10 @@ async function adjustHolder1155(context: any, args: AdjustHolderArgs): Promise<v
 // notch finer. No hold1155 action is emitted: the events surface is unchanged;
 // only the balance/holder side gains tokenId granularity (issue #62 "events stay
 // exactly as they are"). balance is uint256-safe bigint (numeric(78,0)).
+//
+// NOTE: `context: any` matches the handler-wide pattern (adjustHolder1155 above).
+// Typing it against ponder's generated Context is tracked typing-debt to address
+// when the Ponder version exporting a usable handler-context type is adopted.
 // ────────────────────────────────────────────────────────────────────────────
 interface AdjustHolderTokenArgs {
   contractAddress: string;

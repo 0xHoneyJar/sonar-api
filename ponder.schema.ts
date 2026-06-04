@@ -502,6 +502,13 @@ export const trackedTokenBalance = onchainTable(
 // tokenCount; whole-collection from here = SUM(balance) over tokenId, so it
 // generalises and single-edition collections are unaffected. Populated by the
 // puru-apiculture1155 handler (all 4 puru collections). See sonar-api#62.
+//
+// COVERAGE (consumer note): this table is populated for the puru family only.
+// For any other 1155 collectionKey an empty result means "not indexed here",
+// NOT "no holders" — enumerate live coverage with
+// `SELECT DISTINCT collectionKey FROM tracked_holder_1155`. Extend coverage by
+// calling adjustHolder1155Token from the relevant handler (badges1155 already
+// has its own per-token twin, badgeBalance).
 export const trackedHolder1155 = onchainTable(
   "tracked_holder_1155",
   (t) => ({

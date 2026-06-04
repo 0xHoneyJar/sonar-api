@@ -103,6 +103,17 @@ green→blue reverts to today's behavior (score reverts to its current fallback)
   - *Index*: (contract, chainId, tokenId) — both FAGAN and the deploy lens converged on adding
     chainId to match the row key (same-address contracts can exist cross-chain). Adopted.
 
+## Bridgebuilder (BEAUVOIR) triage — PR #64
+
+| # | Finding | Verdict | Rationale |
+|---|---------|---------|-----------|
+| F-01 | composite `(address,contract,chainId)` index | defer | a wallet holds ≤34 puru-edition rows total; `addressIdx` post-filter is trivial. Revisit when the entity expands beyond the puru family. |
+| F-02 | O(4N) sequential DB ops per batch → bulk upsert | defer | mirrors the proven whole-contract `adjustHolder1155` path; puru batches are tiny (≤13 ids); reindex is one-time. Revisit on scope expansion / large semi-fungible batches. |
+| F-03 | `onConflictDoNothing` race drops a delta | push back | impossible under Ponder's sequential single-writer (BEAUVOIR concedes); the suggested SQL-additive `excluded.balance` upsert can't express floor-at-zero + delete-on-empty (which require the read). Consistent with the existing handler. |
+| F-04 | puru-only scope → empty-vs-unsupported ambiguity | **accepted** | added a COVERAGE consumer note to the schema comment (`SELECT DISTINCT collectionKey` enumerates live coverage). |
+| F-05 | `context: any` loses DB type-safety | push back + note | handler-wide pattern; typed Context not cleanly available this Ponder version. Added a tracking-debt comment. |
+| F-06/07 | PRAISE (pre-DB delta reduction; pure-helper extraction) | — | confirms the design. |
+
 ## Acceptance criteria
 
 - [x] `trackedHolder1155` maintains per-(contract,chain,tokenId,wallet) balance with delete-on-zero.
