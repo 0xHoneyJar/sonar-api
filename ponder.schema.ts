@@ -493,6 +493,38 @@ export const trackedTokenBalance = onchainTable(
   }),
 );
 
+// trackedHolder1155 — per-(contract, chain, tokenId, holder) ERC-1155 balance.
+// The per-edition twin of trackedHolder, which sums ALL editions of a contract
+// into one tokenCount. Multi-edition 1155s (e.g. puru apiculture 0x6cfb92…,
+// Base 8453 — only token-id 4 is the Purupuru edition) need per-edition balances
+// so a consumer can read "wallet's balance of token-4" rather than "wallet's
+// balance of all 6 editions summed". Whole-collection count stays trackedHolder.
+// tokenCount; whole-collection from here = SUM(balance) over tokenId, so it
+// generalises and single-edition collections are unaffected. Populated by the
+// puru-apiculture1155 handler (all 4 puru collections). See sonar-api#62.
+export const trackedHolder1155 = onchainTable(
+  "tracked_holder_1155",
+  (t) => ({
+    id: t.text().primaryKey(),             // {contract}_{chainId}_{tokenId}_{address}
+    contract: t.hex().notNull(),
+    collectionKey: t.text().notNull(),
+    chainId: t.integer().notNull(),
+    tokenId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    address: t.hex().notNull(),            // holder (lowercased at handler boundary)
+    balance: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(), // current balance of THIS edition
+    lastUpdated: t.bigint().notNull(),
+  }),
+  (table) => ({
+    // "all holders of token-4" + per-edition SUM walk on (contract, chainId,
+    // tokenId) — chain-scoped to match the row key (a contract address can be
+    // deployed at the same address on multiple chains); "what does wallet X
+    // hold" on address; cohort scans on collectionKey.
+    addressIdx: index().on(table.address),
+    collectionKeyIdx: index().on(table.collectionKey),
+    contractChainTokenIdx: index().on(table.contract, table.chainId, table.tokenId),
+  }),
+);
+
 // ─────────────────────────────────────────────────────────────────────────
 // MiberaLiquidBacking treasury surface
 // ─────────────────────────────────────────────────────────────────────────
