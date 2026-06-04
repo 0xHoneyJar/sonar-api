@@ -532,6 +532,45 @@ export const trackedHolder1155 = onchainTable(
   }),
 );
 
+// addressType — on-chain classification of an address (sonar-api#63).
+// A GLOBAL per-(chainId, address) registry: eoa | contract | delegated_eoa
+// (+ "pending" before first resolution). Distinct from the holder tables —
+// routers/conduits that never HOLD still need classification (the whole point:
+// a router that received 8,404 apiculture but holds 0 polluted the leaderboard),
+// so a flag on a holder row would not reach them.
+//
+// Populated cheaply on the hot path (touchAddress → "pending"); resolved off the
+// hot path by the AddressResolve block-handler via eth_getCode. `recheckAfter`
+// keeps every `eoa` on a recurring re-resolution cadence — a counterfactual
+// ERC-4337 wallet can flip empty→contract once deployed, and only the indexer
+// (at chain head) can keep that correct over time. See sonar-api#63.
+//
+// CONSUMER note: `type = "pending"` means NOT-YET-RESOLVED (unknown) — never treat
+// it as a class, and never read a pending address as a bona-fide EOA. Pending rows
+// transition to eoa/contract/delegated_eoa once the belt is at head (within a few
+// hundred blocks per the resolver cap). COVERAGE note: filled for the puru family
+// only (the proven need — the rank-#3 router appears in apiculture transfers).
+// Historical addresses are empty until a reindex replays past transfers, so this
+// rides the SAME operator-led green-belt reindex as #62.
+export const addressType = onchainTable(
+  "address_type",
+  (t) => ({
+    id: t.text().primaryKey(),             // {chainId}_{address}
+    chainId: t.integer().notNull(),
+    address: t.hex().notNull(),            // lowercased at the handler boundary
+    type: t.text().notNull(),              // pending | eoa | contract | delegated_eoa
+    resolvedAtBlock: t.bigint(),           // block of last resolution; null until first resolved
+    lastResolved: t.bigint(),              // block timestamp (sec) of last resolution; null until first resolved
+    recheckAfter: t.bigint(),              // block at/after which to re-resolve an eoa; null = settled
+  }),
+  (table) => ({
+    // consumer filter "type of address X" on address; the resolver sweep scans
+    // (chainId, type) + range-checks recheckAfter — so include it in the index.
+    addressIdx: index().on(table.address),
+    chainTypeRecheckIdx: index().on(table.chainId, table.type, table.recheckAfter),
+  }),
+);
+
 // ─────────────────────────────────────────────────────────────────────────
 // MiberaLiquidBacking treasury surface
 // ─────────────────────────────────────────────────────────────────────────

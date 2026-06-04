@@ -315,5 +315,14 @@ export default createConfig({
       interval: 1,
       startBlock: OP_START_BLOCK,
     },
+    // sonar-api#63: address-type resolver block-tick. Base-only for now (the puru
+    // collections are all Base). interval > 1 spaces out the getCode sweep; the
+    // handler self-gates on caught-up + a per-tick cap. Add AddressResolve<Chain>
+    // filters here to extend to other chains.
+    AddressResolveBase: {
+      chain: "base",
+      interval: 10,
+      startBlock: BASE_START_BLOCK,
+    },
   },
 });

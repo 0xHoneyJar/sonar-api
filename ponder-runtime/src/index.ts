@@ -28,6 +28,7 @@
 // table + the contract-gap inventory.
 
 import "./handlers/outbox-flush";
+import "./handlers/address-resolve"; // sonar-api#63 — address-type resolver block-tick
 import "./handlers/mibera-collection";
 // GeneralMints:Transfer + GeneralMints:Minted — frees Ruggy (registered in
 // ponder.config.mibera.ts:218 but previously had no handler → mints silently

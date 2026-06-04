@@ -17,6 +17,7 @@
 import { ponder } from "ponder:registry";
 import { erc1155MintEvent, trackedHolder, trackedHolder1155, action } from "../../ponder.schema";
 import { erc1155HolderId, nextBalance, aggregateBatchDeltas } from "../lib/erc1155-holder";
+import { touchAddress } from "../lib/touch-address";
 import { isLiveEvent } from "../lib/sync-status";
 import { reorgSafeEmit } from "../lib/reorg-safe-emit";
 import { buildMintEnvelope } from "../lib/nats-publisher";
@@ -214,6 +215,12 @@ ponder.on("PuruApiculture1155:TransferSingle", async ({ event, context }) => {
       });
     }
   }
+
+  // Address-type classification (sonar-api#63): enqueue both transfer parties for
+  // eth_getCode resolution. The rank-#3 router appears here as a receiver (`to`);
+  // touchAddress skips the zero address, so mint/burn pass through harmlessly.
+  await touchAddress(context, chainId, fromLower);
+  await touchAddress(context, chainId, toLower);
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -403,6 +410,11 @@ ponder.on("PuruApiculture1155:TransferBatch", async ({ event, context }) => {
       }
     }
   }
+
+  // Address-type classification (sonar-api#63): enqueue both transfer parties
+  // for eth_getCode resolution (touchAddress skips the zero address).
+  await touchAddress(context, chainId, fromLower);
+  await touchAddress(context, chainId, toLower);
 });
 
 // ────────────────────────────────────────────────────────────────────────────
