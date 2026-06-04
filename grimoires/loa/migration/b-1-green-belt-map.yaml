@@ -498,7 +498,7 @@ entities:
       - { envio: activeVaults,        envio_type: integer NOT NULL,         ponder: active_vaults,        ponder_type: integer (int4) NOT NULL, transform: rename }
       - { envio: totalShares,         envio_type: numeric (BigInt) NOT NULL, ponder: total_shares,         ponder_type: "numeric(78,0) NOT NULL", transform: rename }
       - { envio: totalRewardsClaimed, envio_type: numeric (BigInt) NOT NULL, ponder: total_rewards_claimed, ponder_type: "numeric(78,0) NOT NULL", transform: rename }
-      - { envio: totalHJsBurned,      envio_type: integer NOT NULL,         ponder: total_hjs_burned,     ponder_type: integer (int4) NOT NULL, transform: rename }
+      - { envio: totalHJsBurned,      envio_type: integer NOT NULL,         ponder: total_h_js_burned,    ponder_type: integer (int4) NOT NULL, transform: rename }
       - { envio: firstVaultTime,      envio_type: numeric (BigInt) NULL,    ponder: first_vault_time,     ponder_type: bigint (int8) NULL,      transform: rename }
       - { envio: lastActivityTime,    envio_type: numeric (BigInt) NOT NULL, ponder: last_activity_time,   ponder_type: bigint (int8) NOT NULL,  transform: rename }
 
