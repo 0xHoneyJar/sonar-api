@@ -13,10 +13,25 @@ jobs:
   template-guard:
     name: Template Protection
     runs-on: ubuntu-latest
+    # is_consumer gates the loa-template framework jobs below: this whole CI
+    # validates loa-TEMPLATE invariants, which do not apply to a loa-MOUNTED
+    # CONSUMER repo (it has project state + test fixtures the template lacks).
+    outputs:
+      is_consumer: ${{ steps.ctx.outputs.is_consumer }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Detect repo context (consumer vs template)
+        id: ctx
+        run: |
+          if [ -f ".loa-version.json" ]; then
+            echo "is_consumer=true" >> "$GITHUB_OUTPUT"
+            echo "Loa-mounted CONSUMER repo (.loa-version.json present) — template framework jobs will be skipped."
+          else
+            echo "is_consumer=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Block forbidden template files
         id: check-forbidden
@@ -109,6 +124,7 @@ jobs:
   validate:
     name: Validate Framework Files
     needs: template-guard
+    if: needs.template-guard.outputs.is_consumer != 'true'   # loa-template check; skip on consumer repos
     runs-on: ubuntu-latest
 
     steps:
@@ -245,6 +261,7 @@ jobs:
   markdown-lint:
     name: Lint Markdown
     needs: template-guard
+    if: needs.template-guard.outputs.is_consumer != 'true'   # loa-template check; skip on consumer repos
     runs-on: ubuntu-latest
 
     steps:
@@ -279,6 +296,7 @@ jobs:
   yaml-lint:
     name: Lint YAML
     needs: template-guard
+    if: needs.template-guard.outputs.is_consumer != 'true'   # loa-template check; skip on consumer repos
     runs-on: ubuntu-latest
 
     steps:
