@@ -28,6 +28,7 @@
 // table + the contract-gap inventory.
 
 import "./handlers/outbox-flush";
+import "./handlers/address-resolve"; // sonar-api#63 — address-type resolver block-tick
 import "./handlers/mibera-collection";
 import "./handlers/paddlefi";
 import "./handlers/friendtech";
