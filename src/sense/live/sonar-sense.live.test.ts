@@ -101,6 +101,21 @@ describe("crossCheck — the grounding spine (verify)", () => {
     const big = 123456789012345678901234567890n;
     expect((await crossCheck([ok(big), ok(big)])).grounding).toBe("grounded");
   });
+
+  it("refuted carries NO value (contradiction ⇒ caller falls back to its default)", async () => {
+    const r = await crossCheck([ok(100n), ok(200n)]);
+    expect(r.grounding).toBe("refuted");
+    expect(r.value).toBeUndefined();
+  });
+
+  it("a SYNCHRONOUS throw in a read-fn is a non-response, not a crash", async () => {
+    const boom = (): Promise<bigint> => {
+      throw new Error("sync boom");
+    };
+    const r = await crossCheck([ok(5n), boom]); // 1 ok + 1 sync-throw ⇒ <2 ⇒ unverifiable
+    expect(r.grounding).toBe("unverifiable");
+    expect(r.value).toBe(5n);
+  });
 });
 
 // Real-network validation. Skipped by default so CI stays hermetic; run with:

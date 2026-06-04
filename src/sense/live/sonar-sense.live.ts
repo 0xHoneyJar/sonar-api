@@ -163,10 +163,6 @@ function assertHttpUrl(url: string, label: string): void {
   }
 }
 
-function blockNumberArg(opts?: ReadOptions): bigint | undefined {
-  return opts?.blockNumber;
-}
-
 /**
  * The Observation's `block_number` is stamped ONLY when the caller pins a block
  * (point-in-time read); for a latest read it is omitted (the domain builder
@@ -217,13 +213,19 @@ function buildAs<T>(grounding: Grounding, init: ObservationInit<T>): Observation
 export async function crossCheck<T>(
   reads: ReadonlyArray<() => Promise<T>>,
 ): Promise<{ grounding: Grounding; value?: T; agreed: number; total: number }> {
-  const settled = await Promise.allSettled(reads.map((r) => r()));
+  // `Promise.resolve().then(r)` so a SYNCHRONOUS throw in a read-fn becomes a
+  // rejection (a non-response), never crashing crossCheck itself.
+  const settled = await Promise.allSettled(reads.map((r) => Promise.resolve().then(r)));
   const oks = settled.flatMap((s) => (s.status === "fulfilled" ? [s.value] : []));
   if (oks.length < 2) {
     return { grounding: "unverifiable", value: oks[0], agreed: oks.length, total: reads.length };
   }
-  const allAgree = oks.every((v) => sameValue(v, oks[0]));
-  return { grounding: allAgree ? "grounded" : "refuted", value: oks[0], agreed: oks.length, total: reads.length };
+  if (oks.every((v) => sameValue(v, oks[0]))) {
+    return { grounding: "grounded", value: oks[0], agreed: oks.length, total: reads.length };
+  }
+  // refuted ⇒ the upstreams CONTRADICT, so there is NO agreed value. Do not surface
+  // an arbitrary one as if authoritative — the caller falls back to its neutral default.
+  return { grounding: "refuted", value: undefined, agreed: oks.length, total: reads.length };
 }
 
 // --------------------------------------------------------------------------
@@ -292,37 +294,53 @@ export function makeLiveSonarSense(opts: LiveOptions = {}): SonarSense {
     verb: string,
     chain: ChainId,
     fallbackValue: T,
-    readFn: (c: PublicClient) => Promise<T>,
+    readFn: (c: PublicClient, blockNumber: bigint | undefined) => Promise<T>,
     opts?: ReadOptions,
   ): Promise<Observation<T>> {
     const fb = client(chain);
     if (!fb) return unverifiable<T>({ value: fallbackValue, source: `live:unsupported-chain:${chain}`, chain_id: chain, trace_id: trace(verb) });
-    const block_number = blockNumberField(opts);
 
     if (opts?.verify) {
-      const urls = (CHAINS[chain]?.rpcUrls ?? []).slice(0, 2);
+      // Cross-check over the SAME upstream set the reader uses — INCLUDING eRPC
+      // (rpcUrlsFor), not just the public RPCs.
+      const urls = rpcUrlsFor(chain, erpcUrl).slice(0, 2);
       if (urls.length >= 2) {
-        const cc = await crossCheck(urls.map((u) => () => readFn(singleClient(chain, u))));
+        // Pin a COMMON block so normal head-skew between upstreams isn't mistaken for
+        // a contradiction (spurious refuted). Use the caller's block, else the MIN of
+        // the upstreams' heads — a block BOTH are guaranteed to have.
+        let pinned = opts.blockNumber;
+        if (pinned === undefined) {
+          const heads = await Promise.all(
+            urls.map((u) => singleClient(chain, u).getBlockNumber().then((h) => h, () => undefined)),
+          );
+          const ok = heads.filter((h): h is bigint => typeof h === "bigint");
+          if (ok.length >= 2) pinned = ok.reduce((a, b) => (a < b ? a : b));
+        }
+        const cc = await crossCheck(urls.map((u) => () => readFn(singleClient(chain, u), pinned)));
         return buildAs<T>(cc.grounding, {
           value: cc.value ?? fallbackValue,
           source: `${sourceKind}:verify:${chainName(chain)}`,
           chain_id: chain,
-          block_number,
+          // Surface ONLY the CALLER's pinned block. The internal auto-pin (used to
+          // make the cross-check skew-free) is an implementation detail — a
+          // caller-requested "latest" read must NOT leak it as a point-in-time
+          // block_number (preserves the bd-zfj.4 latest-vs-pinned contract).
+          block_number: blockNumberField(opts),
           trace_id: trace(verb),
         });
       }
       // Only one upstream to read from ⇒ can't cross-check ⇒ unverifiable, not grounded.
       try {
-        const value = await readFn(fb);
-        return unverifiable<T>({ value, source: `${sourceKind}:single:${chainName(chain)}`, chain_id: chain, block_number, trace_id: trace(verb) });
+        const value = await readFn(fb, opts.blockNumber);
+        return unverifiable<T>({ value, source: `${sourceKind}:single:${chainName(chain)}`, chain_id: chain, block_number: blockNumberField(opts), trace_id: trace(verb) });
       } catch (e) {
         return unverifiable<T>({ value: fallbackValue, source: `live:rpc-error:${errClass(e)}`, chain_id: chain, trace_id: trace(verb) });
       }
     }
 
     try {
-      const value = await readFn(fb);
-      return grounded<T>({ value, source: sourceTag(chain), chain_id: chain, block_number, trace_id: trace(verb) });
+      const value = await readFn(fb, opts?.blockNumber);
+      return grounded<T>({ value, source: sourceTag(chain), chain_id: chain, block_number: blockNumberField(opts), trace_id: trace(verb) });
     } catch (e) {
       return unverifiable<T>({ value: fallbackValue, source: `live:rpc-error:${errClass(e)}`, chain_id: chain, trace_id: trace(verb) });
     }
@@ -425,7 +443,7 @@ export function makeLiveSonarSense(opts: LiveOptions = {}): SonarSense {
         "read",
         chain,
         undefined as T,
-        (c) => c.readContract({ address: addr, abi, functionName: fn, args: (args ?? []) as readonly unknown[], blockNumber: blockNumberArg(opts) }) as Promise<T>,
+        (c, blockNumber) => c.readContract({ address: addr, abi, functionName: fn, args: (args ?? []) as readonly unknown[], blockNumber }) as Promise<T>,
         opts,
       );
     },
@@ -442,7 +460,7 @@ export function makeLiveSonarSense(opts: LiveOptions = {}): SonarSense {
         "balance",
         chain,
         0n,
-        (c) => c.readContract({ address: t, abi: ERC20_ABI, functionName: "balanceOf", args: [o], blockNumber: blockNumberArg(opts) }) as Promise<bigint>,
+        (c, blockNumber) => c.readContract({ address: t, abi: ERC20_ABI, functionName: "balanceOf", args: [o], blockNumber }) as Promise<bigint>,
         opts,
       );
     },
@@ -459,10 +477,10 @@ export function makeLiveSonarSense(opts: LiveOptions = {}): SonarSense {
         "owns",
         chain,
         false,
-        async (c) => {
+        async (c, blockNumber) => {
           if (tokenId !== undefined) {
             try {
-              const ownerOf = (await c.readContract({ address: col, abi: ERC721_ABI, functionName: "ownerOf", args: [tokenId], blockNumber: blockNumberArg(opts) })) as Address;
+              const ownerOf = (await c.readContract({ address: col, abi: ERC721_ABI, functionName: "ownerOf", args: [tokenId], blockNumber })) as Address;
               return ownerOf.toLowerCase() === o.toLowerCase();
             } catch (e) {
               // genuine revert (nonexistent/burned) ⇒ definitive false; transport
@@ -471,7 +489,7 @@ export function makeLiveSonarSense(opts: LiveOptions = {}): SonarSense {
               throw e;
             }
           }
-          const bal = (await c.readContract({ address: col, abi: ERC721_ABI, functionName: "balanceOf", args: [o], blockNumber: blockNumberArg(opts) })) as bigint;
+          const bal = (await c.readContract({ address: col, abi: ERC721_ABI, functionName: "balanceOf", args: [o], blockNumber })) as bigint;
           return bal > 0n;
         },
         opts,
@@ -485,7 +503,7 @@ export function makeLiveSonarSense(opts: LiveOptions = {}): SonarSense {
       } catch {
         return unverifiable<bigint>({ value: 0n, source: "live:malformed-address", chain_id: chain, trace_id: trace("native") });
       }
-      return runRead<bigint>("native", chain, 0n, (c) => c.getBalance({ address: a, blockNumber: blockNumberArg(opts) }), opts);
+      return runRead<bigint>("native", chain, 0n, (c, blockNumber) => c.getBalance({ address: a, blockNumber }), opts);
     },
   };
 }
