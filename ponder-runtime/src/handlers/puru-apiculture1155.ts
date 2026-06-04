@@ -15,7 +15,8 @@
 // Subject: nft.mint.detected.purupuru-apiculture.v1 (shared across all 4).
 
 import { ponder } from "ponder:registry";
-import { erc1155MintEvent, trackedHolder, action } from "../../ponder.schema";
+import { erc1155MintEvent, trackedHolder, trackedHolder1155, action } from "../../ponder.schema";
+import { erc1155HolderId, nextBalance, aggregateBatchDeltas } from "../lib/erc1155-holder";
 import { isLiveEvent } from "../lib/sync-status";
 import { reorgSafeEmit } from "../lib/reorg-safe-emit";
 import { buildMintEnvelope } from "../lib/nats-publisher";
@@ -183,6 +184,36 @@ ponder.on("PuruApiculture1155:TransferSingle", async ({ event, context }) => {
       direction: "in",
     });
   }
+
+  // Per-tokenId holder tracking (sonar-api#62) — the per-edition twin of the
+  // whole-contract rollup above, keyed one notch finer by tokenId. A genuine
+  // self-transfer (from===to, never a mint or burn) leaves every per-edition
+  // balance unchanged, so skip it — this also sidesteps running the sender and
+  // receiver legs against the same row within one event.
+  if (fromLower !== toLower) {
+    if (!isMint) {
+      await adjustHolder1155Token(context, {
+        contractAddress,
+        collectionKey,
+        chainId,
+        tokenId,
+        holderAddress: fromLower,
+        delta: -quantity,
+        timestamp,
+      });
+    }
+    if (!isBurnAddress(toLower)) {
+      await adjustHolder1155Token(context, {
+        contractAddress,
+        collectionKey,
+        chainId,
+        tokenId,
+        holderAddress: toLower,
+        delta: quantity,
+        timestamp,
+      });
+    }
+  }
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -339,6 +370,39 @@ ponder.on("PuruApiculture1155:TransferBatch", async ({ event, context }) => {
       });
     }
   }
+
+  // Per-tokenId holder tracking (sonar-api#62) — sum per tokenId first so each
+  // edition's balance row is touched exactly once, even if the batch repeats an
+  // id. Skip genuine self-transfers (from===to): they leave every per-edition
+  // balance unchanged. idsArray/valuesArray are already bigint[] (ponder decodes
+  // the uint256[] args); aggregateBatchDeltas guards length-mismatch + zero.
+  if (fromLower !== toLower) {
+    const perTokenDeltas = aggregateBatchDeltas(idsArray, valuesArray);
+    for (const [tokenId, qty] of perTokenDeltas) {
+      if (!isMint) {
+        await adjustHolder1155Token(context, {
+          contractAddress,
+          collectionKey,
+          chainId,
+          tokenId,
+          holderAddress: fromLower,
+          delta: -qty,
+          timestamp,
+        });
+      }
+      if (!isBurnAddress(toLower)) {
+        await adjustHolder1155Token(context, {
+          contractAddress,
+          collectionKey,
+          chainId,
+          tokenId,
+          holderAddress: toLower,
+          delta: qty,
+          timestamp,
+        });
+      }
+    }
+  }
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -411,6 +475,69 @@ async function adjustHolder1155(context: any, args: AdjustHolderArgs): Promise<v
         chainId: args.chainId,
         address: address as `0x${string}`,
         tokenCount: Number(nextCount),
+      })
+      .onConflictDoNothing();
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// adjustHolder1155Token — per-tokenId twin of adjustHolder1155 (sonar-api#62).
+// Maintains trackedHolder1155 ({contract}_{chainId}_{tokenId}_{address} → balance)
+// with the same floor-at-zero + delete-on-empty running-balance rule, keyed one
+// notch finer. No hold1155 action is emitted: the events surface is unchanged;
+// only the balance/holder side gains tokenId granularity (issue #62 "events stay
+// exactly as they are"). balance is uint256-safe bigint (numeric(78,0)).
+//
+// NOTE: `context: any` matches the handler-wide pattern (adjustHolder1155 above).
+// Typing it against ponder's generated Context is tracked typing-debt to address
+// when the Ponder version exporting a usable handler-context type is adopted.
+// ────────────────────────────────────────────────────────────────────────────
+interface AdjustHolderTokenArgs {
+  contractAddress: string;
+  collectionKey: string;
+  chainId: number;
+  tokenId: bigint;
+  holderAddress: string;
+  delta: bigint;
+  timestamp: bigint;
+}
+
+async function adjustHolder1155Token(context: any, args: AdjustHolderTokenArgs): Promise<void> {
+  if (args.delta === 0n) return;
+
+  const address = args.holderAddress.toLowerCase();
+  if (address === ZERO_ADDRESS) return;
+
+  const id = erc1155HolderId(args.contractAddress, args.chainId, args.tokenId, address);
+  const existing = await context.db.find(trackedHolder1155, { id });
+  // balance is numeric(78,0, mode:"bigint") → ponder returns a native bigint.
+  const current = existing ? existing.balance : 0n;
+  const { stored, shouldDelete } = nextBalance(current, args.delta);
+
+  if (shouldDelete) {
+    if (existing) {
+      await context.db.delete(trackedHolder1155, { id });
+    }
+    return;
+  }
+
+  if (existing) {
+    await context.db.update(trackedHolder1155, { id }).set({
+      balance: stored,
+      lastUpdated: args.timestamp,
+    });
+  } else {
+    await context.db
+      .insert(trackedHolder1155)
+      .values({
+        id,
+        contract: args.contractAddress as `0x${string}`,
+        collectionKey: args.collectionKey,
+        chainId: args.chainId,
+        tokenId: args.tokenId,
+        address: address as `0x${string}`,
+        balance: stored,
+        lastUpdated: args.timestamp,
       })
       .onConflictDoNothing();
   }
