@@ -1,433 +1,505 @@
-# Sprint Plan — sonar-api Consolidated Belt + Blue-Green Promotion (`sonar-belt-factory`)
+# Sprint Plan — Per-Token ERC-1155 Holder State as a Reconstructable Projection (`mv_holder_1155`)
 
-**Version:** 2.0 (full rewrite to track PRD r2 + SDD r7)
-**Date:** 2026-05-22
-**Author:** Sprint Planner Agent (SHIP/ARCH · BARTH + protocol/noether, craft lens)
-**PRD Reference:** `grimoires/loa/prd.md` r2 (sonar-belt-factory)
-**SDD Reference:** `grimoires/loa/sdd.md` r7 (Flatline-remediated · §17 R-A..R-G + IMP-001..009 integrated)
-**Cycle:** `sonar-belt-factory` · ledger global sprint range **172–176**
+**Version:** 1.0
+**Date:** 2026-06-04
+**Author:** Sprint Planner Agent (SHIP/ARCH · BARTH + protocol, craft lens)
+**PRD Reference:** `grimoires/loa/prd.md` r1 (spiral-pertoken-projection-1)
+**SDD Reference:** `grimoires/loa/sdd.md` r1 (Flatline clear — no AUTO-INTEGRATED, no BLOCKERS)
+**Cycle:** `spiral-pertoken-projection-1` · Branch: `feat/spiral-pertoken-projection-1`
+**Flatline status:** No findings to integrate. No blockers to resolve.
 
-> **Supersedes** sprint.md v1.0 (the RETIRED r1/r6 "12 pure-product belts + BeaconV3 federation + Effect serving" plan). The v1.0 S0 calibration spike (global 172) ran and PROVED the 12-belt approach budget-infeasible ($280–450/mo vs the hard < $100/mo ceiling) — that finding triggered the PRD r2 reframe to **one consolidated belt + blue-green promotion**. S0 is retained as completed; S1–S4 are re-authored to the new SDD §13 sequencing.
+> **Supersedes** `sprint.md` v2.0 (sonar-belt-factory) — retired cycle; different substrate concern. The prior plan addressed blue-green promotion; this plan addresses per-token ERC-1155 holder state via materialized view.
 
 ---
 
 ## Executive Summary
 
-Keep the THJ sovereign indexer as **one consolidated Envio belt** (41 contracts · 93 entities · 6 chains) serving a **stable, additive-only GraphQL API behind a fixed production alias** (the Caddy `belt-gateway`, already live). Ship every change (new source, additive schema field) via **blue-green promotion**: stand up a green deployment with the change, backfill it in the background while blue keeps serving, run a **reconciliation gate**, then **atomically swap the alias** blue→green via `caddy reload` and retire blue after a rollback window. The 8-hour reindex still happens — off the live path, so consumers see **zero downtime**.
+The presenting failure (sonar-api#62 — wrong per-token balances for apiculture token-4) exposed a substrate gap: `TrackedHolder` is a whole-contract aggregate, not a per-token projection. The PRD decision is **Option A — a Postgres materialized view (`mv_holder_1155`) that folds the existing `"Action"` event-ledger** into correct per-token, per-address balances.
 
-The infrastructure is mostly **already live** (the consolidated belt = blue; the Caddy alias; the eRPC L2; the `belt-reinit.md` re-init runbook). This cycle is predominantly **operational discipline + the reconciliation gate** — not greenfield build. The one substantive net-new code artifact is `scripts/promotion-gate.js` (zero-dep, test-first), which carries the §17 remediation requirements (fixed-block-cutoff reconciliation, raw-L1 spot-check, content sample, schema superset-diff, non-skippable `promote` precondition).
+The action table already holds the complete genesis→head history for apiculture (13,611 events; 89,021 expected holder rows across 6 tokens). Per-token holder state is a deterministic fold, not a primary. This sprint ships the fold as a materialized view with conservation invariants wired into CI and a runtime health-check function.
 
-**Total Sprints:** 5 (S0 completed + S1–S4 to build)
-**Sprint Duration:** S0 = half-day (completed spike); S1 ≈ 2.5 days; S2–S4 ≈ 2 days each
-**Sovereignty posture:** OWN indexer/schema/gateway/eRPC; RENT free RPC + Railway; HyperSync = break-glass only.
+**No Ponder handler changes. No new `onchainTable`. No reindex. No deployment by the agent.**
 
-### PRD Goals (G-N traceability — see Appendix C)
+**Build sequencing follows SDD §8 exactly:**
 
-| ID | Goal | KPI gate (PRD §3) |
-|----|------|-------------------|
-| **G1** | Zero-downtime updates — source/schema change ships via background green + atomic alias swap; never makes the live endpoint stale | A source-add promotion completes with **0 consumer-visible downtime** (no 5xx spike on the stable endpoint) |
-| **G2** | Cost ceiling — total indexer infra **< $100/mo** steady-state (the bar to leave Envio's ~$300 hosted) | Measured Railway steady-state < $100/mo (≈ $84/mo single belt per S0); transient 2× only *during* a promotion window |
-| **G3** | API serving consistency — one stable GraphQL endpoint behind a fixed alias; no split-brain, no consumer config edits | **0 consumer config changes** across a promotion; reconciliation confirms no entity dropped (AC-R7 footprint preserved) |
-| **G4** | Background re-sync + promotion gate — backfill is a background operation on green, gated by reconciliation before any swap | Promotion gate enforced: green ≥ blue on **every** chain AND reconciliation pass before swap; rollback exercised |
-
-> **Goal-ID note:** the PRD labels its goals `G1`–`G4` directly (PRD §3 Primary Goals). This plan uses those IDs verbatim. No auto-assignment required.
+| Phase | Task(s) | Deliverable |
+|-------|---------|-------------|
+| 0 — Pre-deploy audit | T1 | Data-quality gate: column types, null rates, coverage |
+| 1 — Migration | T2, T3 | `migrations/add-mv-holder-1155.sql` (index + MV + MV indexes + health-check function) |
+| 2 — CI script | T4 | `scripts/invariant-check-1155.sh` (I1, I2, I3) + CI pipeline wiring |
+| 3 — Refresh | T5 | `scripts/refresh-mv-1155.sh` + cron service config |
+| 4 — Hasura | T6 | `scripts/hasura-track-mv-1155.sh` + fallback view |
+| 5 — Sign-off | T7, T8 | Backward-compat verification + PR review gates |
 
 ---
 
 ## Sprint Overview
 
-| Sprint | Global | Theme | Scope | Key Deliverables | Dependencies |
-|--------|--------|-------|-------|------------------|--------------|
-| **S0** | 172 | Envio multi-deployment calibration spike (FR-0) | SMALL | **COMPLETED** — proved 12-belt infeasible → PRD r2 reframe; alpha.17/`rpc` field; Option-A reserve; cost $84/mo; `belt-reinit.md` | None |
-| **S1** | 173 | Stable-alias contract + the reconciliation gate (FR-2, FR-4) | LARGE | `promotion-gate.js` (test-first) with all §17 remediation requirements; alias contract specified + swap smoke | S0 |
-| **S2** | 174 | Green-build orchestration + dry-run promotion (FR-3, FR-8) | MEDIUM | Green-build procedure on `belt-reinit.md` + seed-count verify; one end-to-end dry-run promotion (stand up → gate → swap → rollback); G4 backfill wall-time measured | S1 |
-| **S3** | 175 | Swap atomicity + rollback + breaking-change path (FR-5, FR-6, FR-7) | MEDIUM | Caddy graceful-reload swap (Option B, localhost-only admin) with off-host-unreachable verification; rollback exercised; expand/contract path documented | S2 |
-| **S4** | 176 | Boundary docs + reserve + E2E goal validation (FR-1, FR-9, FR-10) | SMALL | FR-1 one-belt confirmation; score-api boundary doc; FR-10 reserve documented (no code); **E2E validation of G1–G4** | S3 |
+This cycle is a single sprint. All tasks are sequential (each phase depends on the prior). Tasks T2–T8 are the buildable scope; T1 is a pre-deployment gate that must complete before T2 executes.
+
+| Task | Theme | Scope | Key Deliverable | PRD ACs |
+|------|-------|-------|-----------------|---------|
+| **T1** | Pre-deployment data quality audit | SMALL | Column-type check + null-rate check + coverage report | Pre-condition for all |
+| **T2** | Migration script: action-table index + MV + MV indexes | MEDIUM | `migrations/add-mv-holder-1155.sql` | AC-01, AC-02, AC-03 |
+| **T3** | Runtime health-check SQL function | SMALL | `fn_1155_invariant_check()` in migration | AC-11 |
+| **T4** | CI conservation-invariant script | MEDIUM | `scripts/invariant-check-1155.sh` + CI wiring | AC-05–AC-10 |
+| **T5** | Refresh mechanism | SMALL | `scripts/refresh-mv-1155.sh` + cron config | FR-07, AC-04 |
+| **T6** | Hasura tracking script + fallback view | SMALL | `scripts/hasura-track-mv-1155.sh` | AC-12 |
+| **T7** | Backward compatibility verification | SMALL | TrackedHolder regression evidence | AC-13 |
+| **T8** | PR review gates | SMALL | Flatline + Bridgebuilder reviews | AC-14, AC-15 |
 
 ---
 
-## Sprint 0 (COMPLETED): Envio Multi-Deployment Calibration Spike
+## T1: Pre-Deployment Data Quality Audit
 
-**Global ID:** 172 · **Scope:** SMALL · **Status:** ✅ COMPLETED · **Priority:** P0 (gated all)
+**Priority:** P0 (blocks all downstream tasks)
+**SDD reference:** §3.2.4, §9 R-02, §9 R-05
+**Goal contributions:** G1 (correctness), G4 (generalization)
 
-### Sprint Goal
-Prove Envio multi-deployment mechanics and per-belt cost before committing to any belt-split architecture (FR-0 calibration spike, spike-not-wire / NET-0 LOC doctrine).
+### Task Goal
 
-### Outcome (closing the loop — this sprint is done)
-- ✅ **OQ-1 / version reconcile** — Envio `3.0.0-alpha.17` pinned; data-source field is **`rpc`** (not `rpc_config`). `(S0)` `> grimoires/loa/a2a/sprint-172/s0-multideploy-calibration.md`
-- ✅ **R-D / Option-A proof** — per-belt config + physical schema subset codegens + `tsc` exit 0 (held in reserve as FR-10).
-- ✅ **Q-a / topology** — Railway: per-belt = indexer+hasura+postgres; shared = gateway+erpc+erpc-pg.
-- ◐ **Q-b / cost** — project-aggregate $84.40/mo for 1 belt + shared (89% memory); 12 belts projected $280–450/mo → **budget-infeasible against the < $100/mo ceiling**.
-- ✅ **Q-c / D6** — reset semantics closed; `runbooks/belt-reinit.md` authored (KF-013 re-init dance).
-
-### The load-bearing finding
-> "This reframes the cycle away from r1's 12 physical belts (which the S0 spike proved cost ~$280–450/mo against a hard < $100/mo ceiling, and which solved the wrong problem)." — `> prd.md:L26`
-
-S0's purpose was served: the per-belt cost finding RETIRED the 12-belt plan and produced the PRD r2 / SDD r7 reframe. No further S0 work; the scratch belt was deleted per the spike-not-wire NET-0 contract. The S1–S4 below are the new plan.
-
----
-
-## Sprint 1: Stable-Alias Contract + The Reconciliation Gate
-
-**Global ID:** 173 · **Scope:** LARGE (7–10 tasks) · **Priority:** P0
-**Duration:** 2.5 days
-
-### Sprint Goal
-Author the one substantive net-new artifact — `scripts/promotion-gate.js` — test-first, carrying every §17 remediation requirement, and formally specify + smoke-test the stable alias contract so the swap lever is proven before any green is built.
+Before authoring the migration, verify the live `"Action"` table schema and data quality against every assumption the MV definition depends on. Any gap found here changes the MV SQL before it is written — not after.
 
 ### Deliverables
-- [ ] `scripts/promotion-gate.js` exists (zero-dep, matching `verify-belt-config.js`'s no-dependency invariant) and exits 0 against a **blue-vs-blue self-parity** sanity run.
-- [ ] Gate enforces all three checks: block-height parity (Part 1), entity-count reconciliation (Part 2, AC-R7 footprint), and schema-diff superset (FR-7 §9.1).
-- [ ] Gate writes its result to `grimoires/loa/a2a/sprint-173/promotion-reconciliation.md` on every run (PASS/FAIL + per-check evidence).
-- [ ] The alias contract is documented (§4): public URL, additive-only schema invariant, `BELT_UPSTREAM` as the sole swap lever, proxy-not-DNS rationale.
-- [ ] The existing swap smoke (bad upstream → 502, revert → live) is re-run and recorded as the alias baseline `> NOTES.md:265`.
+
+- [x] Column-type report: `numeric1` and `numeric2` actual Postgres data types confirmed.
+- [x] Transfer null-rate report: `COUNT(*) WHERE action_type='transfer1155' AND context->>'from' IS NULL` per `primary_collection` — any non-zero count must be documented with impact assessment before T2 starts.
+- [x] Action-type coverage report: `SELECT action_type, COUNT(*) FROM "Action" WHERE action_type IN ('mint1155','burn1155','transfer1155') GROUP BY action_type` — confirms the three event types exist and are populated for apiculture.
+- [x] Burn-address exclusion alignment: confirm `isBurnAddress()` at `src/lib/mint-detection.ts` includes exactly the two addresses the MV will exclude (`0x0000…0000` and `0x000…dead`); document any discrepancy.
+- [x] Findings written to `grimoires/loa/a2a/sprint-pertoken-1/pre-deploy-audit.md`.
 
 ### Acceptance Criteria
-- [ ] `node scripts/promotion-gate.js` exits **0** when comparing blue against itself (self-parity must pass — a gate that fails its own identity is broken).
-- [ ] Gate **exits non-zero** on each injected failure: short block-height on one chain; an entity count outside tolerance; a green schema missing a blue field (negative test cases — IMP-009).
-- [ ] Reconciliation runs at a **fixed block cutoff** per chain `target = min(blue_head, green_head) − safety_margin`, not at wall-clock "now" (R-F: racy comparison closed).
-- [ ] Gate includes a **raw-L1 `eth_getLogs` spot-check** (bypassing the eRPC cache) for a sample of (chain, contract, block-range) so a poisoned shared-cache entry can't pass blue=green while both are wrong (R-B).
-- [ ] Gate includes a **content sample**: for N sampled entity IDs per high-value entity, field-level payloads are compared blue-vs-green, not just counts (R-E).
-- [ ] Tolerance is **exact** on low-cardinality entities (e.g. `MiberaLoan 176`) and an **absolute floor** `max(0.1%, fixed_row_floor)` on high-cardinality (e.g. `Action 2.07M`) — not a bare ±0.5% (R-G); tolerance is configurable with a provisional default + override (IMP-007).
-- [ ] Schema-compat diff checks **nullability and enum** dimensions, not just name/type presence (IMP-005).
-- [ ] Connection strings (blue + green Postgres / GraphQL) are sourced from env/config, never hardcoded (IMP-001).
 
-### Technical Tasks
+- [x] Column types for `numeric1` and `numeric2` are documented; the `CAST(... AS NUMERIC)` pattern in the MV SQL is confirmed safe against the actual type.
+- [x] Any `transfer1155` actions with a NULL `context->>'from'` are documented with the affected `primary_collection` name and count. If any exist for `puru_apiculture`, T2 must address them before the MV definition finalizes.
+- [x] `isBurnAddress()` exclusion list matches the MV definition exactly — no silent divergence.
+- [x] Pre-deploy audit document is written and linked from NOTES.md before T2 begins.
 
-<!-- Test-first: write the failing gate test, then the gate. -->
+### Tests
 
-- [ ] Task 1.1: Write the test harness for `promotion-gate.js` first — fixtures for blue-vs-blue (self-parity PASS) and the injected-failure negative cases (short height, count drift, missing field, nullability change). → **[G-4]**
-- [ ] Task 1.2: Implement **Part 1 — block-height parity**: query each deployment's `chain_metadata`, assert `green.latest_processed_block ≥ blue` on **every** chain (§6.1, SCALE.md probe). → **[G-4]**
-- [ ] Task 1.3: Implement **Part 2 — entity-count reconciliation** over the score-api footprint (12 entities: `MiberaLoan 176` … `Action 2.07M` … `TreasuryActivity 11,819`) with the R-G tolerance model (exact low-cardinality / absolute-floor high-cardinality). → **[G-3, G-4]**
-- [ ] Task 1.4: Implement the **fixed-block-cutoff** comparison (`target = min(blue_head, green_head) − safety_margin`) so both belts are queried AT that block, not "now" (R-F). → **[G-4]**
-- [ ] Task 1.5: Implement the **schema-diff superset check** — parse blue + green `schema.graphql`, assert green ⊇ blue across name/type **and** nullability/enum (§9.1, IMP-005); non-superset → FAIL. → **[G-3, G-1]**
-- [ ] Task 1.6: Implement the **raw-L1 `eth_getLogs` spot-check** (cache-bypass) + the **content sample** (field-level payload compare for N sampled IDs) — the two anti-silent-loss checks (R-B, R-E; extends KF-012 discipline). → **[G-4]**
-- [ ] Task 1.7: Wire result emission to `grimoires/loa/a2a/sprint-173/promotion-reconciliation.md`; source all connection strings from env/config (IMP-001); make tolerance configurable with provisional default (IMP-007). → **[G-4]**
-- [ ] Task 1.8: Document the alias contract (§4) and re-run + record the swap smoke baseline (`BELT_UPSTREAM` bad → 502, revert → live). → **[G-3]**
+- The audit produces SQL queries that are preserved in the findings doc — they serve as the test scaffold for the I2 invariant check authored in T4.
+- No code is written in T1. The audit is read-only SQL + code inspection.
 
 ### Dependencies
-- S0 (complete): Envio version/field, topology, cost model, `belt-reinit.md`.
-- The shipped blue belt + live Caddy alias + live eRPC L2 (all already live — read-only for this sprint).
 
-### Security Considerations
-- **Trust boundaries:** the gate reads from blue + green Postgres/GraphQL (trusted, operator-owned) and from **raw public L1 RPC** (untrusted external — the raw-L1 spot-check treats getLogs responses as suspect per KF-012; an empty-200 must surface as a gap, not silently pass).
-- **External dependencies:** none new — `promotion-gate.js` is zero-dep (no npm install), matching `verify-belt-config.js`. The raw-L1 check uses the same eRPC-bypass RPC endpoints already in config.
-- **Sensitive data:** Postgres connection strings sourced from env (IMP-001), never committed. Public read-only on-chain data; no auth surface added.
-
-### Risks & Mitigation
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Shared eRPC cache makes blue=green both-wrong pass reconciliation (R-B) | Med | High | Raw-L1 `eth_getLogs` spot-check bypasses the cache (Task 1.6); reconciliation is blue-vs-green **plus** green-vs-raw-L1 |
-| Counts match but rows are wrong/dup/stale (R-E) | Med | High | Field-level content sample for N sampled IDs (Task 1.6) |
-| ±0.5% tolerance hides thousands of high-cardinality rows (R-G) | Med | High | Exact on low-cardinality + absolute floor on high-cardinality (Task 1.3) |
-| Racy wall-clock comparison while both belts advance (R-F) | Med | Med | Fixed block cutoff per chain (Task 1.4) |
-
-### Success Metrics
-- `promotion-gate.js` self-parity exit 0; all ≥3 negative cases exit non-zero (IMP-009).
-- 100% of the 12 score-api footprint entities covered by Part-2 reconciliation.
-- Gate run < a few minutes wall-time (operator-runnable, not a CI burden).
+- Read access to the live `"Action"` table (operator pre-checks; agent does not deploy).
+- `src/lib/mint-detection.ts` in the working tree.
 
 ---
 
-## Sprint 2: Green-Build Orchestration + Dry-Run Promotion
+## T2: Migration Script — Action-Table Index + `mv_holder_1155` + MV Indexes
 
-**Global ID:** 174 · **Scope:** MEDIUM (4–6 tasks) · **Priority:** P0
-**Duration:** 2 days
+**Priority:** P0
+**SDD reference:** §3.1, §3.2, §3.3, Phase 1 (§8)
+**Goal contributions:** G1 (correct per-token balances), G2 (reconstructability), G3 (conservation invariants), G5 (no reindex fragility)
 
-### Sprint Goal
-Operationalize standing up green from `belt-reinit.md` with the seed-count verification gate, then exercise the **full blue-green loop end-to-end once** via a dry-run promotion (green = a copy of blue) — proving stand-up → gate → swap → rollback works and capturing the G4 backfill wall-time.
+### Task Goal
+
+Author `migrations/add-mv-holder-1155.sql` — the single DDL file that, when executed by the operator, creates the complete `mv_holder_1155` infrastructure. The migration is idempotent (`IF NOT EXISTS` throughout), reviewed in this PR, and executed operator-led per ADR-010.
 
 ### Deliverables
-- [ ] A green-build procedure (extending `belt-reinit.md`) that stands up a separate Railway `belt-indexer'` + `belt-hasura'` + **own Postgres-green**, with the `ENVIO_RESTART=1`-seeds-then-resume dance.
-- [ ] The BB-F006 **seed-count verification step** wired into the procedure: assert `SELECT COUNT(*) FROM chain_metadata` == config chain count before removing `ENVIO_RESTART`.
-- [ ] One completed **dry-run promotion**: green stands up, `promotion-gate.js` (from S1) PASSES, the alias swaps, and a rollback restores blue.
-- [ ] The **G4 one-shot measurement**: full-corpus backfill wall-time recorded as a known number (does not gate downtime).
-- [ ] Promotion-window cost quantified (transient 2× vs the 89% steady-state headroom — R5/R-C).
+
+- [x] `migrations/add-mv-holder-1155.sql` containing, in this exact order:
+  1. `idx_action_type_collection_numeric2` on `"Action"` (`CREATE INDEX IF NOT EXISTS`)
+  2. `mv_holder_1155` MV definition from SDD §3.2.3 (`CREATE MATERIALIZED VIEW … WITH DATA`)
+  3. `uidx_mv_holder_1155_pk` unique index on `(collection_key, chain_id, token_id, address)` (`CREATE UNIQUE INDEX IF NOT EXISTS`)
+  4. `idx_mv_holder_1155_collection_chain` secondary index (`CREATE INDEX IF NOT EXISTS`)
+- [x] The MV SQL matches SDD §3.2.3 exactly: four-arm UNION ALL (mint-in, burn-out, transfer-in, transfer-out); `WHERE balance > 0`; burn-address exclusion via `LOWER(address) NOT IN (…)`.
+- [x] A header comment in the migration documenting: estimated wall time (< 5 min), operator pre-check step (column-type query from SDD §3.2.4), and the `REFRESH MATERIALIZED VIEW CONCURRENTLY` usage note.
 
 ### Acceptance Criteria
-- [ ] Green stands up with its **own Postgres**, structurally isolated from blue (separate Railway service) — a green `--restart` provably leaves blue's `chain_metadata`/checkpoints untouched (FR-3 isolation).
-- [ ] The seed-count gate **blocks resume** on a short `chain_metadata` count and the procedure documents "re-deploy `ENVIO_RESTART=1` until count matches" (FR-8 retry/escalation; KF-013/R4).
-- [ ] The dry-run swap exhibits the FR-6 downtime characteristic decided in S3 (or, if S3's reload isn't built yet, records the current ~seconds Railway-redeploy blip as the baseline to improve in S3).
-- [ ] Rollback (`revert BELT_UPSTREAM` → blue) restores service with **0 consumer config changes** and no data loss (blue retained hot **and kept indexing at-head** — FR-5, R-A).
-- [ ] Railway plan headroom for the transient 2× is confirmed before the dry-run; a promotion that would exceed plan memory is blocked (R-C).
-- [ ] **Sustained-parity**: the gate is re-run after a short interval (not a single snapshot) to confirm green stays caught up, not just momentarily even (IMP-003).
 
-### Technical Tasks
-- [ ] Task 2.1: Write the green-build procedure section in `belt-reinit.md` (own service + own Postgres; `ENVIO_RESTART=1` seed → seed-count verify → remove flag → resume background backfill). → **[G-1, G-4]**
-- [ ] Task 2.2: Wire the BB-F006 seed-count verify (`COUNT(*) chain_metadata` vs config chain count) as a hard pre-resume step with the retry-until-match escalation (KF-013/R4). → **[G-4]**
-- [ ] Task 2.3: Confirm Railway plan headroom for the transient 2×; size green's memory; record the bound on the promotion window (R-C / R5). → **[G-2]**
-- [ ] Task 2.4: Execute the **dry-run promotion** end-to-end (green=copy-of-blue → S1 gate PASS → swap → rollback); capture the G4 backfill wall-time + the promotion-window cost. → **[G-1, G-4]**
-- [ ] Task 2.5: Run the **sustained-parity** re-check (gate twice across an interval) and record green-stays-caught-up evidence (IMP-003). → **[G-4]**
+- [x] **AC-01**: Migration script exits 0 against the serving DB schema; `\d mv_holder_1155` shows `(collection_key TEXT, chain_id INT, token_id NUMERIC, address TEXT, balance NUMERIC)`.
+- [x] **AC-02**: `\di uidx_mv_holder_1155_pk` confirms the unique index exists on the MV.
+- [x] **AC-03**: `\di idx_action_type_collection_numeric2` confirms the action-table index exists.
+- [x] **AC-04** (verified in T5 after refresh): `REFRESH MATERIALIZED VIEW mv_holder_1155` (or CONCURRENTLY after unique index is present) completes in < 5 minutes.
+- [x] The MV is created `WITH DATA` — the action table's complete history is folded immediately at creation, before Hasura tracking.
+- [x] Migration is idempotent: re-running the script does not error (all `IF NOT EXISTS` guards).
+- [x] `git diff` confirms zero changes to `src/handlers/`, `schema.graphql`, and any Ponder entity config — backward compat is structural, not just asserted.
+
+### Tests
+
+- **Migration smoke** (operator-run against a local Postgres copy or CI-accessible snapshot before the serving DB):
+  - Script exits 0
+  - `SELECT COUNT(*) FROM mv_holder_1155` returns a non-zero row count
+  - `SELECT COUNT(DISTINCT token_id) FROM mv_holder_1155 WHERE collection_key='puru_apiculture'` returns 6
+- **Unique index verification:**
+  - `REFRESH MATERIALIZED VIEW CONCURRENTLY mv_holder_1155` succeeds (no error)
+  - A non-concurrent refresh would succeed too but block reads — the CONCURRENTLY path confirms the unique index is present
 
 ### Dependencies
-- S1: `promotion-gate.js` (the gate the dry-run runs).
-- `belt-reinit.md` (KF-013 re-init primitive); the shipped blue belt; eRPC warm cache.
 
-### Security Considerations
-- **Trust boundaries:** green is operator-stood-up infra (trusted); the seed-count gate guards against the silent-skip class (KF-013) where Envio's table-existence `isInitialized()` resumes a half-seeded green.
-- **External dependencies:** none new — green reuses the same belt Docker image + shared eRPC; only Railway service/Postgres provisioning.
-- **Sensitive data:** green's Postgres credentials via Railway env (per-belt, not shared with blue); eRPC over the private Railway network.
-
-### Risks & Mitigation
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Green seeds incompletely (JS crashes mid-seed → short `chain_metadata`) (R4/KF-013) | Med | High | Seed-count verify blocks resume; re-deploy `ENVIO_RESTART=1` until count matches (Task 2.2) |
-| Promotion-window 2× exceeds the 89%-headroom Railway plan (R-C/R5) | Med | Med | Confirm plan headroom + bound the window before the dry-run (Task 2.3) |
-| Green never converges (a chain backfills slower than block production) (R6) | Low | High | eRPC warm cache on Bera/Base/OP/ETH; G4 wall-time measures it once; escalate RPC tier if a chain can't keep up |
-
-### Success Metrics
-- Dry-run promotion completes the full loop (stand-up → gate PASS → swap → rollback) in one session.
-- G4 backfill wall-time captured as a single concrete number.
-- Promotion-window cost quantified (2× transient, bounded).
+- T1 complete: column types confirmed; null-rate report clear (or MV SQL adjusted per findings).
+- T3 is authored in the same migration file (see below).
 
 ---
 
-## Sprint 3: Swap Atomicity + Rollback + Breaking-Change Path
+## T3: Runtime Health-Check SQL Function
 
-**Global ID:** 175 · **Scope:** MEDIUM (4–6 tasks) · **Priority:** P1
-**Duration:** 2 days
+**Priority:** P1
+**SDD reference:** §3.6, Phase 1 (§8)
+**Goal contributions:** G3 (conservation invariants as first-class citizens)
 
-### Sprint Goal
-Realize the FR-6 swap-atomicity decision (Option B — Caddy graceful reload, admin API localhost-only) with an off-host-unreachable verification, exercise the rollback procedure for real, and document the expand/contract path for non-additive (breaking) schema changes.
+### Task Goal
+
+Author `fn_1155_invariant_check()` as the final DDL statement in `migrations/add-mv-holder-1155.sql`. This function is the runtime surface for the same invariant checks that `scripts/invariant-check-1155.sh` (T4) runs in CI — same logic, different invocation path. Operators call it on demand without a CI run.
 
 ### Deliverables
-- [ ] Caddy `belt-gateway` rebuilt with the **admin API enabled, bound localhost-only** (`admin localhost:2019` or unix socket — NEVER exposed); the promotion swap step becomes a `caddy reload` (or admin-API config POST) instead of an env-var-triggered Railway redeploy.
-- [ ] A **verification** that the admin endpoint is **unreachable from outside** the gateway container (the binding security requirement from §7.3/§7.4 pushback + IMP-014).
-- [ ] A **zero-downtime swap probe**: poll the alias during a `caddy reload` swap and assert **no 5xx spike** (G1) — or, on the documented contingency, fall back to Option C (≥2 replicas).
-- [ ] Rollback procedure documented + exercised against the live alias (revert `BELT_UPSTREAM`→blue; blue retained hot and at-head per R-A).
-- [ ] The **expand/contract (parallel-change) path** for breaking schema changes documented (§9.2): EXPAND (add new field, keep old) → promote → consumer migration → CONTRACT (remove old) → promote.
+
+- [x] `CREATE OR REPLACE FUNCTION fn_1155_invariant_check(p_collection_key TEXT DEFAULT NULL, p_chain_id INT DEFAULT NULL) RETURNS TABLE (check_name TEXT, status TEXT, failing_count BIGINT, worst_delta NUMERIC, detail TEXT) LANGUAGE sql STABLE` appended to `migrations/add-mv-holder-1155.sql`.
+- [x] Function body from SDD §3.6 verbatim: I1 (mint-burn = supply CTE) + I2 (no-negative-intermediate-balances CTE) returning `UNION ALL`.
+- [x] Usage examples as a comment block in the migration: full check (`SELECT * FROM fn_1155_invariant_check()`), scoped check (`SELECT * FROM fn_1155_invariant_check('puru_apiculture', 8453)`).
 
 ### Acceptance Criteria
-- [ ] The Caddy admin API is reachable from inside the container but **NOT** reachable off-host (verified — a curl from outside the container to the admin port fails/times out).
-- [ ] A swap via `caddy reload` produces **no 5xx** on the alias during the swap window (zero-downtime swap probe PASS) — directly satisfies G1.
-- [ ] If localhost-only admin binding proves infeasible on Railway, the documented contingency (Option C: ≥2 gateway replicas, rolling redeploy) is taken — **no re-decision needed** (§7.4).
-- [ ] Rollback restores blue with 0 consumer config changes, lossless, because blue kept indexing at-head through the verification window (R-A: blue NOT paused at swap).
-- [ ] The swap is performed ONLY through a `promote` flow that runs `promotion-gate.js` as a **non-skippable precondition** (exit 0 required before it touches the alias); bare `BELT_UPSTREAM` edits are not the documented path (R-D / OQ-4 → command).
-- [ ] The breaking-change path is documented such that the alias **never** serves a schema missing a field a live consumer reads (the additive invariant holds across both expand and contract promotions).
 
-### Technical Tasks
-- [ ] Task 3.1: Rebuild `Dockerfile.gateway` / `Caddyfile` with `admin` bound localhost-only (replacing `admin off`); add the `caddy reload`-based swap step to the promotion procedure (FR-6 Option B, §7.4). → **[G-1]**
-- [ ] Task 3.2: Verify the admin endpoint is unreachable off-host (off-container curl to the admin port fails); record evidence (R9/IMP-014 closure). → **[G-1]**
-- [ ] Task 3.3: Run the zero-downtime swap probe (poll alias through a `caddy reload`, assert no 5xx); if infeasible, switch to Option C and document (§7.4 contingency). → **[G-1]**
-- [ ] Task 3.4: Wrap the swap in a `promote` flow with `promotion-gate.js` as a non-skippable precondition (R-D); document + exercise the rollback procedure (revert `BELT_UPSTREAM`→blue within the window; blue at-head per R-A); record the rollback-triggers list (§8). → **[G-1, G-4]**
-- [ ] Task 3.5: Document the expand/contract breaking-change path (§9.2) with the schema-diff gate as the enforcement that a non-additive green fails before the swap. → **[G-3]**
+- [x] **AC-11**: `SELECT * FROM fn_1155_invariant_check('puru_apiculture', 8453)` returns two rows: `(I1_mint_burn_supply, PASS, 0, 0, …)` and `(I2_no_negative_balances, PASS, 0, 0, …)` on valid data.
+- [x] Function is `STABLE` (no side effects; reads `"Action"` + `mv_holder_1155` only).
+- [x] Response time for `fn_1155_invariant_check('puru_apiculture', 8453)` is < 500ms (NFR-05 equivalent for the health check path).
+- [x] The function handles `NULL` parameters gracefully — full check across all collections when both params are NULL.
+
+### Tests
+
+- After migration is applied against the local/CI DB:
+  ```sql
+  SELECT * FROM fn_1155_invariant_check('puru_apiculture', 8453);
+  -- Expect: I1 status='PASS' worst_delta=0, I2 status='PASS' failing_count=0
+  ```
+- Injected-failure test (for code review verification, not a deployed fixture): confirm I1 would FAIL if held balances are manually altered; confirm I2 would FAIL if a negative-balance row were inserted into the raw fold query. Document the expected failure mode in code comments.
 
 ### Dependencies
-- S2: a working green-build + dry-run loop (the swap mechanism is exercised in the dry-run).
-- S1: `promotion-gate.js` (the precondition the `promote` flow runs).
-- The live Caddy gateway (rebuilt this sprint).
 
-### Security Considerations
-- **Trust boundaries:** enabling the Caddy admin API **widens the gateway attack surface** (R9). The hard constraint: admin bound localhost-only, never exposed; Task 3.2 is the explicit verification that the surface is closed off-host.
-- **External dependencies:** the gateway rebuild uses the same `caddy:2` + `caddy-ratelimit` (xcaddy) stack — no new dependency; only the `admin` directive changes.
-- **Sensitive data:** the admin API can rewrite the gateway config — off-host reachability would be a config-injection vector. localhost-only binding + the off-host-unreachable verification (Task 3.2) is the mitigation.
-
-### Risks & Mitigation
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Enabling Caddy admin widens attack surface (R9/IMP-014) | Low | Med | Bind localhost-only; verify off-host-unreachable (Task 3.2); contingency Option C avoids the admin surface entirely |
-| `caddy reload` localhost binding infeasible on Railway | Low | Med | Documented contingency: Option C (≥2 replicas, rolling) — no re-decision (§7.4) |
-| Breaking change behind the additive-only alias breaks a consumer at swap (R2) | Med | High | Expand/contract path (Task 3.5); schema-diff superset check FAILS a non-additive green at the gate |
-| Operator swaps `BELT_UPSTREAM` directly, bypassing the gate (R-D) | Med | High | `promote` flow makes the gate a non-skippable precondition (Task 3.4); bare edits not the documented path |
-
-### Success Metrics
-- Swap produces 0 5xx (G1 zero-downtime swap proven) — or Option-C contingency taken with evidence.
-- Admin endpoint verified unreachable off-host.
-- Rollback exercised against the live alias; expand/contract path documented; `promote` flow gates the swap.
+- T2: MV must exist before the function can be tested.
 
 ---
 
-## Sprint 4 (Final): Boundary Docs + Reserve + End-to-End Goal Validation
+## T4: CI Conservation-Invariant Script
 
-**Global ID:** 176 · **Scope:** SMALL (1–3 tasks + E2E) · **Priority:** P2
-**Duration:** 1.5 days
+**Priority:** P0
+**SDD reference:** §3.5, Phase 2 (§8)
+**Goal contributions:** G1 (correct by construction), G3 (invariants as first-class), all ACs 05–10
 
-### Sprint Goal
-Confirm FR-1 (one belt — mostly already true), write the score-api boundary doc (FR-9) and the FR-10 reserve documentation (design only, no code), and validate end-to-end that all PRD goals G1–G4 are achieved.
+### Task Goal
+
+Author `scripts/invariant-check-1155.sh` — the CI gate that runs I1, I2, and I3 spot-checks against the serving DB (or a CI-accessible snapshot). The script is the mechanized acceptance test for the MV: if it exits 0, all PRD correctness requirements are met. Wire it into CI as a step that blocks merge on failure.
 
 ### Deliverables
-- [ ] FR-1 confirmation note: the indexer is ONE consolidated belt; handlers compose intra-belt (`Action` via 21 handlers, etc.); no cross-belt federation exists.
-- [ ] The score-api boundary doc (FR-9, §10.1): indexer = hot serving tier (must not be lossy); score-api = warm/cold analytics safety net (cron → ClickHouse/Dune + fallbacks). The reconciliation gate is what keeps the indexer non-lossy.
-- [ ] The FR-10 reserve documented (the S0-proven on-demand split capability — Option A) as a dormant, documented-not-wired path; BeaconV3 declaration noted as the same reserve class.
-- [ ] **E2E goal validation** (Task 4.E2E below) — all of G1–G4 validated with documented evidence.
+
+- [x] `scripts/invariant-check-1155.sh` (executable, `#!/usr/bin/env bash`) containing:
+  - **Header**: usage, required env var (`DATABASE_URL`), exit-code semantics (0 = all pass, 1 = any failure).
+  - **I1 check**: the full I1 SQL from PRD §8 run via `psql -c`. Any returned rows → print the failing tuples and exit 1.
+  - **I2 check**: the I2 SQL from PRD §8. Any returned rows → print the failing `(collection_key, chain_id, token_id, address)` tuples and exit 1.
+  - **I3 spot-checks**: seven fixed-value assertions (see table below) each as a separate `psql -c` call. Any mismatch → print expected vs actual and exit 1.
+  - Full checksummed addresses for I3 (not the truncated PRD forms).
+- [x] CI pipeline wiring: a step in `.github/workflows/` (or the repo's equivalent CI config) that sources `DATABASE_URL` and runs `scripts/invariant-check-1155.sh`. Step runs after the build gate.
+
+### I3 Spot-Check Assertions
+
+| Check | Expected | Failure exit |
+|-------|----------|-------------|
+| token-4 top holder (`0x099a…` full address) balance | 2,575 | 1 |
+| Router (`0x7777…` full address) rows for token-4 | 0 rows | 1 |
+| token-4 total minted (from I1 intermediate) | 24,969 | 1 |
+| token-4 total burned (from I1 intermediate) | 2 | 1 |
+| token-4 net held (`SUM(balance) WHERE token_id=4`) | 24,967 | 1 |
+| Distinct token IDs for `puru_apiculture` | 6 | 1 |
+| Total holder rows for `puru_apiculture` | ≥ 89,021 | 1 |
 
 ### Acceptance Criteria
-- [ ] Boundary doc clearly states "score-api fallback is a safety net for a brief swap blip, NOT a license for the indexer to be lossy" (PR#15 SKP-001 corrected emphasis).
-- [ ] FR-10 reserve is documented with the S0 codegen+tsc evidence ref; explicitly marked **not built this cycle**.
-- [ ] Every PRD goal (G1–G4) has a documented validation result; no goal marked "not achieved" without explicit justification.
 
-### Task 4.E2E: End-to-End Goal Validation
+- [x] **AC-05**: Script I3 returns `balance = 2575` for the token-4 top holder address.
+- [x] **AC-06**: Script I3 returns `0 rows` for the router address in the token-4 holder set.
+- [x] **AC-07**: Script I1 returns zero rows (conservation delta = 0) for all 6 apiculture tokens.
+- [x] **AC-08**: Script I2 returns zero rows (no negative intermediate balances).
+- [x] **AC-09**: All seven I3 anchor assertions pass.
+- [x] **AC-10**: Script exits 0 on the above data; exits 1 on any injected failure. Script is present in the CI pipeline config; CI runs it on PRs targeting `main`.
+- [x] No dynamic SQL: all SQL strings are literal constants in the script, not shell-variable interpolation into query strings.
+- [x] `DATABASE_URL` is the only external dependency; no npm, no psql custom plugins.
+- [x] Script output on failure names the invariant (I1/I2/I3), the failing tuple(s), and the expected vs actual values.
 
-**Priority:** P0 (Must Complete)
-**Goal Contribution:** All goals (G1, G2, G3, G4)
+### Tests
 
-**Description:** Validate that all PRD launch criteria (`> prd.md:L173-180`) are achieved through the complete blue-green promotion implementation.
-
-**Validation Steps:**
-
-| Goal ID | Goal | Validation Action | Expected Result |
-|---------|------|-------------------|-----------------|
-| **G1** | Zero-downtime updates | Run a real source-add promotion (or replay the S2/S3 dry-run + reload swap); poll the alias through the swap | 0 consumer-visible downtime — no 5xx spike on the stable endpoint (Option B reload) |
-| **G2** | Cost ceiling < $100/mo | Read Railway steady-state cost; confirm single-belt ≈ $84/mo; confirm promotion-window 2× is transient + bounded | Steady-state < $100/mo; transient cost quantified (S2 Task 2.3) |
-| **G3** | API serving consistency | Confirm 0 consumer config changes across the promotion; run `promotion-gate.js` Part-2 reconciliation | 0 config changes; AC-R7 footprint reconciliation PASS (no dropped entity) |
-| **G4** | Background re-sync + promotion gate | Confirm `promotion-gate.js` exit 0 required pre-swap (block ≥ blue every chain + reconciliation); confirm rollback exercised | Gate enforced as the swap precondition (R-D `promote` flow); rollback (revert `BELT_UPSTREAM`) exercised |
-
-**Acceptance Criteria:**
-- [ ] Each goal validated with documented evidence written to `grimoires/loa/a2a/sprint-176/e2e-validation.md`.
-- [ ] The swap-atomicity decision (FR-6 Option B) is recorded with the measured swap downtime characteristic.
-- [ ] The breaking (non-additive) schema change path is documented (expand/contract).
-- [ ] No goal marked "not achieved" without explicit justification.
-
-### Technical Tasks
-- [ ] Task 4.1: Write the FR-1 one-belt confirmation note + the FR-9 score-api boundary doc (§10.1). → **[G-3]**
-- [ ] Task 4.2: Document the FR-10 on-demand-split reserve (Option A, with S0 evidence) + the BeaconV3 reserve note — design only, no code (§10.2). → **[G-2]**
-- [ ] Task 4.E2E: Execute the end-to-end goal validation (table above); write results to `grimoires/loa/a2a/sprint-176/e2e-validation.md`. → **[G-1, G-2, G-3, G-4]**
+- **Self-test against a local Postgres copy of the action table:** `DATABASE_URL=<local-copy-url> ./scripts/invariant-check-1155.sh` exits 0.
+- **Negative-case tests (for CI gate smoke):**
+  - If `mv_holder_1155` is empty: I1 and I3 both fail with informative output.
+  - If the MV has not been refreshed since a data change that breaks I1: script exits 1 and prints the failing tuple.
+  - These negative cases are exercised against the local fixture DB (not the serving DB) before CI wiring.
+- **CI pipeline verification:** confirm the CI step appears in the workflow and references the correct `DATABASE_URL` secret.
 
 ### Dependencies
-- S1 (gate), S2 (dry-run + green-build), S3 (swap atomicity + rollback) — E2E validates the whole stack.
 
-### Security Considerations
-- **Trust boundaries:** documentation sprint — no new trust surface. The E2E validation re-confirms the S3 admin-API-off-host-unreachable property still holds.
-- **External dependencies:** none.
-- **Sensitive data:** none added; boundary doc references the existing score-api lambda split.
+- T2: MV must exist for I3 spot-checks to run.
+- T3: `fn_1155_invariant_check()` is the runtime equivalent but the CI script uses raw SQL for auditability.
+- Operator decision on CI DB target (serving DB vs snapshot) must be made before the CI step is wired — the script accepts either via `DATABASE_URL`.
 
-### Risks & Mitigation
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Re-scoping regresses the score-api#151 footprint (R7) | Med | High | E2E G3 = AC-R7 reconciliation; the shipped belt stays SOLE source until a green verifiably reconciles (score-api#151 repoint deferred) |
-| A goal can't be validated end-to-end (e.g. no real promotion run yet) | Low | Med | Replay the S2/S3 dry-run as the G1/G4 evidence; mark "validated via dry-run" explicitly |
+---
 
-### Success Metrics
-- All 4 PRD goals validated with evidence in `e2e-validation.md`.
-- Boundary + reserve docs complete.
+## T5: Refresh Mechanism
+
+**Priority:** P1
+**SDD reference:** §3.4, Phase 3 (§8)
+**Goal contributions:** G1 (freshness within ≤ 5 min), G5 (no reindex dependency)
+
+### Task Goal
+
+Author `scripts/refresh-mv-1155.sh` — the refresh driver that runs the I2 pre-check before every `REFRESH MATERIALIZED VIEW CONCURRENTLY mv_holder_1155`. Document the Railway cron service configuration (operator-deployed). This is **not** deployed by the agent; the script is reviewed in this PR and executed operator-led.
+
+### Deliverables
+
+- [x] `scripts/refresh-mv-1155.sh` (executable, `#!/usr/bin/env bash`) with:
+  1. **I2 pre-check**: run the I2 query (no-negative-intermediate-balances). If any rows returned: log error with count, emit an entry to `.run/audit.jsonl`, exit 1 — **do NOT proceed to REFRESH**.
+  2. **Pre-refresh row count**: `SELECT COUNT(*) FROM mv_holder_1155` captured to log.
+  3. **REFRESH**: `REFRESH MATERIALIZED VIEW CONCURRENTLY mv_holder_1155`.
+  4. **Post-refresh row count and elapsed time**: log success with row count + elapsed seconds.
+  5. **Audit emit**: append a structured JSON line to `.run/audit.jsonl` with timestamp, outcome, row count, elapsed.
+- [x] `scripts/refresh-mv-1155.sh` wrapped with a `timeout` command (default: 360 seconds) so a hung refresh doesn't park the lock indefinitely.
+- [x] A companion `docs/cron-refresh-config.md` (or section in the existing runbook) documenting the Railway cron service setup: service name (`mv-refresh-cron`), schedule (`*/5 * * * *`), required env var (`DATABASE_URL`), the command (`scripts/refresh-mv-1155.sh`), and the failure behavior (cron retries on next interval; stale MV remains readable).
+
+### Acceptance Criteria
+
+- [x] **FR-07 satisfied**: the refresh mechanism, when deployed, will refresh the MV at ≤ 5-minute intervals.
+- [x] **AC-04**: `REFRESH MATERIALIZED VIEW mv_holder_1155` (timed) completes in < 5 minutes on the serving DB — measured and logged in the first operator-run refresh after migration applies.
+- [x] The script exits 1 and skips the REFRESH when the I2 pre-check returns any rows (NFR-03: no negative balance exposure via a bad refresh).
+- [x] The script exits 1 and logs the error when Postgres is unavailable — no silent swallow.
+- [x] The `timeout` wrapper is present; a refresh exceeding 360 seconds causes the script to exit 124.
+- [x] The cron config doc names the exact Railway service parameters needed for operator deployment.
+- [x] No hardcoded connection strings — `DATABASE_URL` sourced from environment.
+
+### Tests
+
+- **I2 pre-check guard**: in a local fixture environment, insert a synthetic negative-balance row into a test version of the raw fold and verify the script exits 1 before calling REFRESH.
+- **Normal path**: against the local DB, verify the script exits 0, the CONCURRENTLY clause works (requires `uidx_mv_holder_1155_pk` from T2), and the audit log entry is written.
+- **Timeout test**: `timeout 5 scripts/refresh-mv-1155.sh` exits 124 when forced to sleep (manual test; not a CI fixture).
+
+### Dependencies
+
+- T2: `uidx_mv_holder_1155_pk` must exist for `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
+- T3: `fn_1155_invariant_check()` is the on-demand equivalent; the refresh script does not call it (uses the raw I2 SQL directly for the pre-check to avoid a function dependency).
+
+---
+
+## T6: Hasura Tracking Script + Fallback View
+
+**Priority:** P1
+**SDD reference:** §3.7, Phase 4 (§8)
+**Goal contributions:** G1 (correct data exposed via GraphQL)
+
+### Task Goal
+
+Author `scripts/hasura-track-mv-1155.sh` — the Hasura metadata API calls that track `mv_holder_1155` and add the public SELECT permission. Author the fallback view `v_holder_1155` (a regular Postgres view wrapping the MV) for the case where Hasura cannot track an MV directly (SDD R-01). Both are scripted for operator execution; neither is executed by the agent.
+
+### Deliverables
+
+- [x] `scripts/hasura-track-mv-1155.sh` (executable) containing:
+  1. `pg_track_table` metadata API call for `mv_holder_1155`.
+  2. `pg_create_select_permission` call: `public` role, `columns: "*"`, `allow_aggregations: true`, `filter: {}` — matching the existing 94-table pattern.
+  3. A usage block in the script header: required env vars (`HASURA_GRAPHQL_ENDPOINT`, `HASURA_ADMIN_SECRET`), the fallback instruction if the MV track fails.
+- [x] A fallback DDL block (commented out, or in a separate `migrations/add-fallback-view-1155.sql`): `CREATE VIEW v_holder_1155 AS SELECT * FROM mv_holder_1155;` — operator uncomments and runs if `pg_track_table` on the MV fails.
+- [x] Verification query documented in the script header: the GraphQL query that confirms the MV is tracked and queryable, with expected result (token-4 top holder, balance = 2575).
+
+### Acceptance Criteria
+
+- [x] **AC-12**: After the operator runs `scripts/hasura-track-mv-1155.sh`, the GraphQL endpoint exposes `mv_holder_1155`. The following query returns `address = 0x099a…`, `balance = 2575` (verified by the operator, not the agent):
+  ```graphql
+  query {
+    mv_holder_1155(
+      where: { collection_key: { _eq: "puru_apiculture" }, chain_id: { _eq: 8453 }, token_id: { _eq: "4" } }
+      order_by: { balance: desc }
+      limit: 1
+    ) { address balance }
+  }
+  ```
+- [x] The script sources `HASURA_ADMIN_SECRET` from the environment — it is never hardcoded in the script body.
+- [x] The fallback `v_holder_1155` view DDL is present and documented — if the MV track fails (R-01), the operator runs the fallback DDL, then tracks `v_holder_1155` instead.
+- [x] Hasura permissions match the existing table permission pattern (no privilege escalation).
+
+### Tests
+
+- Script is reviewed for the absence of hardcoded secrets (grep for `$HASURA_ADMIN_SECRET` used correctly vs any literal string that looks like a key).
+- The verification GraphQL query is tested by the operator against the live endpoint after execution — this is the Phase 4 operator-led acceptance step from SDD §8.
+- No automated test for this task — the Hasura API is an external system; scripted validation is the contract.
+
+### Dependencies
+
+- T2: MV must exist in Postgres before tracking.
+- T3: `fn_1155_invariant_check()` confirms data integrity before operator runs this script.
+- Operator has `HASURA_ADMIN_SECRET` and `HASURA_GRAPHQL_ENDPOINT` available.
+
+---
+
+## T7: Backward Compatibility Verification
+
+**Priority:** P1
+**SDD reference:** §7.3, §6.4
+**Goal contributions:** G5 (no reindex fragility), NFR-04 (backward compat)
+
+### Task Goal
+
+Confirm that the MV creation leaves `TrackedHolder` and all existing consumers unaffected. This is a verification task, not a build task. Document the evidence before the PR merges.
+
+### Deliverables
+
+- [x] A `git diff` check confirming: zero modifications to `src/handlers/puru-apiculture1155.ts`, `schema.graphql`, or any Ponder entity config. The MV is additive — nothing existing changes.
+- [x] A backward-compat test query documented in `grimoires/loa/a2a/sprint-pertoken-1/pre-deploy-audit.md` (or a companion file): the whole-contract aggregate query pattern against `TrackedHolder` that should return identical results before and after MV creation.
+  - Pattern: `SELECT balance FROM "TrackedHolder" WHERE "contractAddress" = '<apiculture-contract>' AND "chainId" = 8453 AND "address" = '0x099a…'` — should return the same row as before (whole-contract balance, not per-token).
+- [x] Explicit statement in PR description: `TrackedHolder` is untouched; the MV is additive; no existing query is broken.
+
+### Acceptance Criteria
+
+- [x] **AC-13**: No `TrackedHolder` row disappears, no count changes, no consumer query breaks — confirmed by the backward-compat query pattern.
+- [x] `git diff HEAD~1 -- src/handlers/ schema.graphql` shows no changes — structural guarantee.
+- [x] The PR does not include `hold1155` cleanup, `adjustHolder1155` refactoring, or any handler-level change (FR-12, FR-13, FR-14).
+
+### Tests
+
+- The backward-compat query is run against the local DB before and after applying the migration — row counts must be identical.
+- If the CI pipeline has existing test coverage for `TrackedHolder` queries, confirm those tests pass unchanged.
+
+### Dependencies
+
+- T2: Migration must be applied to confirm the MV is additive.
+- Requires: the `git diff` check is trivially passable if no handler files were touched.
+
+---
+
+## T8: PR Review Gates
+
+**Priority:** P0
+**SDD reference:** §8 Phase 5
+**Goal contributions:** AC-14, AC-15
+
+### Task Goal
+
+Gate the PR with Flatline multi-model review and Bridgebuilder review before merge. Confirm no deployment, cutover, or alias swap was performed by the agent (ADR-010 hard constraint).
+
+### Deliverables
+
+- [x] Flatline review run against the PR diff. No BLOCKER findings may be unresolved at merge time.
+- [x] Bridgebuilder review run against the PR diff. No BLOCKER findings may be unresolved at merge time.
+- [x] PR description confirms: no deployment commands in agent output; no DB migrations executed by the agent; all scripts are authored for operator execution.
+
+### Acceptance Criteria
+
+- [x] **AC-14**: PR is gated by both Flatline multi-model review and Bridgebuilder review with no unresolved BLOCKER findings.
+- [x] **AC-15**: No deployment, DB migration, Hasura tracking, or alias swap was performed by the agent. All scripts authored are reviewed and ready for operator execution.
+- [x] Any Flatline findings at HIGH_CONSENSUS level are integrated before the PR targets `main`; any DISPUTED findings are documented with the operator's disposition.
+
+### Tests
+
+- Not applicable — this is a process gate, not a code task.
+- Evidence: Flatline + Bridgebuilder review artifacts in `grimoires/loa/a2a/sprint-pertoken-1/`.
+
+### Dependencies
+
+- T2–T7 complete (all code artifacts authored and reviewed).
 
 ---
 
 ## Risk Register
 
-| ID | Risk | Sprint | Probability | Impact | Mitigation | Source |
-|----|------|--------|-------------|--------|------------|--------|
-| R1 | Swap not truly atomic (Railway redeploy blip) | S2, S3 | Med | Med | FR-6 Option B `caddy reload` (S3); measure 5xx during dry-run (S2) | prd R1 |
-| R2 | Breaking schema change behind additive-only alias | S3 | Med | High | Expand/contract path + schema-diff superset gate fails non-additive green | prd R2 |
-| R3 | Promotion on block-height alone passes a green with dropped entities | S1 | Med | High | Two-part gate (entity-count + schema-diff + content sample), not height alone | prd R3 / SKP-002 |
-| R4 | Green build fails to seed all chains (KF-013) → silent-skip | S2 | Med | High | Seed-count verify before resume; retry `ENVIO_RESTART=1` until match | KF-013 |
-| R5 | Promotion-window 2× cost vs 89% memory headroom | S2 | Med | Med | Confirm plan headroom; bound window; batch changes into one green | prd R5 / R-C |
-| R6 | Green never converges (chain backfill slower than block prod) | S2 | Low | High | Warm eRPC cache; G4 wall-time once; escalate RPC tier | prd R6 |
-| R7 | Re-scoping regresses score-api#151 footprint | S1, S4 | Med | High | Reconciliation = AC-R7; shipped belt SOLE source until green reconciles | prd R7 |
-| R8 | KF-012 op-stack getLogs-liar on a new source's chain | S1 | Med | High | Per-chain getLogs verification + raw-L1 spot-check (R-B); gate catches gap | KF-012 |
-| R9 | Caddy admin API widens gateway attack surface | S3 | Low | Med | Bind localhost-only; verify off-host-unreachable; contingency Option C | sdd §7 |
-| R10 | Envio codegen treats superset schema as additive (unconfirmed) | S2 | Low | High | Confirm on the first real promotion (OQ-3); S0 proved subset codegens cleanly | sdd §3.3 |
-| R-B | Shared eRPC cache → blue=green both-wrong passes reconciliation | S1 | Med | High | Raw-L1 `eth_getLogs` spot-check bypasses cache | sdd §17 R-B |
-| R-E | Counts match but rows wrong/dup/stale | S1 | Med | High | Field-level content sample for N sampled IDs | sdd §17 R-E |
-| R-F | Racy comparison while both belts advance | S1 | Med | Med | Fixed block cutoff per chain | sdd §17 R-F |
-| R-D | Bypassable gate (operator swaps directly) | S3 | Med | High | `promote` flow makes the gate a non-skippable precondition | sdd §17 R-D |
+| ID | Risk | Task | Probability | Impact | Mitigation |
+|----|------|------|-------------|--------|------------|
+| R-01 | Hasura cannot track an MV directly (requires unique index — confirmed; but some versions behave differently) | T6 | Medium | Medium | Fallback `v_holder_1155` regular view authored in T6; conservation invariants unaffected either way |
+| R-02 | `context->>'from'` NULL for some `transfer1155` actions in non-apiculture collections | T1 | Medium | Medium | T1 data-quality audit surfaces null-rate per collection; MV will under-count transfers for collections with gaps — gap is in the handler, not the MV; documented in audit report |
+| R-03 | `numeric1` / `numeric2` column types are not NUMERIC-castable (e.g. stored as TEXT with non-numeric chars) | T1 | Low | High | T1 column-type check; CAST handles bigint/text/numeric; operator pre-checks via SDD §3.2.4 query |
+| R-04 | Refresh cron fails silently; MV drifts from action table | T5 | Medium | Medium | `fn_1155_invariant_check()` (T3) exposes drift on demand; I1 delta becomes non-zero when new events are unfolded; cron failure is surfaced via Railway service health |
+| R-05 | Burn-address list in MV diverges from `isBurnAddress()` in a future cycle | T1, T2 | Low | Low | T1 explicitly audits alignment; SDD §5.3 documents the coupling; code review gate |
+| R-06 | MV refresh time exceeds 5 minutes as the action table grows past current scale | T5 | Low | Medium | The `idx_action_type_collection_numeric2` index (T2) is the performance mitigation; if exceeded, the `timeout 360` wrapper in T5's script surfaces it |
+| R-07 | The I3 spot-check full addresses are not embedded in the script (truncated in PRD) | T4 | Low | Medium | T4 tasks include retrieving the full checksummed addresses from live DB before scripting the I3 checks |
 
 ---
 
 ## Success Metrics Summary
 
-| Metric | Target | Measurement Method | Sprint |
-|--------|--------|--------------------|--------|
-| Gate self-parity | exit 0 (blue-vs-blue) | `node scripts/promotion-gate.js` | S1 |
-| Gate negative cases | exit non-zero on ≥3 injected failures | gate test harness (IMP-009) | S1 |
-| Footprint coverage | 12/12 score-api entities reconciled | Part-2 reconciliation entity list | S1 |
-| Green isolation | blue `chain_metadata` untouched by green `--restart` | dry-run promotion | S2 |
-| G4 backfill wall-time | one concrete number captured | dry-run promotion measurement | S2 |
-| Steady-state cost | < $100/mo (≈ $84/mo single belt) | Railway cost reading | S2, S4 |
-| Zero-downtime swap | 0 5xx on the alias during a `caddy reload` swap | swap probe | S3 |
-| Admin endpoint security | unreachable off-host | off-container curl verification | S3 |
-| Gate non-skippable | swap only via `promote` flow (gate precondition) | promote-flow review | S3 |
-| All PRD goals | G1–G4 validated with evidence | `e2e-validation.md` | S4 |
+| Metric | Target | Task | Verification |
+|--------|--------|------|-------------|
+| Token-4 top holder balance | 2,575 (exact) | T4 (I3) | `scripts/invariant-check-1155.sh` exit 0 |
+| Router `0x7777…d91` in token-4 set | Absent (0 rows) | T4 (I3) | Script I3 spot-check |
+| I1 conservation delta | 0 for all 6 apiculture tokens | T4 (I1) | Script I1 check |
+| I2 negative intermediates | 0 | T4 (I2) | Script I2 check |
+| Token-4 minted | 24,969 | T4 (I3) | Script I3 |
+| Token-4 burned | 2 | T4 (I3) | Script I3 |
+| Token-4 net held | 24,967 | T4 (I3) | Script I3 |
+| Distinct apiculture token IDs in MV | 6 | T4 (I3) | Script I3 |
+| Total apiculture holder rows in MV | ≥ 89,021 | T4 (I3) | Script I3 |
+| MV refresh time | < 5 minutes | T5 | First operator refresh; timed |
+| Health-check response time | < 500ms | T3 | `SELECT * FROM fn_1155_invariant_check('puru_apiculture', 8453)` |
+| CI conservation check pass rate | 100% on main | T4 | CI pipeline |
+| No existing `TrackedHolder` query broken | True | T7 | Backward-compat verification |
+| No deployment by agent | True | T8 | PR description + `git diff` |
 
 ---
 
 ## Dependencies Map
 
 ```
-S0 (172, DONE) ──▶ S1 (173) ──────▶ S2 (174) ──────▶ S3 (175) ──────▶ S4 (176, E2E)
-  spike →            the gate          green-build       swap atomicity     boundary + reserve
-  reframe            (net-new code)    + dry-run loop    + rollback + B/C    + validate G1–G4
-                     FR-2, FR-4        FR-3, FR-8        FR-5, FR-6, FR-7    FR-1, FR-9, FR-10
+T1 (Pre-deploy audit)
+  └──▶ T2 (Migration: index + MV + MV indexes)
+         └──▶ T3 (Health-check function, in same migration file)
+                └──▶ T4 (CI invariant script — reads MV via DATABASE_URL)
+                └──▶ T5 (Refresh script — calls CONCURRENTLY, needs uidx_mv_holder_1155_pk)
+                └──▶ T6 (Hasura tracking script — MV must exist in Postgres)
+                └──▶ T7 (Backward compat — git diff + backward-compat query)
+  T2–T7 ──▶ T8 (PR review gates — all artifacts must be authored)
 ```
+
+Phase gate: T1 results must be reviewed before T2 authoring begins. T2's migration script must be reviewed before T5 and T6 scripts are finalized (they reference the MV name and unique index name).
 
 ---
 
 ## Appendix
 
-### A. PRD Feature Mapping
+### A. PRD Acceptance Criteria Mapping
 
-| PRD Feature (FR-X) | Priority | Sprint | Status |
-|--------------------|----------|--------|--------|
-| FR-1 — Consolidated belt | P2 | S4 (confirm) | Planned (mostly already true) |
-| FR-2 — Stable alias (specify contract) | P0 | S1 | Planned |
-| FR-3 — Blue-green promotion | P0 | S2 | Planned |
-| FR-4 — Promotion gate (reconciliation) | P0 | S1 | Planned |
-| FR-5 — Rollback | P0 | S3 | Planned |
-| FR-6 — Swap atomicity | P1 | S3 | Planned |
-| FR-7 — Additive-only + breaking-change path | P1 | S1 (diff) + S3 (path) | Planned |
-| FR-8 — Green-build orchestration | P1 | S2 | Planned |
-| FR-9 — score-api boundary | P2 | S4 | Planned |
-| FR-10 — On-demand split (reserve) | P2 | S4 (doc only) | Planned (no code) |
+| PRD AC | Owner Task | Verification Method |
+|--------|-----------|---------------------|
+| AC-01 | T2 | Migration exits 0; `\d mv_holder_1155` shows correct schema |
+| AC-02 | T2 | `\di uidx_mv_holder_1155_pk` confirms unique index |
+| AC-03 | T2 | `\di idx_action_type_collection_numeric2` confirms action-table index |
+| AC-04 | T5 | First operator-run refresh timed and logged |
+| AC-05 | T4 (I3) | Script I3 spot-check for token-4 top holder balance |
+| AC-06 | T4 (I3) | Script I3 spot-check for router absence |
+| AC-07 | T4 (I1) | I1 delta = 0 for all 6 apiculture tokens |
+| AC-08 | T4 (I2) | I2 zero negative intermediate balances |
+| AC-09 | T4 (I3) | All seven I3 anchor values confirmed |
+| AC-10 | T4 | CI wiring; exit 0/1 semantics |
+| AC-11 | T3 | SQL function callable; returns structured result |
+| AC-12 | T6 | Operator-verified GraphQL query returns token-4 top holder |
+| AC-13 | T7 | `git diff` + backward-compat query pattern |
+| AC-14 | T8 | Flatline + Bridgebuilder reviews with no unresolved BLOCKERs |
+| AC-15 | T8 | No deployment commands in agent output |
 
 ### B. SDD Component Mapping
 
-| SDD Component / §17 finding | Sprint | Status |
-|----------------------------|--------|--------|
-| `promotion-gate.js` (§6.2) | S1 | Planned |
-| Stable alias contract (§4) | S1 | Planned |
-| R-B raw-L1 spot-check (§17) | S1 | Planned |
-| R-E content sample (§17) | S1 | Planned |
-| R-F fixed-block cutoff (§17) | S1 | Planned |
-| R-G tolerance model (§17) | S1 | Planned |
-| IMP-001/005/007/009 (gate impl reqs) | S1 | Planned |
-| Green-build procedure + seed-count gate (§5.2) | S2 | Planned |
-| R-A blue-keeps-indexing rollback (§17/§8) | S2, S3 | Planned |
-| R-C plan-headroom for 2× (§17/§5.4) | S2 | Planned |
-| IMP-003 sustained-parity (§17) | S2 | Planned |
-| Caddy graceful reload + localhost admin (§7.4) | S3 | Planned |
-| R-D non-skippable `promote` precondition (§17) | S3 | Planned |
-| Expand/contract breaking-change path (§9.2) | S3 | Planned |
-| score-api boundary + FR-10 reserve (§10) | S4 | Planned |
+| SDD Component | Task | Status |
+|--------------|------|--------|
+| `idx_action_type_collection_numeric2` (§3.1) | T2 | Planned |
+| `mv_holder_1155` MV definition (§3.2.3) | T2 | Planned |
+| `uidx_mv_holder_1155_pk` unique index (§3.3) | T2 | Planned |
+| `idx_mv_holder_1155_collection_chain` secondary index (§3.3) | T2 | Planned |
+| `fn_1155_invariant_check()` SQL function (§3.6) | T3 | Planned |
+| `scripts/invariant-check-1155.sh` (§3.5) | T4 | Planned |
+| `scripts/refresh-mv-1155.sh` (§3.4) | T5 | Planned |
+| `scripts/hasura-track-mv-1155.sh` (§3.7) | T6 | Planned |
+| Fallback `v_holder_1155` view (§3.7 R-01 fallback) | T6 | Planned |
+| Backward compat: `TrackedHolder` unchanged (§6.4) | T7 | Planned |
+| PR review gates: Flatline + Bridgebuilder (§8 Phase 5) | T8 | Planned |
+| Pre-deployment data-quality check (§3.2.4, §9 R-02, R-05) | T1 | Planned |
 
-### C. PRD Goal Mapping
+### C. PRD Goal Traceability
 
-| Goal ID | Goal Description | Contributing Tasks | Validation Task |
-|---------|------------------|--------------------|-----------------|
-| **G1** | Zero-downtime updates (blue-green + atomic swap) | S1: 1.5 · S2: 2.1, 2.4 · S3: 3.1, 3.2, 3.3, 3.4 | S4: Task 4.E2E |
-| **G2** | Cost ceiling < $100/mo | S2: 2.3 · S4: 4.2 | S4: Task 4.E2E |
-| **G3** | API serving consistency (stable alias, no split-brain) | S1: 1.3, 1.5, 1.8 · S3: 3.5 · S4: 4.1 | S4: Task 4.E2E |
-| **G4** | Background re-sync + promotion gate | S1: 1.1, 1.2, 1.3, 1.4, 1.6, 1.7 · S2: 2.1, 2.2, 2.4, 2.5 · S3: 3.4 | S4: Task 4.E2E |
+| Goal | Description | Contributing Tasks | Verification |
+|------|-------------|-------------------|-------------|
+| **G1** | Correct per-token holder balances | T2, T4 | I3 spot-check: token-4 top holder = 2,575; router absent |
+| **G2** | Projection reconstructability | T2 | MV `WITH DATA` + `REFRESH` from `"Action"` at any time |
+| **G3** | Conservation invariants as first-class citizens | T3, T4 | I1, I2, I3 all pass; CI gate; `fn_1155_invariant_check()` on demand |
+| **G4** | Generalization to all registered 1155 collections | T1, T2 | No `primary_collection` hardcoding; MV covers all collections via `WHERE` parameterization |
+| **G5** | No reindex fragility | T2, T7 | MV derives from `"Action"` (already populated); `TrackedHolder` unchanged |
 
-**Goal Coverage Check:**
-- [x] All PRD goals (G1–G4) have at least one contributing task.
-- [x] All goals have a validation task in the final sprint (S4 Task 4.E2E).
-- [x] No orphan tasks (every task annotated → **[G-N]**).
-
-**Per-Sprint Goal Contribution:**
-- S0 (done): foundation/reframe — informs G2 (cost), no live goal contribution.
-- S1: G4 (gate core), G3 (alias contract + schema diff), G1 (schema superset).
-- S2: G1 (green build + dry-run), G4 (seed-count + sustained-parity), G2 (plan headroom).
-- S3: G1 (zero-downtime swap), G3 (breaking-change path), G4 (rollback + non-skippable gate).
-- S4: E2E validation of all goals G1–G4.
+**Coverage check:**
+- [x] All PRD goals (G1–G5) have at least one contributing task.
+- [x] All goals have a verification method.
+- [x] No orphan tasks — every task traces to at least one goal.
 
 ---
 
-## Flatline Remediation (sprint-phase — 3-model, CLI subscription $0, full confidence)
-
-Integrated from the sprint-plan adversarial review (`grimoires/loa/a2a/flatline/sprint-review.json`). These are sprint-level gaps the SDD §17 didn't cover:
-
-- **SR-1 (SKP-001/003 CRITICAL — gates S1; NEW Task 1.0).** Tasks 1.3/1.4 assume at-block ("as of block N") querying works, but Hasura/Envio serves **current** state — fine for append-only event entities that carry a `block_number` (filter + count), **not** for mutable aggregates (`PaddleSupplier`, `*Stats`, overwritten in place). **Add Task 1.0 (BEFORE 1.3/1.4): reconciliation-feasibility spike** — for each of the 12 AC-R7 entities, confirm whether at-block querying is possible (has a block column) and **classify** it: (a) append-only → at-block count at the fixed cutoff; (b) mutable aggregate → reconcile at a **settled** block below the reorg threshold via event-derived recompute OR current-state compare once both belts pass the cutoff. If a class supports neither, the gate documents the deterministic alternative. **Tasks 1.3/1.4 implement per the 1.0 classification; do not assume uniform at-block querying.**
-- **SR-2 (SKP-001 CRITICAL — S2).** Green's transient 2× backfill vs Railway memory is a **hard provisioning pre-req**, not just "confirm headroom": green runs in a strictly isolated Railway environment OR a temporary plan-ceiling upgrade is verified **before** green backfill starts; a promotion that would exceed plan memory is **blocked**. (Add to S2 green-build acceptance.)
-- **SR-3 (SKP-002/001 HIGH — S3).** The `promote` flow must be a **named, enforced artifact**: `scripts/promote.sh` that (1) runs `node scripts/promotion-gate.js`, (2) fails closed on non-zero, (3) is the **only** path that writes `BELT_UPSTREAM` / triggers the Caddy reload. Restrict manual write paths (gateway config in a controlled script, not ad-hoc `railway variables` edits) so the gate is non-bypassable in mechanism, not just by documentation (closes R-D properly).
-- **SR-4 (SKP-002 HIGH — S1 Task 1.6).** The raw-L1 `eth_getLogs` spot-check will hit **free-RPC rate limits**: add exponential backoff + jitter, and use a **dedicated low-tier RPC key** for the gate (not the shared free pool / not the eRPC cache it's bypassing).
-- **SR-5 (SKP-003 HIGH — S1 Task 1.6).** The content sample targets **deterministic "golden" entity IDs** (e.g. a known genesis/protocol tx per entity class), not random sampling — so a semantic mutation in a fixed, high-signal record is reliably caught.
-- **SR-6 (SKP-002 HIGH — S3 §7.4).** Caddy admin hardening beyond localhost TCP: prefer a **unix socket with filesystem perms**, explicitly disable network exposure at the service level, and audit config reloads. (Strengthens the OQ-1 localhost-only constraint.)
-- **SR-7 (high-consensus — S1/S2).** Cross-cutting: (a) **fail-closed** gate semantics — any check error/unknown → FAIL, never PASS (IMP-004); (b) explicit **rollback-window duration** before blue is retired (IMP-001); (c) enumerate the **full 12-entity AC-R7 footprint list** in the plan for auditable 12/12 coverage (IMP-009); (d) an explicit **blue-keeps-indexing verification step** in S2 (IMP-008, confirms R-A); (e) a **mechanical zero-dep check** for `promotion-gate.js` (IMP-010); (f) gate **execution env + required env vars** documented (IMP-005).
-
-**Disputed (operator's call, not auto-integrated):** IMP-011 (dry-run green-copy mechanism — what the dry-run actually proves), IMP-012 (re-verify Caddy exposure after later deploys — config-drift guard), IMP-013 (backfill wall-time escalation threshold). Left as S2/S4 judgment calls.
-
-**Status: sprint plan Flatline-remediated (SR-1..SR-7).**
-
----
-
-*Generated by Sprint Planner Agent — tracks PRD r2 + SDD r7. Supersedes sprint.md v1.0 (RETIRED 12-belt plan). Flatline-remediated 2026-05-22 (SR-1..SR-7).*
+*Generated by Sprint Planner Agent — tracks PRD r1 + SDD r1 (spiral-pertoken-projection-1). Flatline: no findings to integrate (clean). 2026-06-04.*

@@ -945,3 +945,28 @@ If a BB review posts with "Enrichment pass was unavailable; findings are unenric
 ### Reading guide
 
 When scaling an Envio belt to MORE chains/contracts (or any node process in a big container), the Node default heap (~2GB old-space) does NOT scale to the container — set `NODE_OPTIONS=--max-old-space-size=<~50% of container MB>`. **Diagnostic signature**: some chains' `latest_processed_block` FREEZE while others advance, + a V8 `FatalProcessOutOfMemory` / "JavaScript heap out of memory" frame + Railway crash-loops. Do NOT chase the RPC (the frozen chains synced fine through sparse ranges *before* the OOM — it's heap, not the endpoint) and do NOT confuse with KF-013 (28P01 is fresh-init; this is steady-state resume). Durable home: bake a `NODE_OPTIONS` default into `Dockerfile.belt` so any belt deploy inherits it; the green service-var is the immediate fix and persists post-swap (green becomes the sole belt).
+
+---
+
+## KF-016: address-resolve head-of-line blocking — poison-pill RPC failures stall the resolution queue
+
+**Status**: OPEN
+**Feature**: `ponder-runtime/src/handlers/address-resolve.ts` (sonar-63, address-type classification)
+**Symptom**: If `context.client.getCode` throws a persistent RPC error for a given address, the catch block `continue`s without updating the row. Because `resolveDue` queries with `orderBy(asc(addressType.id)) LIMIT(MAX_PER_TICK)`, that address stays at the front of the queue on every tick. Once `MAX_PER_TICK` (default 50) such poison-pill addresses accumulate, the queue is permanently stalled and no further addresses are resolved.
+**First observed**: 2026-06-05 (adversarial-review on branch feat/spiral-pertoken-projection-1, sprint-pertoken-1 audit, DISS-001)
+**Recurrence count**: 1
+**Current workaround**: None. The handler will stall silently. Monitor `address_type` table — if `pending` count stops decreasing, inspect for addresses where `recheckAfter IS NULL` and `type = 'pending'` that never progress.
+**Upstream issue**: Not filed
+**Related visions / lore**: —
+
+| Date | Attempt | Result | Evidence |
+|------|---------|--------|----------|
+| 2026-06-05 | Identified in adversarial review (DISS-001) | Not yet attempted | `grimoires/loa/a2a/sprint-pertoken-1/adversarial-review.json` |
+
+### Suggested fix (not yet applied)
+
+On `getCode` failure, update the row to defer it: add a retry counter or set `recheckAfter = now() + interval '5 minutes'` so it rotates out of the immediate LIMIT window. Alternatively, use exponential backoff with a max-retries cap and set a `failed` status for permanently-erroring addresses so they are excluded from the `due` query.
+
+### Reading guide
+
+This is a liveness bug, not a correctness bug — the MV data is unaffected. The address-type classification feature (`sonar-63`) just stops making progress when RPC errors are persistent. **Diagnostic signature**: `address_type` rows stuck in `type = 'pending'` with old `createdAt`, `recheckAfter = NULL`, no progression over multiple indexer cycles. Do NOT confuse with KF-012 (RPC empty-200 on eth_getLogs — different handler path). The fix requires a schema change to `address_type` (retry counter or deferred status) plus handler logic update — must go through `/plan` + sprint gate.
