@@ -25,9 +25,12 @@ jobs:
     name: mv_holder_1155 Conservation Invariants
     runs-on: ubuntu-latest
 
-    # Requires the DATABASE_URL secret to be set in the repository.
-    # If the secret is absent, this job is skipped (not failed).
-    # Operator: add the secret before enabling this workflow.
+    # Gate the entire job on the secret being present.
+    # When BELT_DATABASE_URL is absent (e.g., fork PRs), the job shows as
+    # "skipped" — not "passed" — so a green check means invariants actually ran.
+    # Operator: add BELT_DATABASE_URL to repository secrets before enabling.
+    if: ${{ secrets.BELT_DATABASE_URL != '' }}
+
     env:
       DATABASE_URL: ${{ secrets.BELT_DATABASE_URL }}
 
@@ -40,20 +43,11 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client
 
-      - name: Check DATABASE_URL is configured
-        run: |
-          if [[ -z "${DATABASE_URL:-}" ]]; then
-            echo "::warning::BELT_DATABASE_URL secret is not set — skipping invariant check."
-            echo "::warning::Add the BELT_DATABASE_URL secret to enable this check."
-            exit 0
-          fi
-          echo "DATABASE_URL is configured."
-
       - name: Run conservation invariant checks
-        if: env.DATABASE_URL != ''
         run: |
           chmod +x scripts/invariant-check-1155.sh
-          scripts/invariant-check-1155.sh
+          set -o pipefail
+          scripts/invariant-check-1155.sh 2>&1 | tee /tmp/invariant-check-output.log
         env:
           DATABASE_URL: ${{ secrets.BELT_DATABASE_URL }}
           I3_TOKEN4_TOP_HOLDER_ADDRESS: ${{ secrets.I3_TOKEN4_TOP_HOLDER_ADDRESS }}
@@ -64,5 +58,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: invariant-check-failures
-          path: /tmp/invariant-check-*.log
+          path: /tmp/invariant-check-output.log
           retention-days: 7

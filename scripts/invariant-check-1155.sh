@@ -254,7 +254,7 @@ else
   fail "I3.2 — router address present in token-4 holder set: found $I3_2_RESULT row(s) (expected 0)"
 fi
 
-# I3.3 — Token-4 total minted
+# I3.3 — Token-4 total minted (lower-bound: mints continue as the collection is live)
 I3_3_SQL="SELECT SUM(CAST(numeric1 AS NUMERIC))
   FROM ponder.action
   WHERE action_type = 'mint1155'
@@ -262,13 +262,13 @@ I3_3_SQL="SELECT SUM(CAST(numeric1 AS NUMERIC))
     AND chain_id = $APICULTURE_CHAIN_ID
     AND CAST(numeric2 AS NUMERIC) = $TOKEN4_ID;"
 I3_3_RESULT="$(psql_query "$I3_3_SQL" | tr -d ' ')"
-if [[ "$I3_3_RESULT" == "$TOKEN4_EXPECTED_MINTED" ]]; then
-  pass "I3.3 — token-4 total minted = $TOKEN4_EXPECTED_MINTED"
+if [[ -n "$I3_3_RESULT" ]] && [[ "$I3_3_RESULT" -ge "$TOKEN4_EXPECTED_MINTED" ]]; then
+  pass "I3.3 — token-4 total minted = $I3_3_RESULT (>= $TOKEN4_EXPECTED_MINTED baseline)"
 else
-  fail "I3.3 — token-4 total minted: expected=$TOKEN4_EXPECTED_MINTED actual=${I3_3_RESULT:-no row}"
+  fail "I3.3 — token-4 total minted: expected>=$TOKEN4_EXPECTED_MINTED actual=${I3_3_RESULT:-no row}"
 fi
 
-# I3.4 — Token-4 total burned
+# I3.4 — Token-4 total burned (lower-bound: burns can only increase over time)
 I3_4_SQL="SELECT COALESCE(SUM(CAST(numeric1 AS NUMERIC)), 0)
   FROM ponder.action
   WHERE action_type = 'burn1155'
@@ -277,23 +277,30 @@ I3_4_SQL="SELECT COALESCE(SUM(CAST(numeric1 AS NUMERIC)), 0)
     AND CAST(numeric2 AS NUMERIC) = $TOKEN4_ID;"
 I3_4_RESULT="$(psql_query "$I3_4_SQL" | tr -d ' ')"
 I3_4_RESULT="${I3_4_RESULT:-0}"
-if [[ "$I3_4_RESULT" == "$TOKEN4_EXPECTED_BURNED" ]]; then
-  pass "I3.4 — token-4 total burned = $TOKEN4_EXPECTED_BURNED"
+if [[ -n "$I3_4_RESULT" ]] && [[ "$I3_4_RESULT" -ge "$TOKEN4_EXPECTED_BURNED" ]]; then
+  pass "I3.4 — token-4 total burned = $I3_4_RESULT (>= $TOKEN4_EXPECTED_BURNED baseline)"
 else
-  fail "I3.4 — token-4 total burned: expected=$TOKEN4_EXPECTED_BURNED actual=${I3_4_RESULT:-0}"
+  fail "I3.4 — token-4 total burned: expected>=$TOKEN4_EXPECTED_BURNED actual=${I3_4_RESULT:-0}"
 fi
 
-# I3.5 — Token-4 net held (SUM of all holder balances in MV)
+# I3.5 — Token-4 net held (DERIVED: must equal actual_minted - actual_burned from I3.3/I3.4)
+# This verifies MV conservation without pinning to a stale snapshot value.
 I3_5_SQL="SELECT SUM(balance)
   FROM ponder.mv_holder_1155
   WHERE collection_key = '$APICULTURE_COLLECTION'
     AND chain_id = $APICULTURE_CHAIN_ID
     AND token_id = $TOKEN4_ID;"
 I3_5_RESULT="$(psql_query "$I3_5_SQL" | tr -d ' ')"
-if [[ "$I3_5_RESULT" == "$TOKEN4_EXPECTED_NET_HELD" ]]; then
-  pass "I3.5 — token-4 net held = $TOKEN4_EXPECTED_NET_HELD"
+if [[ -n "$I3_3_RESULT" ]] && [[ "$I3_3_RESULT" =~ ^[0-9]+$ ]] && \
+   [[ -n "$I3_4_RESULT" ]] && [[ "$I3_4_RESULT" =~ ^[0-9]+$ ]]; then
+  I3_5_EXPECTED_DERIVED="$((I3_3_RESULT - I3_4_RESULT))"
+  if [[ -n "$I3_5_RESULT" ]] && [[ "$I3_5_RESULT" -eq "$I3_5_EXPECTED_DERIVED" ]]; then
+    pass "I3.5 — token-4 net held = $I3_5_RESULT (== minted($I3_3_RESULT) - burned($I3_4_RESULT))"
+  else
+    fail "I3.5 — token-4 net held: expected=${I3_5_EXPECTED_DERIVED} (minted-burned) actual=${I3_5_RESULT:-no row}"
+  fi
 else
-  fail "I3.5 — token-4 net held: expected=$TOKEN4_EXPECTED_NET_HELD actual=${I3_5_RESULT:-no row}"
+  fail "I3.5 — token-4 net held: cannot derive expected — I3.3 or I3.4 result is not a valid integer"
 fi
 
 # I3.6 — Distinct token IDs for puru_apiculture

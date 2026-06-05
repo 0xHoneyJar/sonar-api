@@ -74,8 +74,13 @@ emit_audit() {
   mkdir -p "$(dirname "$AUDIT_LOG_PATH")" 2>/dev/null || true
 
   local entry
-  entry="$(printf '{"ts":"%s","primitive":"refresh-mv-1155","outcome":"%s","row_count":%s,"elapsed_seconds":%s,"detail":"%s"}' \
-    "$SCRIPT_START_TS" "$outcome" "$row_count" "$elapsed_seconds" "$detail")"
+  entry="$(jq -cn \
+    --arg ts "$SCRIPT_START_TS" \
+    --arg outcome "$outcome" \
+    --argjson row_count "$row_count" \
+    --argjson elapsed_seconds "$elapsed_seconds" \
+    --arg detail "$detail" \
+    '{ts: $ts, primitive: "refresh-mv-1155", outcome: $outcome, row_count: $row_count, elapsed_seconds: $elapsed_seconds, detail: $detail}')"
 
   echo "$entry" >> "$AUDIT_LOG_PATH" || log_error "Could not write to audit log at $AUDIT_LOG_PATH"
 }
@@ -91,6 +96,26 @@ fi
 
 log_info "refresh-mv-1155.sh starting"
 log_info "Database: ${DATABASE_URL%%@*}@..."
+
+# ---------------------------------------------------------------------------
+# Advisory lock: prevent concurrent-refresh accumulation
+# pg_try_advisory_lock returns FALSE immediately if another session holds the
+# lock, so concurrent cron invocations exit early rather than pile up.
+# The lock is session-scoped and auto-released when the psql session ends.
+# pg_advisory_unlock in the trap is belt-and-suspenders for explicit release.
+# ---------------------------------------------------------------------------
+LOCK_KEY="hashtext('mv_holder_1155_refresh')::bigint"
+LOCK_ACQUIRED="$(psql_query "SELECT pg_try_advisory_lock($LOCK_KEY);" | tr -d ' ')"
+
+if [[ "$LOCK_ACQUIRED" != "t" ]]; then
+    log_info "Advisory lock not acquired — another refresh is in progress. Skipping."
+    exit 0
+fi
+
+_release_advisory_lock() {
+    psql_query "SELECT pg_advisory_unlock($LOCK_KEY);" >/dev/null 2>&1 || true
+}
+trap _release_advisory_lock EXIT
 
 # ---------------------------------------------------------------------------
 # Step 1: I2 pre-check — no negative intermediate balances

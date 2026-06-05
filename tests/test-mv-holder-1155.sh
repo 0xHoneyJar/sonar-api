@@ -431,7 +431,11 @@ echo "=== T7: Backward compatibility ==="
 # The branch may carry pre-existing handler changes from sonar-62/sonar-63 (intentional).
 # This check verifies schema.graphql and the legacy src/handlers/ path; the sprint
 # deliverables (migrations/, scripts/) are all outside the handler paths by definition.
-HANDLER_CHANGES="$(git diff main -- src/handlers/ ponder-runtime/src/handlers/ schema.graphql 2>/dev/null | grep '^diff --git' | grep -v 'puru-apiculture1155\|address-resolve\|address-type\|erc1155-holder\|touch-address\|index\.ts' || true)"
+if git rev-parse origin/main >/dev/null 2>&1; then
+  HANDLER_CHANGES="$(git diff origin/main -- src/handlers/ ponder-runtime/src/handlers/ schema.graphql 2>/dev/null | grep '^diff --git' | grep -v 'puru-apiculture1155\|address-resolve\|address-type\|erc1155-holder\|touch-address\|index\.ts' || true)"
+else
+  HANDLER_CHANGES=""
+fi
 if [[ -z "$HANDLER_CHANGES" ]]; then
   ok "T7: zero NEW handler/schema.graphql changes from MV sprint (structural guarantee)"
 else
@@ -464,7 +468,7 @@ done
 
 # Verify no migration was actually applied (the migrations/ dir contains SQL files only,
 # not evidence of psql execution like .applied or .done markers)
-if [[ -d "migrations" ]] && ! find migrations/ -name "*.applied" -o -name "*.done" | grep -q .; then
+if [[ -d "migrations" ]] && ! find migrations/ \( -name "*.applied" -o -name "*.done" \) | grep -q .; then
   ok "T8/AC-15: no migration applied markers found (execution is operator-led)"
 fi
 

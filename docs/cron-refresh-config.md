@@ -76,7 +76,7 @@ After a successful migration, the runtime health check function exposes stalenes
 If new mint/burn events have not been folded in, the I1 check may report a non-zero delta:
 
 ```sql
-SELECT * FROM fn_1155_invariant_check('puru_apiculture', 8453);
+SELECT * FROM ponder.fn_1155_invariant_check('puru_apiculture', 8453);
 ```
 
 If `I1_mint_burn_supply` status = `FAIL`, the MV is either stale or the action ledger has

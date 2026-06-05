@@ -43,6 +43,11 @@
 -- and blocks all reads.
 --
 -- EXECUTION: operator-led per ADR-010. The agent does not execute this script.
+--
+-- REAPPLY NOTE: CREATE MATERIALIZED VIEW IF NOT EXISTS silently retains a stale
+--   definition on re-run. To reapply after a definition change, run:
+--     DROP MATERIALIZED VIEW IF EXISTS ponder.mv_holder_1155 CASCADE;
+--   then re-execute this script from the beginning.
 -- =============================================================================
 
 BEGIN;
@@ -75,11 +80,13 @@ CREATE INDEX IF NOT EXISTS idx_action_type_collection_numeric2
 CREATE MATERIALIZED VIEW IF NOT EXISTS ponder.mv_holder_1155 AS
 WITH balance_deltas AS (
   -- Mints: actor (recipient) gains tokens
+  -- LOWER(actor): ponder.action stores addresses lowercase, but LOWER() is
+  -- defensive normalization so mixed-case overrides never split a wallet's balance.
   SELECT
     primary_collection           AS collection_key,
     chain_id,
     CAST(numeric2 AS NUMERIC)    AS token_id,
-    actor                        AS address,
+    LOWER(actor)                 AS address,
     CAST(numeric1 AS NUMERIC)    AS delta
   FROM ponder.action
   WHERE action_type = 'mint1155'
@@ -92,7 +99,7 @@ WITH balance_deltas AS (
     primary_collection           AS collection_key,
     chain_id,
     CAST(numeric2 AS NUMERIC)    AS token_id,
-    actor                        AS address,
+    LOWER(actor)                 AS address,
     -CAST(numeric1 AS NUMERIC)   AS delta
   FROM ponder.action
   WHERE action_type = 'burn1155'
@@ -105,7 +112,7 @@ WITH balance_deltas AS (
     primary_collection           AS collection_key,
     chain_id,
     CAST(numeric2 AS NUMERIC)    AS token_id,
-    actor                        AS address,
+    LOWER(actor)                 AS address,
     CAST(numeric1 AS NUMERIC)    AS delta
   FROM ponder.action
   WHERE action_type = 'transfer1155'
@@ -119,7 +126,7 @@ WITH balance_deltas AS (
     primary_collection           AS collection_key,
     chain_id,
     CAST(numeric2 AS NUMERIC)    AS token_id,
-    context::jsonb->>'from'      AS address,
+    LOWER(context::jsonb->>'from') AS address,
     -CAST(numeric1 AS NUMERIC)   AS delta
   FROM ponder.action
   WHERE action_type = 'transfer1155'

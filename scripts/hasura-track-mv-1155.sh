@@ -68,16 +68,20 @@ FAILURES=0
 metadata_call() {
   local description="$1"
   local payload="$2"
+  local RESPONSE_FILE HTTP_STATUS BODY
+
+  RESPONSE_FILE="$(mktemp)"
 
   echo ""
   echo "[INFO] $description"
-  HTTP_STATUS="$(curl -s -o /tmp/hasura-response.json -w '%{http_code}' \
+  HTTP_STATUS="$(curl -s -o "$RESPONSE_FILE" -w '%{http_code}' \
     -X POST "$HASURA_GRAPHQL_ENDPOINT/v1/metadata" \
     -H "X-Hasura-Admin-Secret: $HASURA_ADMIN_SECRET" \
     -H "Content-Type: application/json" \
     -d "$payload")"
 
-  BODY="$(cat /tmp/hasura-response.json 2>/dev/null || echo '{}')"
+  BODY="$(cat "$RESPONSE_FILE" 2>/dev/null || echo '{}')"
+  rm -f "$RESPONSE_FILE"
 
   if [[ "$HTTP_STATUS" -ge 200 ]] && [[ "$HTTP_STATUS" -lt 300 ]]; then
     # Check for Hasura-level errors in the response body
