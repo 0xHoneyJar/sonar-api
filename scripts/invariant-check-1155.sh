@@ -55,6 +55,23 @@ EXPECTED_DISTINCT_TOKEN_IDS="6"
 MIN_EXPECTED_TOTAL_ROWS="89021"
 
 # ---------------------------------------------------------------------------
+# SEC-001: validate address format BEFORE any SQL interpolation.
+# TOKEN4_TOP_HOLDER and ROUTER_ADDRESS are env-overridable (I3_* vars) and are
+# interpolated into the I3.1/I3.2 queries. Reject anything that is not a
+# 0x-prefixed 40-hex-char address so a malformed or hostile override cannot
+# inject SQL.
+# ---------------------------------------------------------------------------
+_validate_eth_address() {
+  local name="$1" value="$2"
+  if [[ ! "$value" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
+    echo "[ERROR] $name is not a valid 0x-prefixed 40-hex-char address: '$value'" >&2
+    exit 2
+  fi
+}
+_validate_eth_address "TOKEN4_TOP_HOLDER (I3_TOKEN4_TOP_HOLDER_ADDRESS)" "$TOKEN4_TOP_HOLDER"
+_validate_eth_address "ROUTER_ADDRESS (I3_ROUTER_ADDRESS)" "$ROUTER_ADDRESS"
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
