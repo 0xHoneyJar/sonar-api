@@ -96,6 +96,21 @@ function makeMockDb() {
               const t = getTable(table);
               if (!t.has(row.id)) t.set(row.id, { ...row });
             },
+            // Mirror Ponder's atomic INSERT … ON CONFLICT DO UPDATE: insert the
+            // row if absent, else apply the callback's patch to the stored row.
+            // The callback receives the EXISTING row (selectModel), matching the
+            // runtime API (node_modules/ponder/.../db.d.ts onConflictDoUpdate).
+            onConflictDoUpdate(updater: any) {
+              const t = getTable(table);
+              const existing = t.get(row.id);
+              if (!existing) {
+                t.set(row.id, { ...row });
+                return;
+              }
+              const patch =
+                typeof updater === "function" ? updater(existing) : updater;
+              t.set(row.id, { ...existing, ...patch });
+            },
           };
         },
       };

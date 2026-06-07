@@ -125,8 +125,23 @@ export interface ApplyCandiesBalanceArgs {
  * holder) tuple. Skips the ZERO_ADDRESS leg (mint has no `from` holder;
  * burn has no `to` holder) and zero-quantity transfers.
  *
- * Upsert shape mirrors the existing balance handlers (find → update | insert
- * .onConflictDoNothing) for reorg-replay idempotency.
+ * ATOMIC upsert: a single `insert(...).onConflictDoUpdate(...)` statement,
+ * NOT a find→update|insert sequence. The clamped delta is applied inside the
+ * conflict-update callback (`computeNextBalance(row.amount, quantity, dir)` —
+ * a TS-side GREATEST(0, current ± quantity)), so there is no read-then-write
+ * window in which a lost update could occur. The insert's initial `amount`
+ * also passes through `computeNextBalance(0n, …)`, so a debit of a row that
+ * does not yet exist seeds the row at 0 (clamped) rather than negative.
+ *
+ * Reorg safety is the framework's job, not the handler's: Ponder
+ * `onchainTable` writes are automatically rolled back and re-applied by the
+ * runtime on a reorg. The per-leg debit/credit is NOT idempotent on its own
+ * and does not need to be — there is no manual tx-hash/log-index dedup here.
+ *
+ * (This uses the runtime's house `onConflictDoUpdate((row) => ({…}))` form —
+ * the same callback shape mibera-collection.ts / mibera-liquid-backing use —
+ * rather than the badge handler's older find→update|insert pattern; the
+ * atomic statement is strictly more robust and computes the identical clamp.)
  */
 export async function applyCandiesBalance({
   context,
@@ -149,35 +164,30 @@ export async function applyCandiesBalance({
   const contractLower = contract.toLowerCase();
   const balanceId = makeCandiesBalanceId(contractLower, chainId, tokenId, holderLower);
 
-  const existing = await context.db.find(candiesHolderBalance, { id: balanceId });
-  // mode:"bigint" numeric columns can infer through as number under this
-  // ponder/drizzle version (see puru-apiculture1155.ts) — coerce to bigint.
-  const current = BigInt(existing?.amount ?? 0n);
-  const next = computeNextBalance(current, quantity, direction);
+  // Insert path (row absent): clamp from a 0 baseline. A credit seeds `quantity`;
+  // a debit of a not-yet-existing row seeds 0 (never negative).
+  const initialAmount = computeNextBalance(0n, quantity, direction);
 
-  if (existing) {
-    await context.db.update(candiesHolderBalance, { id: balanceId }).set({
+  await context.db
+    .insert(candiesHolderBalance)
+    .values({
+      id: balanceId,
       holder_id: holderLower as `0x${string}`,
       contract: contractLower as `0x${string}`,
       tokenId,
       chainId,
-      amount: next,
+      amount: initialAmount,
       updatedAt: timestamp,
-    });
-  } else {
-    await context.db
-      .insert(candiesHolderBalance)
-      .values({
-        id: balanceId,
-        holder_id: holderLower as `0x${string}`,
-        contract: contractLower as `0x${string}`,
-        tokenId,
-        chainId,
-        amount: next,
-        updatedAt: timestamp,
-      })
-      .onConflictDoNothing();
-  }
+    })
+    .onConflictDoUpdate((row: any) => ({
+      // Update path (row present): apply the clamped delta to the stored amount.
+      // mode:"bigint" numeric columns can infer through as number under this
+      // ponder/drizzle version (see puru-apiculture1155.ts) — coerce to bigint.
+      // Write ONLY the mutable fields — holder_id/contract/tokenId/chainId are
+      // invariant for this id and are already pinned by the conflict target.
+      amount: computeNextBalance(BigInt(row.amount ?? 0n), quantity, direction),
+      updatedAt: timestamp,
+    }));
 }
 
 export interface ApplyTransferBalancesArgs {
