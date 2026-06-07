@@ -29,7 +29,7 @@ import {
   miberaOrder,
 } from "../../ponder.schema";
 import { recordAction } from "../lib/record-action";
-import { applyCandiesBalance } from "./candies-balance";
+import { applyTransferBalances } from "./candies-balance";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -88,31 +88,24 @@ ponder.on("CandiesMarket1155:TransferSingle", async ({ event, context }) => {
   }
 
   // Per-holder balance maintenance (mints AND trades AND burns).
-  // Runs for EVERY transfer, before the mint-only early-return below.
-  // DEBIT `from` (skipped for mints; from == 0x0). CREDIT `to` (skipped for
-  // burns; to == 0x0). Clamps at 0 — never negative.
-  await applyCandiesBalance({
+  // Runs for EVERY transfer, BEFORE the mint-only early-return below — so a
+  // trade debits `from` AND credits `to`, a mint only credits, a burn only
+  // debits. GATED to candies (mibera_drugs) market addresses, and the row's
+  // `contract` is the canonical value inventory-api filters on. See
+  // applyTransferBalances (candies-balance.ts) for both decisions.
+  await applyTransferBalances({
     context,
-    holder: from,
-    contract: contractAddress,
+    from,
+    to,
+    contractAddress,
     tokenId,
     chainId,
     quantity,
-    direction: "debit",
-    timestamp,
-  });
-  await applyCandiesBalance({
-    context,
-    holder: to,
-    contract: contractAddress,
-    tokenId,
-    chainId,
-    quantity,
-    direction: "credit",
     timestamp,
   });
 
-  // Skip mint processing if not a mint.
+  // Skip mint processing if not a mint. (The candies_inventory / candies_backing
+  // / erc1155_mint_event / mibera_order writes below stay mint-only — UNCHANGED.)
   if (fromLower !== ZERO_ADDRESS) {
     return;
   }
@@ -270,25 +263,17 @@ ponder.on("CandiesMarket1155:TransferBatch", async ({ event, context }) => {
     const tokenId = BigInt(rawId.toString());
 
     // Per-holder balance maintenance for EVERY batch leg (mint/trade/burn).
-    // DEBIT `from` (skipped for mints), CREDIT `to` (skipped for burns).
-    await applyCandiesBalance({
+    // DEBIT `from` (skipped for mints), CREDIT `to` (skipped for burns). GATED
+    // to candies; row `contract` = canonical candies value. Same decisions as
+    // TransferSingle — see applyTransferBalances (candies-balance.ts).
+    await applyTransferBalances({
       context,
-      holder: from,
-      contract: contractAddress,
+      from,
+      to,
+      contractAddress,
       tokenId,
       chainId,
       quantity,
-      direction: "debit",
-      timestamp,
-    });
-    await applyCandiesBalance({
-      context,
-      holder: to,
-      contract: contractAddress,
-      tokenId,
-      chainId,
-      quantity,
-      direction: "credit",
       timestamp,
     });
 
