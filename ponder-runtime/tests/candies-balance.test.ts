@@ -382,4 +382,74 @@ describe("applyTransferBalances — handler wiring (Findings 1 & 2)", () => {
       "0xeca03517c5195f1edd634da6d690d6c72407c40c",
     );
   });
+
+  // ── Conservation invariant ────────────────────────────────────────────────
+  // After a transfer from A→B the SUM of A's and B's balances MUST equal the
+  // sum before the transfer. A bug that clamps-debit-then-adds-full-credit
+  // (the self-transfer inflation) or writes two credit rows would fail this.
+  it("conservation: total balance (from + to) is unchanged by a transfer", async () => {
+    const { context, tables } = makeMockDb();
+    // Seed Alice=5, Bob=3 via mints.
+    await applyTransferBalances({
+      context, from: ZERO_ADDRESS, to: ALICE, contractAddress: CANDIES_SECONDARY,
+      tokenId: TOKEN, chainId: CHAIN, quantity: 5n, timestamp: TS,
+    });
+    await applyTransferBalances({
+      context, from: ZERO_ADDRESS, to: BOB, contractAddress: CANDIES_SECONDARY,
+      tokenId: TOKEN, chainId: CHAIN, quantity: 3n, timestamp: TS,
+    });
+    const preSumAlice = canonicalRowFor(tables, ALICE)?.amount ?? 0n;
+    const preSumBob = canonicalRowFor(tables, BOB)?.amount ?? 0n;
+    const preTotal = preSumAlice + preSumBob; // 5n + 3n = 8n
+
+    // Alice → Bob, qty 2.
+    await applyTransferBalances({
+      context, from: ALICE, to: BOB, contractAddress: CANDIES_SECONDARY,
+      tokenId: TOKEN, chainId: CHAIN, quantity: 2n, timestamp: TS + 1n,
+    });
+
+    const postAlice = canonicalRowFor(tables, ALICE)?.amount ?? 0n;
+    const postBob = canonicalRowFor(tables, BOB)?.amount ?? 0n;
+    expect(postAlice + postBob).toBe(preTotal); // conservation holds
+    expect(postAlice).toBe(3n);
+    expect(postBob).toBe(5n);
+  });
+
+  // ── Self-transfer guard ───────────────────────────────────────────────────
+  // ERC-1155 allows from == to. Issuing debit-then-credit on the same row when
+  // stored < qty would clamp-debit to 0 then credit-add full qty (inflation).
+  // When the row is absent, debit seeds 0 and credit fabricates qty from nothing.
+  it("self-transfer of qty > held leaves the row unchanged (no inflation)", async () => {
+    const { context, tables } = makeMockDb();
+    // Seed Alice with 1.
+    await applyTransferBalances({
+      context, from: ZERO_ADDRESS, to: ALICE, contractAddress: CANDIES_SECONDARY,
+      tokenId: TOKEN, chainId: CHAIN, quantity: 1n, timestamp: TS,
+    });
+    expect(canonicalRowFor(tables, ALICE)?.amount).toBe(1n);
+
+    // Self-transfer qty=2 (qty > held=1 — the inflation scenario).
+    const wrote = await applyTransferBalances({
+      context, from: ALICE, to: ALICE, contractAddress: CANDIES_SECONDARY,
+      tokenId: TOKEN, chainId: CHAIN, quantity: 2n, timestamp: TS + 1n,
+    });
+    expect(wrote).toBe(true); // still a candies event
+    // Balance must be unchanged at 1, NOT inflated to 2.
+    expect(canonicalRowFor(tables, ALICE)?.amount).toBe(1n);
+  });
+
+  it("self-transfer to an absent row creates no row (no supply fabrication)", async () => {
+    const { context, tables } = makeMockDb();
+    // ALICE has no row yet.
+    const wrote = await applyTransferBalances({
+      context, from: ALICE, to: ALICE, contractAddress: CANDIES_SECONDARY,
+      tokenId: TOKEN, chainId: CHAIN, quantity: 3n, timestamp: TS,
+    });
+    expect(wrote).toBe(true);
+    // No row should exist — self-transfer must not fabricate a balance.
+    expect(canonicalRowFor(tables, ALICE)).toBeNull();
+    let total = 0;
+    for (const t of tables.values()) total += t.size;
+    expect(total).toBe(0);
+  });
 });

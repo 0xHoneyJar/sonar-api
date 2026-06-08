@@ -242,6 +242,16 @@ export async function applyTransferBalances({
     return false;
   }
 
+  // Self-transfer guard: ERC-1155 permits from == to (e.g. on-chain batch ops).
+  // A self-transfer is a balance no-op — issuing a sequential debit-then-credit
+  // on the SAME holder row inflates or fabricates supply when the stored amount
+  // is less than the transferred quantity (debit clamps at 0; credit adds the
+  // full qty back) or the row is absent (debit seeds 0; credit mints qty from
+  // nothing). Short-circuit before any DB write.
+  if (from.toLowerCase() === to.toLowerCase()) {
+    return true;
+  }
+
   // Finding 2 — canonical contract: collapse both market addresses onto the
   // one value the consumer filters on.
   const contract = CANONICAL_CANDIES_CONTRACT;
