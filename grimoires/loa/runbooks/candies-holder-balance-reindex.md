@@ -58,14 +58,27 @@ balance table → from-genesis reindex → auto-track at cutover).
    burns debit) — backfill MUST start from each contract's deploy block so no
    transfer history is missed.
 3. **Verify `candies_holder_balance` populated** before any cutover (queries below).
-4. **Hasura auto-tracks** the new table at cutover: `scripts/cutover-hasura-tracking.sh`
-   derives its allowlist from `information_schema.tables WHERE table_schema='ponder'`
-   and bakes the `CandiesHolderBalance` root field. **No manual metadata edit.**
+   (Per-token reindex / `bd-r90`: also verify the `token` table — `Token` row count
+   ≈ blue's ~130k + conservation `mints − burns == non-burned rows` per collection.)
+4. **Re-apply the `chain_metadata` freshness view (`bd-3nh`) — REQUIRED before cutover.**
+   A from-genesis reindex `DROP ... CASCADE`s the schema, which drops the
+   `chain_metadata` view (it projects over Ponder's internal `_ponder_checkpoint`,
+   recreated empty by the reindex). Re-create it so the cutover tracker sees it:
+   `psql "$PONDER_DB_URL" -v schema=<served-schema> -f scripts/chain-metadata-view.sql`
+   (idempotent `CREATE OR REPLACE`). **If skipped, inventory-api's `chain_metadata(...)`
+   freshness query silently returns null after cutover** (→ wrong/empty ACVP `as_of_block`).
+5. **Hasura auto-tracks** the new table(s) + the view at cutover:
+   `scripts/cutover-hasura-tracking.sh` derives its allowlist from
+   `information_schema.tables WHERE table_schema='ponder'` (includes views) and bakes
+   the `CandiesHolderBalance` + `chain_metadata` root fields. **No manual metadata edit.**
    Regenerate the `test/hasura-contract/metadata-diff.test.ts` snapshot to include
-   `candies_holder_balance`.
-5. **Cutover** (BELT_UPSTREAM swap, per A-4 shape). Hasura rollback measured
+   `candies_holder_balance` + `chain_metadata`. **Verify the baked
+   `chain_metadata` `custom_root_fields.select == "chain_metadata"` (lowercase, NOT
+   `ChainMetadata`) in the snapshot** — the lowercase root relies on the cutover
+   introspecting blue's live `chain_metadata` field; never assume.
+6. **Cutover** (BELT_UPSTREAM swap, per A-4 shape). Hasura rollback measured
    716ms–1.27s in A-3 staging.
-6. **Post-verify** on `belt-gateway-production`, then **signal inventory-api**
+7. **Post-verify** on `belt-gateway-production`, then **signal inventory-api**
    ("CandiesHolderBalance live + populated; repoint clear").
 
 ## Verification queries (the fix is correct iff these hold)
