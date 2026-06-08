@@ -439,3 +439,35 @@ None. (bd-1ra resolved 2026-05-20 — `origin` + `upstream` remotes configured;
   source → deploy → backfill → observe per chain → reconcile vs on-chain → repoint. Order: Berachain first
   (biggest share, eRPC ready), then Base/OP/ETH. **MiberaCollection must index ALL transfers incl. to-contracts.**
   Tests + prod-promotion rigor = before the repoint (operator deferred). Build directly (experiment frame).
+
+---
+
+## Session 2026-06-08 — per-token ownership port: CODE COMPLETE → PR #69
+
+The Stash's last structural gap (per-token ERC-721 ownership on green) is built, reviewed, and in PR.
+Driven via supervised `/coord` from loa-freeside (the orbital station): per bead → pre-scope → in-cell
+agent in sonar-api → FAGAN cross-model council → **consumer-check across the Markov blanket** → fold → commit.
+
+**DONE** (PR #69, base `feat/candies-holder-balance`, stacks on #68; supersedes stale #38):
+- `bd-jyn` f69ee402 — token entity + Mibera handler (`token.owner` = raw on-chain, operator decision)
+- `bd-1jg` 268457d9 — TrackedErc721Bera handler (Tarot + 10 Fractures + apdao_seat), token-only (score-api INSULATED)
+- `bd-d2b` 28aff13b — GeneralMints (MST/GIF) mint-only → upsert on secondary + burn
+- `bd-3nh` d7fb271d — `chain_metadata` view (design a) for inventory's `as_of_block`
+- `e146eee0` (kept) pushed to #68 (its home)
+- `bd-gpc` CLOSED — green is genesis-complete (Mibera = 10,000 mints = full supply; all earliest actions
+  Apr–May 2025, ~1yr pre-boundary) → `bd-r90` is a STANDARD from-genesis re-run, not true-genesis-from-scratch.
+
+**WHEN YOU RETURN** (operator-gated, in order):
+1. 🔐 `bd-54c` — rotate `SONAR_SIGNING_SEED_HEX` (exposed in transcript; independent; do this FIRST).
+2. Merge PR #69 (after review) → the 4 beads close on merge.
+3. `bd-r90` reindex green-v3 from genesis (ADR-010, operator session; runbook
+   `candies-holder-balance-reindex.md` now has the `chain_metadata` view re-apply step) → `bd-rr0` repoint
+   → `bd-4kf` cutover (keep blue until green verified).
+4. ⚠ `bd-beh` BLOCKS `bd-4kf`: fix `promotion-gate.js`'s green query (drop `block_height` — its Part-1
+   logic only uses `latest_processed_block`) so the cutover gate can run green-side.
+5. 🧹 close stale PR #38 (superseded by #69).
+
+Follow-ups filed: `bd-0oc` (score-api fracture event feed, pre-existing + immaterial: fractures soul-bound/complete),
+`bd-beh` (chain_metadata gate reconciliation, gates the cutover).
+Verify (post-reindex, green): `Token(where:{collection,owner,isBurned:false}){tokenId}` returns the wallet's
+Mibera + Tarot + Fractures + MST; row count ≈ blue's ~130k; conservation holds per collection.
