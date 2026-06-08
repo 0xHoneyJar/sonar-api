@@ -33,6 +33,12 @@ import "./handlers/mibera-collection";
 // ponder.config.mibera.ts:218 but previously had no handler → mints silently
 // discarded). Ports envio src/handlers/mints.ts + vm-minted.ts.
 import "./handlers/general-mints";
+// TrackedErc721Bera:Transfer (bd-1jg / S1b) — the 12 Berachain ERC-721 contracts
+// (Tarot + 10 Fractures + apdao_seat, ponder.config.mibera.ts:75-87) were
+// registered with NO handler → their transfers VANISHED. Restores the per-token
+// `token` current-owner projection (token-only scope — the only consumer,
+// inventory-api's Stash, reads the `token` index by contract address).
+import "./handlers/tracked-erc721-bera";
 import "./handlers/paddlefi";
 import "./handlers/friendtech";
 
