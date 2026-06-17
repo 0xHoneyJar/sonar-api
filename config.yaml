@@ -357,6 +357,13 @@ contracts:
         field_selection:
           transaction_fields:
             - hash
+  # FatBeraDeposits + FatBeraAccounting share address 0xBAE11292...A391d4 on
+  # Berachain (80094). envio 3.2.1 forbids the same address under multiple
+  # contract definitions, so the two are merged into one FatBeraDeposits
+  # contract whose events are the UNION of both (Deposit from FatBeraDeposits;
+  # RewardAdded/WithdrawalRequested/BatchStarted/WithdrawalFulfilled from
+  # FatBeraAccounting). Handlers in src/handlers/fatbera.ts register against
+  # FatBeraDeposits.* accordingly.
   - name: FatBeraDeposits
     handler: src/EventHandlers.ts
     events:
@@ -366,9 +373,6 @@ contracts:
             - hash
             - from
             - to
-  - name: FatBeraAccounting
-    handler: src/EventHandlers.ts
-    events:
       - event: RewardAdded(address indexed token, uint256 rewardAmount)
         field_selection:
           transaction_fields:
@@ -789,11 +793,12 @@ chains:
         address:
           - 0x574617ab9788e614b3eb3f7bd61334720d9e1aac # Cub Universal Badges (mainnet)
         start_block: 1080991 # CubBadges1155 deployment
+      # Merged FatBeraDeposits + FatBeraAccounting (same address). Uses the
+      # lower of the two original start blocks (1066385, formerly
+      # FatBeraAccounting) so no Accounting events are missed. The Deposit
+      # handler's validator-tracking remains internally gated by
+      # FATBERA_DEPOSIT_TRACKING_START_BLOCK (1966971) in src/handlers/fatbera-core.ts.
       - name: FatBeraDeposits
-        address:
-          - 0xBAE11292a3E693AF73651BDa350d752AE4A391d4
-        start_block: 1966971
-      - name: FatBeraAccounting
         address:
           - 0xBAE11292a3E693AF73651BDa350d752AE4A391d4
         start_block: 1066385

@@ -27,6 +27,7 @@
     "@noble/hashes": "^1.6.0",
     "canonicalize": "^2.0.0",
     "effect": "^3.10.0",
+    "envio": "3.2.1",
     "ethers": "^6.15.0",
     "hono": "^4.12.23",
     "nats": "^2.28.0",

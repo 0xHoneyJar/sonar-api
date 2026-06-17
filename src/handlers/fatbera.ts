@@ -2,7 +2,6 @@ import {
   AutomatedStake,
   BeaconDeposit,
   BlockRewardController,
-  FatBeraAccounting,
   FatBeraDeposits,
   ValidatorDepositRouter,
   ValidatorWithdrawalModule,
@@ -339,7 +338,7 @@ export const handleBlockRewardProcessed = BlockRewardController.BlockRewardProce
   }
 );
 
-export const handleFatBeraRewardAdded = FatBeraAccounting.RewardAdded.handler(
+export const handleFatBeraRewardAdded = FatBeraDeposits.RewardAdded.handler(
   async ({ event, context }) => {
     if (event.params.token.toLowerCase() !== WBERA_ADDRESS) {
       return;
@@ -435,7 +434,7 @@ export const handleAutomatedStakeExecution =
   );
 
 export const handleFatBeraWithdrawalRequested =
-  FatBeraAccounting.WithdrawalRequested.handler(async ({ event, context }) => {
+  FatBeraDeposits.WithdrawalRequested.handler(async ({ event, context }) => {
     const batchId = event.params.batchId.toString();
     let withdrawalBatch = await context.WithdrawalBatch.get(batchId);
     if (!withdrawalBatch) {
@@ -486,7 +485,7 @@ export const handleFatBeraWithdrawalRequested =
     });
   });
 
-export const handleFatBeraBatchStarted = FatBeraAccounting.BatchStarted.handler(
+export const handleFatBeraBatchStarted = FatBeraDeposits.BatchStarted.handler(
   async ({ event, context }) => {
     const batchId = event.params.batchId.toString();
     const [existingBatch, batchRequests] = await Promise.all([
@@ -538,7 +537,7 @@ export const handleFatBeraBatchStarted = FatBeraAccounting.BatchStarted.handler(
 );
 
 export const handleFatBeraWithdrawalFulfilled =
-  FatBeraAccounting.WithdrawalFulfilled.handler(async ({ event, context }) => {
+  FatBeraDeposits.WithdrawalFulfilled.handler(async ({ event, context }) => {
     const batchId = event.params.batchId.toString();
     const withdrawalBatch = await context.WithdrawalBatch.get(batchId);
     if (!withdrawalBatch) {
