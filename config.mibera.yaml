@@ -213,25 +213,12 @@ chains:
     # contract is now BgtToken @ 8221 (ecosystem extension); per-contract
     # start_blocks below override this floor for each contract.
     start_block: 8221
-    # Data source — the eRPC L2 substrate (SDD r4 §3 / §4.1). r4 retires the
-    # Sprint-1 HyperSync source; the belt indexes Berachain over JSON-RPC through
-    # the shared eRPC proxy at its private Railway address. `for: sync` makes eRPC
-    # the primary data source — historical backfill AND realtime — NOT a HyperSync
-    # fallback (Envio defaults a bare rpc to `fallback` for HyperSync-supported
-    # chains, and Berachain is one). The URL is eRPC's internal Railway domain +
-    # its JSON-RPC route /<project>/<arch>/<chainId>.
     # Envio v3.0.0-alpha.14's schema field is `rpc` — SDD §4.1 / sprint.md S2-T1
     # name it `rpc_config`, which does not exist in the installed schema; see the
     # S2-T1 implementation report for the naming-drift finding.
-    rpc:
-
-      - url: http://erpc.railway.internal:4000/main/evm/80094
-
-        for: sync
-
-      - url: http://erpc.railway.internal:4000/main/evm/80094
-
-        for: live
+    # Explicit HyperSync — auto-discovery misses Berachain (restored per 6ad33270; managed Cloud bundles HyperSync). G-A1.
+    hypersync_config:
+      url: https://berachain.hypersync.xyz
     contracts:
       # Mibera Liquid Backing - Loans, RFV, and marketplace
       - name: MiberaLiquidBacking
@@ -292,24 +279,12 @@ chains:
   # ENVIO_API_TOKEN) — the break-glass for the dense op-stack backfill (2026-05-21 decision:
   # we pay a vendor for the one-time dense fill; eRPC cache + free realtime cover the rest).
   # To return to sovereign realtime later, restore the rpc: block (eRPC route /8453) + resume.
-  #   rpc: { url: http://erpc.railway.internal:4000/main/evm/8453, for: sync }
+  #   rpc: { url: <eRPC cluster proxy>/main/evm/8453, for: sync }  # G-A1: literal host neutralized for Cloud branch
   - id: 8453
     start_block: 2430439 # friend.tech start block (earliest contract; FriendtechShares inherits this floor)
-    # Path ε HyperSync-strip 2026-05-27 — operator deleted the HyperSync token; the
     # 2026-05-21 break-glass (dense friend.tech backfill) is no longer accessible.
-    # Returning to sovereign realtime via eRPC + HyperRPC paid + multi-upstream Base
     # cluster (publicnode/tenderly/drpc). Slower backfill on dense ranges; accepts
     # the trade for cluster-owned chain-read substrate (memory
-    # erpc-postgres-becomes-hypersync).
-    rpc:
-
-      - url: http://erpc.railway.internal:4000/main/evm/8453
-
-        for: sync
-
-      - url: http://erpc.railway.internal:4000/main/evm/8453
-
-        for: live
     contracts:
       - name: FriendtechShares
         address:
@@ -322,15 +297,6 @@ chains:
   # ── Optimism (10) — MiberaSets, MiberaZora1155, MirrorObservability, TrackedErc721 (lore).
   - id: 10
     start_block: 107558369 # MirrorObservability deployment (earliest for Mibera articles)
-    rpc:
-
-      - url: http://erpc.railway.internal:4000/main/evm/10
-
-        for: sync
-
-      - url: http://erpc.railway.internal:4000/main/evm/10
-
-        for: live
     contracts:
       - name: MiberaSets
         address:
@@ -357,15 +323,6 @@ chains:
   # volume is very large → may need bounded HyperSync / paid RPC if eRPC ETA is unacceptable.
   - id: 1
     start_block: 13090020 # Milady contract deployment (MiladyCollection inherits this floor)
-    rpc:
-
-      - url: http://erpc.railway.internal:4000/main/evm/1
-
-        for: sync
-
-      - url: http://erpc.railway.internal:4000/main/evm/1
-
-        for: live
     contracts:
       - name: MiladyCollection
         address:
