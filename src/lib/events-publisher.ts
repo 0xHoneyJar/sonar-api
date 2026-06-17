@@ -69,14 +69,25 @@
  * Reference: ~/Documents/GitHub/loa-freeside/packages/events/README.md
  */
 
-import {
-  InMemoryPrevHashStore,
-  LocalEd25519Signer,
-  publishEnvelope,
-  nftMintDetectedTopic,
-} from "@0xhoneyjar/events";
+// NOTE: @0xhoneyjar/events is imported LAZILY (dynamic `await import` in
+// initSubstrate), NOT statically. The package is a private @0xhoneyjar package
+// that the managed Envio Cloud build cannot materialize — a static value import
+// (or any top-level use of its symbols, e.g. `new InMemoryPrevHashStore()` at
+// module load) would make this module fail to LOAD/BUILD on the managed runtime
+// and crash the whole indexer. Deferring the import behind the pillar-enabled
+// guards lets the module load everywhere; when the package is genuinely absent
+// the pillar disables LOUDLY via markPermanentDisabled (never silently drops).
+// Type-only imports below are erased at transpile, so they require no runtime
+// resolution and are safe to keep static.
 import type { Signer, PrevHashStore } from "@0xhoneyjar/events";
 import { connect, type NatsConnection } from "nats";
+
+/**
+ * Lazily-loaded handle to the @0xhoneyjar/events module. Populated by the
+ * dynamic `await import(...)` in initSubstrate (managed-runtime portability —
+ * see the note above). `null` until init has run (or the package is absent).
+ */
+let events: typeof import("@0xhoneyjar/events") | null = null;
 
 // --- module-singleton state -------------------------------------------------
 
@@ -99,7 +110,12 @@ let signer: Signer | null = null;
 // isolation (BB#24 F-005) and __setTestSubstrate can honor an injected
 // store (BB#24 F-006). Previous shape captured the store as `const` and
 // the test hooks couldn't replace it.
-let prevHashStore: PrevHashStore = new InMemoryPrevHashStore();
+//
+// Nullable + NOT constructed at module load: `new InMemoryPrevHashStore()`
+// would require the lazily-imported @0xhoneyjar/events package at load time,
+// defeating managed-runtime portability. It is constructed inside
+// initSubstrate once the package has loaded.
+let prevHashStore: PrevHashStore | null = null;
 
 /** Cell identity — populates `emitted_by` on every envelope. */
 const EMITTED_BY = "sonar-api";
@@ -245,6 +261,23 @@ async function initSubstrate(log: HandlerLogger): Promise<boolean> {
   if (!natsUrl) return markPermanentDisabled("NATS_URL not set", log);
   if (!seedHex) return markPermanentDisabled("SONAR_SIGNING_SEED_HEX not set", log);
 
+  // Lazy import (managed-runtime portability — see the top-of-file note). Only
+  // attempted once the pillar is enabled (NATS_URL + seed present), so a
+  // disabled runtime never even tries to resolve the private package. If the
+  // package isn't materialized (managed Envio Cloud build), disable LOUDLY and
+  // permanently rather than crashing the indexer.
+  if (events === null) {
+    try {
+      events = await import("@0xhoneyjar/events");
+    } catch (err) {
+      return markPermanentDisabled(
+        `@0xhoneyjar/events unavailable (managed-runtime / not materialized): ${(err as Error).message}`,
+        log,
+      );
+    }
+  }
+  if (prevHashStore === null) prevHashStore = new events.InMemoryPrevHashStore();
+
   // Path-ε partial-config refuse: one set without the other is a deployment
   // misconfiguration. Proceeding either way (cert-without-key, key-without-cert)
   // masks the error — fail-closed at config-load is the audit-friendly path.
@@ -259,7 +292,7 @@ async function initSubstrate(log: HandlerLogger): Promise<boolean> {
   if (tlsReason) return markPermanentDisabled(tlsReason, log);
 
   try {
-    signer = await LocalEd25519Signer.fromSeedHex(seedHex, "sonar-api-1");
+    signer = await events.LocalEd25519Signer.fromSeedHex(seedHex, "sonar-api-1");
   } catch (err) {
     return markPermanentDisabled(`signer init failed: ${(err as Error).message}`, log);
   }
@@ -337,10 +370,29 @@ export async function publishMintEvent(args: {
     return;
   }
 
-  const subject = nftMintDetectedTopic({ collectionSlug: args.collectionSlug });
+  // Tolerate the __setTestSubstrate injection path, which sets nats/signer and
+  // flips `initialized=true` WITHOUT running initSubstrate — so the lazily
+  // imported `events` holder (and prevHashStore) may still be null here. Load
+  // them now (managed-runtime portability — see the top-of-file note). On the
+  // normal init path these are already populated, so this is a cheap no-op.
+  if (events === null) {
+    try {
+      events = await import("@0xhoneyjar/events");
+    } catch (err) {
+      args.log.warn(
+        `[events-publisher] DROPPED publish (@0xhoneyjar/events unavailable: ${(err as Error).message}): ` +
+          `chain=${args.payload.chain_id} contract=${args.payload.contract} token_id=${args.payload.token_id} ` +
+          `tx=${args.payload.transaction_hash} collection=${args.collectionSlug}`,
+      );
+      return;
+    }
+  }
+  if (prevHashStore === null) prevHashStore = new events.InMemoryPrevHashStore();
+
+  const subject = events.nftMintDetectedTopic({ collectionSlug: args.collectionSlug });
 
   try {
-    await publishEnvelope({
+    await events.publishEnvelope({
       nats,
       subject,
       payload: args.payload,
@@ -448,5 +500,9 @@ export function __resetForTests(): void {
   lastTransientFailAtMs = 0;
   nats = null;
   signer = null;
-  prevHashStore = new InMemoryPrevHashStore();
+  // Only reconstruct if the lazily-imported events module has loaded; otherwise
+  // null the store (it'll be constructed on the next init/publish). Avoids a
+  // hard dependency on @0xhoneyjar/events being present (managed-runtime
+  // portability — see the top-of-file note).
+  prevHashStore = events ? new events.InMemoryPrevHashStore() : null;
 }
