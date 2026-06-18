@@ -14,6 +14,8 @@
     "verify:belt-config": "node scripts/verify-belt-config.js",
     "codegen:mibera": "envio codegen --config config.mibera.yaml",
     "typecheck:mibera": "tsc -p tsconfig.mibera.json",
+    "verify:321": "bash scripts/verify-envio-321.sh",
+    "verify:321-bijection": "node scripts/check-onevent-bijection.mjs",
     "postinstall": "bash scripts/rebuild-events-dist.sh"
   },
   "devDependencies": {
@@ -41,9 +43,6 @@
       "package": "@0xhoneyjar/events",
       "sha": "271310a0227510a95eb970b84486efcef0c08888"
     }
-  },
-  "optionalDependencies": {
-    "generated": "./generated"
   },
   "engines": {
     "node": ">=22.0.0"

@@ -41,10 +41,6 @@ importers:
       viem:
         specifier: ^2.21.0
         version: 2.47.1(typescript@5.9.3)
-    optionalDependencies:
-      generated:
-        specifier: ./generated
-        version: link:generated
     devDependencies:
       '@types/node':
         specifier: 20.8.8

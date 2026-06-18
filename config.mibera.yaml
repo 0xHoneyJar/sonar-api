@@ -17,7 +17,6 @@ handlers: src/belts/mibera
 contracts:
   # MiberaLiquidBacking - Liquid backing system (loans, RFV, marketplace for defaulted NFTs)
   - name: MiberaLiquidBacking
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       # Loan lifecycle events
       - event: LoanReceived(uint256 loanId, uint256[] ids, uint256 amount, uint256 expiry)
@@ -63,7 +62,6 @@ contracts:
             - hash
   # MiberaCollection - Transfer tracking for mint activity
   - name: MiberaCollection
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
@@ -74,7 +72,6 @@ contracts:
   # footprint score-api consumes (grimoires/loa/context/mibera-sovereign-indexer-experiment.md).
   # Handlers repoint to the belt entrypoint (DISS-001); event-defs verbatim from config.yaml.
   - name: PaddleFi
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Mint(address minter, uint256 mintAmount, uint256 mintTokens)
         field_selection:
@@ -89,7 +86,6 @@ contracts:
           transaction_fields:
             - hash
   - name: BgtToken
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: QueueBoost(address indexed account, bytes indexed pubkey, uint128 amount)
         field_selection:
@@ -98,7 +94,6 @@ contracts:
             - from
             - input
   - name: CubBadges1155
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
         field_selection:
@@ -109,7 +104,6 @@ contracts:
           transaction_fields:
             - hash
   - name: CandiesMarket1155
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
         field_selection:
@@ -122,7 +116,6 @@ contracts:
             - hash
             - value  # BERA paid → CandiesBacking.amount
   - name: GeneralMints
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
@@ -133,7 +126,6 @@ contracts:
           transaction_fields:
             - hash
   - name: TrackedErc721
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
@@ -142,7 +134,6 @@ contracts:
   # Seaport — OpenSea marketplace. Handler filters OrderFulfilled to Mibera (TRACKED_COLLECTIONS)
   # → MintActivity SALE/PURCHASE (score-api mibera_buyer/seller/sales). Berachain-only in this belt.
   - name: Seaport
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8,address,uint256,uint256)[] offer, (uint8,address,uint256,uint256,address)[] consideration)
         field_selection:
@@ -152,14 +143,12 @@ contracts:
   # Event-defs verbatim from config.yaml; handlers repoint to the belt entrypoint (DISS-001).
   # Base (8453)
   - name: FriendtechShares
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Trade(address trader, address subject, bool isBuy, uint256 shareAmount, uint256 ethAmount, uint256 protocolEthAmount, uint256 subjectEthAmount, uint256 supply)
         field_selection:
           transaction_fields:
             - hash
   - name: TrackedErc20
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 value)
         field_selection:
@@ -169,7 +158,6 @@ contracts:
             - to    # Required for source detection
   # Optimism (10)
   - name: MiberaSets
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
         field_selection:
@@ -180,7 +168,6 @@ contracts:
           transaction_fields:
             - hash
   - name: MiberaZora1155
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
         field_selection:
@@ -191,7 +178,6 @@ contracts:
           transaction_fields:
             - hash
   - name: MirrorObservability
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: WritingEditionPurchased(address indexed clone, uint256 tokenId, address indexed recipient, uint256 price, string message)
         field_selection:
@@ -199,7 +185,6 @@ contracts:
             - hash
   # Ethereum (1)
   - name: MiladyCollection
-    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:

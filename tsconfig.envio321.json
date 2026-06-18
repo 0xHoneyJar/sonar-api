@@ -1,0 +1,41 @@
+{
+  // L2 of the Envio 3.2.1 verification loop (scripts/verify-envio-321.sh).
+  //
+  // Typechecks the PORTED-to-3.2.1 handler surface against the `envio` package
+  // types + the codegen type augmentation (.envio/types.d.ts, wired via
+  // envio-env.d.ts). The un-ported alpha handlers under src/handlers/ still
+  // `import from "generated"` and intentionally do NOT typecheck against 3.2.1
+  // types yet — they are EXCLUDED here and added to `include` as each one is
+  // ported (the include list grows toward `src/handlers` at finalize).
+  //
+  // At the foundation stage the only ported handler is the deploy-path probe.
+  // This config proves the 3.2.1 `envio` import + isPreload + onEvent + entity
+  // types resolve and typecheck — the contract the 31-handler port runs against.
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022"],
+    "allowJs": true,
+    "checkJs": false,
+    "strict": true,
+    "noImplicitAny": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    // skipLibCheck:false would force-check the 1.6MB generated .envio/types.d.ts
+    // and all of node_modules; keep it true (same posture as tsconfig.json) so
+    // L2 checks OUR ported code against the published envio surface, not envio's
+    // own internals.
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": []
+  },
+  "files": [
+    "envio-env.d.ts"
+  ],
+  "include": [
+    "src/probe_handlers"
+  ]
+}
