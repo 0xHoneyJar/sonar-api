@@ -1,11 +1,11 @@
 import { ZERO_ADDRESS } from "../handlers/constants";
 import type {
-  handlerContext,
+  EvmOnEventContext,
   Holder,
   Token,
   Transfer,
   CollectionStat,
-} from "generated";
+} from "envio";
 
 export interface Erc721TransferEventLike {
   readonly params: {
@@ -26,7 +26,7 @@ export async function processErc721Transfer({
   collectionAddress,
 }: {
   event: Erc721TransferEventLike;
-  context: handlerContext;
+  context: EvmOnEventContext;
   collectionAddress?: string;
 }) {
   const { params, srcAddress, transaction, block, logIndex, chainId } = event;
@@ -114,7 +114,7 @@ export async function processErc721Transfer({
 }
 
 async function updateHolder(
-  context: handlerContext,
+  context: EvmOnEventContext,
   collection: string,
   chainId: number,
   address: string,
@@ -159,7 +159,7 @@ async function updateCollectionStats({
   fromHolderBefore,
   toHolderBefore,
 }: {
-  context: handlerContext;
+  context: EvmOnEventContext;
   collection: string;
   chainId: number;
   from: string;

@@ -5,13 +5,8 @@
  * Records individual events plus aggregates user and phase-level statistics.
  */
 
-import {
-  MiberaPremint,
-  PremintParticipation,
-  PremintRefund,
-  PremintUser,
-  PremintPhaseStats,
-} from "generated";
+import { indexer } from "envio";
+import type { PremintParticipation, PremintRefund, PremintUser, PremintPhaseStats } from "envio";
 
 import { recordAction } from "../lib/actions";
 
@@ -20,7 +15,7 @@ const COLLECTION_KEY = "mibera_premint";
 /**
  * Handle Participated events - user contributed to premint
  */
-export const handlePremintParticipated = MiberaPremint.Participated.handler(
+indexer.onEvent({ contract: "MiberaPremint", event: "Participated" },
   async ({ event, context }) => {
     try {
       const { phase, user, amount } = event.params;
@@ -130,7 +125,7 @@ export const handlePremintParticipated = MiberaPremint.Participated.handler(
 /**
  * Handle Refunded events - user received refund from premint
  */
-export const handlePremintRefunded = MiberaPremint.Refunded.handler(
+indexer.onEvent({ contract: "MiberaPremint", event: "Refunded" },
   async ({ event, context }) => {
     try {
       const { phase, user, amount } = event.params;

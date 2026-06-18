@@ -10,10 +10,10 @@
  */
 
 import {
-  MirrorObservability,
-  MirrorArticlePurchase,
-  MirrorArticleStats,
-} from "generated";
+  indexer,
+  type MirrorArticlePurchase,
+  type MirrorArticleStats,
+} from "envio";
 
 import { recordAction } from "../lib/actions";
 import {
@@ -29,9 +29,9 @@ const COLLECTION_KEY = "mibera_articles";
  * Tracks article NFT purchases from Mirror's WritingEditions contracts
  * Only processes Mibera-related articles
  */
-export const handleWritingEditionPurchased =
-  MirrorObservability.WritingEditionPurchased.handler(
-    async ({ event, context }) => {
+indexer.onEvent(
+  { contract: "MirrorObservability", event: "WritingEditionPurchased" },
+  async ({ event, context }) => {
       const { clone, tokenId, recipient, price, message } = event.params;
       const cloneLower = clone.toLowerCase();
 
@@ -111,5 +111,5 @@ export const handleWritingEditionPurchased =
         };
         context.MirrorArticleStats.set(newStats);
       }
-    }
-  );
+  }
+);

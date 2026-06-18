@@ -5,7 +5,7 @@
  * and stores normalized MintEvent entities for downstream consumers.
  */
 
-import { GeneralMints, MintEvent } from "generated";
+import { indexer, type MintEvent } from "envio";
 
 import { recordAction } from "../lib/actions";
 import { publishMintEvent, type CollectionSlug } from "../lib/events-publisher";
@@ -43,7 +43,8 @@ const MINT_PUBLISH_ALLOWLIST: Record<string, CollectionSlug> = {
   mibera_tarot: "mibera-collection",
 };
 
-export const handleGeneralMintTransfer = GeneralMints.Transfer.handler(
+indexer.onEvent(
+  { contract: "GeneralMints", event: "Transfer" },
   async ({ event, context }) => {
     const { from, to, tokenId } = event.params;
 

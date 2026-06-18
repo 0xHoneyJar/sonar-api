@@ -5,8 +5,7 @@
  * Supports multi-chain, multi-collection tracking via TRACKED_COLLECTIONS config
  */
 
-import { Seaport } from "generated";
-import type { MintActivity } from "generated";
+import { indexer, type MintActivity } from "envio";
 
 // Tuple indices for offer: [itemType, token, identifier, amount]
 const OFFER_ITEM_TYPE = 0;
@@ -60,7 +59,8 @@ const TRACKED_COLLECTIONS: Record<string, TrackedCollection> = {
  * Handle OrderFulfilled - Track Seaport marketplace trades
  * Creates both SALE (for seller) and PURCHASE (for buyer) activity records
  */
-export const handleSeaportOrderFulfilled = Seaport.OrderFulfilled.handler(
+indexer.onEvent(
+  { contract: "Seaport", event: "OrderFulfilled" },
   async ({ event, context }) => {
     const { offerer, recipient, offer, consideration } = event.params;
     const timestamp = BigInt(event.block.timestamp);

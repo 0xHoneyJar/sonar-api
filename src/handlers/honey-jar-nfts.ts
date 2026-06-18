@@ -4,20 +4,15 @@
  */
 
 import {
-  CollectionStat,
-  GlobalCollectionStat,
-  Holder,
-  HoneyJar,
-  HoneyJar2Eth,
-  HoneyJar3Eth,
-  HoneyJar4Eth,
-  HoneyJar5Eth,
-  Honeycomb,
-  Mint,
-  Token,
-  Transfer,
-  UserBalance,
-} from "generated";
+  indexer,
+  type CollectionStat,
+  type GlobalCollectionStat,
+  type Holder,
+  type Mint,
+  type Token,
+  type Transfer,
+  type UserBalance,
+} from "envio";
 
 import {
   ZERO_ADDRESS,
@@ -469,38 +464,44 @@ export async function updateGlobalCollectionStat(
   // Consider using a separate aggregation service or maintaining running totals
 }
 
-// Export individual handlers for each contract
-export const handleHoneyJarTransfer = HoneyJar.Transfer.handler(
+// Handler registrations for each contract
+indexer.onEvent(
+  { contract: "HoneyJar", event: "Transfer" },
   async ({ event, context }) => {
     await handleTransfer(event, context);
   }
 );
 
-export const handleHoneycombTransfer = Honeycomb.Transfer.handler(
+indexer.onEvent(
+  { contract: "Honeycomb", event: "Transfer" },
   async ({ event, context }) => {
     await handleTransfer(event, context);
   }
 );
 
-export const handleHoneyJar2EthTransfer = HoneyJar2Eth.Transfer.handler(
+indexer.onEvent(
+  { contract: "HoneyJar2Eth", event: "Transfer" },
   async ({ event, context }) => {
     await handleTransfer(event, context, "HoneyJar2");
   }
 );
 
-export const handleHoneyJar3EthTransfer = HoneyJar3Eth.Transfer.handler(
+indexer.onEvent(
+  { contract: "HoneyJar3Eth", event: "Transfer" },
   async ({ event, context }) => {
     await handleTransfer(event, context, "HoneyJar3");
   }
 );
 
-export const handleHoneyJar4EthTransfer = HoneyJar4Eth.Transfer.handler(
+indexer.onEvent(
+  { contract: "HoneyJar4Eth", event: "Transfer" },
   async ({ event, context }) => {
     await handleTransfer(event, context, "HoneyJar4");
   }
 );
 
-export const handleHoneyJar5EthTransfer = HoneyJar5Eth.Transfer.handler(
+indexer.onEvent(
+  { contract: "HoneyJar5Eth", event: "Transfer" },
   async ({ event, context }) => {
     await handleTransfer(event, context, "HoneyJar5");
   }

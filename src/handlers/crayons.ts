@@ -1,10 +1,11 @@
-import { CrayonsFactory, Transfer } from "generated";
+import { indexer, type Transfer } from "envio";
 
 // Skeleton handler for Crayons Factory emits. This records the discovery event.
 // Follow-up work will add dynamic tracking of ERC721 Base collection transfers
 // and populate Token/Transfer entities for holders/stats.
 
-export const handleCrayonsFactoryNewBase = CrayonsFactory.Factory__NewERC721Base.handler(
+indexer.onEvent(
+  { contract: "CrayonsFactory", event: "Factory__NewERC721Base" },
   async ({ event, context }) => {
     const { owner, erc721Base } = event.params;
 

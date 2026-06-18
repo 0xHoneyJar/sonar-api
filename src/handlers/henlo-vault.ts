@@ -7,15 +7,15 @@
  */
 
 import {
-  TrackedTokenBalance,
-  HenloVault,
-  HenloVaultRound,
-  HenloVaultDeposit,
-  HenloVaultBalance,
-  HenloVaultEpoch,
-  HenloVaultStats,
-  HenloVaultUser,
-} from "generated";
+  indexer,
+  type TrackedTokenBalance,
+  type HenloVaultRound,
+  type HenloVaultDeposit,
+  type HenloVaultBalance,
+  type HenloVaultEpoch,
+  type HenloVaultStats,
+  type HenloVaultUser,
+} from "envio";
 
 // Map strike values to HENLOCKED token addresses and keys
 // Strike represents FDV target in thousands (e.g., 100000 = $100M FDV)
@@ -141,7 +141,8 @@ async function getOrCreateUser(
  * Creates/updates TrackedTokenBalance for the user when they receive HENLOCKED tokens
  * Also creates deposit records for the Henlocker vault system
  */
-export const handleHenloVaultMint = HenloVault.Mint.handler(
+indexer.onEvent(
+  { contract: "HenloVault", event: "Mint" },
   async ({ event, context }) => {
     const { user, strike, amount } = event.params;
     const timestamp = BigInt(event.block.timestamp);
@@ -264,7 +265,8 @@ export const handleHenloVaultMint = HenloVault.Mint.handler(
 /**
  * Handles RoundOpened events - Creates a new vault round
  */
-export const handleHenloVaultRoundOpened = HenloVault.RoundOpened.handler(
+indexer.onEvent(
+  { contract: "HenloVault", event: "RoundOpened" },
   async ({ event, context }) => {
     const { epochId, strike, depositLimit } = event.params;
     const timestamp = BigInt(event.block.timestamp);
@@ -304,7 +306,8 @@ export const handleHenloVaultRoundOpened = HenloVault.RoundOpened.handler(
 /**
  * Handles RoundClosed events - Marks round as closed
  */
-export const handleHenloVaultRoundClosed = HenloVault.RoundClosed.handler(
+indexer.onEvent(
+  { contract: "HenloVault", event: "RoundClosed" },
   async ({ event, context }) => {
     const { epochId, strike } = event.params;
     const chainId = event.chainId;
@@ -326,7 +329,8 @@ export const handleHenloVaultRoundClosed = HenloVault.RoundClosed.handler(
 /**
  * Handles DepositsPaused events
  */
-export const handleHenloVaultDepositsPaused = HenloVault.DepositsPaused.handler(
+indexer.onEvent(
+  { contract: "HenloVault", event: "DepositsPaused" },
   async ({ event, context }) => {
     const { epochId, strike } = event.params;
     const chainId = event.chainId;
@@ -358,7 +362,8 @@ export const handleHenloVaultDepositsPaused = HenloVault.DepositsPaused.handler(
 /**
  * Handles DepositsUnpaused events
  */
-export const handleHenloVaultDepositsUnpaused = HenloVault.DepositsUnpaused.handler(
+indexer.onEvent(
+  { contract: "HenloVault", event: "DepositsUnpaused" },
   async ({ event, context }) => {
     const { epochId, strike } = event.params;
     const chainId = event.chainId;
@@ -390,7 +395,8 @@ export const handleHenloVaultDepositsUnpaused = HenloVault.DepositsUnpaused.hand
 /**
  * Handles MintFromReservoir events - Whale/reservoir deposits
  */
-export const handleHenloVaultMintFromReservoir = HenloVault.MintFromReservoir.handler(
+indexer.onEvent(
+  { contract: "HenloVault", event: "MintFromReservoir" },
   async ({ event, context }) => {
     const { reservoir, strike, amount } = event.params;
     const timestamp = BigInt(event.block.timestamp);
@@ -422,7 +428,8 @@ export const handleHenloVaultMintFromReservoir = HenloVault.MintFromReservoir.ha
 /**
  * Handles Redeem events - User withdrawals
  */
-export const handleHenloVaultRedeem = HenloVault.Redeem.handler(
+indexer.onEvent(
+  { contract: "HenloVault", event: "Redeem" },
   async ({ event, context }) => {
     const { user, strike, amount } = event.params;
     const timestamp = BigInt(event.block.timestamp);
@@ -459,7 +466,8 @@ export const handleHenloVaultRedeem = HenloVault.Redeem.handler(
 /**
  * Handles ReservoirSet events - Creates/updates epoch with reservoir
  */
-export const handleHenloVaultReservoirSet = HenloVault.ReservoirSet.handler(
+indexer.onEvent(
+  { contract: "HenloVault", event: "ReservoirSet" },
   async ({ event, context }) => {
     const { epochId, strike, reservoir } = event.params;
     const timestamp = BigInt(event.block.timestamp);

@@ -6,12 +6,12 @@
  */
 
 import {
-  AquaberaVault,
-  AquaberaDeposit,
-  AquaberaWithdrawal,
-  AquaberaBuilder,
-  AquaberaStats,
-} from "generated";
+  indexer,
+  type AquaberaDeposit,
+  type AquaberaWithdrawal,
+  type AquaberaBuilder,
+  type AquaberaStats,
+} from "envio";
 
 import { recordAction } from "../lib/actions";
 
@@ -23,7 +23,8 @@ const BERACHAIN_ID = 80094;
 /*
  * Handle DepositForwarded events - when users add liquidity through the Aquabera forwarder
  */
-export const handleAquaberaDeposit = AquaberaVault.DepositForwarded.handler(
+indexer.onEvent(
+  { contract: "AquaberaVault", event: "DepositForwarded" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const depositor = event.params.sender.toLowerCase(); // The sender is who initiated the deposit

@@ -5,8 +5,8 @@
  * Enables real-time loan tracking and treasury marketplace queries
  */
 
-import { MiberaLiquidBacking } from "generated";
-import type { TreasuryItem, TreasuryStats, TreasuryActivity, MiberaLoan, MiberaLoanStats, DailyRfvSnapshot } from "generated";
+import { indexer } from "envio";
+import type { TreasuryItem, TreasuryStats, TreasuryActivity, MiberaLoan, MiberaLoanStats, DailyRfvSnapshot } from "envio";
 import { recordAction } from "../lib/actions";
 
 const BERACHAIN_ID = 80094;
@@ -74,7 +74,7 @@ function getDayFromTimestamp(timestamp: bigint): number {
  * Handle LoanReceived - User creates a backing loan (collateral-based)
  * Event: LoanReceived(uint256 loanId, uint256[] ids, uint256 amount, uint256 expiry)
  */
-export const handleLoanReceived = MiberaLiquidBacking.LoanReceived.handler(
+indexer.onEvent({ contract: "MiberaLiquidBacking", event: "LoanReceived" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const loanId = event.params.loanId;
@@ -133,7 +133,7 @@ export const handleLoanReceived = MiberaLiquidBacking.LoanReceived.handler(
  * Handle BackingLoanPayedBack - User repays backing loan
  * Event: BackingLoanPayedBack(uint256 loanId, uint256 newTotalBacking)
  */
-export const handleBackingLoanPayedBack = MiberaLiquidBacking.BackingLoanPayedBack.handler(
+indexer.onEvent({ contract: "MiberaLiquidBacking", event: "BackingLoanPayedBack" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const loanId = event.params.loanId;
@@ -178,7 +178,7 @@ export const handleBackingLoanPayedBack = MiberaLiquidBacking.BackingLoanPayedBa
  * Handle ItemLoaned - User takes an item loan (single NFT from treasury)
  * Event: ItemLoaned(uint256 loanId, uint256 itemId, uint256 expiry)
  */
-export const handleItemLoaned = MiberaLiquidBacking.ItemLoaned.handler(
+indexer.onEvent({ contract: "MiberaLiquidBacking", event: "ItemLoaned" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const loanId = event.params.loanId;
@@ -235,7 +235,7 @@ export const handleItemLoaned = MiberaLiquidBacking.ItemLoaned.handler(
  * Handle LoanItemSentBack - User returns item loan
  * Event: LoanItemSentBack(uint256 loanId, uint256 newTotalBacking)
  */
-export const handleLoanItemSentBack = MiberaLiquidBacking.LoanItemSentBack.handler(
+indexer.onEvent({ contract: "MiberaLiquidBacking", event: "LoanItemSentBack" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const loanId = event.params.loanId;
@@ -288,7 +288,7 @@ export const handleLoanItemSentBack = MiberaLiquidBacking.LoanItemSentBack.handl
  * The loan contains multiple collateral items. We record the event but can't determine
  * specific tokenIds without querying the contract.
  */
-export const handleBackingLoanExpired = MiberaLiquidBacking.BackingLoanExpired.handler(
+indexer.onEvent({ contract: "MiberaLiquidBacking", event: "BackingLoanExpired" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const loanId = event.params.loanId;
@@ -360,7 +360,7 @@ export const handleBackingLoanExpired = MiberaLiquidBacking.BackingLoanExpired.h
  * For item loans, the loanId can be used to look up the specific itemId.
  * The item that was loaned now belongs to the treasury.
  */
-export const handleItemLoanExpired = MiberaLiquidBacking.ItemLoanExpired.handler(
+indexer.onEvent({ contract: "MiberaLiquidBacking", event: "ItemLoanExpired" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const loanId = event.params.loanId;
@@ -463,7 +463,7 @@ export const handleItemLoanExpired = MiberaLiquidBacking.ItemLoanExpired.handler
  * Handle ItemPurchased - NFT purchased from treasury
  * Event: ItemPurchased(uint256 itemId, uint256 newTotalBacking)
  */
-export const handleItemPurchased = MiberaLiquidBacking.ItemPurchased.handler(
+indexer.onEvent({ contract: "MiberaLiquidBacking", event: "ItemPurchased" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const itemId = event.params.itemId;
@@ -545,7 +545,7 @@ export const handleItemPurchased = MiberaLiquidBacking.ItemPurchased.handler(
  * Handle ItemRedeemed - NFT deposited into treasury
  * Event: ItemRedeemed(uint256 itemId, uint256 newTotalBacking)
  */
-export const handleItemRedeemed = MiberaLiquidBacking.ItemRedeemed.handler(
+indexer.onEvent({ contract: "MiberaLiquidBacking", event: "ItemRedeemed" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const itemId = event.params.itemId;
@@ -629,7 +629,7 @@ export const handleItemRedeemed = MiberaLiquidBacking.ItemRedeemed.handler(
  *
  * Also creates daily RFV snapshots for historical charting
  */
-export const handleRFVChanged = MiberaLiquidBacking.RFVChanged.handler(
+indexer.onEvent({ contract: "MiberaLiquidBacking", event: "RFVChanged" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const newRFV = event.params.newRFV;

@@ -15,11 +15,11 @@
  */
 
 import {
-  PuruApiculture1155,
-  Erc1155MintEvent,
-  TrackedHolder as TrackedHolderEntity,
-} from "generated";
-import type { handlerContext } from "generated";
+  indexer,
+  type Erc1155MintEvent,
+  type TrackedHolder as TrackedHolderEntity,
+  type EvmOnEventContext,
+} from "envio";
 
 import { recordAction } from "../lib/actions";
 import { publishMintEvent } from "../lib/events-publisher";
@@ -42,7 +42,7 @@ function getCollectionKey(contractAddress: string): string {
 /**
  * Handle TransferSingle events
  */
-export const handlePuruApicultureSingle = PuruApiculture1155.TransferSingle.handler(
+indexer.onEvent({ contract: "PuruApiculture1155", event: "TransferSingle" },
   async ({ event, context }) => {
     const { operator, from, to, id, value } = event.params;
     const fromLower = from.toLowerCase();
@@ -194,7 +194,7 @@ export const handlePuruApicultureSingle = PuruApiculture1155.TransferSingle.hand
 /**
  * Handle TransferBatch events
  */
-export const handlePuruApicultureBatch = PuruApiculture1155.TransferBatch.handler(
+indexer.onEvent({ contract: "PuruApiculture1155", event: "TransferBatch" },
   async ({ event, context }) => {
     const { operator, from, to, ids, values } = event.params;
     const fromLower = from.toLowerCase();
@@ -366,7 +366,7 @@ export const handlePuruApicultureBatch = PuruApiculture1155.TransferBatch.handle
 // --- Holder tracking ---
 
 interface AdjustHolder1155Args {
-  context: handlerContext;
+  context: EvmOnEventContext;
   contractAddress: string;
   collectionKey: string;
   chainId: number;
