@@ -129,9 +129,14 @@ vi.mock("envio", () => {
     },
     // Type-only exports (Transfer, Holder, …) are erased at compile time, so a
     // handler's `import { type X } from "envio"` needs no runtime binding here.
-    // Defensive S/BigDecimal stubs in case a handler touches them at module top.
+    // Defensive S/BigDecimal/createEffect stubs in case a handler touches them at
+    // module top. createEffect is exercised by sf-vaults.ts (Effects API) — it must
+    // be a callable returning a callable so the module-top `getX = createEffect(...)`
+    // assignments don't throw at import, else the spy can't record that file's
+    // onEvent/contractRegister registrations (the L3 Effects-handler coverage gap).
     S: {},
     BigDecimal: class {},
+    createEffect: () => () => {},
   };
 });
 
