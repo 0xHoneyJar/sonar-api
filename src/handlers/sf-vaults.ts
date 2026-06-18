@@ -9,15 +9,13 @@
  */
 
 import {
-  SFVaultERC4626,
-  SFMultiRewards,
-  SFPosition,
-  SFVaultStats,
-  SFVaultStrategy,
-  SFMultiRewardsPosition,
-  SFVaultStrategyWrapper,
-  LatestVaultStrategy,
-} from "generated";
+  indexer,
+  type SFPosition,
+  type SFVaultStats,
+  type SFVaultStrategy,
+  type SFMultiRewardsPosition,
+  type LatestVaultStrategy,
+} from "envio";
 
 import { createEffect, S } from "envio";
 import { createPublicClient, http, parseAbi, defineChain } from "viem";
@@ -362,14 +360,13 @@ async function ensureInitialStrategy(
 /**
  * Register new MultiRewards contracts dynamically when strategy is updated
  */
-SFVaultERC4626.StrategyUpdated.contractRegister(async ({ event, context }) => {
+indexer.contractRegister({ contract: "SFVaultERC4626", event: "StrategyUpdated" }, async ({ event, context }) => {
   const newStrategy = event.params.newStrategy.toLowerCase();
-  const anyContext = context as any;
 
   // First check if we have a hardcoded mapping (faster and more reliable)
   const fallbackMultiRewards = STRATEGY_TO_MULTI_REWARDS[newStrategy];
   if (fallbackMultiRewards) {
-    anyContext.addSFMultiRewards(fallbackMultiRewards);
+    context.chain.SFMultiRewards.add(fallbackMultiRewards);
     return;
   }
 
@@ -386,9 +383,9 @@ SFVaultERC4626.StrategyUpdated.contractRegister(async ({ event, context }) => {
     const newMultiRewards = (multiRewards as string).toLowerCase();
 
     // Register the new MultiRewards contract for indexing
-    anyContext.addSFMultiRewards(newMultiRewards);
+    context.chain.SFMultiRewards.add(newMultiRewards);
   } catch (error) {
-    anyContext.log.error(`Failed to get multiRewardsAddress for strategy ${newStrategy}: ${error}`);
+    context.log.error(`Failed to get multiRewardsAddress for strategy ${newStrategy}: ${error}`);
   }
 });
 
@@ -399,17 +396,17 @@ SFVaultERC4626.StrategyUpdated.contractRegister(async ({ event, context }) => {
  * any subsequent events from the new MultiRewards address are picked up without requiring
  * a redeploy or reindex.
  */
-SFVaultStrategyWrapper.MultiRewardsUpdated.contractRegister(({ event, context }) => {
+indexer.contractRegister({ contract: "SFVaultStrategyWrapper", event: "MultiRewardsUpdated" }, ({ event, context }) => {
   const newMultiRewards = event.params.newMultiRewards.toLowerCase();
-  const anyContext = context as any;
-  anyContext.addSFMultiRewards(newMultiRewards);
+  context.chain.SFMultiRewards.add(newMultiRewards);
 });
 
 /**
  * Handle StrategyUpdated events
  * Event: StrategyUpdated(address indexed oldStrategy, address indexed newStrategy)
  */
-export const handleSFVaultStrategyUpdated = SFVaultERC4626.StrategyUpdated.handler(
+indexer.onEvent(
+  { contract: "SFVaultERC4626", event: "StrategyUpdated" },
   async ({ event, context }) => {
     const vaultAddress = event.srcAddress.toLowerCase();
     const oldStrategy = event.params.oldStrategy.toLowerCase();
@@ -513,8 +510,9 @@ export const handleSFVaultStrategyUpdated = SFVaultERC4626.StrategyUpdated.handl
  * without changing the strategy itself. We must update our strategy->multiRewards mapping so that
  * new staking/claim events from the new MultiRewards address are correctly attributed to the vault.
  */
-export const handleSFStrategyMultiRewardsUpdated =
-  SFVaultStrategyWrapper.MultiRewardsUpdated.handler(async ({ event, context }) => {
+indexer.onEvent(
+  { contract: "SFVaultStrategyWrapper", event: "MultiRewardsUpdated" },
+  async ({ event, context }) => {
     const strategyAddress = event.srcAddress.toLowerCase();
     const oldMultiRewards = event.params.oldMultiRewards.toLowerCase();
     const newMultiRewards = event.params.newMultiRewards.toLowerCase();
@@ -584,7 +582,8 @@ export const handleSFStrategyMultiRewardsUpdated =
  * Handle ERC4626 Deposit events
  * Event: Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares)
  */
-export const handleSFVaultDeposit = SFVaultERC4626.Deposit.handler(
+indexer.onEvent(
+  { contract: "SFVaultERC4626", event: "Deposit" },
   async ({ event, context }) => {
     const vaultAddress = event.srcAddress.toLowerCase();
     const config = VAULT_CONFIGS[vaultAddress];
@@ -724,7 +723,8 @@ export const handleSFVaultDeposit = SFVaultERC4626.Deposit.handler(
  * Handle ERC4626 Withdraw events
  * Event: Withdraw(address indexed sender, address indexed receiver, address indexed owner, uint256 assets, uint256 shares)
  */
-export const handleSFVaultWithdraw = SFVaultERC4626.Withdraw.handler(
+indexer.onEvent(
+  { contract: "SFVaultERC4626", event: "Withdraw" },
   async ({ event, context }) => {
     const vaultAddress = event.srcAddress.toLowerCase();
     const config = VAULT_CONFIGS[vaultAddress];
@@ -817,7 +817,8 @@ export const handleSFVaultWithdraw = SFVaultERC4626.Withdraw.handler(
  * Handle MultiRewards Staked events
  * Event: Staked(address indexed user, uint256 amount)
  */
-export const handleSFMultiRewardsStaked = SFMultiRewards.Staked.handler(
+indexer.onEvent(
+  { contract: "SFMultiRewards", event: "Staked" },
   async ({ event, context }) => {
     const multiRewardsAddress = event.srcAddress.toLowerCase();
 
@@ -935,7 +936,8 @@ export const handleSFMultiRewardsStaked = SFMultiRewards.Staked.handler(
  * Handle MultiRewards Withdrawn events
  * Event: Withdrawn(address indexed user, uint256 amount)
  */
-export const handleSFMultiRewardsWithdrawn = SFMultiRewards.Withdrawn.handler(
+indexer.onEvent(
+  { contract: "SFMultiRewards", event: "Withdrawn" },
   async ({ event, context }) => {
     const multiRewardsAddress = event.srcAddress.toLowerCase();
 
@@ -1045,7 +1047,8 @@ export const handleSFMultiRewardsWithdrawn = SFMultiRewards.Withdrawn.handler(
  * Handle MultiRewards RewardPaid events
  * Event: RewardPaid(address indexed user, address indexed rewardsToken, uint256 reward)
  */
-export const handleSFMultiRewardsRewardPaid = SFMultiRewards.RewardPaid.handler(
+indexer.onEvent(
+  { contract: "SFMultiRewards", event: "RewardPaid" },
   async ({ event, context }) => {
     const multiRewardsAddress = event.srcAddress.toLowerCase();
 
@@ -1142,7 +1145,8 @@ export const handleSFMultiRewardsRewardPaid = SFMultiRewards.RewardPaid.handler(
  * processes fee tokens. This handler records rebate activity for the user's
  * activity feed.
  */
-export const handleSFMultiRewardsRebatePaid = SFMultiRewards.RebatePaid.handler(
+indexer.onEvent(
+  { contract: "SFMultiRewards", event: "RebatePaid" },
   async ({ event, context }) => {
     const multiRewardsAddress = event.srcAddress.toLowerCase();
 
