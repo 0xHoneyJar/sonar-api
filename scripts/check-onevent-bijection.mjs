@@ -46,7 +46,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function parseArgs(argv) {
   const opts = { config: "config.yaml", handlers: null, json: false };
@@ -77,7 +77,7 @@ function parseArgs(argv) {
  * region (stops at the top-level `chains:` key) and ignores commented lines.
  * Returns Set<"Contract.Event"> plus the top-level `handlers:` dir if present.
  */
-function parseConfigPairs(configPath) {
+export function parseConfigPairs(configPath) {
   const text = readFileSync(configPath, "utf8");
   const lines = text.split(/\r?\n/);
 
@@ -253,4 +253,13 @@ function main() {
   process.exit(report.bijection ? 0 : 3);
 }
 
-main();
+// Run the CLI only when invoked directly (`node scripts/check-onevent-bijection.mjs …`),
+// NOT when imported for its exported helpers (e.g. parseConfigPairs as the SoT for
+// the L3 registration-coverage check). Without this guard, an `import` would run
+// main() and call process.exit, killing the importing process.
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  main();
+}
