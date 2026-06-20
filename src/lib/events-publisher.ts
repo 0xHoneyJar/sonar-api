@@ -362,11 +362,19 @@ export async function publishMintEvent(args: {
   // Envio Postgres has the durable record; the events pillar can be
   // re-published from there during recovery.
   if (!ready || !nats || !signer) {
-    args.log.warn(
-      `[events-publisher] DROPPED publish (substrate ${disabledKind ?? "uninitialized"} — ${disabledReason ?? "unknown"}): ` +
-        `chain=${args.payload.chain_id} contract=${args.payload.contract} token_id=${args.payload.token_id} ` +
-        `tx=${args.payload.transaction_hash} collection=${args.collectionSlug}`,
-    );
+    // Permanent disable (e.g. NATS_URL unset by config) is NOT a recoverable
+    // failure — there is nothing to replay, so drop SILENTLY (the one-time
+    // "permanently disabled" log already fired at init). The per-event audit
+    // line is only useful for TRANSIENT/uninitialized states, where replay
+    // matters. (Self-host spike 2026-06-20: this warn fired per mint event,
+    // flooding Railway's 500 logs/sec cap — 77k+ messages dropped.)
+    if (disabledKind !== "permanent") {
+      args.log.warn(
+        `[events-publisher] DROPPED publish (substrate ${disabledKind ?? "uninitialized"} — ${disabledReason ?? "unknown"}): ` +
+          `chain=${args.payload.chain_id} contract=${args.payload.contract} token_id=${args.payload.token_id} ` +
+          `tx=${args.payload.transaction_hash} collection=${args.collectionSlug}`,
+      );
+    }
     return;
   }
 
