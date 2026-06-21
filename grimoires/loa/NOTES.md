@@ -1,5 +1,17 @@
 # Session Notes
 
+## ⏳ ACTIVE SPIKE — self-host Envio+HyperSync measure (cost-read due 2026-06-22 · `bd-fj1n.4`)
+> Running DARK on Railway project `devoted-happiness`/`5972976f`, service `sonar-api`/`920a3274`, deploy
+> `e92ec5e3` (`ENVIO_RESTART=0`, `NODE_OPTIONS=12288`). Does NOT touch green / consumers / `BELT_UPSTREAM`.
+> **TOIL VERDICT (in, 2026-06-20):** 0 sync incidents — rode clean through Arbitrum(~475M)+Zora(~47M), the
+> KF-015 Ponder-OOM regions, ~40 min to head, 0 OOM. HyperSync-on-all-chains killed the toil that flipped
+> the original TCO to managed. **COST (pending):** let run ~48h → read MEASURED Railway $/mo + HyperSync
+> sub → `bd-fj1n.4` crossover vs managed-Envio (toil≈0 both sides, so it's pure $). Fixes in
+> `feat/envio-321-port` (ahead 2 of origin, durable in main `.git`): `3cc18c6b` (Dockerfile.belt build),
+> `16f0433c` (events-publisher flood). Spec: `grimoires/loa/specs/2026-06-20-spike-self-host-envio-hypersync-measure.md`.
+> SVM-substrate research in flight (is self-host-Envio chain-agnostic EVM+SVM, or EVM-only — the real
+> scalability question). Session-cron `4c2222c9` set but session-only; THIS note + `bd-fj1n.4` are the durable reminder.
+
 ## Session Continuity — green-build LIVE state (2026-05-22 session 4)
 
 **Green = the 6-chain consolidated belt (config.yaml), standing up NOW in freeside-sonar/production (blue-green-as-services).**

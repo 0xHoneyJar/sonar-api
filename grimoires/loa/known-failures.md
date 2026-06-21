@@ -69,6 +69,7 @@ actually tried, not just what someone *said* was tried.
 | [KF-013](#kf-013-envio-rust-cli-28p01-on-railway-managed-postgres-via-scram-over-ssl) | **RESOLVED-VIA-WORKAROUND 2026-05-21** (`--restart`-seeds-then-resume; sslmode=false was a misdiagnosis — Rust-CLI persisted_state 28P01 is fresh-init-only, resume skips it) | belt-indexer deploy/re-init on Railway managed Postgres | 2 |
 | [KF-014](#kf-014-bridgebuilder-pass-2-enrichment-unavailable-on-claude-headless-cli-subscription) | DEGRADED-ACCEPTED 2026-05-22 (Pass-1 convergence findings still post; only the educational enrichment layer is lost) | `/bridgebuilder` two-pass review on `claude-headless` | 3 |
 | [KF-015](#kf-015-envio-belt-indexer-node-js-heap-oom-on-multi-chain-belt-default-2gb-heap-vs-large-container) | **RESOLVED-VIA-CONFIG 2026-05-22** (`NODE_OPTIONS=--max-old-space-size=12288` — 6-chain belt OOM'd Node's ~2GB default heap in a 24GB container; green-only; RECURRED 2026-06-19 on managed-Envio Cloud @3.2.1 — heap/RAM lever there is TBD) | belt-indexer 6-chain consolidated cold-sync OOM | 2 |
+| [KF-016](#kf-016-envio-321-blocks-chain-indexing-on-hasura-trackdatabase-retry) | **RESOLVED-VIA-CONFIG 2026-06-21** (set `HASURA_GRAPHQL_ENDPOINT` to a reachable Hasura — `envio@3.2.1` blocks chain-indexing on the `Hasura.trackDatabase`→`createSelectPermission` retry loop when no Hasura is reachable; `block_height` stuck at 0, `latest_processed_block` -1. The local-upload spike slipped past it; the GitHub-sourced re-home did not — give the indexer a Hasura at deploy time) | self-host envio@3.2.1 deploy, indexer seeds schema but never indexes | 1 |
 
 ---
 
@@ -947,3 +948,13 @@ If a BB review posts with "Enrichment pass was unavailable; findings are unenric
 ### Reading guide
 
 When scaling an Envio belt to MORE chains/contracts (or any node process in a big container), the Node default heap (~2GB old-space) does NOT scale to the container — set `NODE_OPTIONS=--max-old-space-size=<~50% of container MB>`. **Diagnostic signature**: some chains' `latest_processed_block` FREEZE while others advance, + a V8 `FatalProcessOutOfMemory` / "JavaScript heap out of memory" frame + Railway crash-loops. Do NOT chase the RPC (the frozen chains synced fine through sparse ranges *before* the OOM — it's heap, not the endpoint) and do NOT confuse with KF-013 (28P01 is fresh-init; this is steady-state resume). Durable home: bake a `NODE_OPTIONS` default into `Dockerfile.belt` so any belt deploy inherits it; the green service-var is the immediate fix and persists post-swap (green becomes the sole belt).
+
+### KF-016 — envio@3.2.1 blocks chain-indexing on Hasura.trackDatabase retry
+
+**Status**: RESOLVED-VIA-CONFIG 2026-06-21 (set `HASURA_GRAPHQL_ENDPOINT` to a reachable Hasura at deploy).
+**Symptom**: a self-host `envio@3.2.1` indexer SEEDS the schema (chain_metadata rows exist) but NEVER indexes — `block_height: 0`, `latest_processed_block: -1` on every chain. Log floods every ~7s with `WARN: Hasura configuration request failed. Indexing will still work` + `TypeError: fetch failed` / `AggregateError [ECONNREFUSED]`, stack = `Hasura.res.mjs trackDatabase → createSelectPermission → retry`.
+**Root cause**: envio's startup `trackDatabase` (registers tables + select-perms on a Hasura) retries indefinitely on ECONNREFUSED when no Hasura is reachable, and on this path it gates the chain workers. The "Indexing will still work" wording LIES.
+**Recurrence count**: 1.
+**Deceptive part**: the *local-upload* spike (`railway up`) indexed fine through the same warning; the *GitHub-sourced* re-home blocked. Same code, same env — not reproducible by reading the warning.
+**Fix**: stand up a Hasura (`hasura/graphql-engine`, `HASURA_GRAPHQL_DATABASE_URL` → the indexer's Postgres), then set on the indexer `HASURA_GRAPHQL_ENDPOINT=http://<hasura>.railway.internal:8080` + matching `HASURA_GRAPHQL_ADMIN_SECRET`. trackDatabase then succeeds → chains index within ~1 min → and envio AUTO-TRACKS the 94 entity tables on that Hasura (no manual metadata-API tracking). Durable home: bake `HASURA_GRAPHQL_ENDPOINT` into the deploy template alongside KF-015's `NODE_OPTIONS`.
+**Reading guide**: fresh self-host envio seeds but won't index + only error is `trackDatabase`/`createSelectPermission` ECONNREFUSED → give it a Hasura; do NOT chase HyperSync/RPC.

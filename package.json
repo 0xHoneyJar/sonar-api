@@ -11,6 +11,7 @@
     "start": "envio start",
     "test": "vitest run",
     "test:hasura": "vitest run test/hasura-contract",
+    "cost": "node scripts/railway-cost-model.mjs",
     "verify:belt-config": "node scripts/verify-belt-config.js",
     "codegen:mibera": "envio codegen --config config.mibera.yaml",
     "typecheck:mibera": "tsc -p tsconfig.mibera.json",
