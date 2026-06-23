@@ -6,7 +6,10 @@
 
 import { Interface, hexlify } from "ethers";
 
-import { BgtToken, BgtBoostEvent } from "generated";
+import {
+  indexer,
+  type BgtBoostEvent,
+} from "envio";
 
 import { recordAction } from "../lib/actions";
 
@@ -39,7 +42,8 @@ const normalizePubkey = (raw: unknown): string | undefined => {
   return undefined;
 };
 
-export const handleBgtQueueBoost = BgtToken.QueueBoost.handler(
+indexer.onEvent(
+  { contract: "BgtToken", event: "QueueBoost" },
   async ({ event, context }) => {
     // No entity reads needed — skip entire handler during preload
     if ((context as any).isPreload) return;

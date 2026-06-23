@@ -13,11 +13,11 @@
  * by txHash + tokenId pattern to find the correct MintEvent to update.
  */
 
-import { GeneralMints, MintEvent } from "generated";
+import { indexer, type MintEvent } from "envio";
 
 import { publishMintEvent } from "../lib/events-publisher";
 
-export const handleVmMinted = GeneralMints.Minted.handler(
+indexer.onEvent({ contract: "GeneralMints", event: "Minted" },
   async ({ event, context }) => {
     const { user, tokenId, traits } = event.params;
     const txHash = event.transaction.hash;

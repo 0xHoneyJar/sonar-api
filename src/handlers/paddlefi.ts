@@ -9,15 +9,15 @@
  * Contract: 0x242b7126F3c4E4F8CbD7f62571293e63E9b0a4E1 (Berachain)
  */
 
-import { PaddleFi } from "generated";
-import type {
-  handlerContext,
-  PaddleSupply as PaddleSupplyEntity,
-  PaddlePawn as PaddlePawnEntity,
-  PaddleSupplier as PaddleSupplierEntity,
-  PaddleBorrower as PaddleBorrowerEntity,
-  PaddleLiquidation as PaddleLiquidationEntity,
-} from "generated";
+import {
+  indexer,
+  type EvmOnEventContext,
+  type PaddleSupply as PaddleSupplyEntity,
+  type PaddlePawn as PaddlePawnEntity,
+  type PaddleSupplier as PaddleSupplierEntity,
+  type PaddleBorrower as PaddleBorrowerEntity,
+  type PaddleLiquidation as PaddleLiquidationEntity,
+} from "envio";
 
 import { recordAction } from "../lib/actions";
 
@@ -25,7 +25,8 @@ import { recordAction } from "../lib/actions";
  * Handle Mint events (Supply BERA)
  * Emitted when a lender deposits BERA into the lending pool
  */
-export const handlePaddleMint = PaddleFi.Mint.handler(
+indexer.onEvent(
+  { contract: "PaddleFi", event: "Mint" },
   async ({ event, context }) => {
     const minter = event.params.minter.toLowerCase();
     const mintAmount = event.params.mintAmount;
@@ -86,7 +87,8 @@ export const handlePaddleMint = PaddleFi.Mint.handler(
  * Handle Pawn events (Deposit NFT as collateral)
  * Emitted when a borrower deposits Mibera NFTs to take a loan
  */
-export const handlePaddlePawn = PaddleFi.Pawn.handler(
+indexer.onEvent(
+  { contract: "PaddleFi", event: "Pawn" },
   async ({ event, context }) => {
     const borrower = event.params.borrower.toLowerCase();
     const nftIds = event.params.nftIds.map((id) => BigInt(id.toString()));
@@ -142,7 +144,7 @@ export const handlePaddlePawn = PaddleFi.Pawn.handler(
 // Helper functions
 
 interface UpdateSupplierArgs {
-  context: handlerContext;
+  context: EvmOnEventContext;
   address: string;
   mintAmount: bigint;
   mintTokens: bigint;
@@ -184,7 +186,7 @@ async function updateSupplierStats({
 }
 
 interface UpdateBorrowerArgs {
-  context: handlerContext;
+  context: EvmOnEventContext;
   address: string;
   nftCount: number;
   timestamp: bigint;
@@ -233,7 +235,8 @@ async function updateBorrowerStats({
  *
  * App layer computes aggregates (was_first, was_first_ten, count_tier) from Actions table
  */
-export const handlePaddleLiquidateBorrow = PaddleFi.LiquidateBorrow.handler(
+indexer.onEvent(
+  { contract: "PaddleFi", event: "LiquidateBorrow" },
   async ({ event, context }) => {
     const liquidator = event.params.liquidator.toLowerCase();
     const borrower = event.params.borrower.toLowerCase();

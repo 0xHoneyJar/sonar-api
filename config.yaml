@@ -9,52 +9,51 @@
 #                               writes Envio entities as before.
 # See src/lib/events-publisher.ts and the cluster-events-pillar-v1 build doc.
 name: thj-indexer
+# Envio 3.2.1 auto-globs the `handlers:` directory and imports every
+# `./<handlers>/**/*.{js,mjs,ts}` file; each ported handler self-registers
+# via `indexer.onEvent(...)` / `indexer.contractRegister(...)`. The legacy
+# per-contract `handler: src/EventHandlers.ts` lines are removed (3.2.1 no
+# longer reads them). EventHandlers.ts is retained until the finalize phase.
+handlers: src/handlers
 # Cache-bust: Path ε rpc-fix deploy 2026-05-27 (Railway BuildKit cache evicted by content change)
 contracts:
   - name: HoneyJar
-    handler: src/EventHandlers.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
           transaction_fields:
             - hash
   - name: HoneyJar2Eth
-    handler: src/EventHandlers.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
           transaction_fields:
             - hash
   - name: HoneyJar3Eth
-    handler: src/EventHandlers.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
           transaction_fields:
             - hash
   - name: HoneyJar4Eth
-    handler: src/EventHandlers.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
           transaction_fields:
             - hash
   - name: HoneyJar5Eth
-    handler: src/EventHandlers.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
           transaction_fields:
             - hash
   - name: Honeycomb
-    handler: src/EventHandlers.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
           transaction_fields:
             - hash
   - name: MoneycombVault
-    handler: src/EventHandlers.ts
     events:
       - event: AccountOpened(address indexed user, uint256 indexed accountIndex, uint256 indexed honeycombId)
         field_selection:
@@ -78,7 +77,6 @@ contracts:
             - hash
   # Aquabera Forwarder for wall tracking
   - name: AquaberaVault
-    handler: src/EventHandlers.ts
     events:
       # Track deposits through the forwarder (DepositForwarded event)
       - event: DepositForwarded(address indexed sender, address indexed vault, address indexed token, uint256 amount, uint256 shares, address to)
@@ -87,7 +85,6 @@ contracts:
             - hash
   # Direct Aquabera Vault events (for wall contract and other direct deposits)
   - name: AquaberaVaultDirect
-    handler: src/EventHandlers.ts
     events:
       # Track direct deposits to vault (Uniswap V3 style pool)
       - event: Deposit(address indexed sender, address indexed to, uint256 shares, uint256 amount0, uint256 amount1)
@@ -103,7 +100,6 @@ contracts:
             - from
   # Crayons Factory emits new ERC721 collection deployments
   - name: CrayonsFactory
-    handler: src/EventHandlers.ts
     events:
       - event: Factory__NewERC721Base(address indexed owner, address erc721Base)
         field_selection:
@@ -111,7 +107,6 @@ contracts:
             - hash
   # Crayons ERC721 collections emit transfers for holder tracking
   - name: CrayonsCollection
-    handler: src/EventHandlers.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
@@ -119,7 +114,6 @@ contracts:
             - hash
   # Static ERC721 collections for holder tracking
   - name: TrackedErc721
-    handler: src/EventHandlers.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
@@ -127,7 +121,6 @@ contracts:
             - hash
   # General ERC721 mint tracking (mint events only)
   - name: GeneralMints
-    handler: src/EventHandlers.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
@@ -140,7 +133,6 @@ contracts:
             - hash
   # Mibera staking tracking (PaddleFi & Jiko deposits/withdrawals)
   - name: MiberaStaking
-    handler: src/EventHandlers.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
@@ -148,7 +140,6 @@ contracts:
             - hash
   # PaddleFi lending tracking (BERA supply + NFT pawn + liquidations)
   - name: PaddleFi
-    handler: src/EventHandlers.ts
     events:
       # Mint = Supply BERA (lender deposits BERA, receives pTokens)
       - event: Mint(address minter, uint256 mintAmount, uint256 mintTokens)
@@ -166,7 +157,6 @@ contracts:
           transaction_fields:
             - hash
   - name: CandiesMarket1155
-    handler: src/EventHandlers.ts
     events:
       - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
         field_selection:
@@ -179,7 +169,6 @@ contracts:
             - hash
             - value  # BERA paid → CandiesBacking.amount
   - name: CubBadges1155
-    handler: src/EventHandlers.ts
     events:
       - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
         field_selection:
@@ -224,7 +213,6 @@ contracts:
   #           - hash
   # MiberaPremint - Tracks participation and refunds in Mibera premint
   - name: MiberaPremint
-    handler: src/EventHandlers.ts
     events:
       - event: Participated(uint256 indexed phase, address indexed user, uint256 amount)
         field_selection:
@@ -236,7 +224,6 @@ contracts:
             - hash
   # MiberaSets - ERC1155 Sets collection on Optimism (airdropped from distribution wallet)
   - name: MiberaSets
-    handler: src/EventHandlers.ts
     events:
       - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
         field_selection:
@@ -248,7 +235,6 @@ contracts:
             - hash
   # PuruApiculture1155 - ERC1155 collection on Base (Zora platform, Purupuru edition)
   - name: PuruApiculture1155
-    handler: src/EventHandlers.ts
     events:
       - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
         field_selection:
@@ -260,7 +246,6 @@ contracts:
             - hash
   # MiberaZora1155 - ERC1155 collection on Optimism (Zora platform)
   - name: MiberaZora1155
-    handler: src/EventHandlers.ts
     events:
       - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
         field_selection:
@@ -272,7 +257,6 @@ contracts:
             - hash
   # MirrorObservability - tracks WritingEditions article purchases (Mibera lore articles)
   - name: MirrorObservability
-    handler: src/EventHandlers.ts
     events:
       - event: WritingEditionPurchased(address indexed clone, uint256 tokenId, address indexed recipient, uint256 price, string message)
         field_selection:
@@ -280,7 +264,6 @@ contracts:
             - hash
   # FriendtechShares - friend.tech key trading on Base (tracking Mibera-related subjects)
   - name: FriendtechShares
-    handler: src/EventHandlers.ts
     events:
       - event: Trade(address trader, address subject, bool isBuy, uint256 shareAmount, uint256 ethAmount, uint256 protocolEthAmount, uint256 subjectEthAmount, uint256 supply)
         field_selection:
@@ -288,7 +271,6 @@ contracts:
             - hash
   # MiladyCollection - Milady NFT burn tracking on Ethereum mainnet
   - name: MiladyCollection
-    handler: src/EventHandlers.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
@@ -296,7 +278,6 @@ contracts:
             - hash
   # MiberaLiquidBacking - Liquid backing system (loans, RFV, marketplace for defaulted NFTs)
   - name: MiberaLiquidBacking
-    handler: src/EventHandlers.ts
     events:
       # Loan lifecycle events
       - event: LoanReceived(uint256 loanId, uint256[] ids, uint256 amount, uint256 expiry)
@@ -342,7 +323,6 @@ contracts:
             - hash
   # MiberaCollection - Transfer tracking for mint activity
   - name: MiberaCollection
-    handler: src/EventHandlers.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
@@ -351,14 +331,19 @@ contracts:
             - value
   # Seaport - OpenSea marketplace for secondary sales tracking
   - name: Seaport
-    handler: src/EventHandlers.ts
     events:
       - event: OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8,address,uint256,uint256)[] offer, (uint8,address,uint256,uint256,address)[] consideration)
         field_selection:
           transaction_fields:
             - hash
+  # FatBeraDeposits + FatBeraAccounting share address 0xBAE11292...A391d4 on
+  # Berachain (80094). envio 3.2.1 forbids the same address under multiple
+  # contract definitions, so the two are merged into one FatBeraDeposits
+  # contract whose events are the UNION of both (Deposit from FatBeraDeposits;
+  # RewardAdded/WithdrawalRequested/BatchStarted/WithdrawalFulfilled from
+  # FatBeraAccounting). Handlers in src/handlers/fatbera.ts register against
+  # FatBeraDeposits.* accordingly.
   - name: FatBeraDeposits
-    handler: src/EventHandlers.ts
     events:
       - event: Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares)
         field_selection:
@@ -366,9 +351,6 @@ contracts:
             - hash
             - from
             - to
-  - name: FatBeraAccounting
-    handler: src/EventHandlers.ts
-    events:
       - event: RewardAdded(address indexed token, uint256 rewardAmount)
         field_selection:
           transaction_fields:
@@ -386,42 +368,36 @@ contracts:
           transaction_fields:
             - hash
   - name: BeaconDeposit
-    handler: src/EventHandlers.ts
     events:
       - event: Deposit(bytes pubkey, bytes credentials, uint64 amount, bytes signature, uint64 index)
         field_selection:
           transaction_fields:
             - hash
   - name: BlockRewardController
-    handler: src/EventHandlers.ts
     events:
       - event: BlockRewardProcessed(bytes indexed pubkey, uint64 nextTimestamp, uint256 baseRate, uint256 rewardRate)
         field_selection:
           transaction_fields:
             - hash
   - name: AutomatedStake
-    handler: src/EventHandlers.ts
     events:
       - event: WithdrawUnwrapAndStakeExecuted(uint256 indexed amount, uint256 indexed validatorIndex, bytes indexed pubkey)
         field_selection:
           transaction_fields:
             - hash
   - name: ValidatorWithdrawalModule
-    handler: src/EventHandlers.ts
     events:
       - event: ValidatorWithdrawalRequested(address indexed safe, address indexed initiator, bytes indexed cometBFTPublicKey, uint256 withdrawAmount, uint256 fee)
         field_selection:
           transaction_fields:
             - hash
   - name: ValidatorDepositRouter
-    handler: src/EventHandlers.ts
     events:
       - event: ValidatorDepositRequested(address indexed depositor, address indexed receiver, uint256 amount, uint256 indexed validatorIndex)
         field_selection:
           transaction_fields:
             - hash
   - name: BgtToken
-    handler: src/EventHandlers.ts
     events:
       - event: QueueBoost(address indexed account, bytes indexed pubkey, uint128 amount)
         field_selection:
@@ -431,7 +407,6 @@ contracts:
             - input
   # Set & Forgetti Vaults - ERC4626 vaults
   - name: SFVaultERC4626
-    handler: src/EventHandlers.ts
     events:
       - event: Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares)
         field_selection:
@@ -447,7 +422,6 @@ contracts:
             - hash
   # Set & Forgetti MultiRewards - Staking and reward distribution
   - name: SFMultiRewards
-    handler: src/EventHandlers.ts
     events:
       - event: Staked(address indexed user, uint256 amount)
         field_selection:
@@ -467,7 +441,6 @@ contracts:
             - hash
   # Set & Forgetti Strategy Wrapper - emits when vault admin updates the MultiRewards contract
   - name: SFVaultStrategyWrapper
-    handler: src/EventHandlers.ts
     events:
       - event: MultiRewardsUpdated(address indexed oldMultiRewards, address indexed newMultiRewards)
         field_selection:
@@ -475,7 +448,6 @@ contracts:
             - hash
   # HenloVault for tracking HENLOCKED token mints AND Henlocker vault system
   - name: HenloVault
-    handler: src/EventHandlers.ts
     events:
       # Original Mint event for HENLOCKED token tracking
       - event: Mint(address indexed user, uint256 indexed strike, uint256 amount)
@@ -513,7 +485,6 @@ contracts:
             - hash
   # Tracked ERC-20 tokens for balance + burn tracking (HENLO + HENLOCKED tiers)
   - name: TrackedErc20
-    handler: src/EventHandlers.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 value)
         field_selection:
@@ -523,7 +494,6 @@ contracts:
             - to    # Required for source detection
   # APDAO Auction House — seat auction lifecycle + queue management
   - name: ApdaoAuctionHouse
-    handler: src/EventHandlers.ts
     events:
       - event: AuctionCreated(uint256 indexed apdaoId, uint256 startTime, uint256 endTime)
         field_selection:
@@ -554,16 +524,6 @@ chains:
   # Ethereum Mainnet
   - id: 1
     start_block: 13090020 # Earliest block - Milady contract deployment
-    # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
-    rpc:
-
-      - url: http://erpc.railway.internal:4000/main/evm/1
-
-        for: sync
-
-      - url: http://erpc.railway.internal:4000/main/evm/1
-
-        for: live
     contracts:
       # Native HoneyJar contracts on Ethereum
       - name: HoneyJar
@@ -601,16 +561,6 @@ chains:
   # Arbitrum
   - id: 42161
     start_block: 102894033
-    # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
-    rpc:
-
-      - url: http://erpc.railway.internal:4000/main/evm/42161
-
-        for: sync
-
-      - url: http://erpc.railway.internal:4000/main/evm/42161
-
-        for: live
     contracts:
       - name: HoneyJar
         address:
@@ -619,16 +569,6 @@ chains:
   # Zora
   - id: 7777777
     start_block: 18071873
-    # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
-    rpc:
-
-      - url: http://erpc.railway.internal:4000/main/evm/7777777
-
-        for: sync
-
-      - url: http://erpc.railway.internal:4000/main/evm/7777777
-
-        for: live
     contracts:
       - name: HoneyJar
         address:
@@ -637,16 +577,6 @@ chains:
   # Optimism
   - id: 10
     start_block: 107558369  # Mirror Observability deployment (July 30, 2023) - earliest for Mibera articles
-    # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
-    rpc:
-
-      - url: http://erpc.railway.internal:4000/main/evm/10
-
-        for: sync
-
-      - url: http://erpc.railway.internal:4000/main/evm/10
-
-        for: live
     contracts:
       - name: HoneyJar
         address:
@@ -680,16 +610,6 @@ chains:
   # Base
   - id: 8453
     start_block: 2430439  # friend.tech start block (earliest contract)
-    # Path ε HyperSync-strip 2026-05-27 — JSON-RPC via cluster-owned eRPC
-    rpc:
-
-      - url: http://erpc.railway.internal:4000/main/evm/8453
-
-        for: sync
-
-      - url: http://erpc.railway.internal:4000/main/evm/8453
-
-        for: live
     contracts:
       - name: HoneyJar
         address:
@@ -722,24 +642,10 @@ chains:
   # Berachain Mainnet (DO NOT CHANGE THIS ID)
   - id: 80094
     start_block: 8221 # BgtToken deployment — earliest contract on Berachain
-    # Path ε 2026-05-27: switched from HyperSync → JSON-RPC via eRPC. The free-tier
-    # Envio token had HyperSync access (just rate-limited under load); the cluster's
-    # paid Envio upgrade is to HyperRPC (a separate product on a separate SKU).
-    # HyperRPC is JSON-RPC compatible so it slots through eRPC's existing
     # multi-upstream proxy alongside the free Berachain cluster (publicnode/official/
-    # drpc/tenderly/sentio + HyperRPC as a 6th high-quality upstream). The historical
-    # "RPC fallback was 10+ hours behind" finding (commit f35fad6) pre-dates HyperRPC +
-    # eRPC's Postgres cache layer — both change the math substantially. Re-add
-    # hypersync_config later if/when a HyperSync SKU is on the cluster's plan.
-    rpc:
-
-      - url: http://erpc.railway.internal:4000/main/evm/80094
-
-        for: sync
-
-      - url: http://erpc.railway.internal:4000/main/evm/80094
-
-        for: live
+    # Explicit HyperSync — auto-discovery misses Berachain (restored per 6ad33270; managed Cloud bundles HyperSync). Canary.
+    hypersync_config:
+      url: https://berachain.hypersync.xyz
     contracts:
       # AquaberaVault forwarder on Berachain Mainnet
       - name: AquaberaVault
@@ -853,11 +759,12 @@ chains:
         address:
           - 0x574617ab9788e614b3eb3f7bd61334720d9e1aac # Cub Universal Badges (mainnet)
         start_block: 1080991 # CubBadges1155 deployment
+      # Merged FatBeraDeposits + FatBeraAccounting (same address). Uses the
+      # lower of the two original start blocks (1066385, formerly
+      # FatBeraAccounting) so no Accounting events are missed. The Deposit
+      # handler's validator-tracking remains internally gated by
+      # FATBERA_DEPOSIT_TRACKING_START_BLOCK (1966971) in src/handlers/fatbera-core.ts.
       - name: FatBeraDeposits
-        address:
-          - 0xBAE11292a3E693AF73651BDa350d752AE4A391d4
-        start_block: 1966971
-      - name: FatBeraAccounting
         address:
           - 0xBAE11292a3E693AF73651BDa350d752AE4A391d4
         start_block: 1066385

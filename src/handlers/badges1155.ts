@@ -1,10 +1,10 @@
-import { CubBadges1155 } from "generated";
-import type {
-  handlerContext,
-  BadgeHolder as BadgeHolderEntity,
-  BadgeBalance as BadgeBalanceEntity,
-  BadgeAmount as BadgeAmountEntity,
-} from "generated";
+import {
+  indexer,
+  type BadgeHolder as BadgeHolderEntity,
+  type BadgeBalance as BadgeBalanceEntity,
+  type BadgeAmount as BadgeAmountEntity,
+  type EvmOnEventContext,
+} from "envio";
 
 import { ZERO_ADDRESS } from "./constants";
 import { recordAction } from "../lib/actions";
@@ -12,7 +12,7 @@ import { recordAction } from "../lib/actions";
 const ZERO = ZERO_ADDRESS.toLowerCase();
 
 interface BalanceAdjustmentArgs {
-  context: handlerContext;
+  context: EvmOnEventContext;
   holderAddress: string;
   contractAddress: string;
   tokenId: bigint;
@@ -251,8 +251,7 @@ async function adjustBadgeBalances({
   context.BadgeBalance.set(balance);
 }
 
-export const handleCubBadgesTransferSingle =
-  CubBadges1155.TransferSingle.handler(async ({ event, context }) => {
+indexer.onEvent({ contract: "CubBadges1155", event: "TransferSingle" }, async ({ event, context }) => {
     const { from, to, id, value } = event.params;
     const chainId = event.chainId;
     const timestamp = BigInt(event.block.timestamp);
@@ -293,8 +292,7 @@ export const handleCubBadgesTransferSingle =
     });
   });
 
-export const handleCubBadgesTransferBatch =
-  CubBadges1155.TransferBatch.handler(async ({ event, context }) => {
+indexer.onEvent({ contract: "CubBadges1155", event: "TransferBatch" }, async ({ event, context }) => {
     const { from, to, ids, values } = event.params;
     const chainId = event.chainId;
     const timestamp = BigInt(event.block.timestamp);

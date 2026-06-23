@@ -7,11 +7,12 @@
  * Collection identifier: the on-chain collection address (lowercase string).
  */
 
-import { CrayonsCollection } from "generated";
+import { indexer } from "envio";
 
 import { processErc721Transfer } from "../lib/erc721-holders";
 
-export const handleCrayonsErc721Transfer = CrayonsCollection.Transfer.handler(
+indexer.onEvent(
+  { contract: "CrayonsCollection", event: "Transfer" },
   async ({ event, context }) => {
     await processErc721Transfer({
       event,

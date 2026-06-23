@@ -3,7 +3,7 @@
  * Handles HENLO holder tracking and statistics updates
  */
 
-import { HenloHolder, HenloHolderStats } from "generated";
+import { type HenloHolder, type HenloHolderStats } from "envio";
 import { TokenConfig } from "./constants";
 import { ZERO_ADDRESS, DEAD_ADDRESS } from "./burn-tracking";
 

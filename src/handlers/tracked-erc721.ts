@@ -1,10 +1,10 @@
-import { TrackedErc721 } from "generated";
-import type {
-  handlerContext,
-  TrackedHolder as TrackedHolderEntity,
-  MiberaStakedToken as MiberaStakedTokenEntity,
-  MiberaStaker as MiberaStakerEntity,
-} from "generated";
+import {
+  indexer,
+  type EvmOnEventContext,
+  type TrackedHolder as TrackedHolderEntity,
+  type MiberaStakedToken as MiberaStakedTokenEntity,
+  type MiberaStaker as MiberaStakerEntity,
+} from "envio";
 
 import { ZERO_ADDRESS } from "./constants";
 import {
@@ -21,7 +21,8 @@ const ZERO = ZERO_ADDRESS.toLowerCase();
 // Mibera NFT contract address (lowercase)
 const MIBERA_CONTRACT = "0x6666397dfe9a8c469bf65dc744cb1c733416c420";
 
-export const handleTrackedErc721Transfer = TrackedErc721.Transfer.handler(
+indexer.onEvent(
+  { contract: "TrackedErc721", event: "Transfer" },
   async ({ event, context }) => {
     const contractAddress = event.srcAddress.toLowerCase();
     const collectionKey =
@@ -186,7 +187,7 @@ export const handleTrackedErc721Transfer = TrackedErc721.Transfer.handler(
 );
 
 interface AdjustHolderArgs {
-  context: handlerContext;
+  context: EvmOnEventContext;
   contractAddress: string;
   collectionKey: string;
   chainId: number;
@@ -268,7 +269,7 @@ async function adjustHolder({
 // Mibera staking helper types and functions
 
 interface MiberaStakeArgs {
-  context: handlerContext;
+  context: EvmOnEventContext;
   stakingContract: string;
   stakingContractAddress: string;
   userAddress: string;

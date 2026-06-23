@@ -6,12 +6,12 @@
  */
 
 import {
-  AquaberaVaultDirect,
-  AquaberaDeposit,
-  AquaberaWithdrawal,
-  AquaberaBuilder,
-  AquaberaStats,
-} from "generated";
+  indexer,
+  type AquaberaDeposit,
+  type AquaberaWithdrawal,
+  type AquaberaBuilder,
+  type AquaberaStats,
+} from "envio";
 
 import { recordAction } from "../lib/actions";
 
@@ -25,7 +25,8 @@ const BERACHAIN_ID = 80094;
  * amount1 = HENLO amount (usually 0 for single-sided deposits)
  * shares = LP tokens minted
  */
-export const handleDirectDeposit = AquaberaVaultDirect.Deposit.handler(
+indexer.onEvent(
+  { contract: "AquaberaVaultDirect", event: "Deposit" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const sender = event.params.sender.toLowerCase();
@@ -188,7 +189,8 @@ export const handleDirectDeposit = AquaberaVaultDirect.Deposit.handler(
  * amount1 = HENLO amount withdrawn
  * shares = LP tokens burned
  */
-export const handleDirectWithdraw = AquaberaVaultDirect.Withdraw.handler(
+indexer.onEvent(
+  { contract: "AquaberaVaultDirect", event: "Withdraw" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const sender = event.params.sender.toLowerCase();

@@ -4,7 +4,7 @@
  * Also handles burn tracking and holder stats for HENLO token
  */
 
-import { TrackedTokenBalance, TrackedErc20 } from "generated";
+import { indexer, type TrackedTokenBalance } from "envio";
 import { TOKEN_CONFIGS } from "./tracked-erc20/constants";
 import { isBurnTransfer, trackBurn, ZERO_ADDRESS } from "./tracked-erc20/burn-tracking";
 import { updateHolderBalances, updateHolderStats } from "./tracked-erc20/holder-stats";
@@ -17,8 +17,7 @@ const ACTIVITY_TRACKED_TOKENS = new Set(["miberamaker"]);
  * Handles ERC-20 Transfer events for tracked tokens
  * Routes to appropriate feature handlers based on token config
  */
-export const handleTrackedErc20Transfer = TrackedErc20.Transfer.handler(
-  async ({ event, context }) => {
+indexer.onEvent({ contract: "TrackedErc20", event: "Transfer" }, async ({ event, context }) => {
     const { from, to, value } = event.params;
     const timestamp = BigInt(event.block.timestamp);
     const chainId = event.chainId;

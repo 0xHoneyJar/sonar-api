@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+#
+# Envio 3.2.1 DEPLOY-PATH PROBE config.
+#
+# Smallest deployable indexer that proves a 3.2.1-ported `indexer.onEvent`
+# handler loads + indexes on Envio Cloud without the alpha.17
+# `from "generated"` crash-loop.
+#
+#   - 1 chain:    Optimism (10) — HyperSync-supported, fast, low event volume.
+#   - 1 contract: HoneyJar (HoneyJar4 on OP) — simple ERC-721 Transfer.
+#   - 1 handler:  src/probe_handlers/honey-jar-probe.ts (ported to 3.2.1 API).
+#   - events pillar OFF: no NATS env set; the lazy events-publisher import in
+#     the main handlers handles absence fail-soft, and this probe handler does
+#     not import it at all.
+#
+# `handlers: src/probe_handlers` is the load-bearing line. In envio 3.2.1 the
+# runtime auto-globs `./<handlers>/**/*.{js,mjs,ts}` (HandlerLoader.res
+# `autoLoadFromSrcHandlers`) and imports EVERY matching file. Pointing it at a
+# dedicated probe directory means ONLY the ported probe handler is loaded — the
+# 40+ un-ported `src/handlers/*` files (still `from "generated"`) are never
+# globbed, so they cannot crash-loop the boot. Nothing under src/handlers/ is
+# moved or deleted — this probe is purely additive and fully reversible.
+name: thj-indexer-probe
+description: Envio 3.2.1 deploy-path probe — HoneyJar Transfer on Optimism
+schema: schema.probe.graphql
+handlers: src/probe_handlers
+
+contracts:
+  - name: HoneyJar
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+
+chains:
+  # Optimism — HyperSync auto-discovers (no explicit hypersync_config needed).
+  - id: 10
+    start_block: 125752663 # HoneyJar4 OP deployment (tx 0x5eb3189d…851b)
+    contracts:
+      - name: HoneyJar
+        address:
+          - 0xe1d16cc75c9f39a2e0f5131eb39d4b634b23f301 # HoneyJar4 on Optimism

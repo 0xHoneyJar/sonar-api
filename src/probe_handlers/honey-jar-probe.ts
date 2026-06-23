@@ -1,12 +1,28 @@
 /*
- * HoneyJar NFT Event Handlers
- * Handles NFT transfers, mints, burns, and cross-chain tracking
+ * Envio 3.2.1 DEPLOY-PATH PROBE — HoneyJar NFT Transfer handler (Optimism only)
+ *
+ * Purpose: prove that a 3.2.1-ported `indexer.onEvent` handler LOADS + INDEXES on
+ * Envio Cloud (envio 3.2.1) without the alpha.17 `from "generated"` crash-loop.
+ *
+ * This is a faithful port of src/handlers/honey-jar-nfts.ts (the alpha.17 original)
+ * to the 3.2.1 runtime API. The entity read/write logic (context.Entity.get/set) is
+ * preserved verbatim — only the import surface + handler-registration surface changed:
+ *
+ *   alpha.17                                  3.2.1
+ *   --------                                  -----
+ *   import { Transfer, ... } from "generated" import { type Transfer, ... } from "envio"
+ *   import { HoneyJar } from "generated"      (gone — contract is named in onEvent)
+ *   HoneyJar.Transfer.handler(cb)             indexer.onEvent({contract,event}, cb)
+ *   context.Entity.get/set                    context.Entity.get/set  (UNCHANGED)
+ *
+ * Constants are inlined here (rather than imported from src/handlers/constants.ts) so
+ * this probe directory is fully self-contained and the 3.2.1 handler auto-glob
+ * (config `handlers: src/probe_handlers`) only ever touches THIS file.
  */
 
 import {
   indexer,
   type CollectionStat,
-  type GlobalCollectionStat,
   type Holder,
   type Mint,
   type Token,
@@ -14,22 +30,32 @@ import {
   type UserBalance,
 } from "envio";
 
-import {
-  ZERO_ADDRESS,
-  BERACHAIN_TESTNET_ID,
-  PROXY_CONTRACTS,
-  ADDRESS_TO_COLLECTION,
-  COLLECTION_TO_GENERATION,
-  HOME_CHAIN_IDS,
-} from "./constants";
+// ---------------------------------------------------------------------------
+// Constants (inlined subset of src/handlers/constants.ts — Optimism / HoneyJar4)
+// ---------------------------------------------------------------------------
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const BERACHAIN_TESTNET_ID = 80094;
 
-/**
- * Main transfer handler for all HoneyJar NFT contracts
- */
-export async function handleTransfer(
+// Only the Optimism HoneyJar4 entry is needed for this probe.
+const ADDRESS_TO_COLLECTION: Record<string, string> = {
+  "0xe1d16cc75c9f39a2e0f5131eb39d4b634b23f301": "HoneyJar4", // Optimism HoneyJar4
+};
+
+const COLLECTION_TO_GENERATION: Record<string, number> = {
+  HoneyJar4: 4,
+};
+
+const HOME_CHAIN_IDS: Record<number, number> = {
+  4: 10, // Gen 4 — Optimism
+};
+
+// ---------------------------------------------------------------------------
+// Core transfer logic (ported verbatim from honey-jar-nfts.ts handleTransfer)
+// ---------------------------------------------------------------------------
+async function handleTransfer(
   event: any,
   context: any,
-  collectionOverride?: string
+  collectionOverride?: string,
 ) {
   const { from, to, tokenId } = event.params;
   const contractAddress = event.srcAddress.toLowerCase();
@@ -76,7 +102,7 @@ export async function handleTransfer(
     from,
     to,
     timestamp,
-    chainId
+    chainId,
   );
 
   // Load holders once to avoid duplicate queries — batch reads for preload
@@ -96,7 +122,7 @@ export async function handleTransfer(
   ]);
 
   // Skip writes during preload — reads above prime the batch cache
-  if ((context as any).isPreload) return;
+  if (context.isPreload) return;
 
   // Update holder balances (returns updated holders)
   const updatedHolders = await updateHolderBalances(
@@ -110,7 +136,7 @@ export async function handleTransfer(
     toLower,
     generation,
     timestamp,
-    chainId
+    chainId,
   );
 
   // Update collection statistics (uses updated holders)
@@ -122,23 +148,17 @@ export async function handleTransfer(
     updatedHolders.fromHolder,
     updatedHolders.toHolder,
     timestamp,
-    chainId
+    chainId,
   );
-
-  // Update global collection statistics
-  await updateGlobalCollectionStat(context, collection, timestamp);
 }
 
-/**
- * Handles NFT mint events
- */
 async function handleMint(
   event: any,
   context: any,
   collection: string,
   to: string,
   tokenId: any,
-  timestamp: bigint
+  timestamp: bigint,
 ) {
   const mintId = `${event.transaction.hash}_${event.logIndex}_mint`;
   const mint: Mint = {
@@ -155,19 +175,15 @@ async function handleMint(
   context.Mint.set(mint);
 }
 
-/**
- * Handles NFT burn events
- */
 async function handleBurn(
   context: any,
   collection: string,
   tokenId: any,
-  chainId: number
+  chainId: number,
 ) {
   const tokenIdStr = `${collection}_${chainId}_${tokenId}`;
   const token = await context.Token.get(tokenIdStr);
   if (token) {
-    // Create updated token object (immutable update)
     const updatedToken = {
       ...token,
       isBurned: true,
@@ -177,9 +193,6 @@ async function handleBurn(
   }
 }
 
-/**
- * Updates token ownership records
- */
 async function updateTokenOwnership(
   context: any,
   collection: string,
@@ -187,7 +200,7 @@ async function updateTokenOwnership(
   from: string,
   to: string,
   timestamp: bigint,
-  chainId: number
+  chainId: number,
 ) {
   const tokenIdStr = `${collection}_${chainId}_${tokenId}`;
   let token = await context.Token.get(tokenIdStr);
@@ -200,11 +213,11 @@ async function updateTokenOwnership(
       tokenId: BigInt(tokenId.toString()),
       owner: to.toLowerCase(),
       isBurned: to.toLowerCase() === ZERO_ADDRESS.toLowerCase(),
-      mintedAt: from.toLowerCase() === ZERO_ADDRESS.toLowerCase() ? timestamp : BigInt(0),
+      mintedAt:
+        from.toLowerCase() === ZERO_ADDRESS.toLowerCase() ? timestamp : BigInt(0),
       lastTransferTime: timestamp,
     };
   } else {
-    // Create updated token object (immutable update)
     token = {
       ...token,
       owner: to.toLowerCase(),
@@ -216,10 +229,6 @@ async function updateTokenOwnership(
   context.Token.set(token);
 }
 
-/**
- * Updates holder balance records
- * Now accepts pre-loaded holders to avoid duplicate queries
- */
 async function updateHolderBalances(
   context: any,
   collection: string,
@@ -231,7 +240,7 @@ async function updateHolderBalances(
   toLower: string,
   generation: number,
   timestamp: bigint,
-  chainId: number
+  chainId: number,
 ): Promise<{ fromHolder: any | null; toHolder: any | null }> {
   const isMint = fromLower === ZERO_ADDRESS.toLowerCase();
   const isBurn = toLower === ZERO_ADDRESS.toLowerCase();
@@ -239,17 +248,15 @@ async function updateHolderBalances(
   // Update 'from' holder (if not zero address)
   if (!isMint && fromHolder) {
     if (fromHolder.balance > 0) {
-      // Create updated holder object (immutable update)
       const updatedFromHolder = {
         ...fromHolder,
         balance: fromHolder.balance - 1,
         lastActivityTime: timestamp,
       };
       context.Holder.set(updatedFromHolder);
-      fromHolder = updatedFromHolder; // Update reference for caller
+      fromHolder = updatedFromHolder;
     }
 
-    // Update user balance
     await updateUserBalance(
       context,
       fromLower,
@@ -257,7 +264,7 @@ async function updateHolderBalances(
       chainId,
       -1,
       false,
-      timestamp
+      timestamp,
     );
   }
 
@@ -276,19 +283,18 @@ async function updateHolderBalances(
       };
     }
 
-    // Create updated holder object (immutable update)
     const updatedToHolder = {
       ...toHolder,
       balance: toHolder.balance + 1,
       lastActivityTime: timestamp,
       totalMinted: isMint ? toHolder.totalMinted + 1 : toHolder.totalMinted,
-      firstMintTime: isMint && !toHolder.firstMintTime ? timestamp : toHolder.firstMintTime,
+      firstMintTime:
+        isMint && !toHolder.firstMintTime ? timestamp : toHolder.firstMintTime,
     };
 
     context.Holder.set(updatedToHolder);
-    toHolder = updatedToHolder; // Update reference for caller
+    toHolder = updatedToHolder;
 
-    // Update user balance
     await updateUserBalance(
       context,
       toLower,
@@ -296,16 +302,13 @@ async function updateHolderBalances(
       chainId,
       1,
       isMint,
-      timestamp
+      timestamp,
     );
   }
 
   return { fromHolder, toHolder };
 }
 
-/**
- * Updates user balance across all chains
- */
 async function updateUserBalance(
   context: any,
   address: string,
@@ -313,7 +316,7 @@ async function updateUserBalance(
   chainId: number,
   balanceDelta: number,
   isMint: boolean,
-  timestamp: bigint
+  timestamp: bigint,
 ) {
   const userBalanceId = `${generation}_${address}`;
   let userBalance = await context.UserBalance.get(userBalanceId);
@@ -336,11 +339,9 @@ async function updateUserBalance(
     };
   }
 
-  // Update balances based on chain
   const homeChainId = HOME_CHAIN_IDS[generation];
 
-  // Create updated user balance object (immutable update)
-  const updatedUserBalance = {
+  const updatedUserBalance: UserBalance = {
     ...userBalance,
     balanceHomeChain:
       chainId === homeChainId
@@ -378,10 +379,6 @@ async function updateUserBalance(
   context.UserBalance.set(updatedUserBalance);
 }
 
-/**
- * Updates collection statistics
- * Now accepts pre-loaded holders to avoid duplicate queries
- */
 async function updateCollectionStats(
   context: any,
   collection: string,
@@ -390,7 +387,7 @@ async function updateCollectionStats(
   fromHolder: any | null,
   toHolder: any | null,
   timestamp: bigint,
-  chainId: number
+  chainId: number,
 ) {
   const statsId = `${collection}_${chainId}`;
   let stats = await context.CollectionStat.get(statsId);
@@ -411,26 +408,24 @@ async function updateCollectionStats(
   const isMint = fromLower === ZERO_ADDRESS.toLowerCase();
   const isBurn = toLower === ZERO_ADDRESS.toLowerCase();
 
-  // Update unique holders count based on transfer
-  // We track this incrementally using the pre-loaded holders
   let uniqueHoldersAdjustment = 0;
 
-  // If this is a transfer TO a new holder
-  // Note: toHolder.balance is BEFORE the transfer, so balance === 0 means new holder
+  // balance is BEFORE the transfer: 0 ⇒ new holder
   if (!isBurn && toHolder && toHolder.balance === 0) {
     uniqueHoldersAdjustment += 1;
   }
-
-  // If this is a transfer FROM a holder that will become empty
-  // Note: fromHolder.balance is BEFORE the transfer, so balance === 1 means will be empty
+  // balance is BEFORE the transfer: 1 ⇒ will be empty
   if (!isMint && fromHolder && fromHolder.balance === 1) {
     uniqueHoldersAdjustment -= 1;
   }
 
-  // Create updated stats object (immutable update)
-  const updatedStats = {
+  const updatedStats: CollectionStat = {
     ...stats,
-    totalSupply: isMint ? stats.totalSupply + 1 : isBurn ? stats.totalSupply - 1 : stats.totalSupply,
+    totalSupply: isMint
+      ? stats.totalSupply + 1
+      : isBurn
+        ? stats.totalSupply - 1
+        : stats.totalSupply,
     totalMinted: isMint ? stats.totalMinted + 1 : stats.totalMinted,
     totalBurned: isBurn ? stats.totalBurned + 1 : stats.totalBurned,
     lastMintTime: isMint ? timestamp : stats.lastMintTime,
@@ -440,69 +435,14 @@ async function updateCollectionStats(
   context.CollectionStat.set(updatedStats);
 }
 
-/**
- * Updates global collection statistics across all chains
- */
-export async function updateGlobalCollectionStat(
-  context: any,
-  collection: string,
-  timestamp: bigint
-) {
-  const generation = COLLECTION_TO_GENERATION[collection] ?? -1;
-  if (generation < 0) return;
-
-  const homeChainId = HOME_CHAIN_IDS[generation];
-  const proxyAddress = PROXY_CONTRACTS[collection]?.toLowerCase();
-
-  // For now, we'll skip aggregating from all chains
-  // This would require maintaining running totals in the global stat itself
-  // TODO: Implement incremental updates to global stats
-  return;
-
-  // Implementation removed due to getMany limitations
-  // This functionality would need to be handled differently in Envio
-  // Consider using a separate aggregation service or maintaining running totals
-}
-
-// Handler registrations for each contract
+// ---------------------------------------------------------------------------
+// 3.2.1 handler registration — the load-bearing API change being probed.
+// alpha.17: `HoneyJar.Transfer.handler(cb)` (HoneyJar from "generated")
+// 3.2.1:    `indexer.onEvent({ contract, event }, cb)` (contract named by string)
+// ---------------------------------------------------------------------------
 indexer.onEvent(
   { contract: "HoneyJar", event: "Transfer" },
   async ({ event, context }) => {
     await handleTransfer(event, context);
-  }
-);
-
-indexer.onEvent(
-  { contract: "Honeycomb", event: "Transfer" },
-  async ({ event, context }) => {
-    await handleTransfer(event, context);
-  }
-);
-
-indexer.onEvent(
-  { contract: "HoneyJar2Eth", event: "Transfer" },
-  async ({ event, context }) => {
-    await handleTransfer(event, context, "HoneyJar2");
-  }
-);
-
-indexer.onEvent(
-  { contract: "HoneyJar3Eth", event: "Transfer" },
-  async ({ event, context }) => {
-    await handleTransfer(event, context, "HoneyJar3");
-  }
-);
-
-indexer.onEvent(
-  { contract: "HoneyJar4Eth", event: "Transfer" },
-  async ({ event, context }) => {
-    await handleTransfer(event, context, "HoneyJar4");
-  }
-);
-
-indexer.onEvent(
-  { contract: "HoneyJar5Eth", event: "Transfer" },
-  async ({ event, context }) => {
-    await handleTransfer(event, context, "HoneyJar5");
-  }
+  },
 );
