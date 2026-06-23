@@ -30,19 +30,32 @@ ownership. The earlier `spl-holder-source.ts` / `pump-fun-indexer.ts` were remov
   pure `parseAsset()`, `DasNftCollectionSource` (Helius DAS `getAssetsByGroup`, paginated; handles
   regular + compressed NFTs; owner comes straight from DAS), `HyperSyncNftCollectionSource` stub.
 - `src/svm/pythians-collection-indexer.ts` — Pythians config (`PYTHIANS_COLLECTION`,
-  `COLLECTION_KEY = "pythians"`), batched Hasura upsert + stale reconcile + **empty-snapshot wipe
-  guard**, `indexSnapshot()`/`toRows()` (importable/testable), `main()` (runs via `npx tsx`).
-- `test/nft-collection-source.test.ts` — 8 unit tests (parse / burnt-drop / missing-owner /
-  compressed flag, DAS pagination, indexSnapshot upsert→reconcile + wipe guard, row mapping).
+  `COLLECTION_KEY = "pythians"`), batched Hasura upsert + run-marker reconcile + **two wipe guards**,
+  `indexSnapshot()`/`toRows()` (importable/testable), `main()` (runs via `npx tsx`).
+- `test/nft-collection-source.test.ts` — 12 unit tests (parse incl. delegate / burnt-drop /
+  missing-owner / compressed flag, DAS pagination, DAS-specific health probe, non-2xx surfacing,
+  indexSnapshot upsert→reconcile, both wipe guards, row mapping).
 
 ## Ownership model — snapshot + reconcile
 
 Ownership is current-state. Each run:
-1. `getAssetsByGroup(collection)` paged → every verified member NFT + its owner → snapshot @ slot.
-2. Batched **upsert** keyed on the NFT mint, each row stamped with the snapshot `slot`.
-3. **Reconcile**: `delete … where collection_key = 'pythians' and slot < <snapshot slot>` — NFTs
-   transferred out of scope / burnt drop out. **Wipe guard:** an empty snapshot (DAS/RPC failure)
-   skips upsert+reconcile rather than deleting every row.
+1. `getAssetsByGroup(collection)` paged → every verified member NFT + owner + delegate → snapshot.
+   (Page-based; capped at `MAX_PAGES` so a misbehaving DAS fails before any write rather than looping.)
+2. Batched **upsert** keyed on the NFT mint, each row stamped with a single per-run `updated_at`.
+3. **Reconcile**: `delete … where collection_key = 'pythians' and updated_at < <run iso>` — NFTs
+   transferred out / burnt drop out. Reconcile keys on the self-controlled `updated_at` marker, **not**
+   the RPC `slot` (which isn't monotonic across load-balanced nodes).
+
+**Two wipe guards** (a reconcile DELETE is the only destructive op):
+- **0-member snapshot** → skip upsert + reconcile (a fully-empty read is a DAS/RPC failure).
+- **proportional**: if the snapshot shrinks the holder set below `RECONCILE_MIN_RATIO` (0.5) of the
+  existing rows → keep the upserts but **skip the reconcile** (a short/dropped DAS page would otherwise
+  delete the unread holders).
+
+**Escrow/staking caveat:** DAS `ownership.owner` is the token-account owner. For escrow marketplace
+listings and most staking programs that's a program PDA, not the human lister/staker. The pipe stores
+BOTH `owner` and `delegate`; resolving escrow PDAs back to the lister is a future enhancement (flagged
+for the operator — it affects "who holds" semantics for listed/staked NFTs).
 
 ## Hasura table DDL (apply before first run)
 
@@ -52,12 +65,13 @@ CREATE TABLE IF NOT EXISTS svm_collection_nft (
   collection_key  text NOT NULL,             -- 'pythians'
   collection_mint text NOT NULL,             -- pyTh2…Moru
   nft_mint        text NOT NULL,
-  owner           text NOT NULL,             -- current holder wallet (base58)
+  owner           text NOT NULL,             -- token-account owner (may be an escrow/stake PDA — see caveat)
+  delegate        text,                      -- delegate, if any (often the real lister for escrowless listings)
   name            text,
   compressed      boolean NOT NULL DEFAULT false,
-  slot            bigint NOT NULL,           -- snapshot slot
+  slot            bigint NOT NULL,           -- snapshot slot (informational; chain tip at snapshot)
   source          text NOT NULL DEFAULT 'das',
-  updated_at      timestamptz NOT NULL DEFAULT now()
+  updated_at      timestamptz NOT NULL DEFAULT now()  -- per-run marker; reconcile keys on this
 );
 CREATE INDEX IF NOT EXISTS svm_collection_nft_collection_idx ON svm_collection_nft (collection_key);
 CREATE INDEX IF NOT EXISTS svm_collection_nft_owner_idx      ON svm_collection_nft (owner);
