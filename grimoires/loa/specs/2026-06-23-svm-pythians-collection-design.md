@@ -59,9 +59,15 @@ for the operator — it affects "who holds" semantics for listed/staked NFTs).
 
 ## Hasura table DDL (apply before first run)
 
+Table lives in the **`svm` schema** (matching the sibling `svm.genesis_stone`). Hasura exposes it under
+the root field `svm_collection_nft` (schema_table naming); the Postgres PK constraint is
+`collection_nft_pkey` (named after the bare table) — that's the name the indexer's `on_conflict` uses.
+
 ```sql
-CREATE TABLE IF NOT EXISTS svm_collection_nft (
-  id              text PRIMARY KEY,          -- NFT mint (base58)
+CREATE SCHEMA IF NOT EXISTS svm;
+
+CREATE TABLE IF NOT EXISTS svm.collection_nft (
+  id              text PRIMARY KEY,          -- NFT mint (base58); PK constraint => collection_nft_pkey
   collection_key  text NOT NULL,             -- 'pythians'
   collection_mint text NOT NULL,             -- pyTh2…Moru
   nft_mint        text NOT NULL,
@@ -73,12 +79,12 @@ CREATE TABLE IF NOT EXISTS svm_collection_nft (
   source          text NOT NULL DEFAULT 'das',
   updated_at      timestamptz NOT NULL DEFAULT now()  -- per-run marker; reconcile keys on this
 );
-CREATE INDEX IF NOT EXISTS svm_collection_nft_collection_idx ON svm_collection_nft (collection_key);
-CREATE INDEX IF NOT EXISTS svm_collection_nft_owner_idx      ON svm_collection_nft (owner);
+CREATE INDEX IF NOT EXISTS collection_nft_collection_idx ON svm.collection_nft (collection_key);
+CREATE INDEX IF NOT EXISTS collection_nft_owner_idx      ON svm.collection_nft (owner);
 ```
 
-Then track the table in Hasura. Generic by design: any collection gets a row-set under its own
-`collection_key`.
+Then **track `svm.collection_nft` in Hasura** (it surfaces as `svm_collection_nft`). Generic by
+design: any collection gets a row-set under its own `collection_key`.
 
 ## Run
 

@@ -3,7 +3,7 @@
  *
  * Sibling of genesis-stone-indexer.ts. Reads a current-state ownership SNAPSHOT (every member NFT →
  * its holder) from an `NftCollectionSource` (Helius DAS v1; HyperSync later — same seam) and writes it
- * to `svm_collection_nft` via Hasura, keyed on the NFT mint (idempotent). Because ownership is
+ * to `svm.collection_nft` via Hasura, keyed on the NFT mint (idempotent). Because ownership is
  * current-state, each run UPSERTs present members stamped with a single per-run `updated_at`, then
  * RECONCILES by deleting rows for this collection whose `updated_at` is older than this run — so
  * transferred-out / burnt NFTs drop out.
@@ -42,9 +42,12 @@ const RPC = process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
 const HASURA = (process.env.SVM_HASURA_ENDPOINT ?? "").replace(/\/$/, "");
 const SECRET = process.env.HASURA_GRAPHQL_ADMIN_SECRET ?? "";
 
+// Hasura ROOT fields are schema_table-named (svm.collection_nft -> svm_collection_nft); the Postgres
+// PK CONSTRAINT is named after the bare table (collection_nft_pkey), matching the svm.genesis_stone /
+// genesis_stone_pkey convention of the sibling pipe. (Root-field name != constraint name.)
 const UPSERT = `mutation Up($objects: [svm_collection_nft_insert_input!]!) {
   insert_svm_collection_nft(objects: $objects,
-    on_conflict: { constraint: svm_collection_nft_pkey,
+    on_conflict: { constraint: collection_nft_pkey,
       update_columns: [collection_key, collection_mint, nft_mint, owner, delegate, name, compressed, slot, source, updated_at] }
   ) { affected_rows }
 }`;
