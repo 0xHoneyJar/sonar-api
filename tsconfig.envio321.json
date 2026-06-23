@@ -8,9 +8,10 @@
   // types yet — they are EXCLUDED here and added to `include` as each one is
   // ported (the include list grows toward `src/handlers` at finalize).
   //
-  // At the foundation stage the only ported handler is the deploy-path probe.
-  // This config proves the 3.2.1 `envio` import + isPreload + onEvent + entity
-  // types resolve and typecheck — the contract the 31-handler port runs against.
+  // FINALIZE (PR #75, H2): the 31-handler port is complete, so the include list
+  // now covers the full ported surface (src/handlers) plus the deploy-path probe.
+  // This typechecks every ported handler against config.yaml's codegen output —
+  // closing the gap where "L2 tsc 0" only validated the probe handler.
   "compilerOptions": {
     "target": "es2022",
     "lib": ["es2022"],
@@ -36,6 +37,7 @@
     "envio-env.d.ts"
   ],
   "include": [
+    "src/handlers",
     "src/probe_handlers"
   ]
 }

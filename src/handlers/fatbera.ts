@@ -143,6 +143,15 @@ indexer.onEvent(
     // Skip writes and calculations during preload
     if ((context as any).isPreload) return;
 
+    // H1 (BB review, PR #75): the merged FatBeraDeposits+FatBeraAccounting config
+    // start_block (1066385) exists ONLY so FatBeraAccounting events are not missed.
+    // FatBeraDeposit entities + "deposit" activity actions must still begin at
+    // FATBERA_DEPOSIT_TRACKING_START_BLOCK (1966971) — the pre-merge behavior.
+    // Gate BEFORE the writes; previously this gate sat after them (regression).
+    if (blockHeight < FATBERA_DEPOSIT_TRACKING_START_BLOCK) {
+      return;
+    }
+
     const deposit: FatBeraDeposit = {
       id,
       collectionKey: COLLECTION_KEY,
@@ -175,10 +184,6 @@ indexer.onEvent(
         contract: event.srcAddress.toLowerCase(),
       },
     });
-
-    if (blockHeight < FATBERA_DEPOSIT_TRACKING_START_BLOCK) {
-      return;
-    }
 
     if (transactionTo === VALIDATOR_DEPOSIT_ROUTER_ADDRESS) {
       return;
