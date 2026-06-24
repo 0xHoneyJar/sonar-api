@@ -1,0 +1,26 @@
+{
+  "_purpose": "The live GraphQL contract the belt-gateway PROMISES its consumers. Producer-side guard: CI introspects the live schema and fails the moment a consumer-depended field drifts or disappears — catching the class of break where a consumer was built against an ASSUMED schema. Origin: the loa-freeside shadow-audit (#296) shipped a query selecting logIndex/txHash/value that don't exist on the live Transfer type, so it 400'd on the first page fetch and no audit could run (found + fixed 2026-06-23, loa-freeside#300). This guard makes that class impossible to re-introduce silently.",
+  "endpoint": "https://belt-gateway-production.up.railway.app/v1/graphql",
+  "endpointEnv": "BELT_GATEWAY_ENDPOINT",
+  "types": {
+    "Transfer": {
+      "consumer": "loa-freeside/packages/adapters/sonar — Transfer-replay holder reconstruction (the Shadow-Mode audit's data layer)",
+      "requiredFields": {
+        "id": "String",
+        "blockNumber": "numeric",
+        "transactionHash": "String",
+        "from": "String",
+        "to": "String",
+        "tokenId": "numeric",
+        "collection": "String",
+        "chainId": "Int"
+      },
+      "forbiddenFields": ["logIndex", "txHash", "value"],
+      "invariants": [
+        "logIndex is NOT a column — it is encoded in id as `<transactionHash>_<logIndex>`. Consumers derive it, never select it.",
+        "value is NOT served — Transfer is ERC-721-only; ERC-1155 amounts live in separate entities.",
+        "the tx hash field is `transactionHash`, NOT `txHash`."
+      ]
+    }
+  }
+}
