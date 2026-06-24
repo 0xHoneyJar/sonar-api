@@ -83,6 +83,8 @@ async function main() {
   const findings = []; // live-type, consumer-breaking -> exit 1
   const warnings = []; // pending-type observations -> exit 0, but loud
   const promotable = []; // pending types now exposed + matching -> nudge to promote
+  const introspectErrors = []; // per-type introspection throws (reachable endpoint, bad per-type response)
+  const typeNames = Object.keys(manifest.types);
 
   for (const [typeName, spec] of Object.entries(manifest.types)) {
     const pending = (spec.status ?? 'live') !== 'live';
@@ -90,8 +92,11 @@ async function main() {
     try {
       live = await introspectType(endpoint, typeName);
     } catch (e) {
-      console.error(bad(`✗ could not introspect ${typeName} @ ${endpoint}: ${e.message}`));
-      process.exit(2);
+      // Don't exit(2) on the first per-type throw — that conflates a per-type server error
+      // (reachable endpoint, bad response e.g. a Hasura 400) with an unreachable endpoint, AND
+      // masks drift in every remaining type. Accumulate; classify after the loop.
+      introspectErrors.push({ type: typeName, error: e.message });
+      continue;
     }
     if (!live) {
       if (pending) {
@@ -117,6 +122,16 @@ async function main() {
       if (liveFields.has(field)) bucket.push({ type: typeName, kind: 'forbidden-present', field, detail: 'a consumer might wrongly select this; assert it stays absent' });
     }
     if (pending && gaps === 0) promotable.push(typeName);
+  }
+
+  // Classify introspection failures: ALL types failed → endpoint unreachable/systemic (exit 2);
+  // some-but-not-all → reachable endpoint with per-type errors → actionable drift-class (exit 1).
+  if (introspectErrors.length === typeNames.length) {
+    console.error(bad(`✗ could not introspect ANY type @ ${endpoint} (endpoint unreachable/systemic): ${introspectErrors.map((e) => `${e.type}: ${e.error}`).join(' | ')}`));
+    process.exit(2);
+  }
+  for (const e of introspectErrors) {
+    findings.push({ type: e.type, kind: 'introspect-error', field: '(type)', detail: `introspection failed against a reachable endpoint (per-type error, NOT unreachable): ${e.error}` });
   }
 
   if (asJson) {

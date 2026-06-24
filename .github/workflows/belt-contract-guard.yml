@@ -67,7 +67,7 @@ jobs:
           code=$?
           set -e
           echo "$out"
-          printf '%s' "$out" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);for(const w of (j.warnings||[]))console.log(`::warning title=SVM ${w.type} pending-exposure::${String(w.detail||"").replace(/\n/g," ").slice(0,400)}`);for(const t of (j.promotable||[]))console.log(`::warning title=SVM ${t} promote-to-live::${t} is now exposed and matches its declared contract — promote it to status:live in scripts/svm-contract.json so future drift hard-fails CI.`);}catch(e){}})'
+          printf '%s' "$out" | node -e 'const esc=v=>String(v||"").replace(/\n/g," ").replace(/::/g,":");let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);for(const w of (j.warnings||[]))console.log(`::warning title=SVM ${esc(w.type)} pending-exposure::${esc(w.detail).slice(0,400)}`);for(const t of (j.promotable||[]))console.log(`::warning title=SVM ${esc(t)} promote-to-live::${esc(t)} is now exposed and matches its declared contract — promote it to status:live in scripts/svm-contract.json so future drift hard-fails CI.`);}catch(e){}})'
           if [ "$code" = "1" ]; then
             echo "::error title=SVM contract drift::A consumer-depended SVM read column changed/disappeared. Runbook: grimoires/loa/runbooks/svm-contract-drift.md. Fix the producer or update scripts/svm-contract.json + every consumer in lockstep."
             exit 1

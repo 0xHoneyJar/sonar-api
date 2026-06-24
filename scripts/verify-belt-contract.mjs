@@ -66,13 +66,17 @@ async function main() {
   const endpoint = endpointArg || process.env[manifest.endpointEnv] || manifest.endpoint;
 
   const findings = []; // {type, kind: 'missing'|'type-drift'|'forbidden-present', field, detail}
+  const introspectErrors = []; // per-type introspection throws (reachable endpoint, bad per-type response)
+  const typeNames = Object.keys(manifest.types);
   for (const [typeName, spec] of Object.entries(manifest.types)) {
     let live;
     try {
       live = await introspectType(endpoint, typeName);
     } catch (e) {
-      console.error(bad(`✗ could not introspect ${typeName} @ ${endpoint}: ${e.message}`));
-      process.exit(2);
+      // Accumulate per-type throws instead of exit(2)-on-first — separates a per-type server
+      // error (reachable, bad response) from an unreachable endpoint; classified post-loop.
+      introspectErrors.push({ type: typeName, error: e.message });
+      continue;
     }
     if (!live) {
       findings.push({ type: typeName, kind: 'missing-type', field: '(type)', detail: `type ${typeName} not found on live schema` });
@@ -91,6 +95,16 @@ async function main() {
         findings.push({ type: typeName, kind: 'forbidden-present', field, detail: `a consumer might wrongly select this; assert it stays absent (it once didn't exist, and a consumer assumed it did)` });
       }
     }
+  }
+
+  // Classify introspection failures: ALL types failed → endpoint unreachable/systemic (exit 2);
+  // some-but-not-all → reachable endpoint with per-type errors → actionable (exit 1).
+  if (introspectErrors.length === typeNames.length) {
+    console.error(bad(`✗ could not introspect ANY type @ ${endpoint} (endpoint unreachable/systemic): ${introspectErrors.map((e) => `${e.type}: ${e.error}`).join(' | ')}`));
+    process.exit(2);
+  }
+  for (const e of introspectErrors) {
+    findings.push({ type: e.type, kind: 'introspect-error', field: '(type)', detail: `introspection failed against a reachable endpoint (per-type error, NOT unreachable): ${e.error}` });
   }
 
   if (asJson) {
