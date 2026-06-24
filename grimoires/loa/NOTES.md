@@ -588,7 +588,7 @@ the green/Ponder path it voted to leave.
 
 **Shipped:**
 - **PR #75 MERGED** (`9cf7152f`) — envio 3.2.1 port; a BB-equiv review caught + I fixed a real FatBera-deposit-window regression (H1) + verify-tsconfig gap (H2). verify:321 6/6, bijection 83/83.
-- **PR #76 OPEN** — Pythenians ($PTN) NFT-collection ownership SVM pipe (Helius DAS getAssetsByGroup, run-marker reconcile, two wipe guards). Hardened after an adversarial review caught a committed `node_modules` symlink + 8 issues. Branch `feat/svm-pythians-holders` → `feat/envio-cloud-hypersync`.
+- **PR #76 MERGED** (`c17a7e9f`) — Pythians ($PTN) NFT-collection ownership SVM pipe (Helius DAS getAssetsByGroup, run-marker reconcile, two wipe guards). Hardened after an adversarial review caught a committed `node_modules` symlink + 8 issues. Branch `feat/svm-pythians-holders` → `feat/envio-cloud-hypersync`.
 - Bead reconciliation committed: sonar `7860cf28` (17 closes), loa-finn `8d686d82` (bd-bqek dune-meter-merge + bd-ijnh retract).
 
 **Verified MVP truth (corrects my own earlier over-claims this session):**
@@ -599,3 +599,19 @@ the green/Ponder path it voted to leave.
 **Recall discipline (meta-lesson):** `/recall` (QMD) is healthy (~11.7k files); use the DEFAULT `query` mode — **never `--mode search`** on conceptual intents (returns 0; caused 3 over-assertions this session). Pruned the phantom `construct-observer` collection + stamped 22 grimoire artifacts → `recall-doctor` verdict now **HONEST**.
 
 **RESUME (grounded):** Shadow-Mode audit MVP is shipped; sonar has no MVP-blocking work (PR #76 is review-ready). Next high-leverage is operator-gated: (a) loa-finn re-point (Corpus Engine = the product; close drift sprints — needs per-sprint grounding) + the dune-meter merge; (b) the 29 orphan QMD collections (governance-declaration reconciliation, doctor coverage warning).
+
+---
+
+## 2026-06-24 — autonomous session: SVM contract-guard antibody + grounded Q&A
+
+**Answered operator Qs (grounded):** (1) **"pythians" = Pythians ($PTN)**, a Solana NFT collection — PR #76 **MERGED** (SVM ownership pipe, Helius DAS). (2) **Shadow-Mode audit MVP = engine-complete** (loa-freeside #296 merged; #300+#301 merged; data path verified live-green). Sole last-mile = the composition-root **gateway** — and it is NOT "one wiring file": construct-scar + a 4-lens rigorous-review compose pass confirmed **3 net-new adapters** (OwnershipSource bridge, block-time resolution, RoleSource loader) + a bootstrap app remain. Deferred post-validation by operator. Pull-ready candidate spec: `grimoires/loa/context/2026-06-24-shadow-audit-gateway-sprint-candidate.md` (gitignored, local). (3) **No sonar integration issue** — sonar's contract is met + guarded. (4) **Shadow mode = built**, not yet serving.
+
+**SHIPPED — PR #78** (`feat/svm-contract-guard` → feat/envio-cloud-hypersync): extended the EVM belt-gateway antibody to the **SVM read seam** — `scripts/verify-svm-contract.mjs` + `svm-contract.json` + a 2nd scheduled CI job + `npm verify:svm-contract` + runbook `grimoires/loa/runbooks/svm-contract-drift.md`. Reviewed by `/compose` (rigorous-review, 27 findings); all actionable findings folded in. Security scans green; awaiting operator merge.
+
+**TWO FINDINGS (banked):**
+- **Pythians data-readiness gap:** `svm_collection_nft` is absent from BOTH the belt-gateway AND the self-host SVM Hasura public surface (genesis_stone is on both). The merged pipe writes to a table that isn't created/tracked → **data not consumer-readable**. "Supported" in code, not in data. Fix = the `CREATE TABLE svm.collection_nft` + Hasura-tracking ops step in `grimoires/loa/specs/2026-06-23-svm-pythians-collection-design.md`, then promote the guard type to `status:live`.
+- **Guard scope limit (honest):** the read surface exposes no `mutation_root`/`*_constraint`, so the guard catches column/type-drift (the #300 class) but NOT the write-path on_conflict constraint-name class that bit #76. Closure = an offline DDL-bind verifier (the #1 documented follow-up in the runbook).
+
+**Honesty caveat:** the compose review's findings are real workflow output (4 agents, 367k tokens, 1.9M ms, file-anchored), but I did not complete the Form-C seam-protocol envelope wrap → the run does NOT carry a `valid_run` certification (`compiled_run`/`broken_run`). Findings stand on their grounding, not the gate.
+
+**RESUME (2026-06-24):** PR #78 (SVM guard) **MERGED** (`27df49c2`, squash) into feat/envio-cloud-hypersync — Bridgebuilder-reviewed (COMMENTED, no blockers; F-001 exit-code semantics + F-002 `::`-injection + F-004 nullability-scope folded in; F-003 endpoint-env-wiring deferred). Local now synced (caught up to #76; Pythians source present). Two operator-gated follow-ups remain: (a) the Pythians table ops step `CREATE TABLE svm.collection_nft` + Hasura tracking (un-blocks Pythians data — small); (b) un-defer the shadow-audit gateway sprint (candidate spec pull-ready). **Config nit:** `.loa.config.yaml:1935` `persona_path: grimoires/observer/ARCHETYPE.md` is stale (file absent) → plain `/bridgebuilder-review` fails until repointed; workaround used = `--persona default` + `npm ci` in the BB skill dir + `BRIDGEBUILDER_MODEL=claude-headless` (no API key in env). loa-freeside still on a pre-#300 feature branch — pull before touching the gateway.
