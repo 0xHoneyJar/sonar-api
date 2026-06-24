@@ -1,326 +1,350 @@
-# Sprint Plan — sonar-api Consolidated Belt + Blue-Green Promotion (`sonar-belt-factory`)
+---
+title: "Sprint Plan: sonar-api → Managed Envio (Phase A — Stand-Up + Measured Ratification)"
+trust_tier: operator-authored
+read_state: unread
+confidence: 0.6
+decay_class: working
+last_confirmed: 2026-06-23
+operator_signed: self_attested
+---
 
-**Version:** 2.0 (full rewrite to track PRD r2 + SDD r7)
-**Date:** 2026-05-22
-**Author:** Sprint Planner Agent (SHIP/ARCH · BARTH + protocol/noether, craft lens)
-**PRD Reference:** `grimoires/loa/prd.md` r2 (sonar-belt-factory)
-**SDD Reference:** `grimoires/loa/sdd.md` r7 (Flatline-remediated · §17 R-A..R-G + IMP-001..009 integrated)
-**Cycle:** `sonar-belt-factory` · ledger global sprint range **172–176**
+# Sprint Plan: sonar-api → Managed Envio (Phase A — Stand-Up + Measured Ratification)
 
-> **Supersedes** sprint.md v1.0 (the RETIRED r1/r6 "12 pure-product belts + BeaconV3 federation + Effect serving" plan). The v1.0 S0 calibration spike (global 172) ran and PROVED the 12-belt approach budget-infeasible ($280–450/mo vs the hard < $100/mo ceiling) — that finding triggered the PRD r2 reframe to **one consolidated belt + blue-green promotion**. S0 is retained as completed; S1–S4 are re-authored to the new SDD §13 sequencing.
+**Version:** 1.0 (managed-Envio Phase A)
+**Date:** 2026-06-17
+**Author:** Sprint Planner Agent (ARCH · OSTROM, craft lens)
+**PRD Reference:** `grimoires/loa/prd.md` (r2, Flatline-hardened)
+**SDD Reference:** `grimoires/loa/sdd.md` (v1.0, §5.5 gate core + R1 fallback)
+**Cycle:** `indexing-managed-envio` · **Repo HEAD at design time:** `1e812628`
+**Supersedes:** the prior `sprint.md` (sonar-belt-factory v2.0 — already archived to `grimoires/loa/context/sprint-sonar-belt-factory-v2-SUPERSEDED-2026-05-22.md`). That plan's premise (self-host Envio belts on Railway, beat managed on cost) was **inverted** by the loa-finn TCO experiment.
+
+> **Grounding legend:** `[CODE:file]` = codebase reality read · `> file:Lnn` = doc quote · `(git:SHA)` = commit evidence · `[ASSUMPTION]` = ungrounded claim flagged · 🔐 = live security action · 🔒 = operator-gated.
 
 ---
 
 ## Executive Summary
 
-Keep the THJ sovereign indexer as **one consolidated Envio belt** (41 contracts · 93 entities · 6 chains) serving a **stable, additive-only GraphQL API behind a fixed production alias** (the Caddy `belt-gateway`, already live). Ship every change (new source, additive schema field) via **blue-green promotion**: stand up a green deployment with the change, backfill it in the background while blue keeps serving, run a **reconciliation gate**, then **atomically swap the alias** blue→green via `caddy reload` and retire blue after a rollback window. The 8-hour reindex still happens — off the live path, so consumers see **zero downtime**.
+Phase A stands the **existing 6-chain Envio HyperIndex source up on managed Envio Cloud** for one real billing cycle, to produce the single `measured` cost + toil number that ratifies-or-revises the indexing-strategy ADR and closes `bd-buho` (loa-finn). The indexer **already exists and is live at HEAD** (`Dockerfile.belt` runs `envio@3.0.0-alpha.17` on `config.yaml`/`config.mibera.yaml`) — this is **a deploy-and-measure exercise, not a build** (sdd.md:51-56). The work product is **the §5.5 validation harness** that proves a managed-Envio measurement would be valid **before the 30-day billing clock starts**, plus the **R1 fallback** for the one failure mode that can block the whole direction (events-pillar unable to publish from Cloud).
 
-The infrastructure is mostly **already live** (the consolidated belt = blue; the Caddy alias; the eRPC L2; the `belt-reinit.md` re-init runbook). This cycle is predominantly **operational discipline + the reconciliation gate** — not greenfield build. The one substantive net-new code artifact is `scripts/promotion-gate.js` (zero-dep, test-first), which carries the §17 remediation requirements (fixed-block-cutoff reconciliation, raw-L1 spot-check, content sample, schema superset-diff, non-skippable `promote` precondition).
+Phase A is **additive and reversible** (NFR-3): live serving (Railway green/blue behind the Caddy stable-alias gateway) is untouched throughout — no consumer repointed, no Railway service retired, no alias swapped.
 
-**Total Sprints:** 5 (S0 completed + S1–S4 to build)
-**Sprint Duration:** S0 = half-day (completed spike); S1 ≈ 2.5 days; S2–S4 ≈ 2 days each
-**Sovereignty posture:** OWN indexer/schema/gateway/eRPC; RENT free RPC + Railway; HyperSync = break-glass only.
+> **Two highest-risk items are FRONT-LOADED as early spikes:**
+> 1. **🔐 Rotate the exposed `SONAR_SIGNING_SEED_HEX` (`bd-54c`) — Sprint 1, Task 1.1, FIRST.** A *known-compromised* Ed25519 seed signs live NATS events right now; every event between exposure and rotation is forgeable (Flatline SKP-001, CRITICAL 950 — the highest-scored finding). **Independent of the migration**; not a Phase-B footnote.
+> 2. **G-A3 / OQ-3 events-pillar blocker-decider — Sprint 2.** Test the *in-process* events-pillar's private-repo postinstall (`scripts/rebuild-events-dist.sh` → `@0xhoneyjar/events`) **inside Envio Cloud's build sandbox** + NATS TLS egress + Ed25519 signing to a **TEST subject**. This is the likely blocker that decides "delete all Railway" vs **R1** (standalone publisher). Tested before any spend.
 
-### PRD Goals (G-N traceability — see Appendix C)
+**The §5.5 gate (G-A1…G-A5) must ALL pass GREEN before Sprint 5's billing clock starts.** Sprint 5 is the only sprint that costs money.
 
-| ID | Goal | KPI gate (PRD §3) |
-|----|------|-------------------|
-| **G1** | Zero-downtime updates — source/schema change ships via background green + atomic alias swap; never makes the live endpoint stale | A source-add promotion completes with **0 consumer-visible downtime** (no 5xx spike on the stable endpoint) |
-| **G2** | Cost ceiling — total indexer infra **< $100/mo** steady-state (the bar to leave Envio's ~$300 hosted) | Measured Railway steady-state < $100/mo (≈ $84/mo single belt per S0); transient 2× only *during* a promotion window |
-| **G3** | API serving consistency — one stable GraphQL endpoint behind a fixed alias; no split-brain, no consumer config edits | **0 consumer config changes** across a promotion; reconciliation confirms no entity dropped (AC-R7 footprint preserved) |
-| **G4** | Background re-sync + promotion gate — backfill is a background operation on green, gated by reconciliation before any swap | Promotion gate enforced: green ≥ blue on **every** chain AND reconciliation pass before swap; rollback exercised |
+**Total Sprints:** 5 (S1–S5; global IDs 177–181) · **Sprint Duration:** ~2.5 engineering-days each (S5 is a 30-day measurement wall-clock with bounded engineering touch) · **Scope:** Phase A only. **Phase B (consumer repoint + Railway teardown) is OUT — hard-gated on `bd-buho` ratifying** (§ Out-of-Scope below).
 
-> **Goal-ID note:** the PRD labels its goals `G1`–`G4` directly (PRD §3 Primary Goals). This plan uses those IDs verbatim. No auto-assignment required.
+---
+
+## Goals (from PRD §3)
+
+| ID | Goal | Measurement | Validation |
+|----|------|-------------|------------|
+| **G-1** | Produce the `measured` 1x row — real $/mo (`cost_basis` = Envio Cloud invoice + tier + footprint) + setup toil-hours + 30d incident count on the **full 6-chain footprint**, flipping the loa-finn crossover `quote → measured`, emitting `RATIFY` or a revised number. | 1 real invoice, normalized steady-state | loa-finn `indexing:read` |
+| **G-2** | Validate **functional parity, not just $**: GraphQL footprint entities (93 + `chain_metadata`), the NATS events-pillar publish, and a decision on per-token ownership. | 100% GraphQL sample; events verdict; per-token decision | FR-4/FR-5/FR-6 |
+| **G-3** | De-risk the managed direction: confirm Envio HyperSync coverage for all 6 chains (esp. Zora 7777777) and that the events-pillar can run on managed Envio — or identify the blocker before Phase B is ever unlocked. | HyperSync 6-chain confirmed; events egress confirmed or blocker documented | G-A3 / NFR-4 |
 
 ---
 
 ## Sprint Overview
 
-| Sprint | Global | Theme | Scope | Key Deliverables | Dependencies |
-|--------|--------|-------|-------|------------------|--------------|
-| **S0** | 172 | Envio multi-deployment calibration spike (FR-0) | SMALL | **COMPLETED** — proved 12-belt infeasible → PRD r2 reframe; alpha.17/`rpc` field; Option-A reserve; cost $84/mo; `belt-reinit.md` | None |
-| **S1** | 173 | Stable-alias contract + the reconciliation gate (FR-2, FR-4) | LARGE | `promotion-gate.js` (test-first) with all §17 remediation requirements; alias contract specified + swap smoke | S0 |
-| **S2** | 174 | Green-build orchestration + dry-run promotion (FR-3, FR-8) | MEDIUM | Green-build procedure on `belt-reinit.md` + seed-count verify; one end-to-end dry-run promotion (stand up → gate → swap → rollback); G4 backfill wall-time measured | S1 |
-| **S3** | 175 | Swap atomicity + rollback + breaking-change path (FR-5, FR-6, FR-7) | MEDIUM | Caddy graceful-reload swap (Option B, localhost-only admin) with off-host-unreachable verification; rollback exercised; expand/contract path documented | S2 |
-| **S4** | 176 | Boundary docs + reserve + E2E goal validation (FR-1, FR-9, FR-10) | SMALL | FR-1 one-belt confirmation; score-api boundary doc; FR-10 reserve documented (no code); **E2E validation of G1–G4** | S3 |
+| Sprint | GID | Theme | Scope | Key Deliverables | Dependencies |
+|--------|-----|-------|-------|------------------|--------------|
+| **S1** | 177 | Security pre-action + gate foundation (Phase A.0 + A.1 head) | MEDIUM (6) | 🔐 seed rotation; separate Phase-A key + secrets model; G-A5 footprint correction; G-A1 HyperSync restore; G-A2 version match | None (S1-T1 unblocks all) |
+| **S2** | 178 | Events-pillar reachability blocker-decider (G-A3 / OQ-3) + R1 fallback contingency (A.1b) | MEDIUM (5) | G-A3 in-process pillar test on a Cloud canary → TEST subject; R1 standalone-publisher build IFF G-A3 fails | S1 (key + Cloud account + G-A1/G-A2) |
+| **S3** | 179 | Per-token scope + §5.5 gate close-out | SMALL (3) | G-A4 per-token spike + parity sizing; gate-record asserting G-A1…G-A5 ALL GREEN | S1, S2 |
+| **S4** | 180 | Backfill + GraphQL parity | SMALL (3) | 6-chain backfill to head; `freshness_lag_s`; GraphQL parity sample (N per chain × collection) | S3 (gate GREEN) |
+| **S5** | 181 | Measured 30-day cycle + ratify + E2E validation (final) | MEDIUM (5) | 🔒 30-day cycle w/ as-it-happens toil; invoice normalization; `indexing:capture`→`indexing:read`→ratify; close `bd-buho`; E2E goal validation | S4; **G-A1…G-A5 GREEN** |
+
+> **Hard barrier:** the FR-7 billing clock (start of S5) does NOT start until S3 records G-A1…G-A5 all GREEN (SDD §2 invariant; §9 "billing clock is a hard barrier between A.2 and A.3").
 
 ---
 
-## Sprint 0 (COMPLETED): Envio Multi-Deployment Calibration Spike
+## Sprint 1 (GID 177): Security Pre-Action + Gate Foundation
 
-**Global ID:** 172 · **Scope:** SMALL · **Status:** ✅ COMPLETED · **Priority:** P0 (gated all)
-
-### Sprint Goal
-Prove Envio multi-deployment mechanics and per-belt cost before committing to any belt-split architecture (FR-0 calibration spike, spike-not-wire / NET-0 LOC doctrine).
-
-### Outcome (closing the loop — this sprint is done)
-- ✅ **OQ-1 / version reconcile** — Envio `3.0.0-alpha.17` pinned; data-source field is **`rpc`** (not `rpc_config`). `(S0)` `> grimoires/loa/a2a/sprint-172/s0-multideploy-calibration.md`
-- ✅ **R-D / Option-A proof** — per-belt config + physical schema subset codegens + `tsc` exit 0 (held in reserve as FR-10).
-- ✅ **Q-a / topology** — Railway: per-belt = indexer+hasura+postgres; shared = gateway+erpc+erpc-pg.
-- ◐ **Q-b / cost** — project-aggregate $84.40/mo for 1 belt + shared (89% memory); 12 belts projected $280–450/mo → **budget-infeasible against the < $100/mo ceiling**.
-- ✅ **Q-c / D6** — reset semantics closed; `runbooks/belt-reinit.md` authored (KF-013 re-init dance).
-
-### The load-bearing finding
-> "This reframes the cycle away from r1's 12 physical belts (which the S0 spike proved cost ~$280–450/mo against a hard < $100/mo ceiling, and which solved the wrong problem)." — `> prd.md:L26`
-
-S0's purpose was served: the per-belt cost finding RETIRED the 12-belt plan and produced the PRD r2 / SDD r7 reframe. No further S0 work; the scratch belt was deleted per the spike-not-wire NET-0 contract. The S1–S4 below are the new plan.
-
----
-
-## Sprint 1: Stable-Alias Contract + The Reconciliation Gate
-
-**Global ID:** 173 · **Scope:** LARGE (7–10 tasks) · **Priority:** P0
-**Duration:** 2.5 days
+**Scope:** MEDIUM (6 tasks) · **Duration:** ~2.5 days · **Maps to:** SDD Phase A.0 + A.1 head
 
 ### Sprint Goal
-Author the one substantive net-new artifact — `scripts/promotion-gate.js` — test-first, carrying every §17 remediation requirement, and formally specify + smoke-test the stable alias contract so the swap lever is proven before any green is built.
+Eliminate the live signing-seed exposure, establish the separate Phase-A key + third-party secrets model, and bring the three machine-verifiable pre-deploy gates (footprint, HyperSync restore, version match) to GREEN — so Sprint 2's blocker-decider canary can deploy on a clean, version-matched, correctly-scoped config.
 
 ### Deliverables
-- [ ] `scripts/promotion-gate.js` exists (zero-dep, matching `verify-belt-config.js`'s no-dependency invariant) and exits 0 against a **blue-vs-blue self-parity** sanity run.
-- [ ] Gate enforces all three checks: block-height parity (Part 1), entity-count reconciliation (Part 2, AC-R7 footprint), and schema-diff superset (FR-7 §9.1).
-- [ ] Gate writes its result to `grimoires/loa/a2a/sprint-173/promotion-reconciliation.md` on every run (PASS/FAIL + per-check evidence).
-- [ ] The alias contract is documented (§4): public URL, additive-only schema invariant, `BELT_UPSTREAM` as the sole swap lever, proxy-not-DNS rationale.
-- [ ] The existing swap smoke (bad upstream → 502, revert → live) is re-run and recorded as the alias baseline `> NOTES.md:265`.
+- [ ] 🔐 `SONAR_SIGNING_SEED_HEX` rotated across all live green services (new Railway env value + restart); old seed no longer signs anything. `bd-54c` closed.
+- [ ] A **separate Phase-A Ed25519 signing key** provisioned (distinct `signing_key_id`, NOT the production seed) + a documented third-party secrets model (how the key + NATS CA reach Cloud, scoped lifetime, revocation).
+- [ ] loa-finn stand-up runbook footprint corrected from "93 Berachain contracts" → **6-chain** (`1·10·42161·7777777·80094·8453`). G-A5 pass artifact.
+- [ ] A **Cloud-targeted config branch** with HyperSync restored (zero `erpc.railway.internal`). G-A1 pass artifact (codegen log + grep-zero).
+- [ ] Managed Envio Cloud version probed vs `3.0.0-alpha.17`; G-A2 verdict (compatible OR bounded-delta-as-task).
 
 ### Acceptance Criteria
-- [ ] `node scripts/promotion-gate.js` exits **0** when comparing blue against itself (self-parity must pass — a gate that fails its own identity is broken).
-- [ ] Gate **exits non-zero** on each injected failure: short block-height on one chain; an entity count outside tolerance; a green schema missing a blue field (negative test cases — IMP-009).
-- [ ] Reconciliation runs at a **fixed block cutoff** per chain `target = min(blue_head, green_head) − safety_margin`, not at wall-clock "now" (R-F: racy comparison closed).
-- [ ] Gate includes a **raw-L1 `eth_getLogs` spot-check** (bypassing the eRPC cache) for a sample of (chain, contract, block-range) so a poisoned shared-cache entry can't pass blue=green while both are wrong (R-B).
-- [ ] Gate includes a **content sample**: for N sampled entity IDs per high-value entity, field-level payloads are compared blue-vs-green, not just counts (R-E).
-- [ ] Tolerance is **exact** on low-cardinality entities (e.g. `MiberaLoan 176`) and an **absolute floor** `max(0.1%, fixed_row_floor)` on high-cardinality (e.g. `Action 2.07M`) — not a bare ±0.5% (R-G); tolerance is configurable with a provisional default + override (IMP-007).
-- [ ] Schema-compat diff checks **nullability and enum** dimensions, not just name/type presence (IMP-005).
-- [ ] Connection strings (blue + green Postgres / GraphQL) are sourced from env/config, never hardcoded (IMP-001).
+- [ ] 🔐 Old seed value is provably out of rotation (Railway env shows new value; service restarted; an attestation signed after rotation verifies against the new key, an old-seed signature does not).
+- [ ] Phase-A key's `signing_key_id` is distinct from production; documented secrets-delivery model exists and names how Cloud receives the key + CA (env var vs secret store) (SKP-002 / R7).
+- [ ] G-A5: loa-finn runbook line reads 6-chain footprint; committed in loa-finn and referenced from the gate record (sdd.md:279).
+- [ ] G-A1: `envio codegen` dry-run against the Cloud-targeted config is **clean**; `grep -c 'erpc.railway.internal'` over the Cloud config = **0**; HyperSync data source present for all 6 chains. Base (8453) HyperSync break-glass (`ENVIO_API_TOKEN`) is NOT flagged as a regression (sdd.md:219).
+- [ ] G-A2: Cloud `envio` version recorded; if it differs from `3.0.0-alpha.17`, the schema-field delta (the `rpc` vs `rpc_config` drift class, config.mibera.yaml:223-225 `[CODE]`) is enumerated and bounded as an explicit task — NOT discovered mid-cycle.
 
 ### Technical Tasks
-
-<!-- Test-first: write the failing gate test, then the gate. -->
-
-- [ ] Task 1.1: Write the test harness for `promotion-gate.js` first — fixtures for blue-vs-blue (self-parity PASS) and the injected-failure negative cases (short height, count drift, missing field, nullability change). → **[G-4]**
-- [ ] Task 1.2: Implement **Part 1 — block-height parity**: query each deployment's `chain_metadata`, assert `green.latest_processed_block ≥ blue` on **every** chain (§6.1, SCALE.md probe). → **[G-4]**
-- [ ] Task 1.3: Implement **Part 2 — entity-count reconciliation** over the score-api footprint (12 entities: `MiberaLoan 176` … `Action 2.07M` … `TreasuryActivity 11,819`) with the R-G tolerance model (exact low-cardinality / absolute-floor high-cardinality). → **[G-3, G-4]**
-- [ ] Task 1.4: Implement the **fixed-block-cutoff** comparison (`target = min(blue_head, green_head) − safety_margin`) so both belts are queried AT that block, not "now" (R-F). → **[G-4]**
-- [ ] Task 1.5: Implement the **schema-diff superset check** — parse blue + green `schema.graphql`, assert green ⊇ blue across name/type **and** nullability/enum (§9.1, IMP-005); non-superset → FAIL. → **[G-3, G-1]**
-- [ ] Task 1.6: Implement the **raw-L1 `eth_getLogs` spot-check** (cache-bypass) + the **content sample** (field-level payload compare for N sampled IDs) — the two anti-silent-loss checks (R-B, R-E; extends KF-012 discipline). → **[G-4]**
-- [ ] Task 1.7: Wire result emission to `grimoires/loa/a2a/sprint-173/promotion-reconciliation.md`; source all connection strings from env/config (IMP-001); make tolerance configurable with provisional default (IMP-007). → **[G-4]**
-- [ ] Task 1.8: Document the alias contract (§4) and re-run + record the swap smoke baseline (`BELT_UPSTREAM` bad → 502, revert → live). → **[G-3]**
+- [ ] **Task 1.1: 🔐 Rotate `SONAR_SIGNING_SEED_HEX` NOW (DO FIRST, blocks nothing — independent live action).** New Railway env value across every green service that holds it; restart; verify post-rotation signing. Close `bd-54c`. → **[G-3]** *(Flatline SKP-001 CRITICAL 950; sdd.md:167)*
+- [ ] **Task 1.2: 🔒 Provision a separate Phase-A signing key + write the third-party secrets model.** Distinct seed/`signing_key_id`; document delivery to Cloud (env vs secret store), scoped lifetime, revocation. Never give the production seed to Envio's infra. → **[G-3]** *(SKP-002 HIGH 750; sdd.md:168-169, R7)*
+- [ ] **Task 1.3: G-A5 — correct the loa-finn runbook footprint to 6-chain.** Edit `~/Documents/GitHub/loa-finn/src/research/standups/envio-hyperindex.md` footprint line `93 Berachain contracts` → all 6 chains; commit in loa-finn; reference from gate record. → **[G-1, G-3]** *(IMP-003 avg 901 — highest-scored; sdd.md:267-279)*
+- [ ] **Task 1.4: G-A1 — author the Cloud-targeted config branch (HyperSync restore, FR-1).** Remove the per-chain bare `rpc:` block (`for: sync` + `for: live` → `erpc.railway.internal:4000`) so HyperSync becomes Envio's default source, OR add explicit `hypersync_config` per chain. Assert against the field name the Cloud version expects (couples to 1.5). → **[G-3]** *(IMP-008 avg 836.5; sdd.md:207-221; de-HyperSync commits `01d19638`/`cb0c2f4e`/`d7f38fef`)*
+- [ ] **Task 1.5: G-A1 verification — codegen dry-run + zero-erpc grep on the Cloud config.** Commit the codegen log + the grep-zero result as the gate pass artifact. → **[G-3]**
+- [ ] **Task 1.6: 🔒 G-A2 — probe managed Envio Cloud's `envio` version; bound any delta.** Record version; if it differs, run the 1.5 codegen against the Cloud version's schema and capture field renames as a bounded task; an unbounded skew HALTS. → **[G-1, G-3]** *(SKP-003 HIGH 760, R6; sdd.md:223-230)*
 
 ### Dependencies
-- S0 (complete): Envio version/field, topology, cost model, `belt-reinit.md`.
-- The shipped blue belt + live Caddy alias + live eRPC L2 (all already live — read-only for this sprint).
+- None blocking. Task 1.1 is independent and runs immediately. Tasks 1.4–1.6 need the Envio Cloud account (🔒 operator-gated) for the version probe; the config branch + codegen can proceed locally before the account exists.
 
 ### Security Considerations
-- **Trust boundaries:** the gate reads from blue + green Postgres/GraphQL (trusted, operator-owned) and from **raw public L1 RPC** (untrusted external — the raw-L1 spot-check treats getLogs responses as suspect per KF-012; an empty-200 must surface as a gap, not silently pass).
-- **External dependencies:** none new — `promotion-gate.js` is zero-dep (no npm install), matching `verify-belt-config.js`. The raw-L1 check uses the same eRPC-bypass RPC endpoints already in config.
-- **Sensitive data:** Postgres connection strings sourced from env (IMP-001), never committed. Public read-only on-chain data; no auth surface added.
+- **Trust boundaries:** the production signing seed is the crown jewel; rotation (1.1) shrinks the live-exposure window; the separate Phase-A key (1.2) prevents handing the production seed to a third party (Envio Cloud).
+- **External dependencies:** managed Envio Cloud will hold the Phase-A key + NATS CA — define the custody model (1.2) before any publish.
+- **Sensitive data:** Ed25519 seeds (PEM/hex), NATS CA (PEM body, Path-ε convention, sdd.md:171). Never log or commit seed material.
 
 ### Risks & Mitigation
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Shared eRPC cache makes blue=green both-wrong pass reconciliation (R-B) | Med | High | Raw-L1 `eth_getLogs` spot-check bypasses the cache (Task 1.6); reconciliation is blue-vs-green **plus** green-vs-raw-L1 |
-| Counts match but rows are wrong/dup/stale (R-E) | Med | High | Field-level content sample for N sampled IDs (Task 1.6) |
-| ±0.5% tolerance hides thousands of high-cardinality rows (R-G) | Med | High | Exact on low-cardinality + absolute floor on high-cardinality (Task 1.3) |
-| Racy wall-clock comparison while both belts advance (R-F) | Med | Med | Fixed block cutoff per chain (Task 1.4) |
+| Risk | Prob | Impact | Mitigation |
+|------|------|--------|------------|
+| Seed already publicly leaked (not just transcript-local) | Med | High | Rotate NOW (1.1) regardless; conservative call (bd-54c note) |
+| Cloud pins a different alpha → unbounded schema drift | Med | Invalidates parity / balloons scope | G-A2 (1.6) bounds the delta as a task or HALTS before deploy (R6) |
+| `rpc`-vs-`rpc_config` naming drift silently rejected by Cloud schema | Med | G-A1 false-pass | Assert against the Cloud version's field name, not the local alpha's (couples 1.4↔1.6) |
 
 ### Success Metrics
-- `promotion-gate.js` self-parity exit 0; all ≥3 negative cases exit non-zero (IMP-009).
-- 100% of the 12 score-api footprint entities covered by Part-2 reconciliation.
-- Gate run < a few minutes wall-time (operator-runnable, not a CI burden).
+- 1 rotated seed; 1 separate Phase-A `signing_key_id`; secrets-model doc exists.
+- G-A1 codegen clean + `erpc.railway.internal` count = 0; HyperSync source for 6/6 chains.
+- G-A2 version recorded; delta = 0 or bounded-task-count recorded.
+- G-A5 runbook footprint = 6 chains.
 
 ---
 
-## Sprint 2: Green-Build Orchestration + Dry-Run Promotion
+## Sprint 2 (GID 178): Events-Pillar Reachability Blocker-Decider (G-A3 / OQ-3) + R1 Fallback Contingency
 
-**Global ID:** 174 · **Scope:** MEDIUM (4–6 tasks) · **Priority:** P0
-**Duration:** 2 days
+**Scope:** MEDIUM (5 tasks; 2 of which are conditional on G-A3 FAIL) · **Duration:** ~2.5 days · **Maps to:** SDD Phase A.1 (G-A3) + A.1b (R1)
 
 ### Sprint Goal
-Operationalize standing up green from `belt-reinit.md` with the seed-count verification gate, then exercise the **full blue-green loop end-to-end once** via a dry-run promotion (green = a copy of blue) — proving stand-up → gate → swap → rollback works and capturing the G4 backfill wall-time.
+Settle the single architectural question that decides "delete all Railway" vs keeping a standalone publisher: can the **in-process** events-pillar actually run on managed Envio Cloud? Test it on a real Cloud canary deploy — build sandbox, NATS egress, and signing — publishing only to a TEST subject. If it cannot, build the named R1 fallback and re-verify.
 
 ### Deliverables
-- [ ] A green-build procedure (extending `belt-reinit.md`) that stands up a separate Railway `belt-indexer'` + `belt-hasura'` + **own Postgres-green**, with the `ENVIO_RESTART=1`-seeds-then-resume dance.
-- [ ] The BB-F006 **seed-count verification step** wired into the procedure: assert `SELECT COUNT(*) FROM chain_metadata` == config chain count before removing `ENVIO_RESTART`.
-- [ ] One completed **dry-run promotion**: green stands up, `promotion-gate.js` (from S1) PASSES, the alias swaps, and a rollback restores blue.
-- [ ] The **G4 one-shot measurement**: full-corpus backfill wall-time recorded as a known number (does not gate downtime).
-- [ ] Promotion-window cost quantified (transient 2× vs the 89% steady-state headroom — R5/R-C).
+- [ ] A **canary managed Envio Cloud deploy** built from the Sprint-1 Cloud-targeted config branch (additive; no production subjects, no consumer touch).
+- [ ] A **G-A3 verdict**: the in-process publish path (vendored `@0xhoneyjar/events`) either runs on Cloud and a signed synthetic mint event verifies on a TEST subject, OR a documented blocker (which build/egress/custody constraint failed).
+- [ ] **OQ-3 answered:** whether Cloud's build sandbox runs `scripts/rebuild-events-dist.sh` (custom postinstall + git clone of the cluster-pinned loa-freeside SHA).
+- [ ] **IFF G-A3 FAILS:** an R1 standalone NATS publisher (cluster-resident, Phase-A key, Redis-backed `PrevHashStore`, outbox/reorg-safe semantics) + a re-run G-A3 against it.
 
 ### Acceptance Criteria
-- [ ] Green stands up with its **own Postgres**, structurally isolated from blue (separate Railway service) — a green `--restart` provably leaves blue's `chain_metadata`/checkpoints untouched (FR-3 isolation).
-- [ ] The seed-count gate **blocks resume** on a short `chain_metadata` count and the procedure documents "re-deploy `ENVIO_RESTART=1` until count matches" (FR-8 retry/escalation; KF-013/R4).
-- [ ] The dry-run swap exhibits the FR-6 downtime characteristic decided in S3 (or, if S3's reload isn't built yet, records the current ~seconds Railway-redeploy blip as the baseline to improve in S3).
-- [ ] Rollback (`revert BELT_UPSTREAM` → blue) restores service with **0 consumer config changes** and no data loss (blue retained hot **and kept indexing at-head** — FR-5, R-A).
-- [ ] Railway plan headroom for the transient 2× is confirmed before the dry-run; a promotion that would exceed plan memory is blocked (R-C).
-- [ ] **Sustained-parity**: the gate is re-run after a short interval (not a single snapshot) to confirm green stays caught up, not just momentarily even (IMP-003).
+- [ ] (a) **Exact subject set** enumerated: every `test.nft.mint.detected.<slug>.v1` for the slugs the 6 publishing handlers emit — `mibera-shadow`, `mibera-collection`, `mibera-sets`, `mibera-zora`, `mibera-liquid-backing`, `mibera-staking`, `purupuru-apiculture` (`CollectionSlug` `[CODE:events-publisher.ts:135-142]`; subject via `nftMintDetectedTopic` `[CODE:events-publisher.ts:340]`).
+- [ ] (b) **Signature verified** against the **Phase-A** `signing_key_id` (NOT production) — `LocalEd25519Signer.fromSeedHex(seedHex, "sonar-api-1")` `[CODE:events-publisher.ts:262]`.
+- [ ] (c) **Sample size** ≥ N synthetic mint events (N pragmatic; SKP-002 canary minimum = 1, prefer several).
+- [ ] (d) **TEST/shadow subject ONLY** — `test.` prefix; **never** a production subject (NFR-3 / SKP-001: concurrent production publish from the canary = duplicated/unsequenced/conflicting events corrupting production state).
+- [ ] (e) **Named executor** runs and signs off the G-A3 record (Phase-A KRANZ Act-1 coordinator).
+- [ ] G-A3 tests the **actual in-process path on a real Cloud deploy**, not just NATS reachability from an arbitrary host (sdd.md:250).
+- [ ] **On FAIL:** R1 publisher is cluster-resident (seed never leaves the cluster), uses a Redis-backed `PrevHashStore` (NOT `InMemoryPrevHashStore` which resets to GENESIS on restart, `[CODE:events-publisher.ts:62-67]`), publishes to TEST subjects, and a re-run G-A3 against it passes — OR R1 is escalated as HALT.
 
 ### Technical Tasks
-- [ ] Task 2.1: Write the green-build procedure section in `belt-reinit.md` (own service + own Postgres; `ENVIO_RESTART=1` seed → seed-count verify → remove flag → resume background backfill). → **[G-1, G-4]**
-- [ ] Task 2.2: Wire the BB-F006 seed-count verify (`COUNT(*) chain_metadata` vs config chain count) as a hard pre-resume step with the retry-until-match escalation (KF-013/R4). → **[G-4]**
-- [ ] Task 2.3: Confirm Railway plan headroom for the transient 2×; size green's memory; record the bound on the promotion window (R-C / R5). → **[G-2]**
-- [ ] Task 2.4: Execute the **dry-run promotion** end-to-end (green=copy-of-blue → S1 gate PASS → swap → rollback); capture the G4 backfill wall-time + the promotion-window cost. → **[G-1, G-4]**
-- [ ] Task 2.5: Run the **sustained-parity** re-check (gate twice across an interval) and record green-stays-caught-up evidence (IMP-003). → **[G-4]**
+- [ ] **Task 2.1: 🔒 Stand up the canary Cloud deploy from the Cloud-targeted config branch.** Production tier (FR-2); additive; record the quoted $/mo + tier name verbatim the moment it is given (→ `cost_basis`). → **[G-1, G-3]**
+- [ ] **Task 2.2: G-A3 / OQ-3 — verify the in-process events-pillar on Cloud.** Confirm whether the build sandbox runs `rebuild-events-dist.sh` (postinstall + external git clone) so `@0xhoneyjar/events` is present at runtime; if the sandbox accepts only stock handlers + config, the in-process path is **structurally unavailable** → R1 regardless of NATS reachability (sdd.md:154,250, OQ-3). → **[G-2, G-3]**
+- [ ] **Task 2.3: G-A3 — trigger ≥N synthetic mints; verify signed envelopes on TEST subjects.** TLS/mTLS egress per the existing posture (`tls://`/`nats+tls://` or `nats://`+`NATS_TLS_CA`, plaintext refused, `[CODE:events-publisher.ts:166-187]`); subscriber verifies Ed25519 against the Phase-A `signing_key_id`; record the G-A3 pass/fail artifact + named executor sign-off. **FAIL → STOP the cycle; trigger Task 2.4.** → **[G-2, G-3]** *(IMP-005 avg 831.5; SKP-001/002 CRITICAL 880)*
+- [ ] **Task 2.4 (CONDITIONAL — only if 2.3 FAILS): Build the R1 standalone NATS publisher (§3).** Cluster-resident (Railway service or freeside cell, private NATS access); GraphQL-poll with durable per-collection cursor `(blockNumber, logIndex)` (fallback Cloud webhook); `LocalEd25519Signer` Phase-A key in-cluster; **Redis-backed `PrevHashStore`**; adopt the fuller Ponder `nats-publisher.ts` outbox/reorg-safe/DLQ model where feasible (NOT the simpler in-handler one — re-porting without outbox is a reliability regression per PRD §7). → **[G-2, G-3]** *(SKP-001 closure; sdd.md:283-322)*
+- [ ] **Task 2.5 (CONDITIONAL — only if 2.4 built): Re-run G-A3 against the R1 fallback** (TEST subject) + record that the measured `cost_usd_month` MUST then include the fallback-service line item (the ratified architecture becomes "Cloud + standalone publisher", sdd.md:324-326). → **[G-1, G-3]**
 
 ### Dependencies
-- S1: `promotion-gate.js` (the gate the dry-run runs).
-- `belt-reinit.md` (KF-013 re-init primitive); the shipped blue belt; eRPC warm cache.
+- **Sprint 1:** Phase-A key + secrets model (1.2), G-A1 clean Cloud config (1.4-1.5), G-A2 version verdict (1.6), Envio Cloud account (🔒).
+- R1 deployment target (Railway service vs freeside cell) is OQ-7 — decided only on G-A3 FAIL; cell maintainer (zerker) owns.
 
 ### Security Considerations
-- **Trust boundaries:** green is operator-stood-up infra (trusted); the seed-count gate guards against the silent-skip class (KF-013) where Envio's table-existence `isInitialized()` resumes a half-seeded green.
-- **External dependencies:** none new — green reuses the same belt Docker image + shared eRPC; only Railway service/Postgres provisioning.
-- **Sensitive data:** green's Postgres credentials via Railway env (per-belt, not shared with blue); eRPC over the private Railway network.
+- **Trust boundaries:** the canary uses the **Phase-A** key only; the production seed never reaches Cloud. R1 (if built) keeps the seed entirely in-cluster — Cloud exposes GraphQL only (shrinks the third-party trust boundary, SKP-002).
+- **External dependencies:** `@0xhoneyjar/events` is materialized from a cluster-pinned loa-freeside SHA via git clone — the integrity-sensitive build step OQ-3 probes.
+- **Sensitive data:** TEST-subject isolation is the load-bearing non-interference control (NFR-3).
 
 ### Risks & Mitigation
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Green seeds incompletely (JS crashes mid-seed → short `chain_metadata`) (R4/KF-013) | Med | High | Seed-count verify blocks resume; re-deploy `ENVIO_RESTART=1` until count matches (Task 2.2) |
-| Promotion-window 2× exceeds the 89%-headroom Railway plan (R-C/R5) | Med | Med | Confirm plan headroom + bound the window before the dry-run (Task 2.3) |
-| Green never converges (a chain backfills slower than block production) (R6) | Low | High | eRPC warm cache on Bera/Base/OP/ETH; G4 wall-time measures it once; escalate RPC tier if a chain can't keep up |
+| Risk | Prob | Impact | Mitigation |
+|------|------|--------|------------|
+| Cloud build sandbox rejects the custom postinstall (vendored events pkg) | Unknown | Forces R1 even if NATS reachable | G-A3 tests the real in-process path (OQ-3); R1 is the named fallback |
+| Cloud denies private-NATS egress or seed custody | Med | Blocks in-process pillar | G-A3 STOP → R1 keeps seed in-cluster, GraphQL-poll source |
+| Canary accidentally publishes to a production subject | Low | Corrupts production state | TEST-prefix-only acceptance gate (d); reviewed before any publish |
+| R1 inherits `InMemoryPrevHashStore` GENESIS-on-restart bug | Med | Breaks hash chain for `chainStore` subscribers | Redis-backed `PrevHashStore` mandated (2.4) |
 
 ### Success Metrics
-- Dry-run promotion completes the full loop (stand-up → gate PASS → swap → rollback) in one session.
-- G4 backfill wall-time captured as a single concrete number.
-- Promotion-window cost quantified (2× transient, bounded).
+- 1 canary Cloud deploy; G-A3 verdict recorded (PASS with ≥N verified signed events on TEST subjects, OR documented blocker).
+- OQ-3 answered (sandbox runs postinstall: yes/no).
+- If R1: 1 standalone publisher passing G-A3 against the fallback; fallback cost line item noted for `cost_basis`.
 
 ---
 
-## Sprint 3: Swap Atomicity + Rollback + Breaking-Change Path
+## Sprint 3 (GID 179): Per-Token Scope + §5.5 Gate Close-Out
 
-**Global ID:** 175 · **Scope:** MEDIUM (4–6 tasks) · **Priority:** P1
-**Duration:** 2 days
+**Scope:** SMALL (3 tasks) · **Duration:** ~2.5 days (≤1 day of which is the per-token spike) · **Maps to:** SDD Phase A.1 tail (G-A4) + the §5.5 ALL-GREEN barrier
 
 ### Sprint Goal
-Realize the FR-6 swap-atomicity decision (Option B — Caddy graceful reload, admin API localhost-only) with an off-host-unreachable verification, exercise the rollback procedure for real, and document the expand/contract path for non-additive (breaking) schema changes.
+Make the per-token-ownership decision with a deadline (re-port to Envio handlers vs measure-with-accepted-gap), size the GraphQL parity sample, and close the §5.5 gate by recording that G-A1…G-A5 are ALL GREEN — the hard barrier the billing clock cannot cross until satisfied.
 
 ### Deliverables
-- [ ] Caddy `belt-gateway` rebuilt with the **admin API enabled, bound localhost-only** (`admin localhost:2019` or unix socket — NEVER exposed); the promotion swap step becomes a `caddy reload` (or admin-API config POST) instead of an env-var-triggered Railway redeploy.
-- [ ] A **verification** that the admin endpoint is **unreachable from outside** the gateway container (the binding security requirement from §7.3/§7.4 pushback + IMP-014).
-- [ ] A **zero-downtime swap probe**: poll the alias during a `caddy reload` swap and assert **no 5xx spike** (G1) — or, on the documented contingency, fall back to Option C (≥2 replicas).
-- [ ] Rollback procedure documented + exercised against the live alias (revert `BELT_UPSTREAM`→blue; blue retained hot and at-head per R-A).
-- [ ] The **expand/contract (parallel-change) path** for breaking schema changes documented (§9.2): EXPAND (add new field, keep old) → promote → consumer migration → CONTRACT (remove old) → promote.
+- [ ] A **per-token decision** (G-A4): re-port the `token` projection into the Envio handlers, OR measure-without-it. If measure-without-it, an **operator-signed accepted-gap** is queued for Sprint 5 ratification (FR-6).
+- [ ] A **sized GraphQL parity sample** plan: N per chain × collection (NOT a single wallet, IMP-007).
+- [ ] A **gate record** asserting G-A1, G-A2, G-A3, G-A4, G-A5 = ALL GREEN, with each pass artifact referenced. This is the explicit barrier; the clock does not start until it exists.
 
 ### Acceptance Criteria
-- [ ] The Caddy admin API is reachable from inside the container but **NOT** reachable off-host (verified — a curl from outside the container to the admin port fails/times out).
-- [ ] A swap via `caddy reload` produces **no 5xx** on the alias during the swap window (zero-downtime swap probe PASS) — directly satisfies G1.
-- [ ] If localhost-only admin binding proves infeasible on Railway, the documented contingency (Option C: ≥2 gateway replicas, rolling redeploy) is taken — **no re-decision needed** (§7.4).
-- [ ] Rollback restores blue with 0 consumer config changes, lossless, because blue kept indexing at-head through the verification window (R-A: blue NOT paused at swap).
-- [ ] The swap is performed ONLY through a `promote` flow that runs `promotion-gate.js` as a **non-skippable precondition** (exit 0 required before it touches the alias); bare `BELT_UPSTREAM` edits are not the documented path (R-D / OQ-4 → command).
-- [ ] The breaking-change path is documented such that the alias **never** serves a schema missing a field a live consumer reads (the additive invariant holds across both expand and contract promotions).
+- [ ] G-A4: per-token decision is made and recorded **before** any backfill (Sprint 4) — not deferred to ratification (SKP-004 remediation; the decision lands at G-A4, sdd.md:265).
+- [ ] The spike confirms the re-port bound: the helper at `ponder-runtime/src/handlers/token-projection/shared.ts` is **pure + collection-agnostic** (last-write-wins by `(blockNumber, logIndex)`; per-collection `isBurnTransfer()`; `token` re-derivable from the Transfer log; sole consumer = inventory-api Stash) `[CODE]`. A re-port = port `shared.ts` + wire 3 collections' Transfer handlers (carried by `bd-jyn`/`bd-1jg`/`bd-d2b`).
+- [ ] If measure-without-it: the accepted-gap is drafted and flagged for operator signature — *"the ADR shall not ratify a cost for a lesser-featured product without explicit sign-off"* (prd.md:79).
+- [ ] Parity sample size N is recorded per chain × collection.
+- [ ] The gate record links: G-A1 codegen log + zero-erpc grep (S1), G-A2 version verdict (S1), G-A3 TEST-subject verdict + executor sign-off (S2), G-A4 decision + N (this sprint), G-A5 6-chain runbook line (S1). Any RED → HALT (do NOT start the clock).
 
 ### Technical Tasks
-- [ ] Task 3.1: Rebuild `Dockerfile.gateway` / `Caddyfile` with `admin` bound localhost-only (replacing `admin off`); add the `caddy reload`-based swap step to the promotion procedure (FR-6 Option B, §7.4). → **[G-1]**
-- [ ] Task 3.2: Verify the admin endpoint is unreachable off-host (off-container curl to the admin port fails); record evidence (R9/IMP-014 closure). → **[G-1]**
-- [ ] Task 3.3: Run the zero-downtime swap probe (poll alias through a `caddy reload`, assert no 5xx); if infeasible, switch to Option C and document (§7.4 contingency). → **[G-1]**
-- [ ] Task 3.4: Wrap the swap in a `promote` flow with `promotion-gate.js` as a non-skippable precondition (R-D); document + exercise the rollback procedure (revert `BELT_UPSTREAM`→blue within the window; blue at-head per R-A); record the rollback-triggers list (§8). → **[G-1, G-4]**
-- [ ] Task 3.5: Document the expand/contract breaking-change path (§9.2) with the schema-diff gate as the enforcement that a non-additive green fails before the swap. → **[G-3]**
+- [ ] **Task 3.1: G-A4 — per-token blast-radius spike (≤1 day) + decision.** Reuse `token-projection/shared.test.ts` pure-helper tests `[CODE]`; confirm the re-port bound; decide re-port vs accepted-gap; record the decision + rationale. → **[G-2]** *(IMP-002 avg 866.5, SKP-004 HIGH 740; sdd.md:252-265)*
+- [ ] **Task 3.2: Size the FR-4 parity sample** — N per chain × collection across the footprint collections (Mibera/Tarot/Fractures/MST + the HoneyJar set) + the 93 entities + `chain_metadata`. → **[G-2]** *(IMP-007; sdd.md:357-359)*
+- [ ] **Task 3.3: Assemble the §5.5 gate record — assert G-A1…G-A5 ALL GREEN.** A single committed artifact referencing all five pass artifacts; any RED HALTS the billing clock. → **[G-1, G-2, G-3]** *(SDD §2 invariant: "Only when G-A1…G-A5 are GREEN does FR-7's billing clock start")*
 
 ### Dependencies
-- S2: a working green-build + dry-run loop (the swap mechanism is exercised in the dry-run).
-- S1: `promotion-gate.js` (the precondition the `promote` flow runs).
-- The live Caddy gateway (rebuilt this sprint).
+- **Sprint 1** (G-A1, G-A2, G-A5 artifacts) and **Sprint 2** (G-A3 verdict + executor sign-off) must be complete; this sprint cannot record ALL-GREEN otherwise.
 
 ### Security Considerations
-- **Trust boundaries:** enabling the Caddy admin API **widens the gateway attack surface** (R9). The hard constraint: admin bound localhost-only, never exposed; Task 3.2 is the explicit verification that the surface is closed off-host.
-- **External dependencies:** the gateway rebuild uses the same `caddy:2` + `caddy-ratelimit` (xcaddy) stack — no new dependency; only the `admin` directive changes.
-- **Sensitive data:** the admin API can rewrite the gateway config — off-host reachability would be a config-injection vector. localhost-only binding + the off-host-unreachable verification (Task 3.2) is the mitigation.
+- No new secrets. The gate record references the Phase-A key's `signing_key_id` used in G-A3 (S2), confirming separate-key discipline held.
 
 ### Risks & Mitigation
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Enabling Caddy admin widens attack surface (R9/IMP-014) | Low | Med | Bind localhost-only; verify off-host-unreachable (Task 3.2); contingency Option C avoids the admin surface entirely |
-| `caddy reload` localhost binding infeasible on Railway | Low | Med | Documented contingency: Option C (≥2 replicas, rolling) — no re-decision (§7.4) |
-| Breaking change behind the additive-only alias breaks a consumer at swap (R2) | Med | High | Expand/contract path (Task 3.5); schema-diff superset check FAILS a non-additive green at the gate |
-| Operator swaps `BELT_UPSTREAM` directly, bypassing the gate (R-D) | Med | High | `promote` flow makes the gate a non-skippable precondition (Task 3.4); bare edits not the documented path |
+| Risk | Prob | Impact | Mitigation |
+|------|------|--------|------------|
+| Per-token re-port balloons past the ≤1-day spike bound | Low | Delays clock | Helper is pure/collection-agnostic — bound is small; if it exceeds, choose accepted-gap (FR-6) |
+| Measuring a lesser-featured indexer ratifies the wrong cost | High (if measure-without-it) | Apples-to-oranges ratification | Operator-signed accepted-gap REQUIRED at FR-8 (3.1 + S5) |
+| A gate slips to RED at close-out | Med | Clock must not start | Fail-closed: HALT; remediate the specific gate; re-run |
 
 ### Success Metrics
-- Swap produces 0 5xx (G1 zero-downtime swap proven) — or Option-C contingency taken with evidence.
-- Admin endpoint verified unreachable off-host.
-- Rollback exercised against the live alias; expand/contract path documented; `promote` flow gates the swap.
+- 1 per-token decision recorded with rationale; accepted-gap drafted if applicable.
+- Parity N sized per chain × collection.
+- 1 gate record: G-A1…G-A5 = ALL GREEN (or an explicit HALT with the RED gate named).
 
 ---
 
-## Sprint 4 (Final): Boundary Docs + Reserve + End-to-End Goal Validation
+## Sprint 4 (GID 180): Backfill + GraphQL Parity
 
-**Global ID:** 176 · **Scope:** SMALL (1–3 tasks + E2E) · **Priority:** P2
-**Duration:** 1.5 days
+**Scope:** SMALL (3 tasks) · **Duration:** ~2.5 days · **Maps to:** SDD Phase A.2
+
+> **Pre-clock.** Backfill + parity sizing happen here; the FR-7 billing clock starts in Sprint 5. This sprint runs only after Sprint 3's gate record is ALL-GREEN.
 
 ### Sprint Goal
-Confirm FR-1 (one belt — mostly already true), write the score-api boundary doc (FR-9) and the FR-10 reserve documentation (design only, no code), and validate end-to-end that all PRD goals G1–G4 are achieved.
+Backfill the 6-chain managed-Envio deploy to head and prove GraphQL functional parity against the live green on a sized sample — any drift halts before the measured cycle begins.
 
 ### Deliverables
-- [ ] FR-1 confirmation note: the indexer is ONE consolidated belt; handlers compose intra-belt (`Action` via 21 handlers, etc.); no cross-belt federation exists.
-- [ ] The score-api boundary doc (FR-9, §10.1): indexer = hot serving tier (must not be lossy); score-api = warm/cold analytics safety net (cron → ClickHouse/Dune + fallbacks). The reconciliation gate is what keeps the indexer non-lossy.
-- [ ] The FR-10 reserve documented (the S0-proven on-demand split capability — Option A) as a dormant, documented-not-wired path; BeaconV3 declaration noted as the same reserve class.
-- [ ] **E2E goal validation** (Task 4.E2E below) — all of G1–G4 validated with documented evidence.
+- [ ] The 6-chain source backfilled to head on managed Envio Cloud; `freshness_lag_s` recorded per chain vs the live green head (FR-3).
+- [ ] A GraphQL parity result: sampled N per chain × collection (sized in S3) vs live green — 100% match on the sample, or a HALT with the drift documented (FR-4).
 
 ### Acceptance Criteria
-- [ ] Boundary doc clearly states "score-api fallback is a safety net for a brief swap blip, NOT a license for the indexer to be lossy" (PR#15 SKP-001 corrected emphasis).
-- [ ] FR-10 reserve is documented with the S0 codegen+tsc evidence ref; explicitly marked **not built this cycle**.
-- [ ] Every PRD goal (G1–G4) has a documented validation result; no goal marked "not achieved" without explicit justification.
+- [ ] All 6 chains (`1·10·42161·7777777·80094·8453`) backfill to head; Zora (7777777) confirmed first-class on HyperSync at this point (R4 resolved as supported; verify in practice during backfill).
+- [ ] `freshness_lag_s` recorded per chain.
+- [ ] Parity sample: a known wallet's holdings across the footprint collections + the 93 entities + `chain_metadata` — **100% on the sample** to proceed; **any drift HALTS** (FR-4).
+- [ ] Parity comparison runs against the **same Envio engine version on both sides** (G-A2 guarantee) — comparing two alpha versions invalidates the claim (SKP-003; sdd.md:427).
 
-### Task 4.E2E: End-to-End Goal Validation
+### Technical Tasks
+- [ ] **Task 4.1: 🔒 Deploy 6-chain source to Cloud + backfill to head; record `freshness_lag_s` per chain.** → **[G-1, G-3]** *(FR-3; sdd.md:452)*
+- [ ] **Task 4.2: GraphQL parity sample (N per chain × collection) vs live green; 100% or HALT.** → **[G-2]** *(FR-4; sdd.md:453)*
+- [ ] **Task 4.3: Record the parity verdict + (if re-port chosen in S3) confirm per-token entities present in the Cloud GraphQL surface.** → **[G-2]**
 
-**Priority:** P0 (Must Complete)
-**Goal Contribution:** All goals (G1, G2, G3, G4)
+### Dependencies
+- **Sprint 3:** gate record ALL-GREEN. **Sprint 1:** Cloud config + version match (so both sides are the same engine version).
 
-**Description:** Validate that all PRD launch criteria (`> prd.md:L173-180`) are achieved through the complete blue-green promotion implementation.
+### Security Considerations
+- Read-only parity sampling against live green (no mutation, no consumer repoint). NFR-3 holds.
 
-**Validation Steps:**
+### Risks & Mitigation
+| Risk | Prob | Impact | Mitigation |
+|------|------|--------|------------|
+| GraphQL drift on the sample | Med | Invalidates the cost as a parity number | HALT (FR-4); root-cause before clock; partial cost is interpretable only with the drift noted |
+| Zora HyperSync coverage gap in practice | Low (resolved as supported) | Blocks full 6-chain | RPC fallback for Zora only + note (NFR-4) |
+| Backfill slower/costlier than expected | Med | Skews `freshness_lag_s` / early spend | Record honestly; one-time backfill cost excluded from steady-state `cost_usd_month` (FR-7 normalization) |
+
+### Success Metrics
+- 6/6 chains at head; `freshness_lag_s` recorded.
+- Parity sample = 100% on N per chain × collection (or documented HALT).
+
+---
+
+## Sprint 5 (GID 181, FINAL): Measured 30-Day Cycle + Ratify + E2E Goal Validation
+
+**Scope:** MEDIUM (5 tasks) · **Duration:** 30-day measurement wall-clock with bounded engineering touch · **Maps to:** SDD Phase A.3 + A.4
+
+> **🔒 The only sprint that costs money. The FR-7 billing clock starts HERE — and ONLY after Sprint 3's gate record shows G-A1…G-A5 ALL GREEN.** Operator-gated: account billing, the 30-day wait, and invoice retrieval are operator actions.
+
+### Sprint Goal
+Run one normalized 30-day managed-Envio billing cycle with as-it-happens toil logging, capture the `measured` row into the loa-finn hash-chained ledger, ratify-or-revise the indexing-strategy ADR, and close `bd-buho` — then validate all three PRD goals end-to-end.
+
+### Deliverables
+- [ ] One 30-day billing cycle run on managed Envio Cloud; **every intervention logged as-it-happens** to the loa-finn toil ledger (setup minutes + `toil_incidents_30d` count + minutes each).
+- [ ] Pre-set early-halt criteria (cost ceiling + incident count + halt authority) defined **before** the clock starts (OQ-4).
+- [ ] A normalized steady-state `cost_usd_month` (calendar-days vs invoice billing-period; exclude one-time setup/credits/taxes; tier + overage model noted; + fallback line item if R1 was built).
+- [ ] The `measured` row captured via `pnpm indexing:capture add` and `indexing:read` rendering RATIFY or a documented revision; `bd-buho` closed.
+- [ ] If measure-without-it on per-token: the **operator-signed accepted-gap** attached to ratification (FR-6).
+- [ ] E2E goal validation evidence (Task 5.E2E).
+
+### Acceptance Criteria
+- [ ] Early-halt thresholds + halt authority set before the clock (OQ-4); if cost-overrun or incident threshold is hit, HALT + label the partial cycle interpretable (sdd.md:401-404).
+- [ ] Invoice normalized to steady-state; "invoice amount" definition resolved (credits/overages/taxes/tier discounts — OQ-5/IMP-011); recorded with `cost_basis` = "Envio Cloud invoice `<date>`, tier `<name>`, footprint = **6 chains**" (+ fallback line if R1).
+- [ ] The loa-finn ledger is hash-chained and **refuses to render a quote as `measured`** (NFR-2/R2); `indexing:read` validates the chain before render.
+- [ ] `bd-buho` closed with a `measured` 1x row on the 6-chain footprint; ADR ratified-or-revised; the trust caveat lifted.
+- [ ] No production subject was ever published to; `BELT_UPSTREAM` never repointed; no Railway service retired; no alias swapped (NFR-3 held through the whole cycle).
+
+### Technical Tasks
+- [ ] **Task 5.1: 🔒 Define early-halt criteria (cost ceiling + incident count + halt authority) before starting the clock (OQ-4).** → **[G-1]** *(IMP-004 avg 842.5; sdd.md:401-404)*
+- [ ] **Task 5.2: 🔒 Run the 30-day cycle; log toil as-it-happens to the loa-finn ledger; honor early-halt criteria.** → **[G-1]** *(FR-7)*
+- [ ] **Task 5.3: 🔒 Normalize the invoice → steady-state `cost_usd_month`** (calendar-days vs billing-period; exclude one-time setup/credits/taxes; resolve OQ-5 invoice-amount definition). → **[G-1]** *(IMP-006 avg 784, IMP-011)*
+- [ ] **Task 5.4: 🔒 `pnpm indexing:capture add --row '…cost_source:"measured"…'` → `indexing:read` → ratify-or-revise → close `bd-buho`.** Attach the operator-signed accepted-gap if measure-without-it was chosen. → **[G-1, G-2]** *(FR-8; sdd.md:459-461)*
+- [ ] **Task 5.E2E: End-to-End Goal Validation.** **Priority: P0 (Must Complete).** **Goal Contribution: All (G-1, G-2, G-3).** → **[G-1, G-2, G-3]**
+
+### Task 5.E2E — Validation Steps
 
 | Goal ID | Goal | Validation Action | Expected Result |
 |---------|------|-------------------|-----------------|
-| **G1** | Zero-downtime updates | Run a real source-add promotion (or replay the S2/S3 dry-run + reload swap); poll the alias through the swap | 0 consumer-visible downtime — no 5xx spike on the stable endpoint (Option B reload) |
-| **G2** | Cost ceiling < $100/mo | Read Railway steady-state cost; confirm single-belt ≈ $84/mo; confirm promotion-window 2× is transient + bounded | Steady-state < $100/mo; transient cost quantified (S2 Task 2.3) |
-| **G3** | API serving consistency | Confirm 0 consumer config changes across the promotion; run `promotion-gate.js` Part-2 reconciliation | 0 config changes; AC-R7 footprint reconciliation PASS (no dropped entity) |
-| **G4** | Background re-sync + promotion gate | Confirm `promotion-gate.js` exit 0 required pre-swap (block ≥ blue every chain + reconciliation); confirm rollback exercised | Gate enforced as the swap precondition (R-D `promote` flow); rollback (revert `BELT_UPSTREAM`) exercised |
+| **G-1** | Measured 1x row on 6-chain footprint, ratify-or-revise | `pnpm indexing:read` in loa-finn; inspect the `measured` row's `cost_basis` (invoice + tier + 6-chain footprint) + `toil_incidents_30d` | `RATIFY` (or documented revision); `bd-buho` closed; ledger renders `measured`, refuses quote |
+| **G-2** | Functional parity (GraphQL + events-pillar + per-token decision) | GraphQL: S4 100% sample result. Events: S2 G-A3 verdict (works or R1). Per-token: S3 decision (ported or signed accepted-gap) | All three documented; if any drift/gap, it is explicit and (per-token) operator-signed |
+| **G-3** | De-risk managed direction (6-chain HyperSync incl. Zora; events-pillar runnable or blocker) | Confirm Zora (7777777) backfilled at head (S4); G-A3 verdict shows events-pillar runnable on Cloud OR R1 named (S2) | HyperSync 6-chain confirmed; events path resolved (in-process OR R1); no unknown blocker remains |
 
 **Acceptance Criteria:**
-- [ ] Each goal validated with documented evidence written to `grimoires/loa/a2a/sprint-176/e2e-validation.md`.
-- [ ] The swap-atomicity decision (FR-6 Option B) is recorded with the measured swap downtime characteristic.
-- [ ] The breaking (non-additive) schema change path is documented (expand/contract).
-- [ ] No goal marked "not achieved" without explicit justification.
-
-### Technical Tasks
-- [ ] Task 4.1: Write the FR-1 one-belt confirmation note + the FR-9 score-api boundary doc (§10.1). → **[G-3]**
-- [ ] Task 4.2: Document the FR-10 on-demand-split reserve (Option A, with S0 evidence) + the BeaconV3 reserve note — design only, no code (§10.2). → **[G-2]**
-- [ ] Task 4.E2E: Execute the end-to-end goal validation (table above); write results to `grimoires/loa/a2a/sprint-176/e2e-validation.md`. → **[G-1, G-2, G-3, G-4]**
+- [ ] Each goal validated with documented evidence (link the loa-finn ledger row, the S4 parity result, the S2 G-A3 record, the S3 per-token decision).
+- [ ] Integration points verified: the `measured` row's footprint = 6 chains; the parity comparison ran same-engine-version both sides.
+- [ ] No goal marked "not achieved" without explicit justification (e.g., a documented revision is a valid G-1 outcome).
 
 ### Dependencies
-- S1 (gate), S2 (dry-run + green-build), S3 (swap atomicity + rollback) — E2E validates the whole stack.
+- **Sprint 4** (backfill + parity GREEN) and **Sprint 3** (gate ALL-GREEN — the hard clock barrier).
+- **`bd-buho`** (loa-finn) is the external gate this sprint closes; the loa-finn hash-chained ledger (`pnpm indexing:capture` / `indexing:read`) must be operational.
 
 ### Security Considerations
-- **Trust boundaries:** documentation sprint — no new trust surface. The E2E validation re-confirms the S3 admin-API-off-host-unreachable property still holds.
-- **External dependencies:** none.
-- **Sensitive data:** none added; boundary doc references the existing score-api lambda split.
+- NFR-3 is the hard rule for the entire cycle: no production publish, no repoint, no retirement, no alias swap — any such step is Phase B.
 
 ### Risks & Mitigation
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Re-scoping regresses the score-api#151 footprint (R7) | Med | High | E2E G3 = AC-R7 reconciliation; the shipped belt stays SOLE source until a green verifiably reconciles (score-api#151 repoint deferred) |
-| A goal can't be validated end-to-end (e.g. no real promotion run yet) | Low | Med | Replay the S2/S3 dry-run as the G1/G4 evidence; mark "validated via dry-run" explicitly |
+| Risk | Prob | Impact | Mitigation |
+|------|------|--------|------------|
+| 6-chain Cloud price ≫ recollected ~$70 | Med | Revises (not ratifies) the verdict | That is the point of measuring; record honestly; ledger refuses quote-as-measured (R2) |
+| Mid-cycle incident inflates toil | Med | Affects the toil metric | Log as-it-happens; early-halt if threshold exceeded; partial cycle labeled interpretable |
+| Pro-rated/credit-laden invoice misread as steady-state | Med | Wrong `cost_usd_month` | Normalization (5.3): calendar-days vs billing-period, exclude one-time/credits/taxes (IMP-006/011) |
+| Ratifying a lesser-featured indexer without sign-off | High (if accepted-gap) | Bad ADR | Operator-signed accepted-gap mandatory at FR-8 (5.4) |
 
 ### Success Metrics
-- All 4 PRD goals validated with evidence in `e2e-validation.md`.
-- Boundary + reserve docs complete.
+- 1 normalized `measured` row in the loa-finn ledger (6-chain footprint).
+- `indexing:read` emits RATIFY or a documented revision; `bd-buho` closed.
+- 3-way parity documented (GraphQL 100% sample; events verdict; per-token decision).
+- All three PRD goals validated E2E with linked evidence.
+
+---
+
+## Out-of-Scope — Phase B (HARD-GATED on `bd-buho` ratifying)
+
+> Captured so the intent isn't lost (PRD §8). **Not started until `bd-buho` closes RATIFY.** Designed-not-built (SDD §9 Phase B).
+
+- **Consumer repoint** — inventory-api (`SONAR_GRAPHQL_ENDPOINT`), score-api (`ENVIO_GRAPHQL_URL`), apdao-auction-house, score-mibera, mibera-codex, dimensions. Each verified from its *running* env, not committed defaults (the #71 scar).
+- **Railway teardown** — the "delete the complete Railway" end-state — gated on 3 carve-outs that do NOT trivially delete: (1) events-pillar has a confirmed home (Cloud publishes, or R1 standalone service); (2) eRPC shared cluster proxy (blast radius beyond sonar — decide explicitly); (3) the stable-alias gateway / DID-pinning (R5 — keep the gateway or move the alias to DNS).
+- **Alias swap** (`BELT_UPSTREAM` → Envio Cloud URL via `scripts/promote.sh`).
+
+> 🔐 **Note:** `SONAR_SIGNING_SEED_HEX` rotation (`bd-54c`) is **NOT** deferred to Phase B — it is **Sprint 1, Task 1.1**, a live security action done immediately (PRD §8, SKP-001).
 
 ---
 
 ## Risk Register
 
-| ID | Risk | Sprint | Probability | Impact | Mitigation | Source |
-|----|------|--------|-------------|--------|------------|--------|
-| R1 | Swap not truly atomic (Railway redeploy blip) | S2, S3 | Med | Med | FR-6 Option B `caddy reload` (S3); measure 5xx during dry-run (S2) | prd R1 |
-| R2 | Breaking schema change behind additive-only alias | S3 | Med | High | Expand/contract path + schema-diff superset gate fails non-additive green | prd R2 |
-| R3 | Promotion on block-height alone passes a green with dropped entities | S1 | Med | High | Two-part gate (entity-count + schema-diff + content sample), not height alone | prd R3 / SKP-002 |
-| R4 | Green build fails to seed all chains (KF-013) → silent-skip | S2 | Med | High | Seed-count verify before resume; retry `ENVIO_RESTART=1` until match | KF-013 |
-| R5 | Promotion-window 2× cost vs 89% memory headroom | S2 | Med | Med | Confirm plan headroom; bound window; batch changes into one green | prd R5 / R-C |
-| R6 | Green never converges (chain backfill slower than block prod) | S2 | Low | High | Warm eRPC cache; G4 wall-time once; escalate RPC tier | prd R6 |
-| R7 | Re-scoping regresses score-api#151 footprint | S1, S4 | Med | High | Reconciliation = AC-R7; shipped belt SOLE source until green reconciles | prd R7 |
-| R8 | KF-012 op-stack getLogs-liar on a new source's chain | S1 | Med | High | Per-chain getLogs verification + raw-L1 spot-check (R-B); gate catches gap | KF-012 |
-| R9 | Caddy admin API widens gateway attack surface | S3 | Low | Med | Bind localhost-only; verify off-host-unreachable; contingency Option C | sdd §7 |
-| R10 | Envio codegen treats superset schema as additive (unconfirmed) | S2 | Low | High | Confirm on the first real promotion (OQ-3); S0 proved subset codegens cleanly | sdd §3.3 |
-| R-B | Shared eRPC cache → blue=green both-wrong passes reconciliation | S1 | Med | High | Raw-L1 `eth_getLogs` spot-check bypasses cache | sdd §17 R-B |
-| R-E | Counts match but rows wrong/dup/stale | S1 | Med | High | Field-level content sample for N sampled IDs | sdd §17 R-E |
-| R-F | Racy comparison while both belts advance | S1 | Med | Med | Fixed block cutoff per chain | sdd §17 R-F |
-| R-D | Bypassable gate (operator swaps directly) | S3 | Med | High | `promote` flow makes the gate a non-skippable precondition | sdd §17 R-D |
+| ID | Risk | Sprint | Prob | Impact | Mitigation | Owner |
+|----|------|--------|------|--------|------------|-------|
+| SEC | `SONAR_SIGNING_SEED_HEX` compromised, signing live events | S1 | **High (live)** | Forgeable events now | **Rotate NOW** (1.1, bd-54c); independent of migration | zerker |
+| R1 | Events-pillar can't run on managed Envio (egress/seed-custody/in-process pkg) | S2 | Med | **Blocks direction** | G-A3 (TEST subject) before clock; §3 R1 fallback named/designed; cost includes fallback | KRANZ Act-1 / zerker |
+| BUILD | Cloud build sandbox rejects custom postinstall (vendored events pkg) | S2 | Unknown | Forces R1 even if NATS reachable | G-A3 tests the real in-process path on Cloud (OQ-3) | operator |
+| R6 | Envio version drift (alpha.17 vs Cloud) | S1 | Med | Invalidates parity / balloons scope | G-A2 before deploy; bound delta as task (SKP-003) | operator |
+| R3 | Per-token divergence (Envio lacks #69) | S3 | High | Apples-to-oranges | G-A4 deadline; pure helper bounds re-port; accepted-gap if not (FR-6) | operator |
+| R7 | Third-party secret exposure (Cloud holds seed + CA) | S1/S2 | Med | Trust-boundary expansion | Separate Phase-A key (SKP-002); R1 keeps seed in-cluster | zerker |
+| R4 | Zora (7777777) HyperSync coverage in practice | S4 | Low (resolved: supported) | Blocks full 6-chain | Confirm at backfill; RPC fallback for Zora only + note (NFR-4) | operator |
+| R2 | 6-chain Cloud price ≫ recollected ~$70 | S5 | Med | Revises (not ratifies) | The point of measuring; ledger refuses quote-as-measured | operator |
 
 ---
 
@@ -328,106 +352,84 @@ Confirm FR-1 (one belt — mostly already true), write the score-api boundary do
 
 | Metric | Target | Measurement Method | Sprint |
 |--------|--------|--------------------|--------|
-| Gate self-parity | exit 0 (blue-vs-blue) | `node scripts/promotion-gate.js` | S1 |
-| Gate negative cases | exit non-zero on ≥3 injected failures | gate test harness (IMP-009) | S1 |
-| Footprint coverage | 12/12 score-api entities reconciled | Part-2 reconciliation entity list | S1 |
-| Green isolation | blue `chain_metadata` untouched by green `--restart` | dry-run promotion | S2 |
-| G4 backfill wall-time | one concrete number captured | dry-run promotion measurement | S2 |
-| Steady-state cost | < $100/mo (≈ $84/mo single belt) | Railway cost reading | S2, S4 |
-| Zero-downtime swap | 0 5xx on the alias during a `caddy reload` swap | swap probe | S3 |
-| Admin endpoint security | unreachable off-host | off-container curl verification | S3 |
-| Gate non-skippable | swap only via `promote` flow (gate precondition) | promote-flow review | S3 |
-| All PRD goals | G1–G4 validated with evidence | `e2e-validation.md` | S4 |
+| Seed rotated | 1 (bd-54c closed) | Railway env shows new value; post-rotation signature verifies new key | S1 |
+| G-A1 HyperSync restore | codegen clean; `erpc.railway.internal` count = 0; 6/6 chains HyperSync | codegen log + grep | S1 |
+| G-A2 version match | compatible or bounded-task | Cloud version probe + schema-field diff | S1 |
+| G-A5 footprint | 6-chain | loa-finn runbook line | S1 |
+| G-A3 events-pillar | ≥N signed events verified on TEST subjects, OR documented blocker | canary deploy → synthetic mints → subscriber verify | S2 |
+| G-A4 per-token | decision made + parity N sized | spike + decision record | S3 |
+| §5.5 gate | G-A1…G-A5 ALL GREEN | gate record artifact | S3 |
+| GraphQL parity | 100% on N-per-chain×collection sample | sample vs live green, same engine version | S4 |
+| `freshness_lag_s` | recorded per chain | post-backfill measurement | S4 |
+| Measured `cost_usd_month` | 1 normalized steady-state row | loa-finn `indexing:capture`/`read` | S5 |
+| ADR outcome | ratified-or-revised; `bd-buho` closed | loa-finn `indexing:read` emits RATIFY | S5 |
 
 ---
 
 ## Dependencies Map
 
 ```
-S0 (172, DONE) ──▶ S1 (173) ──────▶ S2 (174) ──────▶ S3 (175) ──────▶ S4 (176, E2E)
-  spike →            the gate          green-build       swap atomicity     boundary + reserve
-  reframe            (net-new code)    + dry-run loop    + rollback + B/C    + validate G1–G4
-                     FR-2, FR-4        FR-3, FR-8        FR-5, FR-6, FR-7    FR-1, FR-9, FR-10
+S1 (security + gate foundation) ───┬──▶ S2 (G-A3 blocker-decider + R1?) ──▶ S3 (G-A4 + §5.5 ALL-GREEN)
+  1.1 seed rotation (independent)  │      2.4/2.5 R1 only on G-A3 FAIL          │
+  1.4-1.6 Cloud config + version ──┘                                            │  [HARD CLOCK BARRIER]
+                                                                                ▼
+                                                            S4 (backfill + parity) ──▶ S5 (30-day measured + ratify + E2E)
+                                                              4.x pre-clock              5.2 clock STARTS HERE 🔒
 ```
 
 ---
 
 ## Appendix
 
-### A. PRD Feature Mapping
+### A. PRD Functional-Requirement Mapping
 
-| PRD Feature (FR-X) | Priority | Sprint | Status |
-|--------------------|----------|--------|--------|
-| FR-1 — Consolidated belt | P2 | S4 (confirm) | Planned (mostly already true) |
-| FR-2 — Stable alias (specify contract) | P0 | S1 | Planned |
-| FR-3 — Blue-green promotion | P0 | S2 | Planned |
-| FR-4 — Promotion gate (reconciliation) | P0 | S1 | Planned |
-| FR-5 — Rollback | P0 | S3 | Planned |
-| FR-6 — Swap atomicity | P1 | S3 | Planned |
-| FR-7 — Additive-only + breaking-change path | P1 | S1 (diff) + S3 (path) | Planned |
-| FR-8 — Green-build orchestration | P1 | S2 | Planned |
-| FR-9 — score-api boundary | P2 | S4 | Planned |
-| FR-10 — On-demand split (reserve) | P2 | S4 (doc only) | Planned (no code) |
+| PRD FR | Sprint | Status |
+|--------|--------|--------|
+| FR-1 (Restore HyperSync) | S1 (1.4-1.5, G-A1) | Planned |
+| FR-2 (Deploy 6-chain to Cloud; record cost_basis) | S2 (2.1) | Planned |
+| FR-3 (Backfill to head; freshness_lag_s) | S4 (4.1) | Planned |
+| FR-4 (GraphQL parity sample) | S4 (4.2-4.3); sized S3 (3.2) | Planned |
+| FR-5 (Events-pillar parity, TEST subject) | S2 (2.2-2.3, G-A3) | Planned |
+| FR-6 (Per-token decision w/ deadline) | S3 (3.1, G-A4) | Planned |
+| FR-7 (30-day cycle; toil; early-halt; normalize) | S5 (5.1-5.3) | Planned |
+| FR-8 (Capture + ratify; close bd-buho) | S5 (5.4) | Planned |
 
-### B. SDD Component Mapping
+### B. SDD Component / §5.5 Gate Mapping
 
-| SDD Component / §17 finding | Sprint | Status |
-|----------------------------|--------|--------|
-| `promotion-gate.js` (§6.2) | S1 | Planned |
-| Stable alias contract (§4) | S1 | Planned |
-| R-B raw-L1 spot-check (§17) | S1 | Planned |
-| R-E content sample (§17) | S1 | Planned |
-| R-F fixed-block cutoff (§17) | S1 | Planned |
-| R-G tolerance model (§17) | S1 | Planned |
-| IMP-001/005/007/009 (gate impl reqs) | S1 | Planned |
-| Green-build procedure + seed-count gate (§5.2) | S2 | Planned |
-| R-A blue-keeps-indexing rollback (§17/§8) | S2, S3 | Planned |
-| R-C plan-headroom for 2× (§17/§5.4) | S2 | Planned |
-| IMP-003 sustained-parity (§17) | S2 | Planned |
-| Caddy graceful reload + localhost admin (§7.4) | S3 | Planned |
-| R-D non-skippable `promote` precondition (§17) | S3 | Planned |
-| Expand/contract breaking-change path (§9.2) | S3 | Planned |
-| score-api boundary + FR-10 reserve (§10) | S4 | Planned |
+| SDD Component / Gate | Sprint | Status |
+|----------------------|--------|--------|
+| Phase A.0 — security pre-action (seed rotation, separate key) | S1 (1.1-1.2) | Planned |
+| G-A5 — footprint correction | S1 (1.3) | Planned |
+| G-A1 — HyperSync restored (Cloud config + codegen) | S1 (1.4-1.5) | Planned |
+| G-A2 — version match | S1 (1.6) | Planned |
+| G-A3 — events-pillar reachability (in-process / OQ-3) | S2 (2.1-2.3) | Planned |
+| §3 R1 — standalone NATS publisher (contingent) | S2 (2.4-2.5, only on G-A3 FAIL) | Planned (dormant) |
+| G-A4 — per-token scope + parity sizing | S3 (3.1-3.2) | Planned |
+| §5.5 gate record — ALL GREEN barrier | S3 (3.3) | Planned |
+| Phase A.2 — backfill + parity | S4 | Planned |
+| Phase A.3/A.4 — measured cycle + ratify | S5 | Planned |
 
 ### C. PRD Goal Mapping
 
 | Goal ID | Goal Description | Contributing Tasks | Validation Task |
 |---------|------------------|--------------------|-----------------|
-| **G1** | Zero-downtime updates (blue-green + atomic swap) | S1: 1.5 · S2: 2.1, 2.4 · S3: 3.1, 3.2, 3.3, 3.4 | S4: Task 4.E2E |
-| **G2** | Cost ceiling < $100/mo | S2: 2.3 · S4: 4.2 | S4: Task 4.E2E |
-| **G3** | API serving consistency (stable alias, no split-brain) | S1: 1.3, 1.5, 1.8 · S3: 3.5 · S4: 4.1 | S4: Task 4.E2E |
-| **G4** | Background re-sync + promotion gate | S1: 1.1, 1.2, 1.3, 1.4, 1.6, 1.7 · S2: 2.1, 2.2, 2.4, 2.5 · S3: 3.4 | S4: Task 4.E2E |
+| **G-1** | Measured 1x row on 6-chain footprint; ratify-or-revise; close bd-buho | S1: 1.3, 1.6 · S2: 2.1, 2.5 · S3: 3.3 · S4: 4.1 · S5: 5.1, 5.2, 5.3, 5.4 | S5: 5.E2E |
+| **G-2** | Functional parity (GraphQL + events-pillar + per-token decision) | S2: 2.2, 2.3, 2.4 · S3: 3.1, 3.2, 3.3 · S4: 4.2, 4.3 · S5: 5.4 | S5: 5.E2E |
+| **G-3** | De-risk managed direction (6-chain HyperSync incl. Zora; events-pillar runnable or blocker) | S1: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6 · S2: 2.1, 2.2, 2.3, 2.4, 2.5 · S4: 4.1 | S5: 5.E2E |
 
 **Goal Coverage Check:**
-- [x] All PRD goals (G1–G4) have at least one contributing task.
-- [x] All goals have a validation task in the final sprint (S4 Task 4.E2E).
-- [x] No orphan tasks (every task annotated → **[G-N]**).
+- [x] All PRD goals have at least one contributing task (G-1, G-2, G-3 all mapped).
+- [x] All goals have a validation task in the final sprint (S5 Task 5.E2E covers G-1, G-2, G-3).
+- [x] No orphan tasks — every task is annotated `→ **[G-N]**`.
 
 **Per-Sprint Goal Contribution:**
-- S0 (done): foundation/reframe — informs G2 (cost), no live goal contribution.
-- S1: G4 (gate core), G3 (alias contract + schema diff), G1 (schema superset).
-- S2: G1 (green build + dry-run), G4 (seed-count + sustained-parity), G2 (plan headroom).
-- S3: G1 (zero-downtime swap), G3 (breaking-change path), G4 (rollback + non-skippable gate).
-- S4: E2E validation of all goals G1–G4.
+
+- S1: G-3 (foundation: security + 3 gates), G-1 (partial: footprint + version → valid cost basis).
+- S2: G-2 (partial: events-pillar verdict), G-3 (de-risk: events egress), G-1 (partial: cost_basis quote + fallback line).
+- S3: G-2 (per-token decision + parity sizing), G-1/G-3 (gate close-out enabling a valid measurement).
+- S4: G-2 (GraphQL parity), G-1/G-3 (backfill + freshness).
+- S5: G-1 (measured + ratify), G-2 (3-way parity documented), G-3 (Zora at head; events resolved); E2E validation of all goals.
 
 ---
 
-## Flatline Remediation (sprint-phase — 3-model, CLI subscription $0, full confidence)
-
-Integrated from the sprint-plan adversarial review (`grimoires/loa/a2a/flatline/sprint-review.json`). These are sprint-level gaps the SDD §17 didn't cover:
-
-- **SR-1 (SKP-001/003 CRITICAL — gates S1; NEW Task 1.0).** Tasks 1.3/1.4 assume at-block ("as of block N") querying works, but Hasura/Envio serves **current** state — fine for append-only event entities that carry a `block_number` (filter + count), **not** for mutable aggregates (`PaddleSupplier`, `*Stats`, overwritten in place). **Add Task 1.0 (BEFORE 1.3/1.4): reconciliation-feasibility spike** — for each of the 12 AC-R7 entities, confirm whether at-block querying is possible (has a block column) and **classify** it: (a) append-only → at-block count at the fixed cutoff; (b) mutable aggregate → reconcile at a **settled** block below the reorg threshold via event-derived recompute OR current-state compare once both belts pass the cutoff. If a class supports neither, the gate documents the deterministic alternative. **Tasks 1.3/1.4 implement per the 1.0 classification; do not assume uniform at-block querying.**
-- **SR-2 (SKP-001 CRITICAL — S2).** Green's transient 2× backfill vs Railway memory is a **hard provisioning pre-req**, not just "confirm headroom": green runs in a strictly isolated Railway environment OR a temporary plan-ceiling upgrade is verified **before** green backfill starts; a promotion that would exceed plan memory is **blocked**. (Add to S2 green-build acceptance.)
-- **SR-3 (SKP-002/001 HIGH — S3).** The `promote` flow must be a **named, enforced artifact**: `scripts/promote.sh` that (1) runs `node scripts/promotion-gate.js`, (2) fails closed on non-zero, (3) is the **only** path that writes `BELT_UPSTREAM` / triggers the Caddy reload. Restrict manual write paths (gateway config in a controlled script, not ad-hoc `railway variables` edits) so the gate is non-bypassable in mechanism, not just by documentation (closes R-D properly).
-- **SR-4 (SKP-002 HIGH — S1 Task 1.6).** The raw-L1 `eth_getLogs` spot-check will hit **free-RPC rate limits**: add exponential backoff + jitter, and use a **dedicated low-tier RPC key** for the gate (not the shared free pool / not the eRPC cache it's bypassing).
-- **SR-5 (SKP-003 HIGH — S1 Task 1.6).** The content sample targets **deterministic "golden" entity IDs** (e.g. a known genesis/protocol tx per entity class), not random sampling — so a semantic mutation in a fixed, high-signal record is reliably caught.
-- **SR-6 (SKP-002 HIGH — S3 §7.4).** Caddy admin hardening beyond localhost TCP: prefer a **unix socket with filesystem perms**, explicitly disable network exposure at the service level, and audit config reloads. (Strengthens the OQ-1 localhost-only constraint.)
-- **SR-7 (high-consensus — S1/S2).** Cross-cutting: (a) **fail-closed** gate semantics — any check error/unknown → FAIL, never PASS (IMP-004); (b) explicit **rollback-window duration** before blue is retired (IMP-001); (c) enumerate the **full 12-entity AC-R7 footprint list** in the plan for auditable 12/12 coverage (IMP-009); (d) an explicit **blue-keeps-indexing verification step** in S2 (IMP-008, confirms R-A); (e) a **mechanical zero-dep check** for `promotion-gate.js` (IMP-010); (f) gate **execution env + required env vars** documented (IMP-005).
-
-**Disputed (operator's call, not auto-integrated):** IMP-011 (dry-run green-copy mechanism — what the dry-run actually proves), IMP-012 (re-verify Caddy exposure after later deploys — config-drift guard), IMP-013 (backfill wall-time escalation threshold). Left as S2/S4 judgment calls.
-
-**Status: sprint plan Flatline-remediated (SR-1..SR-7).**
-
----
-
-*Generated by Sprint Planner Agent — tracks PRD r2 + SDD r7. Supersedes sprint.md v1.0 (RETIRED 12-belt plan). Flatline-remediated 2026-05-22 (SR-1..SR-7).*
+*Generated by Sprint Planner Agent (ARCH · OSTROM, craft lens). Plans Phase A only; Phase B is hard-gated on `bd-buho`.*

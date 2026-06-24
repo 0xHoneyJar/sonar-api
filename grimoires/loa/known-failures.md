@@ -1,3 +1,13 @@
+---
+title: "Known Failures — Things We Tried That Didn't Work"
+trust_tier: operator-authored
+read_state: unread
+confidence: 0.6
+decay_class: working
+last_confirmed: 2026-06-23
+operator_signed: self_attested
+---
+
 # Known Failures — Things We Tried That Didn't Work
 
 > **Read this file at session start.** This is the operational log of degradation

@@ -1,3 +1,13 @@
+---
+title: "Session Notes"
+trust_tier: operator-authored
+read_state: unread
+confidence: 0.6
+decay_class: working
+last_confirmed: 2026-06-23
+operator_signed: self_attested
+---
+
 # Session Notes
 
 ## ⏳ ACTIVE SPIKE — self-host Envio+HyperSync measure (cost-read due 2026-06-22 · `bd-fj1n.4`)
@@ -571,3 +581,21 @@ the green/Ponder path it voted to leave.
 - **MIBERA BELT — DEFERRED to the Ponder→Envio cutover (operator decision 2026-06-18).** `src/belts/mibera/EventHandlers.mibera.ts` is config.mibera.yaml's curated loader (a re-export aggregator) — broken by the port (imports the dropped `handleX` exports). It is NOT obsolete cruft: it's a live CI-gated separate deployment (belt-build.yml 3 gates, codegen:mibera, tsconfig.mibera.json, verify-belt-config). config.mibera is a clean SUBSET of config.yaml. Operator: "once we cut Ponder, all remnants are cleared" → leave untouched; harmless to config.yaml (scoped tsconfig excludes it). The mibera handler MODULES (in src/handlers/) ARE ported.
 - **TOPOLOGY (clears the confusion):** 3 indexers — Envio-classic (dead/frozen), **sovereign-Ponder (`ponder.config.ts`, GREEN = current prod)**, **managed-Envio (`config.yaml`@3.2.1, just ported = TARGET)**. This session was an envio API-version port (alpha.17→3.2.1), NOT a system migration. Per ADR 2026-06-16: move Layer-1 Ponder→managed-Envio to shed Railway toil, but gated on `bd-buho` (1 real billing cycle). This session = the prerequisite; the cutover is future/evidence-gated.
 - **RESUME = AC-PORT-9 (operator-driven, the ONLY Cloud round-trip).** Push the 3 commits to origin → operator points an Envio Cloud instance at `feat/envio-321-port` (full `config.yaml`) → confirm it gets PAST the crash-loop + syncs the 6 chains (1, 10, 8453, 42161, 7777777, 80094). FR-4 parity vs live green via promotion-gate.js expansion-mode (open: parity-vs-on-chain-ground-truth, NOT vs alpha.17 green — flatline SKP-002/012). → unblocks managed deploy → 6-chain price/version → `bd-buho` ratify. Beads closed: bd-o0g, bd-5hq, bd-un9. Open tail: bd-4t2c (Cloud gate), bd-lst9 (E2E), bd-voi (S184 epic).
+
+## 2026-06-23 — Session synthesis (⚠ SUPERSEDES the AC-PORT-9 resume pointer directly above)
+
+**The "AC-PORT-9 / Cloud" pointer above is RETIRED.** Operator confirmed sonar runs on **Railway, not managed Envio Cloud**. The managed-Cloud cutover cluster (bd-4t2c / bd-lst9 / bd-voi / bd-7l7.1 / bd-7l7.5 + epic bd-2io) is **CLOSED as superseded**. KF-015 OOM is already solved on Railway (`NODE_OPTIONS=--max-old-space-size` service var) — not a Cloud lever.
+
+**Shipped:**
+- **PR #75 MERGED** (`9cf7152f`) — envio 3.2.1 port; a BB-equiv review caught + I fixed a real FatBera-deposit-window regression (H1) + verify-tsconfig gap (H2). verify:321 6/6, bijection 83/83.
+- **PR #76 OPEN** — Pythenians ($PTN) NFT-collection ownership SVM pipe (Helius DAS getAssetsByGroup, run-marker reconcile, two wipe guards). Hardened after an adversarial review caught a committed `node_modules` symlink + 8 issues. Branch `feat/svm-pythians-holders` → `feat/envio-cloud-hypersync`.
+- Bead reconciliation committed: sonar `7860cf28` (17 closes), loa-finn `8d686d82` (bd-bqek dune-meter-merge + bd-ijnh retract).
+
+**Verified MVP truth (corrects my own earlier over-claims this session):**
+- The **Shadow-Mode MVP is BUILT** — loa-freeside **#296** (`shadow-access-audit`): `packages/protocol/shadow-audit` + `adapters/sonar` (Transfer-replay, reorg-safe) + `services/shadow-audit` + SDD (`loa-freeside/grimoires/loa/sdd.md`). NOT a gap.
+- **Sonar's role = serve the `Transfer` stream** the loa-freeside `adapters/sonar` adapter folds (`belt-gateway-production/v1/graphql`). **MET.** No sonar audit-layer work needed (I retracted a redundant spec + bead).
+- Remaining: dune-meter merge (loa-freeside `feat/dune-meter-cost-adapter` `8b8c0142` — fixed, unmerged; loa-finn Corpus-Engine next cycle, NOT the audit) · control-plane wiring (coexistence adapter built-not-wired, deferred post-validation) · external-audit on-demand indexing (deferred SKU). Arrakis = external context only, `decisionEligible:false` at MVP.
+
+**Recall discipline (meta-lesson):** `/recall` (QMD) is healthy (~11.7k files); use the DEFAULT `query` mode — **never `--mode search`** on conceptual intents (returns 0; caused 3 over-assertions this session). Pruned the phantom `construct-observer` collection + stamped 22 grimoire artifacts → `recall-doctor` verdict now **HONEST**.
+
+**RESUME (grounded):** Shadow-Mode audit MVP is shipped; sonar has no MVP-blocking work (PR #76 is review-ready). Next high-leverage is operator-gated: (a) loa-finn re-point (Corpus Engine = the product; close drift sprints — needs per-sprint grounding) + the dune-meter merge; (b) the 29 orphan QMD collections (governance-declaration reconciliation, doctor coverage warning).
