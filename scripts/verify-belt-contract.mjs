@@ -48,7 +48,7 @@ async function introspectType(endpoint, typeName) {
 }
 
 // flatten a GraphQL type ref down to its named scalar (NON_NULL/LIST unwrap)
-const baseTypeName = (t) => (t?.name ?? baseTypeName(t?.ofType) ?? null);
+const baseTypeName = (t) => (t == null ? null : (t.name ?? baseTypeName(t.ofType) ?? null));
 
 async function main() {
   const manifest = JSON.parse(await readFile(manifestPath ?? join(HERE, 'belt-contract.json'), 'utf8'));
