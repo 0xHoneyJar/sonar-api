@@ -1,0 +1,47 @@
+# belt-contract-guard — the live drift alarm for sonar's GraphQL read-contract.
+#
+# Sibling of loa-freeside cycle-112 ("Schema-Emission Coherence Floor", the NATS-emit
+# floor): same doctrine — the wire is the contract; verify it — for the GraphQL READ
+# surface that consumers (the loa-freeside shadow-audit's adapters/sonar) depend on.
+#
+# Origin: loa-freeside#300 — the shadow-audit shipped a query against an ASSUMED Transfer
+# schema (logIndex/txHash/value) that the live wire never served → 400 → no audit could
+# run, invisible because its tests mocked the wire. This guard introspects the LIVE
+# belt-gateway and fails the moment a consumer-depended field drifts — so the producer
+# learns here, on a schedule, instead of a consumer learning in production.
+#
+# Scheduled (not per-PR): the check hits a live endpoint, so it lives off the PR hot path
+# to avoid network flake gating merges. A real drift (exit 1) fails loud; a transient
+# unreachable endpoint (exit 2) warns without crying wolf.
+name: belt-contract-guard
+
+on:
+  schedule:
+    - cron: "17 13 * * *" # daily ~13:17 UTC
+  workflow_dispatch: {} # run on demand
+
+permissions:
+  contents: read
+
+jobs:
+  verify-live-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify live belt-gateway contract
+        run: |
+          set +e
+          node scripts/verify-belt-contract.mjs
+          code=$?
+          set -e
+          if [ "$code" = "1" ]; then
+            echo "::error title=belt-gateway contract drift::A consumer-depended field changed/disappeared on the live Transfer type. A downstream consumer (e.g. the loa-freeside shadow-audit) will break. Fix the producer or update scripts/belt-contract.json + every consumer in lockstep."
+            exit 1
+          elif [ "$code" = "2" ]; then
+            echo "::warning title=belt-gateway unreachable::Could not introspect the live endpoint (transient?). Not failing the guard; re-runs on the next schedule."
+            exit 0
+          fi
+          echo "belt-gateway contract holds ✓"
