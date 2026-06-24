@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "active_cycle": "sonar-belt-factory",
+  "active_cycle": "indexing-managed-envio",
   "cycles": [
     {
       "id": "cycle-036",
@@ -1392,10 +1392,10 @@
     {
       "id": "sonar-belt-factory",
       "label": "sonar-api belt-factory — composable freeside-* building (D4 split + BeaconV3 + Effect serving)",
-      "status": "active",
+      "status": "superseded",
       "created": "2026-05-22T00:23:59Z",
-      "archived": null,
-      "archive_path": null,
+      "archived": "2026-06-17T18:25:32Z",
+      "archive_path": "grimoires/loa/context/sprint-sonar-belt-factory-v2-SUPERSEDED-2026-05-22.md",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
       "sprints": [
@@ -1438,6 +1438,107 @@
           "scope": "SMALL",
           "status": "planned",
           "priority": "P2"
+        }
+      ]
+    },
+    {
+      "id": "indexing-managed-envio",
+      "label": "Layer-1 indexing → Managed Envio (Phase A: stand-up + measured ratification)",
+      "status": "active",
+      "created": "2026-06-17T18:25:32Z",
+      "archived": null,
+      "archive_path": null,
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprints": [
+        {
+          "global_id": 177,
+          "local_label": "sprint-1",
+          "status": "planned",
+          "created": "2026-06-17T18:25:52Z",
+          "completed": null,
+          "label": "S1 — Security pre-action + gate foundation (Phase A.0 + A.1 head: rotate seed bd-54c, separate Phase-A key, footprint correction G-A5, HyperSync restore G-A1, version match G-A2)"
+        },
+        {
+          "global_id": 178,
+          "local_label": "sprint-2",
+          "status": "planned",
+          "created": "2026-06-17T18:25:53Z",
+          "completed": null,
+          "label": "S2 — Events-pillar reachability blocker-decider (G-A3: in-process @0xhoneyjar/events postinstall + NATS TLS egress + Ed25519 sign to TEST subject; OQ-3) + R1 fallback contingency (A.1b)"
+        },
+        {
+          "global_id": 179,
+          "local_label": "sprint-3",
+          "status": "planned",
+          "created": "2026-06-17T18:25:54Z",
+          "completed": null,
+          "label": "S3 — Per-token scope + §5.5 gate close-out (G-A4 per-token spike + parity sizing; assert G-A1..G-A5 ALL GREEN barrier before clock)"
+        },
+        {
+          "global_id": 180,
+          "local_label": "sprint-4",
+          "status": "planned",
+          "created": "2026-06-17T18:25:54Z",
+          "completed": null,
+          "label": "S4 — Backfill + GraphQL parity (FR-3/FR-4; clock starts at S5 only after gate GREEN)"
+        },
+        {
+          "global_id": 181,
+          "local_label": "sprint-5",
+          "status": "planned",
+          "created": "2026-06-17T18:25:55Z",
+          "completed": null,
+          "label": "S5 (final) — Measured 30-day cycle + ratify + E2E goal validation (FR-7/FR-8; close bd-buho)"
+        }
+      ]
+    },
+    {
+      "id": "envio-3.2.1-api-port",
+      "label": "Envio alpha.17 -> 3.2.1 API Port (Phase A.1-PORT — canary-surfaced hard prerequisite to managed-Envio deploy + bd-buho)",
+      "type": "feature",
+      "status": "active",
+      "created": "2026-06-17T22:35:17Z",
+      "archived": null,
+      "archive_path": null,
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sdd_section": "2A",
+      "sprint_plan": "grimoires/loa/cycles/envio-3.2.1-api-port/sprint.md",
+      "cycle_folder": "grimoires/loa/cycles/envio-3.2.1-api-port/",
+      "parent_cycle": "indexing-managed-envio",
+      "build_target_branch": "canary/envio-cloud-hypersync",
+      "gates": ["G-A2 (resolved by-design at AC-PORT-9)", "indexing-managed-envio S4 backfill/FR-3/FR-4", "bd-buho (downstream)"],
+      "sprints": [
+        {
+          "global_id": 182,
+          "local_label": "sprint-1",
+          "status": "planned",
+          "created": "2026-06-17T22:35:17Z",
+          "completed": null,
+          "scope": "MEDIUM",
+          "task_count": 5,
+          "label": "S1 — Port Foundation (Batch 0, serial): T0 verify-pin + drop generated optionalDep + ground 3.2.1 API/isPreload model; T1 config handler: lines + .gitignore .envio; T2 port libs; T3 coverage bijection assertion + CI; T4 verify-loop scripts + createTestIndexer L4 harness scaffold"
+        },
+        {
+          "global_id": 183,
+          "local_label": "sprint-2",
+          "status": "planned",
+          "created": "2026-06-17T22:35:17Z",
+          "completed": null,
+          "scope": "LARGE",
+          "task_count": 7,
+          "label": "S2 — Handler Port (parallel leaves): T5 NFT-transfer(6); T6 ERC-1155(5); T7 Vaults/DeFi(6); T8 Mibera(5); T9 markets/misc(5+2); T10 FatBera unit; T11 sf-vaults SOLO/LAST. T5-T10 parallel fan-out"
+        },
+        {
+          "global_id": 184,
+          "local_label": "sprint-3",
+          "status": "planned",
+          "created": "2026-06-17T22:35:17Z",
+          "completed": null,
+          "scope": "SMALL",
+          "task_count": 3,
+          "label": "S3 (final) — Finalize + Cloud gate: T12 delete EventHandlers.ts + coverage + L3 boot count + L4 + L5; T13 Cloud canary integration gate (AC-PORT-9, only round-trip); T13.E2E goal validation + deploy unblock"
         }
       ]
     }
@@ -1639,5 +1740,6 @@
       "sprint_plan": "grimoires/loa/a2a/bug-20260428-i640-1cc190/sprint.md"
     }
   ],
-  "next_sprint_number": 177
+  "next_sprint_number": 185,
+  "last_updated": "2026-06-17T22:35:17Z"
 }
