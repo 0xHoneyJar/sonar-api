@@ -34,13 +34,24 @@ const ok = (s) => c('32', s);
 const bad = (s) => c('31', s);
 const dim = (s) => c('2', s);
 
+const INTROSPECT_TIMEOUT_MS = 10_000;
+
 async function introspectType(endpoint, typeName) {
-  const query = `query($n:String!){ __type(name:$n){ name fields{ name type{ name kind ofType{ name kind ofType{ name } } } } } }`;
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ query, variables: { n: typeName } }),
-  });
+  // 4 ofType hops: wrapping-complete to [scalar!]! depth (else a triple-wrapped type flattens to null).
+  const query = `query($n:String!){ __type(name:$n){ name fields{ name type{ name kind ofType{ name kind ofType{ name kind ofType{ name } } } } } } }`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), INTROSPECT_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ query, variables: { n: typeName } }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new Error(`introspection HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
   const body = await res.json();
   if (body.errors) throw new Error(`introspection errors: ${JSON.stringify(body.errors).slice(0, 200)}`);
