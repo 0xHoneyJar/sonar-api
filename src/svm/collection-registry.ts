@@ -24,9 +24,9 @@ export const COLLECTIONS: Readonly<Record<string, CollectionConfig>> = {
 
 export const DEFAULT_COLLECTION_KEY = "pythians";
 
-/** Resolve a collection by key; throws (listing known keys) on an unknown key. */
+/** Resolve a collection by key (whitespace-trimmed); throws (listing known keys) on an unknown key. */
 export function resolveCollection(key: string): CollectionConfig {
-  const c = COLLECTIONS[key];
+  const c = COLLECTIONS[key.trim()]; // trim — a trailing space in a YAML/Railway env is an easy footgun (FAGAN NIT)
   if (!c) {
     throw new Error(
       `unknown collection '${key}' — add it to COLLECTIONS in collection-registry.ts (known: ${Object.keys(COLLECTIONS).join(", ")})`,
