@@ -20,6 +20,24 @@ consumer** (deployed-but-unconsumed). S5 validates; only then does S6 flip anyth
 | Typed errors | `src/canonical/errors.ts` | merged |
 | **S5 parity gate** | `src/canonical/parity.ts` + `scripts/s5-parity-dryrun.ts` | merged, runnable |
 
+## Producer real-data validation (DONE — `npm run validate:svm-canonical`)
+
+The SVM mapper has been validated against the LIVE `svm.collection_event` data (read-only):
+**30,000 / 30,000 real Pythians events map cleanly through `map-svm` → valid `NftActivity`, zero
+`SchemaInvalid`** (verbs: mint 3,682 = the holder count cross-check, transfer 21,016, sale 5,302).
+The script (`scripts/validate-svm-canonical-live.ts`) also writes a real-data `canonical-sample.json`
+— the producer half of the S5 dry-run.
+
+- **S6 backfill LESSON (load-bearing):** Hasura serializes `bigint` columns (`price`, `slot`) as
+  STRINGS and `timestamptz` (`block_time`) as an ISO string on the wire — the Helius source gives
+  numbers. Any Hasura-sourced adapter (the S6 backfill) MUST `Number()`-convert `price`/`slot` and
+  parse `block_time` to unix seconds before feeding `map-svm`, or every row trips the integer guard.
+- **EVM real-data validation is BLOCKED on data availability (not done):** the gateway's EVM read
+  surface (`belt-contract.json`) exposes only `Transfer` (no `logIndex`, no `timestamp`, no sale
+  entity), so `map-evm`'s carrier selection + sale-join can't be exercised against live data here. It
+  needs the S4/S6 EVM Hasura adapter (with logIndex/timestamp) + the MintActivity SALE rows (score-api
+  territory) — i.e. it converges with the S5 join-parity below, not a standalone producer check.
+
 ## S5 — the consumer-parity GATE (run BEFORE any backfill)
 
 Goal: prove the canonical stream COVERS what score-mibera's current fetchers produce, by the
