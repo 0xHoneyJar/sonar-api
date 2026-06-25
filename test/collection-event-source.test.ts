@@ -227,6 +227,14 @@ describe("deriveLatestOwners (reconciliation gate)", () => {
     ]);
     expect(owners.get(M1)).toBeNull();
   });
+  it("F1: two txs in the SAME slot — newest-first stream order wins (not the older tx)", () => {
+    // runner streams newest-first per mint: txC (newer) before txB (older), both slot 50.
+    const owners = deriveLatestOwners([
+      e({ kind: "transfer", slot: 50, txSignature: "txC", from: "B", to: "C" }), // newest
+      e({ kind: "transfer", slot: 50, txSignature: "txB", from: "A", to: "B" }), // older, same slot
+    ]);
+    expect(owners.get(M1)).toBe("C"); // NOT "B" — the pre-fix bug picked the older tx
+  });
 });
 
 describe("HeliusCollectionEventSource.mintHistory", () => {
@@ -269,5 +277,25 @@ describe("HeliusCollectionEventSource.mintHistory", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2); // 429 retried, then 200
     expect(evs).toHaveLength(1);
+  });
+
+  it("throws immediately on a fatal 4xx (no retry)", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(resp(401, { error: "bad key" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const src = new HeliusCollectionEventSource("KEY", "COLL", { paceMs: 0 });
+    await expect(async () => {
+      for await (const _ of src.mintHistory(M1)) void _;
+    }).rejects.toThrow(/HTTP 401/);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // not retried
+  });
+
+  it("throws (fail-loud, not silent-empty) after exhausting retries on persistent 429", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(resp(429, { error: "rate" }, "0.001")); // always 429, tiny wait
+    vi.stubGlobal("fetch", fetchMock);
+    const src = new HeliusCollectionEventSource("KEY", "COLL", { paceMs: 0 });
+    await expect(async () => {
+      for await (const _ of src.mintHistory(M1)) void _;
+    }).rejects.toThrow(/HTTP 429 after \d+ retries/);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1); // retried before giving up
   });
 });

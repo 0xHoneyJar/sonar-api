@@ -30,7 +30,14 @@ function parseArgs(): { dry: boolean; limit?: number; force: boolean } {
   const dry = process.argv.includes("--dry");
   const force = process.argv.includes("--force");
   const li = process.argv.indexOf("--limit");
-  const limit = li >= 0 ? Number(process.argv[li + 1]) : undefined;
+  let limit: number | undefined;
+  if (li >= 0) {
+    // Reject a missing/non-numeric value rather than silently treating it as "no limit" → full backfill (FAGAN F3).
+    limit = Number(process.argv[li + 1]);
+    if (!Number.isInteger(limit) || limit <= 0) {
+      throw new Error(`--limit requires a positive integer (got '${process.argv[li + 1] ?? ""}')`);
+    }
+  }
   return { dry, limit, force };
 }
 
@@ -39,9 +46,24 @@ function parseArgs(): { dry: boolean; limit?: number; force: boolean } {
  * burned / no current owner. Exported for tests + the reconciliation gate.
  */
 export function deriveLatestOwners(events: readonly CollectionEvent[]): Map<string, string | null> {
-  const sorted = [...events].sort((a, b) => a.slot - b.slot || a.instructionIndex - b.instructionIndex);
+  // Events arrive strictly NEWEST-FIRST per mint (Helius address-history order, preserved by the runner).
+  // (slot, instructionIndex) is NOT a total order — instructionIndex is a per-tx-per-mint ordinal, so two
+  // events from DIFFERENT txns in the SAME slot tie, and a (sort + last-write) fold would pick the OLDER
+  // tx (FAGAN F1). Resolve explicitly: higher slot wins; same slot → first-seen (= newest tx, by stream
+  // order) wins; same tx → higher leg index wins (mint-then-transfer in one tx).
+  const latest = new Map<string, CollectionEvent>();
+  for (const e of events) {
+    const cur = latest.get(e.nftMint);
+    if (
+      !cur ||
+      e.slot > cur.slot ||
+      (e.slot === cur.slot && e.txSignature === cur.txSignature && e.instructionIndex > cur.instructionIndex)
+    ) {
+      latest.set(e.nftMint, e);
+    }
+  }
   const owner = new Map<string, string | null>();
-  for (const e of sorted) owner.set(e.nftMint, e.kind === "burn" ? null : e.to);
+  for (const [mint, e] of latest) owner.set(mint, e.kind === "burn" ? null : e.to);
   return owner;
 }
 

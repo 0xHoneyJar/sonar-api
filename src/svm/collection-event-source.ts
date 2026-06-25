@@ -274,7 +274,12 @@ export class HeliusCollectionEventSource implements CollectionEventSource {
           throw new Error(`helius address-history ${address}: HTTP ${res.status} after ${attempt} retries`);
         }
         const retryAfter = Number(res.headers.get("retry-after")) || 0;
-        const wait = retryAfter > 0 ? retryAfter * 1000 : Math.min(RETRY_CAP_MS, RETRY_BASE_MS * 2 ** attempt);
+        // Cap BOTH branches at RETRY_CAP_MS — an unbounded server-supplied Retry-After could stall the
+        // backfill for an hour per retry (FAGAN F2).
+        const wait =
+          retryAfter > 0
+            ? Math.min(RETRY_CAP_MS, retryAfter * 1000)
+            : Math.min(RETRY_CAP_MS, RETRY_BASE_MS * 2 ** attempt);
         await sleep(wait);
         continue;
       }
@@ -291,7 +296,20 @@ export class HeliusCollectionEventSource implements CollectionEventSource {
   }
 
   async health(): Promise<SourceHealth> {
-    // Enumeration depends on DAS getAssetsByGroup — probe it (a plain RPC reports unhealthy).
-    return new DasNftCollectionSource(this.rpcUrl, this.collectionMint).health();
+    // Probe BOTH surfaces the backfill uses: DAS getAssetsByGroup (enumeration) AND the Enhanced
+    // address-history endpoint (the hot path) — a tier/key mismatch can leave one reachable and the
+    // other not (FAGAN F4).
+    const das = await new DasNftCollectionSource(this.rpcUrl, this.collectionMint).health();
+    if (!das.ok) return das;
+    try {
+      const url = new URL(`${this.parseBase}/v0/addresses/${this.collectionMint}/transactions`);
+      url.searchParams.set("api-key", this.apiKey);
+      url.searchParams.set("limit", "1");
+      const res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      if (!res.ok) return { ok: false, detail: `helius enhanced address-history unavailable: HTTP ${res.status}` };
+      return { ok: true, detail: "das getAssetsByGroup + enhanced address-history reachable" };
+    } catch (e) {
+      return { ok: false, detail: `helius enhanced address-history unreachable: ${(e as Error).message}` };
+    }
   }
 }
