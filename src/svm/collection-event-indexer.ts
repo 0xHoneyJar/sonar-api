@@ -89,7 +89,19 @@ async function main(): Promise<void> {
   if (limit && limit > 0) members = members.slice(0, limit);
   console.log(`${cfg.collectionKey}: ${members.length} member NFTs to backfill (snapshot slot ${snap.slot})${dry ? " [DRY]" : ""}`);
 
-  const source = new HeliusCollectionEventSource(API_KEY, cfg.collectionMint, { rpcUrl: RPC });
+  // SVM_BACKFILL_PACE_MS overrides the default inter-request spacing — back off further when the live
+  // webhook shares the Helius key (combined rate otherwise trips the ~10 RPS free-tier 429). Default-on.
+  // Validate loudly like --limit above (FAGAN F3 / MINOR-2): the only intent is to INCREASE pacing, so a
+  // negative / NaN value is operator error — reject it rather than silently disabling pacing or falling
+  // back to the default. Unset → undefined (use DEFAULT_PACE_MS).
+  let paceMs: number | undefined;
+  if (process.env.SVM_BACKFILL_PACE_MS !== undefined && process.env.SVM_BACKFILL_PACE_MS !== "") {
+    paceMs = Number(process.env.SVM_BACKFILL_PACE_MS);
+    if (!Number.isFinite(paceMs) || paceMs < 0) {
+      throw new Error(`SVM_BACKFILL_PACE_MS must be a non-negative number (got '${process.env.SVM_BACKFILL_PACE_MS}')`);
+    }
+  }
+  const source = new HeliusCollectionEventSource(API_KEY, cfg.collectionMint, { rpcUrl: RPC, paceMs });
   const events: CollectionEvent[] = [];
   let done = 0;
   for (const m of members) {
