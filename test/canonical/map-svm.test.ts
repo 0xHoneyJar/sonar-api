@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Either } from "effect";
-import { mapSvm, type SvmCollectionContext } from "../../src/canonical/map-svm";
+import { mapSvm, isCanonicalOwnershipKind, type SvmCollectionContext } from "../../src/canonical/map-svm";
 import type { CollectionEvent } from "../../src/svm/collection-event-source";
 
 const ctx: SvmCollectionContext = {
@@ -119,5 +119,24 @@ describe("mapSvm — typed-error rejections (SchemaInvalid on the left)", () => 
       expect(e.left.reason).toContain("decode failed");
       expect(e.left.parseError).toBeDefined();
     }
+  });
+
+  it("#85: rejects list/delist — marketplace-state events are NOT canonical ownership activities", () => {
+    for (const kind of ["list", "delist"] as const) {
+      const e = mapSvm(event({ kind }), ctx);
+      expect(Either.isLeft(e)).toBe(true);
+      if (Either.isLeft(e)) {
+        expect(e.left._tag).toBe("SchemaInvalid");
+        expect(e.left.reason).toContain("marketplace-state");
+      }
+    }
+  });
+});
+
+describe("isCanonicalOwnershipKind (#85)", () => {
+  it("is true for ownership verbs, false for marketplace-state kinds", () => {
+    expect(["mint", "transfer", "sale", "burn"].every((k) => isCanonicalOwnershipKind(k as never))).toBe(true);
+    expect(isCanonicalOwnershipKind("list" as never)).toBe(false);
+    expect(isCanonicalOwnershipKind("delist" as never)).toBe(false);
   });
 });

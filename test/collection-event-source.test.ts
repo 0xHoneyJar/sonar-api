@@ -79,6 +79,93 @@ describe("parseHeliusTx", () => {
     });
   });
 
+  const ON = { emitMarketplaceKinds: true }; // #85 gate explicitly on (default is off — deploy-safe)
+
+  it("#85: decodes a LIST (NFT_LISTING) — distinct kind + marketplace + ask price, the owner→escrow leg", () => {
+    const evs = parseHeliusTx(
+      base({
+        type: "NFT_LISTING",
+        source: "MAGIC_EDEN",
+        tokenTransfers: [{ mint: M1, fromUserAccount: "OWNER", toUserAccount: "ESCROW" }],
+        events: { nft: { type: "NFT_LISTING", source: "MAGIC_EDEN", amount: 6_409_500_000, nfts: [{ mint: M1 }] } },
+      }),
+      isMember,
+      ON,
+    );
+    expect(evs).toMatchObject([
+      { nftMint: M1, kind: "list", from: "OWNER", to: "ESCROW", marketplace: "MAGIC_EDEN", price: 6_409_500_000 },
+    ]);
+  });
+
+  it("#85: decodes a DELIST (NFT_CANCEL_LISTING) — distinct kind + marketplace, escrow→owner, no price", () => {
+    const evs = parseHeliusTx(
+      base({
+        type: "NFT_CANCEL_LISTING",
+        source: "MAGIC_EDEN",
+        tokenTransfers: [{ mint: M1, fromUserAccount: "ESCROW", toUserAccount: "OWNER" }],
+      }),
+      isMember,
+      ON,
+    );
+    expect(evs).toMatchObject([
+      { nftMint: M1, kind: "delist", from: "ESCROW", to: "OWNER", marketplace: "MAGIC_EDEN", price: null },
+    ]);
+  });
+
+  it("#85: marketplace falls back to events.nft.source when the top-level source is absent", () => {
+    const evs = parseHeliusTx(
+      base({
+        type: "NFT_LISTING",
+        tokenTransfers: [{ mint: M1, fromUserAccount: "OWNER", toUserAccount: "ESCROW" }],
+        events: { nft: { type: "NFT_LISTING", source: "TENSOR", nfts: [{ mint: M1 }] } },
+      }),
+      isMember,
+      ON,
+    );
+    expect(evs[0]).toMatchObject({ kind: "list", marketplace: "TENSOR" });
+  });
+
+  it("#85 MINOR-2: a multi-mint listing does NOT claim a per-mint ask (shared top-level amount → price null)", () => {
+    const evs = parseHeliusTx(
+      base({
+        type: "NFT_LISTING",
+        source: "MAGIC_EDEN",
+        tokenTransfers: [
+          { mint: M1, fromUserAccount: "OWNER", toUserAccount: "ESCROW" },
+          { mint: M2, fromUserAccount: "OWNER", toUserAccount: "ESCROW" },
+        ],
+        events: { nft: { type: "NFT_LISTING", source: "MAGIC_EDEN", amount: 6_409_500_000, nfts: [{ mint: M1 }, { mint: M2 }] } },
+      }),
+      isMember,
+      ON,
+    );
+    expect(evs).toHaveLength(2);
+    expect(evs.every((e) => e.kind === "list" && e.price === null && e.marketplace === "MAGIC_EDEN")).toBe(true);
+  });
+
+  it("#85 DEPLOY-SAFETY (FAGAN MAJOR-1): with the gate OFF (default), a listing degrades to transfer — no list kind emitted", () => {
+    const evs = parseHeliusTx(
+      base({
+        type: "NFT_LISTING",
+        source: "MAGIC_EDEN",
+        tokenTransfers: [{ mint: M1, fromUserAccount: "OWNER", toUserAccount: "ESCROW" }],
+        events: { nft: { type: "NFT_LISTING", source: "MAGIC_EDEN", amount: 6_409_500_000, nfts: [{ mint: M1 }] } },
+      }),
+      isMember,
+      // no opts → gate OFF → safe pre-migration behavior
+    );
+    expect(evs).toMatchObject([{ nftMint: M1, kind: "transfer", marketplace: null, price: null }]);
+  });
+
+  it("#85: an unrecognized marketplace-ish type still degrades to transfer (safe default, no crash)", () => {
+    const evs = parseHeliusTx(
+      base({ type: "SOME_FUTURE_MARKETPLACE_OP", tokenTransfers: [{ mint: M1, fromUserAccount: "A", toUserAccount: "B" }] }),
+      isMember,
+      ON,
+    );
+    expect(evs[0]).toMatchObject({ kind: "transfer", marketplace: null });
+  });
+
   it("gives batch-tx legs a PER-MINT index (each first leg = 0) → distinct PKs via distinct mints, filters non-members", () => {
     const evs = parseHeliusTx(
       base({

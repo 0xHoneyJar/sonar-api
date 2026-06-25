@@ -39,6 +39,16 @@ export interface SvmCollectionContext {
 }
 
 /**
+ * The canonical `NftActivity` verbs are OWNERSHIP changes (mint/transfer/sale/burn). SVM `list`/`delist`
+ * (#85) are marketplace-STATE events — the NFT moves to/from an escrow without a beneficial-owner change —
+ * so they are NOT canonical activities. The normalizer filters them BEFORE `mapSvm`; this predicate is
+ * that filter (and `mapSvm` rejects a non-ownership kind defensively, with a clear reason).
+ */
+export function isCanonicalOwnershipKind(kind: CollectionEvent["kind"]): boolean {
+  return kind === "mint" || kind === "transfer" || kind === "sale" || kind === "burn";
+}
+
+/**
  * Map one SVM `CollectionEvent` to a validated `NftActivity`.
  *
  * Returns `Either.left(SchemaInvalid)` when the source data can't form a valid
@@ -50,6 +60,16 @@ export function mapSvm(
   event: CollectionEvent,
   ctx: SvmCollectionContext,
 ): Either.Either<NftActivity, SchemaInvalid> {
+  // list/delist (#85) are marketplace-STATE events, not ownership activities — the normalizer filters
+  // them upstream (isCanonicalOwnershipKind); reject here defensively with a clear reason rather than
+  // emit a verb the NftActivity schema doesn't have.
+  if (!isCanonicalOwnershipKind(event.kind)) {
+    return Either.left(
+      new SchemaInvalid({
+        reason: `kind '${event.kind}' is a marketplace-state event (#85), not a canonical ownership activity — filter via isCanonicalOwnershipKind before mapSvm`,
+      }),
+    );
+  }
   // A real on-chain event always has a positive block time. Two failure modes,
   // both surfaced as a typed left rather than allowed downstream:
   //  - blockTime <= 0 maps to 1970-01-01 — which toISOString() renders and the
