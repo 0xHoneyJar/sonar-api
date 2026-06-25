@@ -37,6 +37,9 @@ jobs:
           HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
           SVM_HASURA_ENDPOINT: https://belt-hasura-selfhost-production.up.railway.app
           HASURA_GRAPHQL_ADMIN_SECRET: ${{ secrets.SVM_HASURA_ADMIN_SECRET }}
+          # #85: emit marketplace list/delist kinds. Safe — the runner calls ensureKindConstraint() at
+          # startup (widen-before-write), so the CHECK is always ready before any list/delist upsert.
+          SVM_EMIT_MARKETPLACE_KINDS: "true"
           # Pass the input through env (NOT direct ${{ }} interpolation into the script) and digit-guard
           # it — never splice untrusted workflow input into a shell command.
           LIMIT_INPUT: ${{ github.event.inputs.limit }}
