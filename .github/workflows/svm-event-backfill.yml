@@ -1,0 +1,39 @@
+name: SVM collection-event backfill
+
+# Periodic reconcile-gated backfill of the SVM collection-event history (Pythians) into
+# svm.collection_event on belt-hasura-selfhost. This is the realtime/freshness + §4.5 reconcile
+# self-heal mechanism (cycle svm-collection-events). The runner is idempotent (content-addressed PK)
+# and refuses to write below the 99% reconciliation gate. Zero external runtime deps → npx tsx runs
+# the indexer standalone (no install step).
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Optional: limit member NFTs (testing)"
+        required: false
+        default: ""
+
+concurrency:
+  group: svm-event-backfill
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Backfill svm.collection_event (reconcile-gated)
+        env:
+          HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+          SVM_HASURA_ENDPOINT: https://belt-hasura-selfhost-production.up.railway.app
+          HASURA_GRAPHQL_ADMIN_SECRET: ${{ secrets.SVM_HASURA_ADMIN_SECRET }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.limit }}" ]; then ARGS="--limit ${{ github.event.inputs.limit }}"; fi
+          npx --yes tsx src/svm/collection-event-indexer.ts $ARGS

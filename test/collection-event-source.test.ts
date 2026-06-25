@@ -13,6 +13,7 @@ import {
 } from "../src/svm/collection-event-source";
 import { toRows, dedupeById, eventId } from "../src/svm/collection-event-writer";
 import { deriveLatestOwners } from "../src/svm/collection-event-indexer";
+import { decodeWebhookPayload } from "../src/svm/collection-event-webhook";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -297,5 +298,21 @@ describe("HeliusCollectionEventSource.mintHistory", () => {
       for await (const _ of src.mintHistory(M1)) void _;
     }).rejects.toThrow(/HTTP 429 after \d+ retries/);
     expect(fetchMock.mock.calls.length).toBeGreaterThan(1); // retried before giving up
+  });
+});
+
+describe("decodeWebhookPayload (realtime)", () => {
+  it("flat-maps a payload array into member events (mirrors backfill decode), filters non-members", () => {
+    const payload = [
+      { signature: "S1", slot: 100, timestamp: 1_700_000_000, type: "TRANSFER", tokenTransfers: [{ mint: M1, fromUserAccount: "A", toUserAccount: "B" }] },
+      { signature: "S2", slot: 101, timestamp: 1_700_000_001, type: "TRANSFER", tokenTransfers: [{ mint: NON, fromUserAccount: "X", toUserAccount: "Y" }] },
+    ];
+    const evs = decodeWebhookPayload(payload, isMember);
+    expect(evs).toHaveLength(1);
+    expect(evs[0]).toMatchObject({ nftMint: M1, kind: "transfer", txSignature: "S1" });
+  });
+  it("returns [] for a non-array payload (never throws)", () => {
+    expect(decodeWebhookPayload({ not: "an array" }, isMember)).toEqual([]);
+    expect(decodeWebhookPayload(null, isMember)).toEqual([]);
   });
 });
