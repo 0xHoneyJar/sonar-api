@@ -33,13 +33,16 @@
 //     (the mibera-collection.ts:157 emit discipline, copied EXACTLY).
 
 import { ponder } from "ponder:registry";
-import { mintEvent, action } from "../../ponder.schema";
+import { mintEvent, action, token } from "../../ponder.schema";
 import { isLiveEvent } from "../lib/sync-status";
 import { reorgSafeEmit } from "../lib/reorg-safe-emit";
 import { buildMintEnvelope, type CollectionSlug } from "../lib/nats-publisher";
+import { tokenRowId, resolveTokenRow } from "./token-projection/shared";
+// B1 real-sink burn predicate {0x0, 0x…dead} + mint detection — the SHARED pure
+// helpers bd-jyn (mibera-collection §1b) / bd-1jg (tracked-erc721-bera) use. NOT
+// a hardcoded to==0x0. Reused, not reimplemented.
+import { isMintFromZero, isBurnTransfer } from "./tracked-erc721-bera-collections";
 
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const ZERO = ZERO_ADDRESS.toLowerCase();
 const BERACHAIN_ID = 80094;
 
 // Address → local collectionKey map. Verbatim subset of envio's
@@ -72,10 +75,7 @@ ponder.on("GeneralMints:Transfer", async ({ event, context }: any) => {
   const { from, to, tokenId } = event.args;
 
   const fromLower = from.toLowerCase();
-  if (fromLower !== ZERO) {
-    return; // Skip non-mint transfers (envio mints.ts:51)
-  }
-
+  const toLower = to.toLowerCase();
   const contractAddress = event.log.address.toLowerCase();
   const collectionKey = MINT_COLLECTION_KEYS[contractAddress] ?? contractAddress;
 
@@ -85,7 +85,99 @@ ponder.on("GeneralMints:Transfer", async ({ event, context }: any) => {
   const timestamp = event.block.timestamp; // already bigint
   const blockNumber = event.block.number;
   const chainId = context.chain.id;
-  const minter = to.toLowerCase();
+
+  // isMint == the original `fromLower === ZERO` mint gate (re-applied, negated,
+  // below). isBurn = the SHARED real-sink predicate {0x0, 0x…dead} (B1), NOT a
+  // hardcoded to==0x0 — identical to bd-jyn / bd-1jg.
+  const isMint = isMintFromZero(fromLower);
+  const isBurn = isBurnTransfer(fromLower, toLower);
+
+  // ──────────────────────────────────────────────────────────────────────
+  // 1b. Per-token CURRENT-OWNER projection (token entity — bd-d2b / S1c)
+  //
+  // Runs for EVERY GeneralMints Transfer (mint, secondary sale, AND burn) so a
+  // token minted to A then sold to B reflects owner=B. The mint-ONLY ledger
+  // below previously early-returned on every non-mint transfer, leaving MST/GIF
+  // entirely ABSENT from the per-token ownership index. This projection is the
+  // fix and is the ONLY token write for GeneralMints (the Minted handler does
+  // not touch `token`).
+  //
+  // ERC-721 ONLY: both registered GeneralMints addresses — MST/mibera_vm
+  // (0x048327…) and GIF/mibera_gif (0x230945…) — emit the 721
+  // `Transfer(from,to,indexed tokenId)` event (abis/MiberaAbis.ts:52). No ERC-1155
+  // TransferSingle/TransferBatch is registered under GeneralMintsAbi, so the
+  // per-token-721 projection applies to BOTH contracts (no 1155 exclusion).
+  //
+  //   UPSERT (B2): insert().onConflictDoUpdate() — a token whose mint predates
+  //     this index boundary has NO prior row; resolveTokenRow(prev=null,…) CREATES
+  //     it on the first transfer seen (never update-only / silently dropped).
+  //   BURN (B1): isBurn is the SHARED isBurnTransfer() real sink {0x0, 0x…dead},
+  //     NOT to==0x0. isBurned=true flags the row OUT of circulation; the row is
+  //     NOT deleted (consumer filters isBurned:false).
+  //   LAST-WRITE-WINS (B10): resolveTokenRow drops an out-of-order event whose
+  //     (blockNumber, logIndex) is older than the stored pair — ordering is the
+  //     (blockNumber, logIndex) key, NOT insert order and NOT timestamp.
+  //   KEYING: id = `${contract}_${chainId}_${tokenId}`, per (contract, chainId,
+  //     tokenId). collection = the LOWERCASED CONTRACT ADDRESS (consumer filter,
+  //     inventory-api live-sonar.ts:92-94); collectionKey = the human key.
+  //   mintedAt threaded (isMint?timestamp:preserve) by resolveTokenRow exactly as
+  //     mibera-collection.ts §1b.
+  // ──────────────────────────────────────────────────────────────────────
+  const tokenTransfer = { to: toLower, isMint, isBurn, blockNumber, logIndex, timestamp };
+  const tokenRowKey = tokenRowId(contractAddress, chainId, tokenId);
+  const tokenProjected = resolveTokenRow(null, tokenTransfer);
+  await context.db
+    .insert(token)
+    .values({
+      id: tokenRowKey,
+      owner: tokenProjected.owner as `0x${string}`,
+      contract: contractAddress as `0x${string}`,
+      collection: contractAddress,
+      collectionKey,
+      chainId,
+      tokenId,
+      isBurned: tokenProjected.isBurned,
+      mintedAt: tokenProjected.mintedAt,
+      lastTransferTime: tokenProjected.lastTransferTime,
+      lastBlockNumber: tokenProjected.lastBlockNumber,
+      lastLogIndex: tokenProjected.lastLogIndex,
+    })
+    .onConflictDoUpdate((row: any) => {
+      const next = resolveTokenRow(
+        {
+          owner: row.owner,
+          isBurned: row.isBurned,
+          mintedAt: row.mintedAt,
+          lastTransferTime: row.lastTransferTime,
+          lastBlockNumber: row.lastBlockNumber,
+          lastLogIndex: row.lastLogIndex,
+        },
+        tokenTransfer,
+      );
+      // Only the per-transfer mutable fields change; id/contract/collection/
+      // collectionKey/chainId/tokenId are stable for a given token id.
+      return {
+        owner: next.owner as `0x${string}`,
+        isBurned: next.isBurned,
+        mintedAt: next.mintedAt,
+        lastTransferTime: next.lastTransferTime,
+        lastBlockNumber: next.lastBlockNumber,
+        lastLogIndex: next.lastLogIndex,
+      };
+    });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // MINT-ONLY ledger + publish (port of envio mints.ts) — behavior UNCHANGED.
+  // Non-mint transfers + burns are already captured by the token projection
+  // above; the mintEvent / mint-action / mibera-family publish stay gated to
+  // mints EXACTLY as the original `if (fromLower !== ZERO) return` did — here
+  // `!isMint` is `fromLower !== ZERO` (isMint === isMintFromZero(fromLower)).
+  // ──────────────────────────────────────────────────────────────────────
+  if (!isMint) {
+    return; // Skip non-mint transfers for the mint ledger/publish (envio mints.ts:51)
+  }
+
+  const minter = toLower;
 
   // MintEvent.set → idempotent insert (reorg-replay: same deterministic id).
   // encodedTraits left null here; the Minted handler enriches VM mints.

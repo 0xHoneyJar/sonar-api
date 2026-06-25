@@ -321,6 +321,73 @@ export const miberaTransfer = onchainTable("mibera_transfer", (t) => ({
 }));
 
 // ─────────────────────────────────────────────────────────────────────────
+// Token — per-token CURRENT ERC-721 ownership projection (bd-jyn / S1a)
+//
+// CONSUMER CONTRACT (inventory-api src/live-sonar.ts:87-97 — DO NOT break):
+//   Token(where: { collection: {_eq: <contractLower>},
+//                  owner:      {_eq: <addrLower>},
+//                  isBurned:   {_eq: false} }) { tokenId }
+//   - `collection` is filtered with the LOWERCASED CONTRACT ADDRESS, NOT the
+//     human collectionKey. Proven: live-sonar.ts:92-94 lowercases its 2nd arg
+//     into the `collection` filter, and inventory.ts:192-195/278 pass
+//     `contractAddress`/`checksummedContract` as that arg. So `token.collection`
+//     MUST hold the lowercased contract address for the consumer query to match.
+//   - Root field `Token`: the cutover custom_root_fields bake maps ponder snake
+//     table `token` → `Token` (introspection-match against envio's `Token`,
+//     schema.graphql:326, whose pascal_to_snake == "token"; and the
+//     snake_to_pascal("token")="Token" fallback). Same mechanism that maps
+//     `candies_holder_balance` → `CandiesHolderBalance`.
+//   - Column keys are preserved verbatim by Drizzle + exposed literally by
+//     Hasura (proven: hasura-contract fixtures query camelCase `tokenId`,
+//     `isMint`, `collectionKey` directly). So `owner`/`collection`/`isBurned`/
+//     `tokenId` reach the consumer with these exact names.
+//
+// PROJECTION CONTRACT (re-derivable; the reorg-safe SoR is `action` +
+// `mibera_transfer`): this table is a last-write-wins projection of on-chain
+// ownership ordered by (blockNumber, logIndex) — it can be dropped and rebuilt
+// by replaying the Transfer log. Transition + ordering helpers (unit-tested):
+// ponder-runtime/src/handlers/token-projection/shared.ts.
+//
+// FIELD-SET vs ENVIO Token: envio's Token columns (collection, chainId, tokenId,
+// owner, isBurned, mintedAt, lastTransferTime) are all present here (mintedAt
+// restored per review fold #1). This entity additionally carries `contract`/
+// `collectionKey` (bd-jyn) + `lastBlockNumber`/`lastLogIndex` (B10 ordering key) —
+// consumer-invisible supersets. The consumer-queried set
+// (collection/owner/isBurned/tokenId) is byte-exact.
+// ─────────────────────────────────────────────────────────────────────────
+
+export const token = onchainTable(
+  "token",
+  (t) => ({
+    // id = `${contract}_${chainId}_${tokenId}` (contract lowercased). Per
+    // (contract, chainId, tokenId) — never rolled up to a whole-contract aggregate.
+    id: t.text().primaryKey(),
+    owner: t.hex().notNull(),                // current on-chain owner (lowercased) — consumer filter
+    contract: t.hex().notNull(),             // collection contract address (lowercased)
+    collection: t.text().notNull(),          // consumer filter value == lowercased contract address
+    collectionKey: t.text().notNull(),       // human key ("mibera")
+    chainId: t.integer().notNull(),
+    tokenId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    isBurned: t.boolean().notNull(),         // consumer filter; isBurned=false ⇒ in circulation
+    mintedAt: t.bigint().notNull(),          // mirrors envio Token.mintedAt: BigInt! (0n = mint pre-dates index boundary)
+    lastTransferTime: t.bigint().notNull(),  // block timestamp of the last APPLIED transfer
+    // Ordering key for last-write-wins (B10). A transfer is applied only when its
+    // (blockNumber, logIndex) is >= the stored pair, so an out-of-order replay
+    // cannot clobber a newer owner. Consumer-invisible (not queried).
+    lastBlockNumber: t.bigint().notNull(),
+    lastLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    // owner = the consumer's high-selectivity filter (a wallet holds few tokens);
+    // this index serves the `Token(where:{collection,owner,isBurned})` hot path
+    // (collection + isBurned are cheap residual filters on the small owner result).
+    // contract index per bd-jyn folded spec (per-collection sweeps).
+    ownerIdx: index().on(table.owner),
+    contractIdx: index().on(table.contract),
+  }),
+);
+
+// ─────────────────────────────────────────────────────────────────────────
 // Unified mint activity (cross-source: ERC721 mints, ERC1155 mints, Seaport sales)
 // ─────────────────────────────────────────────────────────────────────────
 
