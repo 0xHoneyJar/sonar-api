@@ -14,4 +14,7 @@ RUN printf '{\n  "type": "module"\n}\n' > package.json
 COPY src/svm ./src/svm
 ENV PORT=8080
 EXPOSE 8080
+# Drop privileges — node:20-slim ships a non-root `node` user (FAGAN F8, defense-in-depth for an
+# internet-facing receiver). The app only reads src/svm at runtime.
+USER node
 CMD ["tsx", "src/svm/collection-event-webhook.ts"]

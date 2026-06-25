@@ -21,7 +21,7 @@ const SECRET = process.env.HASURA_GRAPHQL_ADMIN_SECRET ?? "";
 const UPSERT = `mutation Up($objects: [svm_collection_event_insert_input!]!) {
   insert_svm_collection_event(objects: $objects,
     on_conflict: { constraint: collection_event_pkey,
-      update_columns: [collection_key, collection_mint, nft_mint, kind, from, to, instruction_index, price, marketplace, slot, block_time, tx_signature, source] }
+      update_columns: [collection_key, collection_mint, nft_mint, kind, from, to, instruction_index, price, marketplace, slot, block_time, tx_signature] }
   ) { affected_rows }
 }`;
 

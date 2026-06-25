@@ -22,7 +22,11 @@ concurrency:
 jobs:
   backfill:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # MEASURED 2026-06-25: a full 3,682-NFT Pythians walk + reconcile + bulk upsert ran ~15 min — 4×
+    # headroom under this cap (FAGAN F3). The runner collects-all → reconciles → writes-once BY DESIGN
+    # (the §4.5 gate reconciles the full set before any write), so writes can't be made incremental
+    # without weakening the gate. If a collection grows toward this cap, raise it / shard by collection.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,7 +37,10 @@ jobs:
           HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
           SVM_HASURA_ENDPOINT: https://belt-hasura-selfhost-production.up.railway.app
           HASURA_GRAPHQL_ADMIN_SECRET: ${{ secrets.SVM_HASURA_ADMIN_SECRET }}
+          # Pass the input through env (NOT direct ${{ }} interpolation into the script) and digit-guard
+          # it — never splice untrusted workflow input into a shell command.
+          LIMIT_INPUT: ${{ github.event.inputs.limit }}
         run: |
           ARGS=""
-          if [ -n "${{ github.event.inputs.limit }}" ]; then ARGS="--limit ${{ github.event.inputs.limit }}"; fi
+          if printf '%s' "$LIMIT_INPUT" | grep -qE '^[0-9]+$'; then ARGS="--limit $LIMIT_INPUT"; fi
           npx --yes tsx src/svm/collection-event-indexer.ts $ARGS

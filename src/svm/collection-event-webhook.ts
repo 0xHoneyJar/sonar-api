@@ -12,6 +12,7 @@
  *   HASURA_GRAPHQL_ADMIN_SECRET.
  */
 import http from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { parseHeliusTx, type HeliusParsedTx } from "./collection-event-source";
 import { upsertCollectionEvents } from "./collection-event-writer";
 import { DasNftCollectionSource } from "./nft-collection-source";
@@ -34,23 +35,62 @@ async function refreshMembers(): Promise<void> {
   console.log(`[webhook] member set refreshed: ${members.size} ${COLLECTION_KEY} NFTs`);
 }
 
+let refreshInFlight: Promise<void> | null = null;
+/**
+ * De-duped, never-throws member refresh (FAGAN F4): concurrent stale POSTs share ONE in-flight refresh
+ * (no thundering herd of DAS snapshots), and a transient DAS failure logs + serves the existing (stale)
+ * member set rather than 500-ing every delivery — the cron backstops a stale miss.
+ */
+function ensureMembersFresh(): Promise<void> {
+  if (Date.now() - membersLoadedAt <= MEMBER_REFRESH_MS) return Promise.resolve();
+  if (!refreshInFlight) {
+    refreshInFlight = refreshMembers()
+      .catch((e) => console.error(`[webhook] member refresh failed, serving stale set: ${(e as Error).message}`))
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
+/** Constant-time bearer-secret compare with a length guard (FAGAN F5). */
+function secretMatches(header: string | undefined): boolean {
+  if (!SECRET || typeof header !== "string") return false;
+  const a = new TextEncoder().encode(header);
+  const b = new TextEncoder().encode(SECRET);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
+    let aborted = false;
     req.setEncoding("utf8");
     req.on("data", (c: string) => {
+      if (aborted) return;
       body += c;
-      if (body.length > 10_000_000) reject(new Error("payload too large")); // 10MB guard
+      if (body.length > 10_000_000) {
+        // Reject AND tear the stream down — otherwise the closure keeps buffering to EOF (FAGAN F2).
+        aborted = true;
+        reject(new Error("payload too large"));
+        req.destroy();
+      }
     });
-    req.on("end", () => resolve(body));
+    req.on("end", () => {
+      if (!aborted) resolve(body);
+    });
     req.on("error", reject);
   });
 }
 
 /** Decode a Helius webhook payload (array of parsed txs) into collection events. Exported for tests. */
 export function decodeWebhookPayload(payload: unknown, isMember: (m: string) => boolean): ReturnType<typeof parseHeliusTx> {
-  const txs: HeliusParsedTx[] = Array.isArray(payload) ? (payload as HeliusParsedTx[]) : [];
-  return txs.flatMap((tx) => parseHeliusTx(tx, isMember));
+  if (!Array.isArray(payload)) {
+    // A misconfigured webhook (raw, not Enhanced) decodes to nothing — warn so the gap is visible (FAGAN F6).
+    console.warn("[webhook] non-array payload — decoded 0 events (misconfigured webhook? expected an Enhanced tx array)");
+    return [];
+  }
+  return (payload as HeliusParsedTx[]).flatMap((tx) => parseHeliusTx(tx, isMember));
 }
 
 async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -63,13 +103,13 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     res.writeHead(405).end("method not allowed");
     return;
   }
-  // Helius sends the configured authHeader value in `Authorization`.
-  if (!SECRET || req.headers.authorization !== SECRET) {
+  // Helius sends the configured authHeader value in `Authorization` (constant-time compare).
+  if (!secretMatches(req.headers.authorization)) {
     res.writeHead(401).end("unauthorized");
     return;
   }
   try {
-    if (Date.now() - membersLoadedAt > MEMBER_REFRESH_MS) await refreshMembers();
+    await ensureMembersFresh();
     const body = await readBody(req);
     const payload = JSON.parse(body);
     const events = decodeWebhookPayload(payload, (m) => members.has(m));

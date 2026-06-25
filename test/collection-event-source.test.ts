@@ -315,4 +315,18 @@ describe("decodeWebhookPayload (realtime)", () => {
     expect(decodeWebhookPayload({ not: "an array" }, isMember)).toEqual([]);
     expect(decodeWebhookPayload(null, isMember)).toEqual([]);
   });
+  it("F9 convergence: webhook (full member set) and backfill (per-mint) yield IDENTICAL PKs for a shared tx", () => {
+    const tx = {
+      signature: "SHARED", slot: 100, timestamp: 1_700_000_000, type: "TRANSFER",
+      tokenTransfers: [
+        { mint: M1, fromUserAccount: "A", toUserAccount: "B" },
+        { mint: M2, fromUserAccount: "C", toUserAccount: "D" },
+      ],
+    };
+    // webhook decodes with the whole member set; backfill walks M1 alone with onlyThis.
+    const fromWebhook = decodeWebhookPayload([tx], isMember).find((e) => e.nftMint === M1)!;
+    const fromBackfill = parseHeliusTx(tx, (m) => m === M1)[0];
+    expect(eventId(fromWebhook)).toBe(eventId(fromBackfill)); // intrinsic per-mint index → same PK
+    expect(eventId(fromWebhook)).toBe("SHARED:MINT_MEMBER_1:0");
+  });
 });
