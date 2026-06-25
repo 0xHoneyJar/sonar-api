@@ -53,9 +53,10 @@
       ]
     },
     "svm_collection_event": {
-      "status": "pending-exposure",
+      "status": "live",
+      "status_was": "pending-exposure (Sprint 1) → live (Sprint 2 go-live, 2026-06-25)",
       "consumer": "the Score API (0xHoneyJar/score-api) — event-sourced scoring; the SVM analog of the EVM MiberaTransfer stream (mint/transfer/burn/sale → mint/buy/sell/hold verbs)",
-      "producer": "sonar src/svm/collection-event-{source,writer}.ts — insert_svm_collection_event, on_conflict constraint collection_event_pkey (root field svm_collection_event / table svm.collection_event). Backfill (Helius token-account-chain trace) + webhook realtime land in cycle svm-collection-events Sprints 2-3.",
+      "producer": "sonar src/svm/collection-event-{source,writer,indexer}.ts — insert_svm_collection_event, on_conflict constraint collection_event_pkey (root field svm_collection_event / table svm.collection_event). Backfill = Helius Enhanced address-history (pNFT mint-history is complete); realtime = collection-event-webhook.ts + the every-6h GH Actions reconcile cron.",
       "requiredFields": {
         "id": "String",
         "collection_key": "String",
@@ -72,7 +73,7 @@
         "tx_signature": "String",
         "source": "String"
       },
-      "pendingNote": "Declared by the Sprint-1 foundation (cycle svm-collection-events) — seam + parser + writer + DDL artifact, NO live table yet. svm_collection_event is absent from the belt-gateway read surface until Sprint 2 applies grimoires/loa/cycles/svm-collection-events/collection-event.sql + pg_track_table + a public select permission AND the §4.5 reconciliation-vs-DAS gate passes. Promote to status:\"live\" then so future drift hard-fails CI. requiredFields types: instruction_index is Hasura Int (int4); price/slot are bigint; block_time is timestamptz — confirm against the live schema at promote time (the from/to GraphQL fields are confirmed safe — the consumer already queries from/to on MiberaTransfer through this gateway).",
+      "_liveNote": "Went LIVE 2026-06-25 (Sprint 2): CREATE TABLE svm.collection_event (PK collection_event_pkey == the indexer on_conflict) + pg_track_table + public-role select on belt-hasura-selfhost (source `default`), auto-surfacing at belt-gateway. Backfilled 30,006 events across all 3,682 Pythians NFTs via Helius Enhanced address-history (3,682 mint / 5,306 sale / rest transfer); sales carry resolved seller/buyer/price/marketplace from events.nft. The §4.5 reconciliation-vs-DAS gate passed at 99.84% (3,676/3,682; the 6 mismatches are a documented fail-safe tail — a missed late transfer / odd self-sale — and the DAS svm_collection_nft snapshot remains the authoritative current-owner source per SDD §7). Future drift now hard-fails CI. Freshness: the every-6h GH Actions reconcile cron (svm-event-backfill.yml) + the webhook receiver (collection-event-webhook.ts). KNOWN-LIMIT: requiredFields types confirmed against the live schema; from/to GraphQL fields confirmed (consumer already queries from/to on MiberaTransfer). Burnt-NFT pre-burn history + the 0.16% tail are the tracked follow-ups (token-account tracing) before the multi-collection registry.",
       "_invariants_doc": [
         "(DOCUMENTATION ONLY — not machine-checked; see _scope.)",
         "id is the content-addressed PK '{tx_signature}:{nft_mint}:{instruction_index}'; the indexer upserts on_conflict constraint collection_event_pkey (named after the bare table svm.collection_event). Constraint name NOT verifiable from the read surface — see _scope.",
