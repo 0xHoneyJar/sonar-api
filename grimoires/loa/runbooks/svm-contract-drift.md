@@ -6,7 +6,7 @@ EVM Transfer guard. Doctrine: the wire is the contract; verify it.
 ## What the guards are
 - `scripts/verify-belt-contract.mjs` + `belt-contract.json` — EVM `Transfer` read seam.
 - `scripts/verify-svm-contract.mjs` + `svm-contract.json` — SVM `svm_genesis_stone` (live) +
-  `svm_collection_nft` (pending-exposure) read seam.
+  `svm_collection_nft` (live) read seam.
 - Both introspect the **live read schema** of `belt-gateway-production` and assert the columns
   consumers depend on (and that the indexers' upserts must surface) still exist with the right type.
 
@@ -27,12 +27,21 @@ Triage, in order:
    (EVM) and any SVM ownership reader.
 
 ## Pending-exposure warning (`exit 0`, loud): a merged pipe's table isn't on the read surface
-Current standing case: `svm_collection_nft` (Pythians, PR #76). The merged indexer writes to
-`svm.collection_nft`, but that table is absent from the belt-gateway AND the SVM Hasura public
-surface — so its data is not consumer-readable. Remediation = the ops step in
-`grimoires/loa/specs/2026-06-23-svm-pythians-collection-design.md`: `CREATE TABLE svm.collection_nft`
-+ track it in Hasura (+ public select permission). Then promote the type to `status:"live"` in
-`svm-contract.json` so future drift hard-fails.
+When an indexer merges but its table hasn't been created/tracked on the gateway yet, declare the type
+`status: "pending-exposure"` in `svm-contract.json`. The guard surfaces it LOUDLY (warning, `exit 0` —
+NOT a CI fail) so a merged-but-unreachable pipe can't masquerade as "supported." To take such a type
+live (template):
+1. `CREATE SCHEMA/TABLE IF NOT EXISTS` on `belt-hasura-selfhost` (DDL lives in the pipe's design spec).
+2. `pg_track_table` + a `public`-role select permission (`columns:*, filter:{}`) — mirror the
+   `svm_genesis_stone` sibling. It auto-surfaces at `belt-gateway` (a Caddy reverse proxy over the
+   self-host Hasura — no separate metadata to track there).
+3. Promote the type to `status:"live"` in `svm-contract.json` so future drift hard-fails CI.
+4. Populate by running the pipe's on-demand DAS indexer (needs a Helius DAS-capable `SOLANA_RPC_URL`).
+
+**Resolved standing case:** `svm_collection_nft` (Pythians, PR #76) went LIVE 2026-06-24 — table
+created + tracked + public-select on `belt-hasura-selfhost` (source `default`, PK `collection_nft_pkey`),
+backfilled to 3,682 holders via the DAS indexer, guard promoted to `live` (PR #80). No
+pending-exposure types remain.
 
 ## Scope + known limits (verified 2026-06-24; see `svm-contract.json` `_scope`)
 These are **deliberate boundaries**, documented so a green guard is not over-read:
