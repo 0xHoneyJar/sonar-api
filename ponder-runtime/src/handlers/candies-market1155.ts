@@ -29,6 +29,7 @@ import {
   miberaOrder,
 } from "../../ponder.schema";
 import { recordAction } from "../lib/record-action";
+import { applyTransferBalances } from "./candies-balance";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -86,7 +87,25 @@ ponder.on("CandiesMarket1155:TransferSingle", async ({ event, context }) => {
       .onConflictDoNothing();
   }
 
-  // Skip mint processing if not a mint.
+  // Per-holder balance maintenance (mints AND trades AND burns).
+  // Runs for EVERY transfer, BEFORE the mint-only early-return below — so a
+  // trade debits `from` AND credits `to`, a mint only credits, a burn only
+  // debits. GATED to candies (mibera_drugs) market addresses, and the row's
+  // `contract` is the canonical value inventory-api filters on. See
+  // applyTransferBalances (candies-balance.ts) for both decisions.
+  await applyTransferBalances({
+    context,
+    from,
+    to,
+    contractAddress,
+    tokenId,
+    chainId,
+    quantity,
+    timestamp,
+  });
+
+  // Skip mint processing if not a mint. (The candies_inventory / candies_backing
+  // / erc1155_mint_event / mibera_order writes below stay mint-only — UNCHANGED.)
   if (fromLower !== ZERO_ADDRESS) {
     return;
   }
@@ -185,9 +204,12 @@ ponder.on("CandiesMarket1155:TransferSingle", async ({ event, context }) => {
 ponder.on("CandiesMarket1155:TransferBatch", async ({ event, context }) => {
   const { operator, from, to, ids, values } = event.args;
 
-  if (from.toLowerCase() !== ZERO_ADDRESS) {
-    return;
-  }
+  // Was: early-return when `from != 0x0` (mint-only). We now run the per-id
+  // loop for EVERY batch transfer so per-holder balances stay correct for
+  // trades + burns too — the mint-specific writes (backing / erc1155MintEvent /
+  // inventory / recordAction) stay gated behind `isMint`, UNCHANGED.
+  const fromLower = from.toLowerCase();
+  const isMint = fromLower === ZERO_ADDRESS;
 
   const contractAddress = event.log.address.toLowerCase();
   const collectionKey = getCollectionKey(contractAddress);
@@ -199,7 +221,8 @@ ponder.on("CandiesMarket1155:TransferBatch", async ({ event, context }) => {
   const logIndex = event.log.logIndex;
 
   // Track BERA backing for candies only (mibera_drugs), deduped by txHash.
-  if (collectionKey === "mibera_drugs") {
+  // Mint-only (matches original behaviour — backing was inside the mint path).
+  if (isMint && collectionKey === "mibera_drugs") {
     const txValue = (event.transaction as any).value;
     if (typeof txValue === "bigint" && txValue > 0n) {
       const existingBacking = await context.db.find(candiesBacking, {
@@ -238,6 +261,27 @@ ponder.on("CandiesMarket1155:TransferBatch", async ({ event, context }) => {
     }
 
     const tokenId = BigInt(rawId.toString());
+
+    // Per-holder balance maintenance for EVERY batch leg (mint/trade/burn).
+    // DEBIT `from` (skipped for mints), CREDIT `to` (skipped for burns). GATED
+    // to candies; row `contract` = canonical candies value. Same decisions as
+    // TransferSingle — see applyTransferBalances (candies-balance.ts).
+    await applyTransferBalances({
+      context,
+      from,
+      to,
+      contractAddress,
+      tokenId,
+      chainId,
+      quantity,
+      timestamp,
+    });
+
+    // Mint-specific writes (backing already handled above) — gated, UNCHANGED.
+    if (!isMint) {
+      continue;
+    }
+
     const mintId = `${txHash}_${logIndex}_${index}`;
 
     await context.db

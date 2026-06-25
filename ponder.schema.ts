@@ -96,6 +96,51 @@ export const candiesBacking = onchainTable("candies_backing", (t) => ({
   chainId: t.integer().notNull(),
 }));
 
+// CandiesHolderBalance — per-holder current ERC-1155 balance for Candies
+// (mibera_drugs). Mirrors badgeBalance (the per-holder ERC-1155 model above),
+// but kept independent of the badge_holder/badge_amount rollup machinery: a
+// Candy holder needs only the (contract, tokenId, holder) → amount cell.
+//
+// CONSUMER CONTRACT (inventory-api src/live-sonar.ts — DO NOT break):
+//   CandiesHolderBalance(where: { holder_id: {_eq: <addrLower>}, amount: {_gt: "0"} })
+//     { contract tokenId amount }
+//
+// Hasura field-name derivation (verified against scripts/cutover-hasura-tracking.sh
+// + test/hasura-contract/fixtures/queries.json):
+//   - Ponder/Drizzle preserves each onchainTable column KEY verbatim as the
+//     Postgres column name (proven: the live Hasura contract fixtures query
+//     `tokenId`, `collectionKey`, `transactionHash` camelCase directly — those
+//     are the literal schema column keys, NOT snake_cased). Hasura then exposes
+//     each Postgres column by its literal name.
+//   - Therefore the column key `holder_id` → Postgres `holder_id` → Hasura
+//     field `holder_id` (the field inventory-api filters on). `tokenId`,
+//     `contract`, `amount` stay camelCase/as-is to match the consumer query.
+//   - The TABLE root field `CandiesHolderBalance` is produced by the cutover
+//     script's custom_root_fields bake: snake table `candies_holder_balance`
+//     → snake_to_pascal → `CandiesHolderBalance`.
+//
+// HASURA HOLDER FIELD NAME (write-it-down per the contract): `holder_id`.
+export const candiesHolderBalance = onchainTable(
+  "candies_holder_balance",
+  (t) => ({
+    // id = `${contract}-${chainId}-${tokenId}-${holder}` (all lowercased, addresses + numeric tokenId)
+    id: t.text().primaryKey(),
+    // holder owner address (lowercased). Column key is snake-case ON PURPOSE so
+    // Hasura exposes it as `holder_id` — the inventory-api filter field.
+    holder_id: t.hex().notNull(),
+    contract: t.hex().notNull(),
+    tokenId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    chainId: t.integer().notNull(),
+    amount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    updatedAt: t.bigint().notNull(),
+  }),
+  (table) => ({
+    // Query perf: inventory-api filters by holder; secondary lookups by contract.
+    holderIdx: index().on(table.holder_id),
+    contractIdx: index().on(table.contract),
+  }),
+);
+
 // ─────────────────────────────────────────────────────────────────────────
 // MiberaLiquidBacking — DailyRfvSnapshot (Berachain 80094)
 // ─────────────────────────────────────────────────────────────────────────
