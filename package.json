@@ -19,6 +19,7 @@
     "s5:parity-dryrun": "tsx scripts/s5-parity-dryrun.ts",
     "validate:svm-canonical": "tsx scripts/validate-svm-canonical-live.ts",
     "validate:evm-canonical": "tsx scripts/validate-evm-canonical-live.ts",
+    "validate:evm-sales": "tsx scripts/validate-evm-sales-live.ts",
     "codegen:mibera": "envio codegen --config config.mibera.yaml",
     "typecheck:mibera": "tsc -p tsconfig.mibera.json",
     "postinstall": "bash scripts/rebuild-events-dist.sh"

@@ -44,13 +44,20 @@ Arbitrum, Berachain, Zora). The EVM adapter findings (from real data — what th
   (`MintActivity.contract` carries the real 0x — usable as the source).
 - **bigint→string + logIndex:** `timestamp`/`blockNumber` are `numeric`→STRINGS (`Number()`-convert);
   `Transfer.id` = `{txHash}_{logIndex}` (derive logIndex from the suffix).
-- **EVM SALE is the one genuinely cross-building producer piece (NOT validatable from sonar alone).**
-  `MintActivity` IS reachable (`{activityType, amountPaid, user, operator, tokenId, contract, tx}`), but
-  it carries RAW actors (`user`/`operator`), not resolved buyer/seller. Unlike SVM (where Helius resolves
-  seller/buyer at the source, so map-svm validated 5,302 sales), the EVM sale needs score-api's
-  `fetchMiberaBuyers/Sellers` RESOLUTION logic to derive seller/buyer + price from `MintActivity` × the
-  `MiberaTransfer` join. Porting + validating that against score-api's output IS the S5 work below;
-  guessing the resolution and signing it into the chain is the F9 hazard (map-evm header MAJOR-3 / F9).
+- **EVM SALE path — VALIDATED on real data (`npm run validate:evm-sales`): 1,984/1,984 complete sales
+  map to a valid `verb=sale`, 100%, 0 join-misses.** Two findings that de-risk S5:
+  - **The resolution is DATA-DERIVED, not score-api-only.** `MintActivity` emits a `SALE` row
+    (`user`=seller) AND a `PURCHASE` row (`user`=buyer) for the same `(tx, tokenId)`, both with
+    `amountPaid` (price) + the real `contract` 0x. So `EvmSaleRow{seller, buyer, priceWei}` is derivable
+    by pairing `SALE.user`/`PURCHASE.user` by `(tx,tokenId)` — the "port score-api fetchMiberaBuyers/Sellers"
+    may just BE this pairing. The S5 check shrinks to "is this pairing byte-identical to score-api's output?".
+  - **Join entity = `MintActivity × MiberaTransfer` (mibera-specific), NOT the generic `Transfer`.** The
+    generic `Transfer` table covers DIFFERENT collections (HoneyJar/Honeycomb) and shares ZERO (tx,tokenId)
+    with mibera sales → using it is a 100% silent join-miss (FAGAN MINOR-1, observed). The S4/S6 EVM
+    sale-source adapter MUST join MintActivity against MiberaTransfer.
+  - Still cross-building for S5: the EXACT parity of this data-derived resolution vs score-api's, and the
+    adapter itself emits (gated) — build it WITH the S5 score-api confirmation (F7: validate before backfill),
+    not ahead of it. But the resolution is now a concrete, tested candidate, not an unknown.
 
 ## S5 — the consumer-parity GATE (run BEFORE any backfill)
 
