@@ -32,11 +32,25 @@ The script (`scripts/validate-svm-canonical-live.ts`) also writes a real-data `c
   STRINGS and `timestamptz` (`block_time`) as an ISO string on the wire — the Helius source gives
   numbers. Any Hasura-sourced adapter (the S6 backfill) MUST `Number()`-convert `price`/`slot` and
   parse `block_time` to unix seconds before feeding `map-svm`, or every row trips the integer guard.
-- **EVM real-data validation is BLOCKED on data availability (not done):** the gateway's EVM read
-  surface (`belt-contract.json`) exposes only `Transfer` (no `logIndex`, no `timestamp`, no sale
-  entity), so `map-evm`'s carrier selection + sale-join can't be exercised against live data here. It
-  needs the S4/S6 EVM Hasura adapter (with logIndex/timestamp) + the MintActivity SALE rows (score-api
-  territory) — i.e. it converges with the S5 join-parity below, not a standalone producer check.
+EVM mapper validated too (`npm run validate:evm-canonical`): **20,000 / 20,000 live `Transfer` rows
+map cleanly through `map-evm` for mint/burn/transfer across 6 chains** (Ethereum, Optimism, Base,
+Arbitrum, Berachain, Zora). The EVM adapter findings (from real data — what the S4/S6 EVM adapter MUST do):
+
+- **Slugify the collection name → `collection_key`.** `Transfer.collection` is a NAME ("HoneyJar2",
+  "crayons_factory"), not a topic-segment slug — 7 names required slugify (HoneyJar1–6 → honeyjar1–6,
+  Honeycomb → honeycomb). The mapper correctly REJECTS a non-slug key; slugification is the adapter's job.
+- **Map collection name → contract address for `metadata.contract`.** The read surface gives the name,
+  not the 0x address (the validation used a placeholder). The adapter needs a name→address lookup
+  (`MintActivity.contract` carries the real 0x — usable as the source).
+- **bigint→string + logIndex:** `timestamp`/`blockNumber` are `numeric`→STRINGS (`Number()`-convert);
+  `Transfer.id` = `{txHash}_{logIndex}` (derive logIndex from the suffix).
+- **EVM SALE is the one genuinely cross-building producer piece (NOT validatable from sonar alone).**
+  `MintActivity` IS reachable (`{activityType, amountPaid, user, operator, tokenId, contract, tx}`), but
+  it carries RAW actors (`user`/`operator`), not resolved buyer/seller. Unlike SVM (where Helius resolves
+  seller/buyer at the source, so map-svm validated 5,302 sales), the EVM sale needs score-api's
+  `fetchMiberaBuyers/Sellers` RESOLUTION logic to derive seller/buyer + price from `MintActivity` × the
+  `MiberaTransfer` join. Porting + validating that against score-api's output IS the S5 work below;
+  guessing the resolution and signing it into the chain is the F9 hazard (map-evm header MAJOR-3 / F9).
 
 ## S5 — the consumer-parity GATE (run BEFORE any backfill)
 
