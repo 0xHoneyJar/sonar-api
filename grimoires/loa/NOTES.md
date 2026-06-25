@@ -658,3 +658,16 @@ only); **Helius backfill + webhooks** (HyperSync-SVM out per the 2026-06-20 subs
 - **External dep:** score-api fetcher (separate building, NOT in-cycle) — handoff contract in SDD §9.
   **New infra:** Helius key must become a Railway secret + 2 new services (svm-backfill, svm-webhook).
 - STATUS: planning + reviewed SDD done; implementation (sprint-plan → build) is the next phase, gated on operator.
+
+## 2026-06-25 — svm-collection-events CYCLE COMPLETE + DEPLOYED (operator: "continue to completion, full incl deployment and api keys")
+
+Pythians is now **fully indexed (history + txs) + realtime-deployed**, end to end. Sprints 1-4 all FAGAN-reviewed ([[use-fagan-for-review]]).
+
+- **Sprint 1 (#81):** foundation — `CollectionEventSource` seam + pure `parseHeliusTx` + writer + `svm_collection_event` guard entry. FAGAN CHANGES_REQUIRED (C1 PK-intrinsic / H1 sale-leg-drop / H2 1970-timestamp / M1 string-price) → folded.
+- **Sprint 2 (#82) GO-LIVE:** `HeliusCollectionEventSource` (Enhanced address-history; pNFT mint-history is COMPLETE — no token-account tracing needed) + runner with §4.5 reconcile gate. Applied to prod: CREATE+track+public-select `svm.collection_event`, **backfilled 30,006 events / 3,682 NFTs** (reconcile 99.84%), guard → `live` (34 assertions, 3 live SVM types green). FAGAN F1 (same-slot ordering) + F2-F5 folded.
+- **Sprint 3 (#82) realtime:** `svm-webhook` Railway service DEPLOYED (`svm-webhook-production.up.railway.app`, /health 200, 3,682 members; auth fail-closed 401) + **Helius webhook registered** (id `905784f8…`, 3,682 mints, ANY) + every-6h GH Actions reconcile cron (secrets `HELIUS_API_KEY`/`SVM_HASURA_ADMIN_SECRET` set — schedule auto-activates on main; `workflow_dispatch` now). FAGAN F1 (CI cmd-injection via inputs.limit) + F2-F9 folded.
+- **Sprint 4 (#82):** generic `collection-registry.ts` (add a collection = 1 entry + `--collection`); score-api handoff contract doc (cycle dir).
+
+**Topology:** belt-gateway = Caddy proxy over belt-hasura-selfhost → tracking on self-host auto-surfaces at the gateway. Helius API key provisioned: GH Actions secret + the svm-webhook Railway service vars. (Note: the `railway add` CLI echoed the belt-hasura admin secret to stdout this session — rotate if concerned.)
+
+**OPEN (operator-gated):** (a) score-api fetcher — cross-repo, NOT wired (handoff doc ready, `numeric1=instruction_index`); (b) 0.16% reconcile tail + burnt-NFT pre-burn history (token-account tracing follow-up); (c) cycle planning docs (prd/sdd/sprint/handoff) are local-only (`grimoires/loa/cycles/` gitignored). DAS `svm_collection_nft` snapshot stays authoritative for current-owner; events = history.
