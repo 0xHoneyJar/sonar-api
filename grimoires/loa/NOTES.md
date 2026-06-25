@@ -636,3 +636,25 @@ the green/Ponder path it voted to leave.
 - **MED-1 residue:** consider a machine-readable `dataStatus`/`populated` field in the manifest so a cross-repo consumer can gate holder logic on data-live, not just schema-live (deferred; no consumer reads the type yet).
 - **Cross-repo open Q (scar pushback):** does loa-freeside `adapters/sonar` (shadow-audit) read `svm_collection_nft`, and does it treat an empty result as "non-holder" vs "data-not-ready"? If a consumer wires Pythians before a refresh, stale/empty → wrong membership.
 - Helius DAS RPC is operator-supplied (used this session); still not stored in the Railway estate.
+
+## 2026-06-24 (later still) — Pythians is a SNAPSHOT, not an index → NEW cycle `svm-collection-events`
+
+Operator pushed back: the live snapshot (current ownership) is **useless for scoring** — the Score API
+(`0xHoneyJar/score-api`, separate building) is entirely event-sourced (`trigger/utils/indexer-client.ts`
+reads MiberaTransfer{from,to,tokenId,isMint,ts,txHash,block} → derives mint/buy/sell/stake/hold verbs).
+Needs full ownership HISTORY + txs. Decisions (operator): **generic all-SVM** event model (not Pythians-
+only); **Helius backfill + webhooks** (HyperSync-SVM out per the 2026-06-20 substrate finding).
+- PRD + SDD written to `grimoires/loa/cycles/svm-collection-events/` (NOT the canonical prd/sdd.md =
+  managed-Envio cycle, untouched). Contract = `svm_collection_event` keyed by collection_key
+  (from/to/nft_mint/kind/slot/block_time/tx_signature/instruction_index), the SVM analog of EVM MiberaTransfer.
+- **Adversarial design review (web-verified vs Helius/Solana docs) caught a real flaw BEFORE build:**
+  the mint-signature-walk can't get full history — plain SPL `Transfer` omits the mint from accounts;
+  ALT-referenced txns are dropped by getSignaturesForAddress. **Method changed to token-account
+  ownership-chain tracing** (Helius Enhanced address-history). Also folded: PK gains instruction_index
+  (batch-tx dedup + consumer numeric1); `kind:'sale'` + price/marketplace from Helius events.nft
+  (buy/sell parity); cNFT branch (getSignaturesForAsset); G1 reconciliation-vs-DAS promoted to a
+  go/no-go gate before any "full history" claim. Snapshot stays independent+authoritative (DAS is
+  complete; events are best-effort until reconciliation proves coverage).
+- **External dep:** score-api fetcher (separate building, NOT in-cycle) — handoff contract in SDD §9.
+  **New infra:** Helius key must become a Railway secret + 2 new services (svm-backfill, svm-webhook).
+- STATUS: planning + reviewed SDD done; implementation (sprint-plan → build) is the next phase, gated on operator.
