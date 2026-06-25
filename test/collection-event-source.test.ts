@@ -14,6 +14,7 @@ import {
 import { toRows, dedupeById, eventId } from "../src/svm/collection-event-writer";
 import { deriveLatestOwners } from "../src/svm/collection-event-indexer";
 import { decodeWebhookPayload } from "../src/svm/collection-event-webhook";
+import { resolveCollection, COLLECTIONS } from "../src/svm/collection-registry";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -314,6 +315,10 @@ describe("decodeWebhookPayload (realtime)", () => {
   it("returns [] for a non-array payload (never throws)", () => {
     expect(decodeWebhookPayload({ not: "an array" }, isMember)).toEqual([]);
     expect(decodeWebhookPayload(null, isMember)).toEqual([]);
+  });
+  it("registry resolves a known collection and throws (listing keys) on an unknown one", () => {
+    expect(resolveCollection("pythians").collectionMint).toBe(COLLECTIONS.pythians.collectionMint);
+    expect(() => resolveCollection("nope")).toThrow(/unknown collection 'nope'/);
   });
   it("F9 convergence: webhook (full member set) and backfill (per-mint) yield IDENTICAL PKs for a shared tx", () => {
     const tx = {

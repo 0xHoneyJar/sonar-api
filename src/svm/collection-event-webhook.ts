@@ -16,23 +16,24 @@ import { timingSafeEqual } from "node:crypto";
 import { parseHeliusTx, type HeliusParsedTx } from "./collection-event-source";
 import { upsertCollectionEvents } from "./collection-event-writer";
 import { DasNftCollectionSource } from "./nft-collection-source";
-import { PYTHIANS_COLLECTION, COLLECTION_KEY } from "./pythians-collection-indexer";
+import { resolveCollection, DEFAULT_COLLECTION_KEY } from "./collection-registry";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const SECRET = process.env.HELIUS_WEBHOOK_SECRET ?? "";
 const API_KEY = process.env.HELIUS_API_KEY ?? "";
 const RPC = process.env.SOLANA_RPC_URL ?? (API_KEY ? `https://mainnet.helius-rpc.com/?api-key=${API_KEY}` : "");
 const MEMBER_REFRESH_MS = 15 * 60 * 1000; // re-pull the member set every 15 min (new mints, burns)
+const cfg = resolveCollection(process.env.COLLECTION || DEFAULT_COLLECTION_KEY); // generic: COLLECTION env selects the collection
 
 // Collection member set (the isMember filter). Refreshed periodically so the webhook tracks membership.
 let members = new Set<string>();
 let membersLoadedAt = 0;
 
 async function refreshMembers(): Promise<void> {
-  const snap = await new DasNftCollectionSource(RPC, PYTHIANS_COLLECTION).snapshot();
+  const snap = await new DasNftCollectionSource(RPC, cfg.collectionMint).snapshot();
   members = new Set(snap.members.map((m) => m.nftMint));
   membersLoadedAt = Date.now();
-  console.log(`[webhook] member set refreshed: ${members.size} ${COLLECTION_KEY} NFTs`);
+  console.log(`[webhook] member set refreshed: ${members.size} ${cfg.collectionKey} NFTs`);
 }
 
 let refreshInFlight: Promise<void> | null = null;
@@ -115,7 +116,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     const events = decodeWebhookPayload(payload, (m) => members.has(m));
     let affected = 0;
     if (events.length > 0) {
-      affected = await upsertCollectionEvents(events, COLLECTION_KEY, PYTHIANS_COLLECTION, "helius-webhook");
+      affected = await upsertCollectionEvents(events, cfg.collectionKey, cfg.collectionMint, "helius-webhook");
     }
     console.log(`[webhook] decoded ${events.length} event(s), upserted ${affected}`);
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -134,7 +135,7 @@ async function main(): Promise<void> {
   if (!process.env.HASURA_GRAPHQL_ADMIN_SECRET) throw new Error("HASURA_GRAPHQL_ADMIN_SECRET required");
   await refreshMembers();
   http.createServer((req, res) => void handle(req, res)).listen(PORT, () => {
-    console.log(`[webhook] svm-collection-event webhook listening on :${PORT} (${COLLECTION_KEY})`);
+    console.log(`[webhook] svm-collection-event webhook listening on :${PORT} (${cfg.collectionKey})`);
   });
 }
 

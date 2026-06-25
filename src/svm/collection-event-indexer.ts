@@ -19,16 +19,18 @@ import { fileURLToPath } from "node:url";
 import { DasNftCollectionSource } from "./nft-collection-source";
 import { HeliusCollectionEventSource, type CollectionEvent } from "./collection-event-source";
 import { upsertCollectionEvents } from "./collection-event-writer";
-import { PYTHIANS_COLLECTION, COLLECTION_KEY } from "./pythians-collection-indexer";
+import { resolveCollection, DEFAULT_COLLECTION_KEY } from "./collection-registry";
 
 const API_KEY = process.env.HELIUS_API_KEY ?? "";
 const RPC = process.env.SOLANA_RPC_URL ?? (API_KEY ? `https://mainnet.helius-rpc.com/?api-key=${API_KEY}` : "");
 
 const RECONCILE_MIN_PCT = 99; // §4.5 go/no-go gate: refuse to write a likely-incomplete history below this
 
-function parseArgs(): { dry: boolean; limit?: number; force: boolean } {
+function parseArgs(): { dry: boolean; limit?: number; force: boolean; collection: string } {
   const dry = process.argv.includes("--dry");
   const force = process.argv.includes("--force");
+  const ci = process.argv.indexOf("--collection");
+  const collection = ci >= 0 ? (process.argv[ci + 1] ?? "") : (process.env.COLLECTION || DEFAULT_COLLECTION_KEY);
   const li = process.argv.indexOf("--limit");
   let limit: number | undefined;
   if (li >= 0) {
@@ -38,7 +40,7 @@ function parseArgs(): { dry: boolean; limit?: number; force: boolean } {
       throw new Error(`--limit requires a positive integer (got '${process.argv[li + 1] ?? ""}')`);
     }
   }
-  return { dry, limit, force };
+  return { dry, limit, force, collection };
 }
 
 /**
@@ -68,7 +70,8 @@ export function deriveLatestOwners(events: readonly CollectionEvent[]): Map<stri
 }
 
 async function main(): Promise<void> {
-  const { dry, limit, force } = parseArgs();
+  const { dry, limit, force, collection } = parseArgs();
+  const cfg = resolveCollection(collection); // generic: any registered SVM collection (SDD §4.4 / Sprint 4)
   if (!API_KEY) throw new Error("HELIUS_API_KEY required");
   if (!RPC) throw new Error("SOLANA_RPC_URL or HELIUS_API_KEY required");
   if (!dry) {
@@ -76,12 +79,12 @@ async function main(): Promise<void> {
     if (!process.env.SVM_HASURA_ENDPOINT) throw new Error("SVM_HASURA_ENDPOINT required (or pass --dry)");
   }
 
-  const snap = await new DasNftCollectionSource(RPC, PYTHIANS_COLLECTION).snapshot();
+  const snap = await new DasNftCollectionSource(RPC, cfg.collectionMint).snapshot();
   let members = snap.members;
   if (limit && limit > 0) members = members.slice(0, limit);
-  console.log(`${COLLECTION_KEY}: ${members.length} member NFTs to backfill (snapshot slot ${snap.slot})${dry ? " [DRY]" : ""}`);
+  console.log(`${cfg.collectionKey}: ${members.length} member NFTs to backfill (snapshot slot ${snap.slot})${dry ? " [DRY]" : ""}`);
 
-  const source = new HeliusCollectionEventSource(API_KEY, PYTHIANS_COLLECTION, { rpcUrl: RPC });
+  const source = new HeliusCollectionEventSource(API_KEY, cfg.collectionMint, { rpcUrl: RPC });
   const events: CollectionEvent[] = [];
   let done = 0;
   for (const m of members) {
@@ -113,8 +116,8 @@ async function main(): Promise<void> {
         `Investigate the mismatches (escrow/finality vs a real coverage gap) or re-run with --force.`,
     );
   }
-  const affected = await upsertCollectionEvents(events, COLLECTION_KEY, PYTHIANS_COLLECTION, "helius-backfill");
-  console.log(`✅ DONE — upserted ${affected} event rows into svm.collection_event for ${COLLECTION_KEY}`);
+  const affected = await upsertCollectionEvents(events, cfg.collectionKey, cfg.collectionMint, "helius-backfill");
+  console.log(`✅ DONE — upserted ${affected} event rows into svm.collection_event for ${cfg.collectionKey}`);
 }
 
 // run only when invoked directly (so deriveLatestOwners stays importable/testable)
