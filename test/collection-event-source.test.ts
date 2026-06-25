@@ -4,13 +4,19 @@
  * Pure decode (parseHeliusTx: mint / transfer / burn / sale-behind-escrow / batch / non-member filter /
  * malformed) + the writer's row mapping, PK shape, and batch de-dupe. No live RPC/Hasura.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   parseHeliusTx,
+  HeliusCollectionEventSource,
   type HeliusParsedTx,
   type CollectionEvent,
 } from "../src/svm/collection-event-source";
 import { toRows, dedupeById, eventId } from "../src/svm/collection-event-writer";
+import { deriveLatestOwners } from "../src/svm/collection-event-indexer";
+import { decodeWebhookPayload } from "../src/svm/collection-event-webhook";
+import { resolveCollection, COLLECTIONS } from "../src/svm/collection-registry";
+
+afterEach(() => vi.unstubAllGlobals());
 
 const M1 = "MINT_MEMBER_1";
 const M2 = "MINT_MEMBER_2";
@@ -200,5 +206,132 @@ describe("collection-event-writer", () => {
     const deduped = dedupeById(rows);
     expect(deduped).toHaveLength(2); // two distinct ids (instr 0 collapses, instr 1 stays)
     expect(deduped.find((r) => r.id === "SIG1:MINT_MEMBER_1:0")?.to).toBe("B_LATER");
+  });
+});
+
+describe("deriveLatestOwners (reconciliation gate)", () => {
+  const e = (over: Partial<CollectionEvent>): CollectionEvent => ({
+    nftMint: M1, kind: "transfer", from: null, to: null, instructionIndex: 0,
+    price: null, marketplace: null, slot: 0, blockTime: 0, txSignature: "S", ...over,
+  });
+  it("takes the latest (by slot, then leg) event's `to` as the current owner — out-of-order safe", () => {
+    const owners = deriveLatestOwners([
+      e({ kind: "mint", slot: 10, to: "W1" }),
+      e({ kind: "transfer", slot: 30, from: "W2", to: "W3" }),
+      e({ kind: "transfer", slot: 20, from: "W1", to: "W2" }), // arrives out of slot order
+    ]);
+    expect(owners.get(M1)).toBe("W3");
+  });
+  it("a burn as the latest event yields a null owner", () => {
+    const owners = deriveLatestOwners([
+      e({ kind: "mint", slot: 10, to: "W1" }),
+      e({ kind: "burn", slot: 20, from: "W1", to: null }),
+    ]);
+    expect(owners.get(M1)).toBeNull();
+  });
+  it("F1: two txs in the SAME slot — newest-first stream order wins (not the older tx)", () => {
+    // runner streams newest-first per mint: txC (newer) before txB (older), both slot 50.
+    const owners = deriveLatestOwners([
+      e({ kind: "transfer", slot: 50, txSignature: "txC", from: "B", to: "C" }), // newest
+      e({ kind: "transfer", slot: 50, txSignature: "txB", from: "A", to: "B" }), // older, same slot
+    ]);
+    expect(owners.get(M1)).toBe("C"); // NOT "B" — the pre-fix bug picked the older tx
+  });
+});
+
+describe("HeliusCollectionEventSource.mintHistory", () => {
+  const txPage = (sigs: string[]): HeliusParsedTx[] =>
+    sigs.map((signature, i) => ({
+      signature, slot: 100 + i, timestamp: 1_700_000_000 + i, type: "TRANSFER",
+      tokenTransfers: [{ mint: M1, fromUserAccount: "A", toUserAccount: "B" }],
+    }));
+  const resp = (status: number, body: unknown, retryAfter?: string) => ({
+    ok: status >= 200 && status < 300, status,
+    headers: { get: (h: string) => (h.toLowerCase() === "retry-after" ? retryAfter ?? null : null) },
+    json: async () => body, text: async () => JSON.stringify(body),
+  });
+
+  it("paginates via `before` until a short page, decoding each tx", async () => {
+    const full = txPage(Array.from({ length: 100 }, (_, i) => `S${i}`)); // full page → fetch again
+    const short = txPage(["LAST"]);
+    const fetchMock = vi.fn().mockResolvedValueOnce(resp(200, full)).mockResolvedValueOnce(resp(200, short));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const src = new HeliusCollectionEventSource("KEY", "COLL", { paceMs: 0 });
+    const evs: CollectionEvent[] = [];
+    for await (const ev of src.mintHistory(M1)) evs.push(ev);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(evs).toHaveLength(101); // 100 + 1 transfers
+    expect(new URL(fetchMock.mock.calls[1][0] as string).searchParams.get("before")).toBe("S99"); // cursor = last sig
+  });
+
+  it("retries on 429 then succeeds (rate-limit backoff, honors Retry-After)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(resp(429, { error: "rate" }, "0.001")) // tiny Retry-After → fast test
+      .mockResolvedValueOnce(resp(200, txPage(["ONLY"])));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const src = new HeliusCollectionEventSource("KEY", "COLL", { paceMs: 0 });
+    const evs: CollectionEvent[] = [];
+    for await (const ev of src.mintHistory(M1)) evs.push(ev);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2); // 429 retried, then 200
+    expect(evs).toHaveLength(1);
+  });
+
+  it("throws immediately on a fatal 4xx (no retry)", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(resp(401, { error: "bad key" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const src = new HeliusCollectionEventSource("KEY", "COLL", { paceMs: 0 });
+    await expect(async () => {
+      for await (const _ of src.mintHistory(M1)) void _;
+    }).rejects.toThrow(/HTTP 401/);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // not retried
+  });
+
+  it("throws (fail-loud, not silent-empty) after exhausting retries on persistent 429", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(resp(429, { error: "rate" }, "0.001")); // always 429, tiny wait
+    vi.stubGlobal("fetch", fetchMock);
+    const src = new HeliusCollectionEventSource("KEY", "COLL", { paceMs: 0 });
+    await expect(async () => {
+      for await (const _ of src.mintHistory(M1)) void _;
+    }).rejects.toThrow(/HTTP 429 after \d+ retries/);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1); // retried before giving up
+  });
+});
+
+describe("decodeWebhookPayload (realtime)", () => {
+  it("flat-maps a payload array into member events (mirrors backfill decode), filters non-members", () => {
+    const payload = [
+      { signature: "S1", slot: 100, timestamp: 1_700_000_000, type: "TRANSFER", tokenTransfers: [{ mint: M1, fromUserAccount: "A", toUserAccount: "B" }] },
+      { signature: "S2", slot: 101, timestamp: 1_700_000_001, type: "TRANSFER", tokenTransfers: [{ mint: NON, fromUserAccount: "X", toUserAccount: "Y" }] },
+    ];
+    const evs = decodeWebhookPayload(payload, isMember);
+    expect(evs).toHaveLength(1);
+    expect(evs[0]).toMatchObject({ nftMint: M1, kind: "transfer", txSignature: "S1" });
+  });
+  it("returns [] for a non-array payload (never throws)", () => {
+    expect(decodeWebhookPayload({ not: "an array" }, isMember)).toEqual([]);
+    expect(decodeWebhookPayload(null, isMember)).toEqual([]);
+  });
+  it("registry resolves a known collection and throws (listing keys) on an unknown one", () => {
+    expect(resolveCollection("pythians").collectionMint).toBe(COLLECTIONS.pythians.collectionMint);
+    expect(() => resolveCollection("nope")).toThrow(/unknown collection 'nope'/);
+  });
+  it("F9 convergence: webhook (full member set) and backfill (per-mint) yield IDENTICAL PKs for a shared tx", () => {
+    const tx = {
+      signature: "SHARED", slot: 100, timestamp: 1_700_000_000, type: "TRANSFER",
+      tokenTransfers: [
+        { mint: M1, fromUserAccount: "A", toUserAccount: "B" },
+        { mint: M2, fromUserAccount: "C", toUserAccount: "D" },
+      ],
+    };
+    // webhook decodes with the whole member set; backfill walks M1 alone with onlyThis.
+    const fromWebhook = decodeWebhookPayload([tx], isMember).find((e) => e.nftMint === M1)!;
+    const fromBackfill = parseHeliusTx(tx, (m) => m === M1)[0];
+    expect(eventId(fromWebhook)).toBe(eventId(fromBackfill)); // intrinsic per-mint index → same PK
+    expect(eventId(fromWebhook)).toBe("SHARED:MINT_MEMBER_1:0");
   });
 });

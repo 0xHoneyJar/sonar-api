@@ -1,0 +1,46 @@
+name: SVM collection-event backfill
+
+# Periodic reconcile-gated backfill of the SVM collection-event history (Pythians) into
+# svm.collection_event on belt-hasura-selfhost. This is the realtime/freshness + §4.5 reconcile
+# self-heal mechanism (cycle svm-collection-events). The runner is idempotent (content-addressed PK)
+# and refuses to write below the 99% reconciliation gate. Zero external runtime deps → npx tsx runs
+# the indexer standalone (no install step).
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Optional: limit member NFTs (testing)"
+        required: false
+        default: ""
+
+concurrency:
+  group: svm-event-backfill
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    # MEASURED 2026-06-25: a full 3,682-NFT Pythians walk + reconcile + bulk upsert ran ~15 min — 4×
+    # headroom under this cap (FAGAN F3). The runner collects-all → reconciles → writes-once BY DESIGN
+    # (the §4.5 gate reconciles the full set before any write), so writes can't be made incremental
+    # without weakening the gate. If a collection grows toward this cap, raise it / shard by collection.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Backfill svm.collection_event (reconcile-gated)
+        env:
+          HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+          SVM_HASURA_ENDPOINT: https://belt-hasura-selfhost-production.up.railway.app
+          HASURA_GRAPHQL_ADMIN_SECRET: ${{ secrets.SVM_HASURA_ADMIN_SECRET }}
+          # Pass the input through env (NOT direct ${{ }} interpolation into the script) and digit-guard
+          # it — never splice untrusted workflow input into a shell command.
+          LIMIT_INPUT: ${{ github.event.inputs.limit }}
+        run: |
+          ARGS=""
+          if printf '%s' "$LIMIT_INPUT" | grep -qE '^[0-9]+$'; then ARGS="--limit $LIMIT_INPUT"; fi
+          npx --yes tsx src/svm/collection-event-indexer.ts $ARGS
