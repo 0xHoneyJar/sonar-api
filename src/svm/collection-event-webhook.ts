@@ -15,6 +15,7 @@ import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { parseHeliusTx, type HeliusParsedTx } from "./collection-event-source";
 import { upsertCollectionEvents } from "./collection-event-writer";
+import { ensureKindConstraint } from "./ensure-kind-constraint";
 import { DasNftCollectionSource } from "./nft-collection-source";
 import { resolveCollection, DEFAULT_COLLECTION_KEY } from "./collection-registry";
 
@@ -133,6 +134,9 @@ async function main(): Promise<void> {
   if (!API_KEY && !RPC) throw new Error("HELIUS_API_KEY or SOLANA_RPC_URL required");
   if (!process.env.SVM_HASURA_ENDPOINT) throw new Error("SVM_HASURA_ENDPOINT required");
   if (!process.env.HASURA_GRAPHQL_ADMIN_SECRET) throw new Error("HASURA_GRAPHQL_ADMIN_SECRET required");
+  // #85: widen the kind CHECK before accepting any delivery — so a real-time list/delist write can never
+  // trip an un-widened constraint (which would 500 the delivery → Helius retry-storm). Safe-by-construction.
+  await ensureKindConstraint({ log: (m) => console.log(`[webhook] ${m}`) });
   await refreshMembers();
   http.createServer((req, res) => void handle(req, res)).listen(PORT, () => {
     console.log(`[webhook] svm-collection-event webhook listening on :${PORT} (${cfg.collectionKey})`);

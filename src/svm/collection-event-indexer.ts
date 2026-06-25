@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { DasNftCollectionSource } from "./nft-collection-source";
 import { HeliusCollectionEventSource, type CollectionEvent } from "./collection-event-source";
 import { upsertCollectionEvents } from "./collection-event-writer";
+import { ensureKindConstraint } from "./ensure-kind-constraint";
 import { resolveCollection, DEFAULT_COLLECTION_KEY } from "./collection-registry";
 
 const API_KEY = process.env.HELIUS_API_KEY ?? "";
@@ -77,6 +78,10 @@ async function main(): Promise<void> {
   if (!dry) {
     if (!process.env.HASURA_GRAPHQL_ADMIN_SECRET) throw new Error("HASURA_GRAPHQL_ADMIN_SECRET required (or pass --dry)");
     if (!process.env.SVM_HASURA_ENDPOINT) throw new Error("SVM_HASURA_ENDPOINT required (or pass --dry)");
+    // #85: widen the kind CHECK to permit list/delist BEFORE any write — makes the marketplace-kinds
+    // cutover safe-by-construction (the upsert can never trip an un-widened constraint). Idempotent.
+    const { widened } = await ensureKindConstraint({ log: (m) => console.log(m) });
+    if (widened) console.log("  (kind CHECK widened this run)");
   }
 
   const snap = await new DasNftCollectionSource(RPC, cfg.collectionMint).snapshot();
