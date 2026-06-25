@@ -16,6 +16,7 @@
     "verify:belt-contract": "node scripts/verify-belt-contract.mjs",
     "verify:svm-contract": "node scripts/verify-svm-contract.mjs",
     "verify:action-contract": "node scripts/verify-svm-contract.mjs --manifest scripts/action-contract.json",
+    "s5:parity-dryrun": "tsx scripts/s5-parity-dryrun.ts",
     "codegen:mibera": "envio codegen --config config.mibera.yaml",
     "typecheck:mibera": "tsc -p tsconfig.mibera.json",
     "postinstall": "bash scripts/rebuild-events-dist.sh"
