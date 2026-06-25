@@ -7,12 +7,17 @@
  * `CollectionEventSource` seam so the substrate (Helius today, Geyser/HyperSync tomorrow) is swappable
  * with zero writer/consumer change (cycle svm-collection-events; SDD §3).
  *
- * SUBSTRATE NOTE (SDD §4, design-review C1): full history requires TOKEN-ACCOUNT ownership-chain tracing
- * — a mint-keyed `getSignaturesForAddress(mint)` walk misses plain SPL `Transfer`s (mint absent from the
- * instruction accounts) and ALT-referenced txns. The Helius source (Sprint 2) traces the token-account
- * chain via the Enhanced address-history endpoint. THIS module (Sprint 1) ships the seam + the pure
- * `parseHeliusTx` decoder + types; the network backfill lands in Sprint 2.
+ * SUBSTRATE NOTE (SDD §4 + Sprint-2 empirical finding): the design feared a mint-keyed walk would miss
+ * plain SPL `Transfer`s (mint absent from instruction accounts). VERIFIED 2026-06-24 against live Helius:
+ * Pythians are ProgrammableNonFungible (pNFT) — pNFT transfers route through Token Metadata WITH the mint
+ * in-tx, so the mint's Enhanced address-history (`/v0/addresses/{mint}/transactions`) returns the COMPLETE
+ * mint→transfer→sale→burn chain. So Sprint 2 walks mint-address-history (simpler than token-account
+ * tracing); the §4.5 reconciliation-vs-DAS gate proves completeness empirically. Classic-SPL collections
+ * with raw `Transfer`s would still need token-account tracing — a per-collection concern (SDD §4.4/§13),
+ * gated by reconciliation when such a collection is added.
  */
+
+import { DasNftCollectionSource } from "./nft-collection-source";
 
 /** Ownership-changing event kinds. `sale` carries resolved buyer/seller/price (SDD §4.3). */
 export type CollectionEventKind = "mint" | "transfer" | "burn" | "sale";
@@ -193,28 +198,100 @@ export function parseHeliusTx(
   return out;
 }
 
-// ── v1 Helius substrate (network backfill lands in Sprint 2) ─────────────────
+// ── v1 Helius substrate ──────────────────────────────────────────────────────
+
+const ADDRESS_HISTORY_LIMIT = 100; // Helius Enhanced address-history max per page
+const MAX_PAGES_PER_MINT = 1000; // 100k txs/NFT — far above any real NFT; fail before an infinite loop
+const MAX_RETRIES = 6; // retry budget per request on 429 / 5xx (Helius free tier = ~10 RPS)
+const RETRY_BASE_MS = 700; // exponential backoff base: 0.7s, 1.4s, 2.8s … (capped)
+const RETRY_CAP_MS = 12_000;
+const DEFAULT_PACE_MS = 120; // inter-request spacing → stay just under the rate limit (≈8 RPS)
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /**
- * v1 — Helius substrate. Traces token-account ownership chains via the Helius Enhanced address-history
- * endpoint and decodes each tx with `parseHeliusTx` (SDD §4). STUBBED in Sprint 1 (mirrors the
- * HyperSync stub discipline): the seam + the pure decoder ship now; the network walk + per-NFT
- * checkpointing land in Sprint 2 (T2.1).
+ * v1 — Helius substrate. Enumerates collection members via DAS `getAssetsByGroup` (reusing the snapshot
+ * source) and walks each member NFT's Enhanced parsed tx history (`/v0/addresses/{mint}/transactions`,
+ * paged by `before`), decoding each tx with `parseHeliusTx`. For pNFT/modern NFTs the mint-address history
+ * is the complete chain (verified — see SUBSTRATE NOTE). A tx that touches two member NFTs is fetched
+ * under each mint's history; the per-mint `onlyThis` filter + the writer's PK de-dupe keep that correct
+ * and idempotent.
  */
 export class HeliusCollectionEventSource implements CollectionEventSource {
+  private readonly rpcUrl: string;
+  private readonly parseBase: string;
+  private readonly paceMs: number;
   constructor(
-    private readonly rpcUrl: string,
+    private readonly apiKey: string,
     readonly collectionMint: string,
-  ) {}
+    opts?: { rpcUrl?: string; parseBase?: string; paceMs?: number },
+  ) {
+    this.rpcUrl = opts?.rpcUrl ?? `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
+    this.parseBase = opts?.parseBase ?? "https://api.helius.xyz";
+    this.paceMs = opts?.paceMs ?? DEFAULT_PACE_MS;
+  }
 
-  // eslint-disable-next-line require-yield
+  /** Enumerate the collection's current member NFTs (base58 mints) via DAS. */
+  async members(): Promise<string[]> {
+    const snap = await new DasNftCollectionSource(this.rpcUrl, this.collectionMint).snapshot();
+    return snap.members.map((m) => m.nftMint);
+  }
+
+  /** Full event history for the collection: every member NFT's decoded tx history. */
   async *backfill(): AsyncIterable<CollectionEvent> {
-    throw new Error(
-      "HeliusCollectionEventSource.backfill: not yet — token-account-chain tracing lands in Sprint 2 (T2.1). The seam + parseHeliusTx ship in Sprint 1.",
-    );
+    for (const mint of await this.members()) {
+      yield* this.mintHistory(mint);
+    }
+  }
+
+  /** Walk one NFT's parsed tx history (newest→older via `before`), yielding only THIS mint's events. */
+  async *mintHistory(mint: string): AsyncIterable<CollectionEvent> {
+    const onlyThis = (m: string) => m === mint;
+    let before: string | undefined;
+    for (let page = 0; page < MAX_PAGES_PER_MINT; page++) {
+      const txs = await this.addressHistory(mint, before);
+      if (txs.length === 0) break;
+      for (const tx of txs) {
+        for (const ev of parseHeliusTx(tx, onlyThis)) yield ev;
+      }
+      before = txs[txs.length - 1]?.signature;
+      if (txs.length < ADDRESS_HISTORY_LIMIT || !before) break;
+    }
+  }
+
+  private async addressHistory(address: string, before?: string): Promise<HeliusParsedTx[]> {
+    const url = new URL(`${this.parseBase}/v0/addresses/${address}/transactions`);
+    url.searchParams.set("api-key", this.apiKey);
+    url.searchParams.set("limit", String(ADDRESS_HISTORY_LIMIT));
+    if (before) url.searchParams.set("before", before);
+
+    for (let attempt = 0; ; attempt++) {
+      if (this.paceMs > 0) await sleep(this.paceMs); // spacing → stay under the rate limit
+      const res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      // 429 (rate limit) / 5xx are transient — back off and retry (respect Retry-After when present).
+      if (res.status === 429 || res.status >= 500) {
+        if (attempt >= MAX_RETRIES) {
+          throw new Error(`helius address-history ${address}: HTTP ${res.status} after ${attempt} retries`);
+        }
+        const retryAfter = Number(res.headers.get("retry-after")) || 0;
+        const wait = retryAfter > 0 ? retryAfter * 1000 : Math.min(RETRY_CAP_MS, RETRY_BASE_MS * 2 ** attempt);
+        await sleep(wait);
+        continue;
+      }
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`helius address-history ${address}: HTTP ${res.status} ${body.slice(0, 160)}`);
+      }
+      const data = await res.json();
+      if (!Array.isArray(data)) {
+        throw new Error(`helius address-history ${address}: non-array response ${JSON.stringify(data).slice(0, 160)}`);
+      }
+      return data as HeliusParsedTx[];
+    }
   }
 
   async health(): Promise<SourceHealth> {
-    return { ok: false, detail: "helius event backfill: Sprint 2 (stub)" };
+    // Enumeration depends on DAS getAssetsByGroup — probe it (a plain RPC reports unhealthy).
+    return new DasNftCollectionSource(this.rpcUrl, this.collectionMint).health();
   }
 }

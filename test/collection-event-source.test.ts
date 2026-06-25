@@ -4,13 +4,17 @@
  * Pure decode (parseHeliusTx: mint / transfer / burn / sale-behind-escrow / batch / non-member filter /
  * malformed) + the writer's row mapping, PK shape, and batch de-dupe. No live RPC/Hasura.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   parseHeliusTx,
+  HeliusCollectionEventSource,
   type HeliusParsedTx,
   type CollectionEvent,
 } from "../src/svm/collection-event-source";
 import { toRows, dedupeById, eventId } from "../src/svm/collection-event-writer";
+import { deriveLatestOwners } from "../src/svm/collection-event-indexer";
+
+afterEach(() => vi.unstubAllGlobals());
 
 const M1 = "MINT_MEMBER_1";
 const M2 = "MINT_MEMBER_2";
@@ -200,5 +204,70 @@ describe("collection-event-writer", () => {
     const deduped = dedupeById(rows);
     expect(deduped).toHaveLength(2); // two distinct ids (instr 0 collapses, instr 1 stays)
     expect(deduped.find((r) => r.id === "SIG1:MINT_MEMBER_1:0")?.to).toBe("B_LATER");
+  });
+});
+
+describe("deriveLatestOwners (reconciliation gate)", () => {
+  const e = (over: Partial<CollectionEvent>): CollectionEvent => ({
+    nftMint: M1, kind: "transfer", from: null, to: null, instructionIndex: 0,
+    price: null, marketplace: null, slot: 0, blockTime: 0, txSignature: "S", ...over,
+  });
+  it("takes the latest (by slot, then leg) event's `to` as the current owner — out-of-order safe", () => {
+    const owners = deriveLatestOwners([
+      e({ kind: "mint", slot: 10, to: "W1" }),
+      e({ kind: "transfer", slot: 30, from: "W2", to: "W3" }),
+      e({ kind: "transfer", slot: 20, from: "W1", to: "W2" }), // arrives out of slot order
+    ]);
+    expect(owners.get(M1)).toBe("W3");
+  });
+  it("a burn as the latest event yields a null owner", () => {
+    const owners = deriveLatestOwners([
+      e({ kind: "mint", slot: 10, to: "W1" }),
+      e({ kind: "burn", slot: 20, from: "W1", to: null }),
+    ]);
+    expect(owners.get(M1)).toBeNull();
+  });
+});
+
+describe("HeliusCollectionEventSource.mintHistory", () => {
+  const txPage = (sigs: string[]): HeliusParsedTx[] =>
+    sigs.map((signature, i) => ({
+      signature, slot: 100 + i, timestamp: 1_700_000_000 + i, type: "TRANSFER",
+      tokenTransfers: [{ mint: M1, fromUserAccount: "A", toUserAccount: "B" }],
+    }));
+  const resp = (status: number, body: unknown, retryAfter?: string) => ({
+    ok: status >= 200 && status < 300, status,
+    headers: { get: (h: string) => (h.toLowerCase() === "retry-after" ? retryAfter ?? null : null) },
+    json: async () => body, text: async () => JSON.stringify(body),
+  });
+
+  it("paginates via `before` until a short page, decoding each tx", async () => {
+    const full = txPage(Array.from({ length: 100 }, (_, i) => `S${i}`)); // full page → fetch again
+    const short = txPage(["LAST"]);
+    const fetchMock = vi.fn().mockResolvedValueOnce(resp(200, full)).mockResolvedValueOnce(resp(200, short));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const src = new HeliusCollectionEventSource("KEY", "COLL", { paceMs: 0 });
+    const evs: CollectionEvent[] = [];
+    for await (const ev of src.mintHistory(M1)) evs.push(ev);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(evs).toHaveLength(101); // 100 + 1 transfers
+    expect(new URL(fetchMock.mock.calls[1][0] as string).searchParams.get("before")).toBe("S99"); // cursor = last sig
+  });
+
+  it("retries on 429 then succeeds (rate-limit backoff, honors Retry-After)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(resp(429, { error: "rate" }, "0.001")) // tiny Retry-After → fast test
+      .mockResolvedValueOnce(resp(200, txPage(["ONLY"])));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const src = new HeliusCollectionEventSource("KEY", "COLL", { paceMs: 0 });
+    const evs: CollectionEvent[] = [];
+    for await (const ev of src.mintHistory(M1)) evs.push(ev);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2); // 429 retried, then 200
+    expect(evs).toHaveLength(1);
   });
 });
