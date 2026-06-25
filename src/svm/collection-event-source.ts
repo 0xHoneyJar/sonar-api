@@ -19,8 +19,14 @@
 
 import { DasNftCollectionSource } from "./nft-collection-source";
 
-/** Ownership-changing event kinds. `sale` carries resolved buyer/seller/price (SDD §4.3). */
-export type CollectionEventKind = "mint" | "transfer" | "burn" | "sale";
+/**
+ * SVM collection-event kinds. `mint`/`transfer`/`burn`/`sale` are ownership changes (`sale` carries
+ * resolved buyer/seller/price — SDD §4.3). `list`/`delist` are marketplace-STATE events (#85): the NFT
+ * moves to/from a marketplace escrow WITHOUT a beneficial-owner change — emitted as a distinct kind (+
+ * `marketplace`) so a consumer can tell a listing from a real peer-to-peer transfer instead of each
+ * re-deriving it from escrow addresses (score-api request, issue #85).
+ */
+export type CollectionEventKind = "mint" | "transfer" | "burn" | "sale" | "list" | "delist";
 
 /** One ownership-changing event for one NFT (the entity the writer upserts). */
 export interface CollectionEvent {
@@ -29,8 +35,8 @@ export interface CollectionEvent {
   readonly from: string | null; // owner-level; null for mint; resolved SELLER for sale
   readonly to: string | null; // owner-level; null for burn; resolved BUYER for sale
   readonly instructionIndex: number; // per-NFT leg ordinal within the tx → PK uniqueness + consumer numeric1 (SDD H3/H4)
-  readonly price: number | null; // sale only: lamports
-  readonly marketplace: string | null; // sale only: e.g. "TENSOR"
+  readonly price: number | null; // sale: lamports; list: the ask amount (#85, single-listing only); null otherwise
+  readonly marketplace: string | null; // sale/list/delist: Helius source (e.g. "MAGIC_EDEN"/"TENSOR"); null otherwise
   readonly slot: number;
   readonly blockTime: number; // on-chain block time, unix SECONDS (the scoring timestamp)
   readonly txSignature: string;
@@ -79,7 +85,8 @@ export interface HeliusParsedTx {
   signature?: string;
   slot?: number;
   timestamp?: number; // [VERIFY] block time, unix seconds (Helius enhanced uses `timestamp`)
-  type?: string; // [VERIFY] high-level type: NFT_MINT | NFT_SALE | TRANSFER | BURN | NFT_BURN | …
+  type?: string; // [VERIFY] high-level type: NFT_MINT | NFT_SALE | NFT_LISTING | NFT_CANCEL_LISTING | TRANSFER | BURN | …
+  source?: string; // marketplace for list/delist (top-level), e.g. "MAGIC_EDEN" / "TENSOR" (#85; VERIFIED live)
   tokenTransfers?: readonly HeliusTokenTransfer[];
   events?: { nft?: HeliusNftEvent };
 }
@@ -90,6 +97,19 @@ export interface HeliusParsedTx {
 const TYPE_MINT = new Set(["NFT_MINT", "TOKEN_MINT", "COMPRESSED_NFT_MINT"]);
 const TYPE_BURN = new Set(["BURN", "NFT_BURN", "BURN_NFT", "COMPRESSED_NFT_BURN"]);
 const TYPE_SALE = "NFT_SALE";
+// Marketplace list/delist (#85). Helius emits a distinct `type` + `source` for these (VERIFIED live:
+// NFT_LISTING / NFT_CANCEL_LISTING on MAGIC_EDEN + TENSOR), so an owner→escrow listing and an
+// escrow→owner cancel are no longer indistinguishable from a peer-to-peer transfer. Unknown variants
+// degrade to `transfer` (the safe default), never crash.
+const TYPE_LIST = new Set(["NFT_LISTING", "LISTING", "LIST_NFT"]);
+const TYPE_DELIST = new Set(["NFT_CANCEL_LISTING", "NFT_DELISTING", "DELIST_NFT", "CANCEL_LISTING"]);
+
+// #85 DEPLOY GATE (FAGAN MAJOR-1): list/delist emission is OFF by default. The live svm.collection_event
+// CHECK constraint must be widened to allow 'list'/'delist' BEFORE this is enabled — otherwise a single
+// list event fails the WHOLE atomic batch upsert (drops co-bundled events + a Helius 500 retry-storm).
+// Deploy with the flag OFF (a no-op — listings still emit as `transfer`, exactly as today), apply the
+// ALTER, THEN set SVM_EMIT_MARKETPLACE_KINDS=true on the webhook + backfill, and re-backfill to reclassify.
+const MARKETPLACE_KINDS_ENABLED = process.env.SVM_EMIT_MARKETPLACE_KINDS === "true";
 
 /**
  * Decode one Helius parsed tx into the collection events it contains (one per member NFT leg).
@@ -110,7 +130,12 @@ const TYPE_SALE = "NFT_SALE";
 export function parseHeliusTx(
   tx: HeliusParsedTx | null | undefined,
   isMember: (mint: string) => boolean,
+  opts?: { emitMarketplaceKinds?: boolean },
 ): CollectionEvent[] {
+  // #85 gate: emit list/delist only when enabled (default = the env-derived module const, OFF). When
+  // OFF, a listing/cancel degrades to `kind=transfer` exactly as before — a safe no-op until the live
+  // CHECK constraint is widened. Tests pass `opts.emitMarketplaceKinds` explicitly.
+  const emitMarketplaceKinds = opts?.emitMarketplaceKinds ?? MARKETPLACE_KINDS_ENABLED;
   const out: CollectionEvent[] = [];
   if (!tx) return out;
   const txSignature = tx.signature;
@@ -166,6 +191,8 @@ export function parseHeliusTx(
   // MINT / TRANSFER / BURN — from token transfers. (An NFT_SALE whose events.nft is absent falls through
   // here and is recorded as kind='transfer' with from=<escrow PDA> and no price — a documented LOSSY
   // degradation, not a silent one: the leg is preserved, just un-resolved (FAGAN L1).)
+  // Marketplace for list/delist (#85): top-level tx.source, else the nft event's source.
+  const mpSource = tx.source ?? nftEvent?.source ?? null;
   for (const tt of tx.tokenTransfers ?? []) {
     const mint = tt.mint;
     if (!mint || !isMember(mint)) continue;
@@ -173,14 +200,29 @@ export function parseHeliusTx(
     let kind: CollectionEventKind;
     let from: string | null = tt.fromUserAccount ?? null;
     let to: string | null = tt.toUserAccount ?? null;
+    let marketplace: string | null = null;
+    let price: number | null = null;
     if (type && TYPE_MINT.has(type)) {
       kind = "mint";
       from = null; // a mint has no prior owner
     } else if (type && TYPE_BURN.has(type)) {
       kind = "burn";
       to = null; // a burn has no next owner
+    } else if (emitMarketplaceKinds && type && TYPE_LIST.has(type)) {
+      // a listing: owner→escrow. Keep the raw from/to (score-api filters escrow addresses on its side —
+      // #85); the distinct kind + marketplace are the event fact it asked for.
+      kind = "list";
+      marketplace = mpSource;
+      // price = the ask. Only for a SINGLE-NFT listing — a multi-mint listing shares one top-level
+      // amount, so don't claim a (possibly-wrong) per-mint ask (FAGAN MINOR-2); leave null there.
+      const singleListing = (nftEvent?.nfts?.length ?? 0) <= 1;
+      price = singleListing && Number.isFinite(Number(nftEvent?.amount)) ? Number(nftEvent?.amount) : null;
+    } else if (emitMarketplaceKinds && type && TYPE_DELIST.has(type)) {
+      // a cancel-listing: escrow→owner. The NFT returns to the lister; no price on a cancel.
+      kind = "delist";
+      marketplace = mpSource;
     } else {
-      kind = "transfer"; // safe default for any other type with a token movement
+      kind = "transfer"; // safe default (incl. list/delist when the #85 gate is OFF) — never crashes
     }
     out.push({
       nftMint: mint,
@@ -188,8 +230,8 @@ export function parseHeliusTx(
       from,
       to,
       instructionIndex: nextIndex(mint),
-      price: null,
-      marketplace: null,
+      price,
+      marketplace,
       slot,
       blockTime,
       txSignature,

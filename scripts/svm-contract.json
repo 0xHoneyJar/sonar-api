@@ -77,7 +77,8 @@
       "_invariants_doc": [
         "(DOCUMENTATION ONLY — not machine-checked; see _scope.)",
         "id is the content-addressed PK '{tx_signature}:{nft_mint}:{instruction_index}'; the indexer upserts on_conflict constraint collection_event_pkey (named after the bare table svm.collection_event). Constraint name NOT verifiable from the read surface — see _scope.",
-        "kind ∈ {mint,transfer,burn,sale}; from/to are owner-level (null for mint/burn respectively); for sale, from/to are the resolved seller/buyer and price (lamports) + marketplace come from Helius events.nft (not the escrow transfer).",
+        "kind ∈ {mint,transfer,burn,sale,list,delist}; from/to are owner-level (null for mint/burn respectively); for sale, from/to are the resolved seller/buyer and price (lamports) + marketplace come from Helius events.nft (not the escrow transfer).",
+        "list/delist (#85, score-api request) are MARKETPLACE-STATE events, NOT ownership changes: a listing (owner→escrow, Helius NFT_LISTING) and a cancel (escrow→owner, NFT_CANCEL_LISTING) carry `marketplace` (MAGIC_EDEN/TENSOR) — list also carries the ask `price`. from/to keep the raw escrow movement (the consumer filters escrow addresses on its side). Additive — existing {mint,transfer,burn,sale} consumers are unaffected.",
         "instruction_index is the per-NFT leg ordinal within a tx — it disambiguates batch txs (distinct PKs) AND is the consumer's integer dedup discriminator (maps to score-api numeric1)."
       ]
     }

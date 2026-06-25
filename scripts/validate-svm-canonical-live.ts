@@ -14,7 +14,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { Either } from "effect";
-import { mapSvm, type SvmCollectionContext } from "../src/canonical/map-svm";
+import { mapSvm, isCanonicalOwnershipKind, type SvmCollectionContext } from "../src/canonical/map-svm";
 import type { CollectionEvent } from "../src/svm/collection-event-source";
 
 const ENDPOINT = process.env.SVM_CONTRACT_ENDPOINT ?? "https://belt-gateway-production.up.railway.app/v1/graphql";
@@ -80,6 +80,7 @@ async function main() {
   let offset = 0;
   let total = 0;
   let ok = 0;
+  let skippedNonOwnership = 0;
   const verbCount: Record<string, number> = {};
   const failReasons: Record<string, number> = {};
   const failures: Array<{ tx: string; mint: string; reason: string }> = [];
@@ -91,6 +92,12 @@ async function main() {
     if (rows.length === 0) break;
     for (const r of rows) {
       total++;
+      // list/delist (#85) are marketplace-STATE events, not canonical ownership activities — excluded
+      // from the canonical stream (the consumer reads them off svm_collection_event directly).
+      if (!isCanonicalOwnershipKind(r.kind as never)) {
+        skippedNonOwnership++;
+        continue;
+      }
       const ctx: SvmCollectionContext = { collectionKey: r.collection_key, collectionMint: r.collection_mint };
       const res = mapSvm(toCollectionEvent(r), ctx);
       if (Either.isRight(res)) {
@@ -107,9 +114,11 @@ async function main() {
     if (rows.length < BATCH) break;
   }
 
-  const pct = total > 0 ? ((ok / total) * 100).toFixed(2) : "0";
+  const ownership = total - skippedNonOwnership;
+  const pct = ownership > 0 ? ((ok / ownership) * 100).toFixed(2) : "0";
   console.log(`\n${TAG} ===== RESULT =====`);
-  console.log(`${TAG} scanned ${total} live rows · mapped OK ${ok} (${pct}%) · failed ${total - ok}`);
+  console.log(`${TAG} scanned ${total} live rows · ${skippedNonOwnership} non-ownership (list/delist #85) excluded · ${ownership} ownership events`);
+  console.log(`${TAG} ownership mapped OK ${ok} (${pct}%) · failed ${ownership - ok}`);
   console.log(`${TAG} verb distribution: ${JSON.stringify(verbCount)}`);
   if (Object.keys(failReasons).length) {
     console.log(`${TAG} failure reasons (templated):`);
@@ -119,7 +128,7 @@ async function main() {
   }
   writeFileSync(outPath, JSON.stringify(sample, null, 2));
   console.log(`${TAG} wrote ${sample.length}-record canonical sample → ${outPath}`);
-  process.exit(total - ok === 0 ? 0 : 1);
+  process.exit(ownership - ok === 0 ? 0 : 1);
 }
 
 main().catch((e) => {
