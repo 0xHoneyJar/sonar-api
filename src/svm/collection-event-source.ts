@@ -1,0 +1,220 @@
+/**
+ * collection-event-source.ts — the SVM substrate SEAM for NFT-collection ownership EVENT history.
+ *
+ * Sibling of nft-collection-source.ts. Where that pipe reads a current-state SNAPSHOT (who holds which
+ * NFT now), this one reads the EVENT STREAM (mint / transfer / burn / sale, with from/to/tx/slot/time) —
+ * the SVM analog of the EVM `MiberaTransfer` entity the Score API derives scoring verbs from. Behind the
+ * `CollectionEventSource` seam so the substrate (Helius today, Geyser/HyperSync tomorrow) is swappable
+ * with zero writer/consumer change (cycle svm-collection-events; SDD §3).
+ *
+ * SUBSTRATE NOTE (SDD §4, design-review C1): full history requires TOKEN-ACCOUNT ownership-chain tracing
+ * — a mint-keyed `getSignaturesForAddress(mint)` walk misses plain SPL `Transfer`s (mint absent from the
+ * instruction accounts) and ALT-referenced txns. The Helius source (Sprint 2) traces the token-account
+ * chain via the Enhanced address-history endpoint. THIS module (Sprint 1) ships the seam + the pure
+ * `parseHeliusTx` decoder + types; the network backfill lands in Sprint 2.
+ */
+
+/** Ownership-changing event kinds. `sale` carries resolved buyer/seller/price (SDD §4.3). */
+export type CollectionEventKind = "mint" | "transfer" | "burn" | "sale";
+
+/** One ownership-changing event for one NFT (the entity the writer upserts). */
+export interface CollectionEvent {
+  readonly nftMint: string; // base58 NFT mint
+  readonly kind: CollectionEventKind;
+  readonly from: string | null; // owner-level; null for mint; resolved SELLER for sale
+  readonly to: string | null; // owner-level; null for burn; resolved BUYER for sale
+  readonly instructionIndex: number; // per-NFT leg ordinal within the tx → PK uniqueness + consumer numeric1 (SDD H3/H4)
+  readonly price: number | null; // sale only: lamports
+  readonly marketplace: string | null; // sale only: e.g. "TENSOR"
+  readonly slot: number;
+  readonly blockTime: number; // on-chain block time, unix SECONDS (the scoring timestamp)
+  readonly txSignature: string;
+}
+
+export interface SourceHealth {
+  readonly ok: boolean;
+  readonly detail: string;
+}
+
+/** The SEAM. Any substrate (Helius today, Geyser/HyperSync tomorrow) implements this. */
+export interface CollectionEventSource {
+  /** Stream the full event history for the configured collection (resumable via sinceSlot). */
+  backfill(opts?: { sinceSlot?: number }): AsyncIterable<CollectionEvent>;
+  health(): Promise<SourceHealth>;
+}
+
+// ── pure parsing (no network — unit-testable) ───────────────────────────────
+
+/**
+ * The subset of a Helius parsed/enhanced transaction we read. Field shapes are marked [VERIFY] where
+ * they must be confirmed against live Helius responses in Sprint 2 (SDD §13) — we do NOT hard-assume
+ * undocumented fields; the parser degrades gracefully (skips legs it can't classify).
+ */
+export interface HeliusTokenTransfer {
+  mint?: string;
+  fromUserAccount?: string | null; // [VERIFY] owner-level (not token-account) — Helius resolves ATAs to owners
+  toUserAccount?: string | null;
+  tokenStandard?: string; // [VERIFY] e.g. "NonFungible"
+}
+
+export interface HeliusNftEventNft {
+  mint?: string;
+}
+
+export interface HeliusNftEvent {
+  type?: string; // [VERIFY] e.g. "NFT_SALE"
+  source?: string; // [VERIFY] marketplace, e.g. "TENSOR" / "MAGIC_EDEN"
+  amount?: number; // [VERIFY] price in lamports
+  buyer?: string;
+  seller?: string;
+  nfts?: readonly HeliusNftEventNft[];
+}
+
+export interface HeliusParsedTx {
+  signature?: string;
+  slot?: number;
+  timestamp?: number; // [VERIFY] block time, unix seconds (Helius enhanced uses `timestamp`)
+  type?: string; // [VERIFY] high-level type: NFT_MINT | NFT_SALE | TRANSFER | BURN | NFT_BURN | …
+  tokenTransfers?: readonly HeliusTokenTransfer[];
+  events?: { nft?: HeliusNftEvent };
+}
+
+// Helius high-level type strings. [VERIFY] exact tokens (NFT_MINT vs TOKEN_MINT; BURN vs NFT_BURN)
+// against live responses in Sprint 2; the classifier treats anything else with a token-transfer as a
+// plain transfer (the safe default), so an unknown mint/burn type degrades to `transfer`, never crashes.
+const TYPE_MINT = new Set(["NFT_MINT", "TOKEN_MINT", "COMPRESSED_NFT_MINT"]);
+const TYPE_BURN = new Set(["BURN", "NFT_BURN", "BURN_NFT", "COMPRESSED_NFT_BURN"]);
+const TYPE_SALE = "NFT_SALE";
+
+/**
+ * Decode one Helius parsed tx into the collection events it contains (one per member NFT leg).
+ *
+ * - SALE: prefer `events.nft` (Helius resolves the human seller/buyer/price behind the marketplace
+ *   escrow). Emitting from `events.nft` and skipping the raw escrow→buyer tokenTransfer avoids
+ *   double-counting (SDD §4.3 / H5).
+ * - MINT / TRANSFER / BURN: from `tokenTransfers[]` (owner-level from/to). kind keyed off the tx
+ *   `type` field, NOT a from-null/to-incinerator heuristic (SDD §4.2 / L3).
+ *
+ * `instructionIndex` is a PER-MINT occurrence ordinal (0 for the first leg of a given mint in this tx),
+ * so the PK `{sig}:{mint}:{index}` is intrinsic to the event — batch txs get distinct PKs via distinct
+ * mints, and re-decodes converge regardless of sibling-mint filtering/ordering (FAGAN C1).
+ *
+ * `isMember(mint)` filters to the collection under index. Pure — no network. Tolerant of partial/unknown
+ * shapes (returns whatever it can classify; never throws on a malformed tx).
+ */
+export function parseHeliusTx(
+  tx: HeliusParsedTx | null | undefined,
+  isMember: (mint: string) => boolean,
+): CollectionEvent[] {
+  const out: CollectionEvent[] = [];
+  if (!tx) return out;
+  const txSignature = tx.signature;
+  if (!txSignature) return out; // no signature → can't form a PK; skip
+  const slot = tx.slot ?? 0;
+  const blockTime = tx.timestamp ?? 0;
+  // A valid event needs a real on-chain slot + block time. Both feed ordering and block_time is the
+  // NOT NULL scoring timestamp; a missing value (0) would write 1970-01-01, sort as the oldest event, and
+  // silently poison scoring + the §4.5 reconciliation. Skip rather than corrupt — a dropped event is
+  // recoverable by re-run, a 1970 row is corruption that looks like data (FAGAN H2).
+  if (slot <= 0 || blockTime <= 0) return out;
+  const type = tx.type;
+
+  // Per-mint occurrence ordinal — INTRINSIC to (sig, mint): independent of sibling mints, `isMember`
+  // filtering, and tokenTransfers ordering. Keeps the content-addressed PK {sig}:{mint}:{index} a PURE
+  // function of the event, so backfill + webhook converge even under member-set churn (DAS drops burnt
+  // members) or surface reordering (SDD §13 [VERIFY]). In the ~always case (one leg per member per tx)
+  // this is 0 (FAGAN C1). If Helius later exposes a real per-leg instruction index, prefer it.
+  const occ = new Map<string, number>();
+  const nextIndex = (mint: string): number => {
+    const i = occ.get(mint) ?? 0;
+    occ.set(mint, i + 1);
+    return i;
+  };
+
+  // SALE — resolved parties from events.nft. Track which mints were emitted as sales so we skip ONLY
+  // their escrow→buyer leg below (NOT the whole tx — a bundle/aggregator tx can sell M1 via events.nft
+  // AND move member M2 via tokenTransfers; M2 must still be emitted) (FAGAN H1).
+  const soldMints = new Set<string>();
+  const nftEvent = tx.events?.nft;
+  if (type === TYPE_SALE && nftEvent) {
+    const saleMints = (nftEvent.nfts ?? [])
+      .map((n) => n.mint)
+      .filter((m): m is string => typeof m === "string" && isMember(m));
+    for (const mint of saleMints) {
+      out.push({
+        nftMint: mint,
+        kind: "sale",
+        from: nftEvent.seller ?? null,
+        to: nftEvent.buyer ?? null,
+        instructionIndex: nextIndex(mint),
+        // amount may serialize as a string for large lamport values — coerce, don't discard (FAGAN M1).
+        price: Number.isFinite(Number(nftEvent.amount)) ? Number(nftEvent.amount) : null,
+        marketplace: nftEvent.source ?? null,
+        slot,
+        blockTime,
+        txSignature,
+      });
+      soldMints.add(mint);
+    }
+  }
+
+  // MINT / TRANSFER / BURN — from token transfers. (An NFT_SALE whose events.nft is absent falls through
+  // here and is recorded as kind='transfer' with from=<escrow PDA> and no price — a documented LOSSY
+  // degradation, not a silent one: the leg is preserved, just un-resolved (FAGAN L1).)
+  for (const tt of tx.tokenTransfers ?? []) {
+    const mint = tt.mint;
+    if (!mint || !isMember(mint)) continue;
+    if (soldMints.has(mint)) continue; // already emitted as a sale — skip its escrow→buyer leg (no double-count)
+    let kind: CollectionEventKind;
+    let from: string | null = tt.fromUserAccount ?? null;
+    let to: string | null = tt.toUserAccount ?? null;
+    if (type && TYPE_MINT.has(type)) {
+      kind = "mint";
+      from = null; // a mint has no prior owner
+    } else if (type && TYPE_BURN.has(type)) {
+      kind = "burn";
+      to = null; // a burn has no next owner
+    } else {
+      kind = "transfer"; // safe default for any other type with a token movement
+    }
+    out.push({
+      nftMint: mint,
+      kind,
+      from,
+      to,
+      instructionIndex: nextIndex(mint),
+      price: null,
+      marketplace: null,
+      slot,
+      blockTime,
+      txSignature,
+    });
+  }
+  return out;
+}
+
+// ── v1 Helius substrate (network backfill lands in Sprint 2) ─────────────────
+
+/**
+ * v1 — Helius substrate. Traces token-account ownership chains via the Helius Enhanced address-history
+ * endpoint and decodes each tx with `parseHeliusTx` (SDD §4). STUBBED in Sprint 1 (mirrors the
+ * HyperSync stub discipline): the seam + the pure decoder ship now; the network walk + per-NFT
+ * checkpointing land in Sprint 2 (T2.1).
+ */
+export class HeliusCollectionEventSource implements CollectionEventSource {
+  constructor(
+    private readonly rpcUrl: string,
+    readonly collectionMint: string,
+  ) {}
+
+  // eslint-disable-next-line require-yield
+  async *backfill(): AsyncIterable<CollectionEvent> {
+    throw new Error(
+      "HeliusCollectionEventSource.backfill: not yet — token-account-chain tracing lands in Sprint 2 (T2.1). The seam + parseHeliusTx ship in Sprint 1.",
+    );
+  }
+
+  async health(): Promise<SourceHealth> {
+    return { ok: false, detail: "helius event backfill: Sprint 2 (stub)" };
+  }
+}

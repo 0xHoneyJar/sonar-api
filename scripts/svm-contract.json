@@ -51,6 +51,34 @@
         "owner is the token-account owner — may be an escrow/stake PDA for listed/staked NFTs; delegate is surfaced alongside (often the real lister). Consumer disambiguation owner-vs-delegate belongs in a consumer-side type/lint, not forbiddenFields here.",
         "compressed marks DAS compressed NFTs; both regular and compressed members are indexed."
       ]
+    },
+    "svm_collection_event": {
+      "status": "pending-exposure",
+      "consumer": "the Score API (0xHoneyJar/score-api) — event-sourced scoring; the SVM analog of the EVM MiberaTransfer stream (mint/transfer/burn/sale → mint/buy/sell/hold verbs)",
+      "producer": "sonar src/svm/collection-event-{source,writer}.ts — insert_svm_collection_event, on_conflict constraint collection_event_pkey (root field svm_collection_event / table svm.collection_event). Backfill (Helius token-account-chain trace) + webhook realtime land in cycle svm-collection-events Sprints 2-3.",
+      "requiredFields": {
+        "id": "String",
+        "collection_key": "String",
+        "collection_mint": "String",
+        "nft_mint": "String",
+        "kind": "String",
+        "from": "String",
+        "to": "String",
+        "instruction_index": "Int",
+        "price": "bigint",
+        "marketplace": "String",
+        "slot": "bigint",
+        "block_time": "timestamptz",
+        "tx_signature": "String",
+        "source": "String"
+      },
+      "pendingNote": "Declared by the Sprint-1 foundation (cycle svm-collection-events) — seam + parser + writer + DDL artifact, NO live table yet. svm_collection_event is absent from the belt-gateway read surface until Sprint 2 applies grimoires/loa/cycles/svm-collection-events/collection-event.sql + pg_track_table + a public select permission AND the §4.5 reconciliation-vs-DAS gate passes. Promote to status:\"live\" then so future drift hard-fails CI. requiredFields types: instruction_index is Hasura Int (int4); price/slot are bigint; block_time is timestamptz — confirm against the live schema at promote time (the from/to GraphQL fields are confirmed safe — the consumer already queries from/to on MiberaTransfer through this gateway).",
+      "_invariants_doc": [
+        "(DOCUMENTATION ONLY — not machine-checked; see _scope.)",
+        "id is the content-addressed PK '{tx_signature}:{nft_mint}:{instruction_index}'; the indexer upserts on_conflict constraint collection_event_pkey (named after the bare table svm.collection_event). Constraint name NOT verifiable from the read surface — see _scope.",
+        "kind ∈ {mint,transfer,burn,sale}; from/to are owner-level (null for mint/burn respectively); for sale, from/to are the resolved seller/buyer and price (lamports) + marketplace come from Helius events.nft (not the escrow transfer).",
+        "instruction_index is the per-NFT leg ordinal within a tx — it disambiguates batch txs (distinct PKs) AND is the consumer's integer dedup discriminator (maps to score-api numeric1)."
+      ]
     }
   }
 }
