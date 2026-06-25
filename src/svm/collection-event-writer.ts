@@ -103,6 +103,22 @@ async function hasura<T>(query: string, variables: Record<string, unknown>): Pro
 }
 
 /**
+ * Distinct member mints already materialized in svm.collection_event for a collection. This is the
+ * webhook's member-set FALLBACK when the authoritative DAS snapshot is unavailable (Helius rate-limit or
+ * monthly credit-quota exhaustion — both 429): the mints we've already indexed ARE the membership, so the
+ * realtime tail keeps filtering correctly for known members through a Helius outage instead of crashing or
+ * dropping every delivery. New (never-indexed) mints are missed until DAS recovers; the cron backfill is
+ * the backstop (SDD §5). Read-only.
+ */
+export async function fetchMemberMintsFromDb(collectionKey: string): Promise<string[]> {
+  const q = `query Members($ck: String!) {
+    svm_collection_event(where: { collection_key: { _eq: $ck } }, distinct_on: nft_mint) { nft_mint }
+  }`;
+  const d = await hasura<{ svm_collection_event: { nft_mint: string }[] }>(q, { ck: collectionKey });
+  return d.svm_collection_event.map((r) => r.nft_mint);
+}
+
+/**
  * Upsert events into svm.collection_event in batches. De-dupes by PK first. Returns total affected_rows.
  * Insert-only/idempotent — no destructive op (unlike the snapshot reconcile); safe to re-run.
  */
