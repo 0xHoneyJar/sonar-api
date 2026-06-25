@@ -76,3 +76,31 @@ jobs:
             exit 0
           fi
           echo "SVM contract holds ✓ (pending-exposure types surfaced as warnings above)"
+
+  verify-live-action-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify live canonical action contract
+        run: |
+          # The chain-agnostic canonical `action` projection READ contract (scripts/action-contract.json),
+          # reusing the svm-contract verifier via --manifest. canonical_action is pending-exposure (not yet
+          # on the live surface) → surfaces a warning, exit 0. Becomes a hard CI gate the moment the type
+          # goes live (S6) and its status flips to "live".
+          set +e
+          out=$(node scripts/verify-svm-contract.mjs --manifest scripts/action-contract.json --json)
+          code=$?
+          set -e
+          echo "$out"
+          printf '%s' "$out" | node -e 'const esc=v=>String(v||"").replace(/\n/g," ").replace(/::/g,":");let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);for(const w of (j.warnings||[]))console.log(`::warning title=ACTION ${esc(w.type)} pending-exposure::${esc(w.detail).slice(0,400)}`);for(const t of (j.promotable||[]))console.log(`::warning title=ACTION ${esc(t)} promote-to-live::${esc(t)} is now exposed and matches its declared contract — promote it to status:live in scripts/action-contract.json so future drift hard-fails CI.`);}catch(e){}})'
+          if [ "$code" = "1" ]; then
+            echo "::error title=canonical action contract drift::A consumer-depended canonical action read column changed/disappeared. Fix the producer or update scripts/action-contract.json + every consumer in lockstep."
+            exit 1
+          elif [ "$code" = "2" ]; then
+            echo "::warning title=action endpoint unreachable::Could not introspect the live endpoint (transient?). Not failing the guard; re-runs on the next schedule."
+            exit 0
+          fi
+          echo "canonical action contract holds ✓ (pending-exposure types surfaced as warnings above)"
