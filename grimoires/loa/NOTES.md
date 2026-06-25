@@ -615,3 +615,24 @@ the green/Ponder path it voted to leave.
 **Honesty caveat:** the compose review's findings are real workflow output (4 agents, 367k tokens, 1.9M ms, file-anchored), but I did not complete the Form-C seam-protocol envelope wrap → the run does NOT carry a `valid_run` certification (`compiled_run`/`broken_run`). Findings stand on their grounding, not the gate.
 
 **RESUME (2026-06-24):** PR #78 (SVM guard) **MERGED** (`27df49c2`, squash) into feat/envio-cloud-hypersync — Bridgebuilder-reviewed (COMMENTED, no blockers; F-001 exit-code semantics + F-002 `::`-injection + F-004 nullability-scope folded in; F-003 endpoint-env-wiring deferred). Local now synced (caught up to #76; Pythians source present). Two operator-gated follow-ups remain: (a) the Pythians table ops step `CREATE TABLE svm.collection_nft` + Hasura tracking (un-blocks Pythians data — small); (b) un-defer the shadow-audit gateway sprint (candidate spec pull-ready). **Config nit:** `.loa.config.yaml:1935` `persona_path: grimoires/observer/ARCHETYPE.md` is stale (file absent) → plain `/bridgebuilder-review` fails until repointed; workaround used = `--persona default` + `npm ci` in the BB skill dir + `BRIDGEBUILDER_MODEL=claude-headless` (no API key in env). loa-freeside still on a pre-#300 feature branch — pull before touching the gateway.
+
+## 2026-06-24 (later) — Pythians LIVE to prod gateway (autonomous; closes the data-readiness gap)
+
+**Goal:** "get pythians live to prod gateway." DONE end-to-end — schema + data both live, guard armed.
+
+**Topology grounded (Railway, project `freeside-sonar`):** `belt-gateway` is a **Caddy reverse proxy** (`BELT_UPSTREAM` → `belt-hasura-selfhost`), NOT a separate Hasura/federation — so tracking on the self-host Hasura auto-surfaces at the gateway. The SVM indexers are **on-demand `npx tsx` runs, NOT deployed services** (belt-indexer-selfhost is the EVM Envio belt; no Solana/Helius RPC anywhere in the estate).
+
+**Ops applied to `belt-hasura-selfhost` (prod, source `default`) — idempotent/additive, mirrors `svm_genesis_stone`:**
+- `CREATE SCHEMA/TABLE/INDEX IF NOT EXISTS svm.collection_nft` (DDL verbatim from the design spec). PK constraint verified = `collection_nft_pkey` (== indexer `on_conflict`).
+- `pg_track_table` + `pg_create_select_permission` role=`public`, columns=`*`, filter=`{}`, allow_aggregations=true.
+- **Backfilled via the operator's Helius DAS RPC: 3,682 Pythians NFTs upserted, 0 stale removed @ slot 428730330.**
+
+**Verified live (unauthenticated, at `belt-gateway-production/v1/graphql`):** `svm_collection_nft_aggregate{count}=3682`, real owner wallets, no errors. `verify:svm-contract` GREEN — 20 assertions across 2 live types; future drift on the Pythians read seam now hard-fails CI.
+
+**Shipped:** **PR #80 MERGED** (squash) into feat/envio-cloud-hypersync — promoted `svm_collection_nft` guard `pending-exposure`→`live` (`scripts/svm-contract.json`) + corrected the drift runbook (it falsely said the table was absent from both surfaces; genericized the pending-exposure section into a take-it-live template). Reviewed by construct-scar (studio-mode): **no CRITICAL/HIGH** — exposure sound (public on-chain data only, writes admin-gated, types match, on_conflict correct). MED-1 (empty-but-live false-negative) resolved by the backfill; MED-2 (lying runbook) fixed in the PR.
+
+**OPERATIONAL FOLLOW-UPS (operator-gated, NOT built):**
+- **Staleness:** ownership is a current-state snapshot; with no deployed indexer the 3,682 rows go stale as NFTs transfer. Decide: scheduled re-run (Railway cron service / GH Action with the Helius key as a secret) vs. accept manual refresh. The `updated_at` column lets consumers detect staleness.
+- **MED-1 residue:** consider a machine-readable `dataStatus`/`populated` field in the manifest so a cross-repo consumer can gate holder logic on data-live, not just schema-live (deferred; no consumer reads the type yet).
+- **Cross-repo open Q (scar pushback):** does loa-freeside `adapters/sonar` (shadow-audit) read `svm_collection_nft`, and does it treat an empty result as "non-holder" vs "data-not-ready"? If a consumer wires Pythians before a refresh, stale/empty → wrong membership.
+- Helius DAS RPC is operator-supplied (used this session); still not stored in the Railway estate.
