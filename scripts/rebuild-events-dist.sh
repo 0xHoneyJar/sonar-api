@@ -99,6 +99,22 @@ if [[ -z "$EVENTS_DIR" ]]; then
   mkdir -p "$EVENTS_DIR"
 fi
 
+# Export specifiers the package MUST resolve — ALL 12 of package.json "exports"
+# (root + 11 subpaths). Defined ONCE here so it gates BOTH the accept-without-
+# rebuild paths (a cache-hit dist missing a newly-added export must NOT be
+# accepted as good — m3) AND the freshly-built dist verification (Step 10).
+SPECIFIERS=("" "/envelope" "/jcs" "/signer" "/topics" "/publisher" "/subscriber" "/registry" "/emit" "/mutex" "/schemas/nft-mint-detected" "/schemas/nft-activity")
+
+# Return 0 iff every specifier's built .js exists under <dist_root>/src.
+_all_specifier_files_present() {
+  local dist_root="$1" specifier entry
+  for specifier in "${SPECIFIERS[@]}"; do
+    if [[ -z "$specifier" ]]; then entry="$dist_root/src/index.js"; else entry="$dist_root/src${specifier}.js"; fi
+    [[ -f "$entry" ]] || return 1
+  done
+  return 0
+}
+
 # =============================================================================
 # Step 2: Check if dist is already up-to-date (acvp-l1-v2 fingerprint)
 # =============================================================================
@@ -119,18 +135,24 @@ if [[ -f "$EVENTS_DIR/dist/SOURCE_SHA" ]]; then
   fi
 fi
 
-if [[ "$HAS_VALID_SCHEMA_VERSION" == "true" && "$HAS_VALID_SOURCE_SHA" == "true" ]]; then
-  echo "$TAG dist/ already up-to-date (acvp-l1-v2, SOURCE_SHA=$COMMIT_SHA) — skipping"
+if [[ "$HAS_VALID_SCHEMA_VERSION" == "true" && "$HAS_VALID_SOURCE_SHA" == "true" ]] \
+   && _all_specifier_files_present "$EVENTS_DIR/dist"; then
+  echo "$TAG dist/ already up-to-date (acvp-l1-v2, SOURCE_SHA=$COMMIT_SHA, all specifiers present) — skipping"
   exit 0
 fi
 
-# Path ε hotfix (2026-05-27): if schema-version fingerprint matches but
-# SOURCE_SHA doesn'''t, trust the schema literal alone. The dist'''s
-# SOURCE_SHA file references the PARENT commit of where dist was committed
-# (chicken-and-egg) — strict SOURCE_SHA match is impossible to satisfy when
-# dist is committed upstream. Mirrors freeside-characters#114 relax.
-if [[ "$HAS_VALID_SCHEMA_VERSION" == "true" ]]; then
-  echo "$TAG dist/ has valid acvp-l1-v2 schema fingerprint (SOURCE_SHA=$(cat "$EVENTS_DIR/dist/SOURCE_SHA" 2>/dev/null || echo "missing") vs expected $COMMIT_SHA — accepting upstream dist) — skipping rebuild"
+# Path ε hotfix (2026-05-27, corrected 2026-06-25): the schema-only relaxation
+# exists for a dist COMMITTED upstream with NO provenance file — its SOURCE_SHA
+# would reference the parent commit (chicken-and-egg), so a strict match is
+# unsatisfiable. Mirrors freeside-characters#114. BUT when a SOURCE_SHA file IS
+# present and mismatches the pin, the pin genuinely moved (e.g. an ADDITIVE
+# payload-schema add that does NOT bump the acvp-l1-v2 envelope literal) and we
+# MUST rebuild — else the child silently consumes a stale dist, which is exactly
+# how an additive bump would drop nft.activity.recorded.* on consumption. So
+# only accept-without-rebuild when SOURCE_SHA provenance is ABSENT.
+if [[ "$HAS_VALID_SCHEMA_VERSION" == "true" && ! -f "$EVENTS_DIR/dist/SOURCE_SHA" ]] \
+   && _all_specifier_files_present "$EVENTS_DIR/dist"; then
+  echo "$TAG dist/ has valid acvp-l1-v2 schema fingerprint + no SOURCE_SHA provenance + all specifiers present (committed-upstream dist) — accepting upstream dist, skipping rebuild"
   exit 0
 fi
 
@@ -261,7 +283,7 @@ echo "$TAG Embedded SOURCE_SHA: $ACTUAL_SHA"
 # =============================================================================
 
 echo "$TAG Verifying export specifiers..."
-SPECIFIERS=("" "/envelope" "/jcs" "/signer" "/topics" "/publisher" "/subscriber" "/schemas/nft-mint-detected")
+# SPECIFIERS is defined once near Step 1 (shared with the accept-path presence check).
 for specifier in "${SPECIFIERS[@]}"; do
   if [[ -z "$specifier" ]]; then
     ENTRY_FILE="dist/src/index.js"
@@ -285,11 +307,32 @@ cd "$ROOT_DIR"
 rm -rf "$EVENTS_DIR/dist"
 cp -r "$BUILD_DIR/repo/$SUBDIR/dist" "$EVENTS_DIR/dist"
 
-# Bootstrap path: also materialize the package.json so module resolution works.
-# (Hounfour-style installs have it from pnpm; subdir-package installs don't.)
-if [[ ! -f "$EVENTS_DIR/package.json" ]]; then
-  cp "$BUILD_DIR/repo/$SUBDIR/package.json" "$EVENTS_DIR/package.json"
-  echo "$TAG Materialized package.json into $EVENTS_DIR (subdir-package bootstrap)"
+# Materialize AND refresh the package.json so module resolution stays in sync
+# with the pinned SHA. The conditional bootstrap (copy-once) left the exports map
+# stale across pin bumps — a new export subpath (e.g. an additive schema) would
+# ship its dist file but stay unreachable by the consumer's resolver. An
+# unconditional copy of the pinned source descriptor is the published shape.
+#
+# m4 guard: the unconditional copy is safe ONLY while every export target is
+# dist-relative (./dist/...) — this scheme ships dist/, not src/. A future pin
+# that points exports at ./src or a workspace:/catalog specifier would silently
+# break consumer resolution. Assert the invariant before copying; fail loud if a
+# pin ever regresses it (better than shipping an unresolvable descriptor).
+if ! node -e '
+  const fs = require("fs");
+  const pkg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const exp = pkg.exports || {};
+  const bad = [];
+  for (const [key, val] of Object.entries(exp)) {
+    const targets = typeof val === "string" ? [val] : Object.values(val);
+    for (const t of targets) if (typeof t === "string" && !t.startsWith("./dist/")) bad.push(key + " -> " + t);
+  }
+  if (bad.length) { console.error("non-dist-relative export target(s): " + bad.join(", ")); process.exit(1); }
+' "$BUILD_DIR/repo/$SUBDIR/package.json"; then
+  echo "$TAG SECURITY: refusing to copy package.json — export targets are not all dist-relative (this scheme ships dist/ only). A pin regressed the export shape."
+  exit 1
 fi
+cp "$BUILD_DIR/repo/$SUBDIR/package.json" "$EVENTS_DIR/package.json"
+echo "$TAG Refreshed package.json from pinned source (exports map in sync with $ACTUAL_SHA, all targets dist-relative)"
 
 echo "$TAG Successfully rebuilt dist (SOURCE_SHA=${ACTUAL_SHA:0:12})"

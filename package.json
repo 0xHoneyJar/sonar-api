@@ -43,7 +43,7 @@
       "repo": "0xHoneyJar/loa-freeside",
       "subdir": "packages/events",
       "package": "@0xhoneyjar/events",
-      "sha": "271310a0227510a95eb970b84486efcef0c08888"
+      "sha": "5d69285a5a01d53f046cff8f24b963a229997b3e"
     }
   },
   "optionalDependencies": {
