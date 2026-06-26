@@ -13,7 +13,9 @@ export type LabelStatus = "verified" | "unverified" | "unverified_permanent" | "
 
 export type EntityType =
   | "collection_authority" | "creator" | "royalty_receiver" | "mint_program" | "distributor"
-  | "marketplace_escrow" | "team" | "treasury" | "multisig" | "cex" | "bridge" | "holder" | "unknown";
+  | "marketplace_escrow" | "team" | "treasury" | "multisig" | "cex" | "bridge" | "holder" | "unknown"
+  // migration/upgrade lineage — a predecessor collection mint (e.g. Pikenians → Pythenians burn-to-mint)
+  | "predecessor_collection";
 
 /** What a producer hands to the seam. `confidence`/`status`/`validity*`/`signature_valid` are derived. */
 export interface LabelInput {
