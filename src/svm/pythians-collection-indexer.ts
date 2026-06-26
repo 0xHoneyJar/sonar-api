@@ -8,9 +8,9 @@
  * RECONCILES by deleting rows for this collection whose `updated_at` is older than this run — so
  * transferred-out / burnt NFTs drop out.
  *
- * Collection: Pythians = pyTh2UtBKfuDW6KCdT3swospYeoLmmKaGujWA91Moru (on-chain name "Pythenians" / $PTN;
+ * Collection: Pythenians = pyTh2UtBKfuDW6KCdT3swospYeoLmmKaGujWA91Moru (on-chain name "Pythenians" / $PTN;
  * Metaplex collection mint, grounded on-chain 2026-06-23: classic SPL mint, supply 1, decimals 0). NOTE:
- * the pump.fun token 7C9…pump was the WRONG address — Pythians is this NFT collection, not a token.
+ * the pump.fun token 7C9…pump was the WRONG address — Pythenians is this NFT collection, not a token.
  *
  * SAFETY (BB review): reconcile uses a self-controlled per-run marker (`updated_at`, NOT the RPC `slot`,
  * which isn't monotonic across load-balanced nodes — M1), and is GUARDED two ways against deleting real

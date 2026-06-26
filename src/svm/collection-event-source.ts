@@ -9,7 +9,7 @@
  *
  * SUBSTRATE NOTE (SDD §4 + Sprint-2 empirical finding): the design feared a mint-keyed walk would miss
  * plain SPL `Transfer`s (mint absent from instruction accounts). VERIFIED 2026-06-24 against live Helius:
- * Pythians are ProgrammableNonFungible (pNFT) — pNFT transfers route through Token Metadata WITH the mint
+ * Pythenians are ProgrammableNonFungible (pNFT) — pNFT transfers route through Token Metadata WITH the mint
  * in-tx, so the mint's Enhanced address-history (`/v0/addresses/{mint}/transactions`) returns the COMPLETE
  * mint→transfer→sale→burn chain. So Sprint 2 walks mint-address-history (simpler than token-account
  * tracing); the §4.5 reconciliation-vs-DAS gate proves completeness empirically. Classic-SPL collections
