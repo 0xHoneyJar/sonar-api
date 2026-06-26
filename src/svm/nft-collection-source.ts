@@ -8,7 +8,7 @@
  * the SAME interface when Solana HyperSync ships the account/instruction handlers it lacks today
  * (2026-06-20-svm-substrate-finding.md).
  *
- * Pythians = the Metaplex collection mint `pyTh2UtBKfuDW6KCdT3swospYeoLmmKaGujWA91Moru` (on-chain name
+ * Pythenians = the Metaplex collection mint `pyTh2UtBKfuDW6KCdT3swospYeoLmmKaGujWA91Moru` (on-chain name
  * "Pythenians" / $PTN; classic SPL mint, supply 1, decimals 0 — grounded on-chain 2026-06-23). Generic
  * on the collection: any collection is indexed by changing the indexer's CONFIG constants.
  *
@@ -78,7 +78,7 @@ export function parseAsset(asset: DasAsset | null | undefined): CollectionMember
 // ── v1 DAS substrate ────────────────────────────────────────────────────────
 
 /** Page-based pagination safety valve — fail BEFORE any reconcile rather than loop/OOM (BB review M2). */
-const MAX_PAGES = 5000; // 5000 × 1000 = 5M NFTs; far above Pythians, and below Helius' page*limit ceiling
+const MAX_PAGES = 5000; // 5000 × 1000 = 5M NFTs; far above Pythenians, and below Helius' page*limit ceiling
 
 /**
  * v1 — Helius DAS substrate. Pages `getAssetsByGroup(collection)` for verified members + owners, then

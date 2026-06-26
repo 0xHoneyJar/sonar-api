@@ -6,7 +6,7 @@
  * RECONCILES (§4.5 go/no-go gate): derives latest-owner-per-NFT from the event stream and compares to the
  * DAS current-ownership snapshot — proving the event history is complete before "full history" is claimed.
  *
- * Sprint-2 MVP indexes Pythians (the hard-coded CONFIG); Sprint 4 lifts the collection to a registry.
+ * Sprint-2 MVP indexes Pythenians (the hard-coded CONFIG); Sprint 4 lifts the collection to a registry.
  *
  * Run (dry, no writes — validate + reconcile):
  *   HELIUS_API_KEY=<key> npx tsx src/svm/collection-event-indexer.ts --dry [--limit N]
