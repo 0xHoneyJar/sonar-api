@@ -52,6 +52,27 @@
         "compressed marks DAS compressed NFTs; both regular and compressed members are indexed."
       ]
     },
+    "svm_collection_owner_derived": {
+      "status": "live",
+      "consumer": "downstream membership/score readers via the belt-gateway — current BENEFICIAL owner per collection NFT (resolves through marketplace escrow custody)",
+      "producer": "sonar migrations/svm/001_collection_owner_derived.sql — a VIEW over svm.collection_event, deployed by scripts/svm-ensure-owner-view.ts (root field svm_collection_owner_derived / view svm.collection_owner_derived)",
+      "requiredFields": {
+        "collection_key": "String",
+        "collection_mint": "String",
+        "nft_mint": "String",
+        "owner": "String",
+        "via_kind": "String",
+        "slot": "bigint",
+        "block_time": "timestamptz",
+        "tx_signature": "String"
+      },
+      "_scope": [
+        "ALWAYS-FRESH by construction: a plain VIEW over the self-healing svm.collection_event stream (6h cron + realtime webhook) — no cron, no DAS, no Helius. The inverse of svm_collection_nft, the on-demand DAS custodial snapshot that goes stale between manual runs.",
+        "owner = the `to` of each mint's latest mint|transfer|sale event; list/delist escrow-custody and burns are skipped, so a listed NFT's owner stays the lister (the BENEFICIAL owner) — the resolution of the owner-vs-escrow ambiguity that svm_collection_nft documents on its own `owner` field.",
+        "COMPLEMENT, not replacement: svm_collection_nft remains the DAS custodial-owner snapshot. For Pythenians the two agree on 97.77% of mints (3600/3682); the 82 disagreements are exactly the escrow-listed NFTs (74 map to known marketplace_escrow addresses in label.entity_label).",
+        "Verified 2026-06-26 against the live DAS snapshot. Honest-green: surfaces the beneficial owner without claiming DAS-authority."
+      ]
+    },
     "svm_collection_event": {
       "status": "live",
       "status_was": "pending-exposure (Sprint 1) → live (Sprint 2 go-live, 2026-06-25)",
