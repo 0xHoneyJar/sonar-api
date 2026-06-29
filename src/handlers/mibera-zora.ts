@@ -8,7 +8,10 @@
  * This is a Zora platform ERC-1155 collection.
  */
 
-import { MiberaZora1155, Erc1155MintEvent } from "generated";
+import {
+  indexer,
+  type Erc1155MintEvent,
+} from "envio";
 
 import { recordAction } from "../lib/actions";
 import { publishMintEvent } from "../lib/events-publisher";
@@ -21,7 +24,7 @@ const COLLECTION_KEY = "mibera_zora";
  * Handle TransferSingle events
  * Tracks mints (from zero) and transfers (between users)
  */
-export const handleMiberaZoraSingle = MiberaZora1155.TransferSingle.handler(
+indexer.onEvent({ contract: "MiberaZora1155", event: "TransferSingle" },
   async ({ event, context }) => {
     const { operator, from, to, id, value } = event.params;
     const fromLower = from.toLowerCase();
@@ -124,7 +127,7 @@ export const handleMiberaZoraSingle = MiberaZora1155.TransferSingle.handler(
  * Handle TransferBatch events
  * Tracks mints (from zero) and transfers (between users)
  */
-export const handleMiberaZoraBatch = MiberaZora1155.TransferBatch.handler(
+indexer.onEvent({ contract: "MiberaZora1155", event: "TransferBatch" },
   async ({ event, context }) => {
     const { operator, from, to, ids, values } = event.params;
     const fromLower = from.toLowerCase();

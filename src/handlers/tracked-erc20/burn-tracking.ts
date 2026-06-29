@@ -4,10 +4,10 @@
  */
 
 import {
-  HenloBurn,
-  HenloBurnStats,
-  HenloGlobalBurnStats,
-} from "generated";
+  type HenloBurn,
+  type HenloBurnStats,
+  type HenloGlobalBurnStats,
+} from "envio";
 
 import { recordAction } from "../../lib/actions";
 import { TokenConfig } from "./constants";

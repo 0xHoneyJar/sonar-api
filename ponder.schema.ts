@@ -605,6 +605,84 @@ export const trackedTokenBalance = onchainTable(
   }),
 );
 
+// trackedHolder1155 — per-(contract, chain, tokenId, holder) ERC-1155 balance.
+// The per-edition twin of trackedHolder, which sums ALL editions of a contract
+// into one tokenCount. Multi-edition 1155s (e.g. puru apiculture 0x6cfb92…,
+// Base 8453 — only token-id 4 is the Purupuru edition) need per-edition balances
+// so a consumer can read "wallet's balance of token-4" rather than "wallet's
+// balance of all 6 editions summed". Whole-collection count stays trackedHolder.
+// tokenCount; whole-collection from here = SUM(balance) over tokenId, so it
+// generalises and single-edition collections are unaffected. Populated by the
+// puru-apiculture1155 handler (all 4 puru collections). See sonar-api#62.
+//
+// COVERAGE (consumer note): this table is populated for the puru family only.
+// For any other 1155 collectionKey an empty result means "not indexed here",
+// NOT "no holders" — enumerate live coverage with
+// `SELECT DISTINCT collectionKey FROM tracked_holder_1155`. Extend coverage by
+// calling adjustHolder1155Token from the relevant handler (badges1155 already
+// has its own per-token twin, badgeBalance).
+export const trackedHolder1155 = onchainTable(
+  "tracked_holder_1155",
+  (t) => ({
+    id: t.text().primaryKey(),             // {contract}_{chainId}_{tokenId}_{address}
+    contract: t.hex().notNull(),
+    collectionKey: t.text().notNull(),
+    chainId: t.integer().notNull(),
+    tokenId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    address: t.hex().notNull(),            // holder (lowercased at handler boundary)
+    balance: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(), // current balance of THIS edition
+    lastUpdated: t.bigint().notNull(),
+  }),
+  (table) => ({
+    // "all holders of token-4" + per-edition SUM walk on (contract, chainId,
+    // tokenId) — chain-scoped to match the row key (a contract address can be
+    // deployed at the same address on multiple chains); "what does wallet X
+    // hold" on address; cohort scans on collectionKey.
+    addressIdx: index().on(table.address),
+    collectionKeyIdx: index().on(table.collectionKey),
+    contractChainTokenIdx: index().on(table.contract, table.chainId, table.tokenId),
+  }),
+);
+
+// addressType — on-chain classification of an address (sonar-api#63).
+// A GLOBAL per-(chainId, address) registry: eoa | contract | delegated_eoa
+// (+ "pending" before first resolution). Distinct from the holder tables —
+// routers/conduits that never HOLD still need classification (the whole point:
+// a router that received 8,404 apiculture but holds 0 polluted the leaderboard),
+// so a flag on a holder row would not reach them.
+//
+// Populated cheaply on the hot path (touchAddress → "pending"); resolved off the
+// hot path by the AddressResolve block-handler via eth_getCode. `recheckAfter`
+// keeps every `eoa` on a recurring re-resolution cadence — a counterfactual
+// ERC-4337 wallet can flip empty→contract once deployed, and only the indexer
+// (at chain head) can keep that correct over time. See sonar-api#63.
+//
+// CONSUMER note: `type = "pending"` means NOT-YET-RESOLVED (unknown) — never treat
+// it as a class, and never read a pending address as a bona-fide EOA. Pending rows
+// transition to eoa/contract/delegated_eoa once the belt is at head (within a few
+// hundred blocks per the resolver cap). COVERAGE note: filled for the puru family
+// only (the proven need — the rank-#3 router appears in apiculture transfers).
+// Historical addresses are empty until a reindex replays past transfers, so this
+// rides the SAME operator-led green-belt reindex as #62.
+export const addressType = onchainTable(
+  "address_type",
+  (t) => ({
+    id: t.text().primaryKey(),             // {chainId}_{address}
+    chainId: t.integer().notNull(),
+    address: t.hex().notNull(),            // lowercased at the handler boundary
+    type: t.text().notNull(),              // pending | eoa | contract | delegated_eoa
+    resolvedAtBlock: t.bigint(),           // block of last resolution; null until first resolved
+    lastResolved: t.bigint(),              // block timestamp (sec) of last resolution; null until first resolved
+    recheckAfter: t.bigint(),              // block at/after which to re-resolve an eoa; null = settled
+  }),
+  (table) => ({
+    // consumer filter "type of address X" on address; the resolver sweep scans
+    // (chainId, type) + range-checks recheckAfter — so include it in the index.
+    addressIdx: index().on(table.address),
+    chainTypeRecheckIdx: index().on(table.chainId, table.type, table.recheckAfter),
+  }),
+);
+
 // ─────────────────────────────────────────────────────────────────────────
 // MiberaLiquidBacking treasury surface
 // ─────────────────────────────────────────────────────────────────────────

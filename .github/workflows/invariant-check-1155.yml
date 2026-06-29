@@ -1,0 +1,62 @@
+name: mv_holder_1155 Conservation Invariants
+
+# Runs on every PR targeting main and on direct pushes to main.
+# Requires DATABASE_URL secret pointing to the serving DB or a CI-accessible snapshot.
+# The operator decides the DB target before this workflow is enabled on the repo.
+#
+# Sprint: spiral-pertoken-projection-1 · Task T4
+# SDD ref: §3.5, §8 Phase 2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'migrations/**'
+      - 'scripts/invariant-check-1155.sh'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'migrations/**'
+      - 'scripts/invariant-check-1155.sh'
+      - 'src/handlers/**'
+
+jobs:
+  invariant-check:
+    name: mv_holder_1155 Conservation Invariants
+    runs-on: ubuntu-latest
+
+    # Gate the entire job on the secret being present.
+    # When BELT_DATABASE_URL is absent (e.g., fork PRs), the job shows as
+    # "skipped" — not "passed" — so a green check means invariants actually ran.
+    # Operator: add BELT_DATABASE_URL to repository secrets before enabling.
+    if: ${{ secrets.BELT_DATABASE_URL != '' }}
+
+    env:
+      DATABASE_URL: ${{ secrets.BELT_DATABASE_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Run conservation invariant checks
+        run: |
+          chmod +x scripts/invariant-check-1155.sh
+          set -o pipefail
+          scripts/invariant-check-1155.sh 2>&1 | tee /tmp/invariant-check-output.log
+        env:
+          DATABASE_URL: ${{ secrets.BELT_DATABASE_URL }}
+          I3_TOKEN4_TOP_HOLDER_ADDRESS: ${{ secrets.I3_TOKEN4_TOP_HOLDER_ADDRESS }}
+          I3_ROUTER_ADDRESS: ${{ secrets.I3_ROUTER_ADDRESS }}
+
+      - name: Upload invariant check output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: invariant-check-failures
+          path: /tmp/invariant-check-output.log
+          retention-days: 7

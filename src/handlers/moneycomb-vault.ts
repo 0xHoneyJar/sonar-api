@@ -4,16 +4,17 @@
  */
 
 import {
-  MoneycombVault,
-  UserVaultSummary,
-  Vault,
-  VaultActivity,
-} from "generated";
+  indexer,
+  type UserVaultSummary,
+  type Vault,
+  type VaultActivity,
+} from "envio";
 
 /**
  * Handles vault account opening events
  */
-export const handleAccountOpened = MoneycombVault.AccountOpened.handler(
+indexer.onEvent(
+  { contract: "MoneycombVault", event: "AccountOpened" },
   async ({ event, context }) => {
     try {
       const { user, accountIndex, honeycombId } = event.params;
@@ -79,7 +80,8 @@ export const handleAccountOpened = MoneycombVault.AccountOpened.handler(
 /**
  * Handles vault account closing events
  */
-export const handleAccountClosed = MoneycombVault.AccountClosed.handler(
+indexer.onEvent(
+  { contract: "MoneycombVault", event: "AccountClosed" },
   async ({ event, context }) => {
     try {
       const { user, accountIndex, honeycombId } = event.params;
@@ -137,7 +139,8 @@ export const handleAccountClosed = MoneycombVault.AccountClosed.handler(
 /**
  * Handles HoneyJar NFT burn events for vault
  */
-export const handleHJBurned = MoneycombVault.HJBurned.handler(
+indexer.onEvent(
+  { contract: "MoneycombVault", event: "HJBurned" },
   async ({ event, context }) => {
     try {
       const { user, accountIndex, hjGen } = event.params;
@@ -201,7 +204,8 @@ export const handleHJBurned = MoneycombVault.HJBurned.handler(
 /**
  * Handles shares minting events
  */
-export const handleSharesMinted = MoneycombVault.SharesMinted.handler(
+indexer.onEvent(
+  { contract: "MoneycombVault", event: "SharesMinted" },
   async ({ event, context }) => {
     try {
       const { user, accountIndex, shares } = event.params;
@@ -259,7 +263,8 @@ export const handleSharesMinted = MoneycombVault.SharesMinted.handler(
 /**
  * Handles reward claim events
  */
-export const handleRewardClaimed = MoneycombVault.RewardClaimed.handler(
+indexer.onEvent(
+  { contract: "MoneycombVault", event: "RewardClaimed" },
   async ({ event, context }) => {
     try {
       const { user, reward } = event.params;

@@ -968,3 +968,27 @@ When scaling an Envio belt to MORE chains/contracts (or any node process in a bi
 **Deceptive part**: the *local-upload* spike (`railway up`) indexed fine through the same warning; the *GitHub-sourced* re-home blocked. Same code, same env — not reproducible by reading the warning.
 **Fix**: stand up a Hasura (`hasura/graphql-engine`, `HASURA_GRAPHQL_DATABASE_URL` → the indexer's Postgres), then set on the indexer `HASURA_GRAPHQL_ENDPOINT=http://<hasura>.railway.internal:8080` + matching `HASURA_GRAPHQL_ADMIN_SECRET`. trackDatabase then succeeds → chains index within ~1 min → and envio AUTO-TRACKS the 94 entity tables on that Hasura (no manual metadata-API tracking). Durable home: bake `HASURA_GRAPHQL_ENDPOINT` into the deploy template alongside KF-015's `NODE_OPTIONS`.
 **Reading guide**: fresh self-host envio seeds but won't index + only error is `trackDatabase`/`createSelectPermission` ECONNREFUSED → give it a Hasura; do NOT chase HyperSync/RPC.
+---
+
+## KF-017: address-resolve head-of-line blocking — poison-pill RPC failures stall the resolution queue
+
+**Status**: OPEN
+**Feature**: `ponder-runtime/src/handlers/address-resolve.ts` (sonar-63, address-type classification)
+**Symptom**: If `context.client.getCode` throws a persistent RPC error for a given address, the catch block `continue`s without updating the row. Because `resolveDue` queries with `orderBy(asc(addressType.id)) LIMIT(MAX_PER_TICK)`, that address stays at the front of the queue on every tick. Once `MAX_PER_TICK` (default 50) such poison-pill addresses accumulate, the queue is permanently stalled and no further addresses are resolved.
+**First observed**: 2026-06-05 (adversarial-review on branch feat/spiral-pertoken-projection-1, sprint-pertoken-1 audit, DISS-001)
+**Recurrence count**: 1
+**Current workaround**: None. The handler will stall silently. Monitor `address_type` table — if `pending` count stops decreasing, inspect for addresses where `recheckAfter IS NULL` and `type = 'pending'` that never progress.
+**Upstream issue**: Not filed
+**Related visions / lore**: —
+
+| Date | Attempt | Result | Evidence |
+|------|---------|--------|----------|
+| 2026-06-05 | Identified in adversarial review (DISS-001) | Not yet attempted | `grimoires/loa/a2a/sprint-pertoken-1/adversarial-review.json` |
+
+### Suggested fix (not yet applied)
+
+On `getCode` failure, update the row to defer it: add a retry counter or set `recheckAfter = now() + interval '5 minutes'` so it rotates out of the immediate LIMIT window. Alternatively, use exponential backoff with a max-retries cap and set a `failed` status for permanently-erroring addresses so they are excluded from the `due` query.
+
+### Reading guide
+
+This is a liveness bug, not a correctness bug — the MV data is unaffected. The address-type classification feature (`sonar-63`) just stops making progress when RPC errors are persistent. **Diagnostic signature**: `address_type` rows stuck in `type = 'pending'` with old `createdAt`, `recheckAfter = NULL`, no progression over multiple indexer cycles. Do NOT confuse with KF-012 (RPC empty-200 on eth_getLogs — different handler path). The fix requires a schema change to `address_type` (retry counter or deferred status) plus handler logic update — must go through `/plan` + sprint gate.

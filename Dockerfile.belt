@@ -34,9 +34,11 @@ ENV BELT_CONFIG=${BELT_CONFIG}
 # cluster-pinned loa-freeside SHA into node_modules — without it, sonar's runtime
 # imports of @0xhoneyjar/events crash with ERR_MODULE_NOT_FOUND. Run it
 # EXPLICITLY here. Path ε 2026-05-27.
+# patch-envio-instrumentation.js dropped: obsolete alpha.17 RPC-source debug
+# instrumentation (T2 derisk) — irrelevant on 3.2.1 + HyperSync, and it `require()`s
+# under "type":"module" → build crash. Re-add as a `.cjs` only if RPC-source debugging is needed.
 RUN pnpm install --frozen-lockfile && \
     bash scripts/rebuild-events-dist.sh && \
-    node scripts/patch-envio-instrumentation.js && \
     pnpm envio codegen --config "${BELT_CONFIG}"
 ENV TUI_OFF=true
 # Env-gated re-init: steady-state RESUMES from the last checkpoint (safe default).

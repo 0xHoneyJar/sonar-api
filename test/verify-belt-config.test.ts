@@ -87,13 +87,17 @@ describe("verify-belt-config", () => {
     expect(result.mismatches.join("\n")).toMatch(/address/);
   });
 
-  it("tolerates a differing handler: line (SDD §5.3 — field_selection fidelity, not handler path)", () => {
-    // config.mibera.yaml points handler: at the belt entrypoint
-    // (src/EventHandlers.mibera.ts); config.yaml uses the monolith barrel. They
-    // differ by design (DISS-001 fix) — the gate must not flag that difference.
+  it("tolerates a differing handlers: dir (SDD §5.3 — field_selection fidelity, not handler path)", () => {
+    // Envio 3.2.1 dropped per-contract `handler:` lines in favour of a single
+    // top-level `handlers:` directory that the runtime auto-globs. config.mibera.yaml
+    // points `handlers:` at the belt dir (src/belts/mibera) while config.yaml points it
+    // at the monolith dir (src/handlers). They differ BY DESIGN — the gate must not flag
+    // that difference (SDD §5.3 scopes fidelity to field_selection / address / start_block,
+    // not handler-path identity). Pre-3.2.1 this asserted the same tolerance on the
+    // per-contract `handler:` line; the assertion moved to `handlers:` with the port.
     const rehandlered = beltText.replace(
-      /handler: \S+/g,
-      "handler: src/EventHandlers.someother.ts",
+      /^handlers:\s+\S+/m,
+      "handlers: src/belts/someother",
     );
     expect(rehandlered).not.toBe(beltText);
     const result = verifyBeltConfig({

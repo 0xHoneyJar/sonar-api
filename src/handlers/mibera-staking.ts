@@ -1,9 +1,9 @@
-import { MiberaStaking } from "generated";
+import { indexer } from "envio";
 import type {
-  handlerContext,
+  EvmOnEventContext,
   MiberaStakedToken as MiberaStakedTokenEntity,
   MiberaStaker as MiberaStakerEntity,
-} from "generated";
+} from "envio";
 
 import { ZERO_ADDRESS } from "./constants";
 import { STAKING_CONTRACT_KEYS } from "./mibera-staking/constants";
@@ -15,7 +15,7 @@ const ZERO = ZERO_ADDRESS.toLowerCase();
  * Deposits: Transfer(user, stakingContract, tokenId)
  * Withdrawals: Transfer(stakingContract, user, tokenId)
  */
-export const handleMiberaStakingTransfer = MiberaStaking.Transfer.handler(
+indexer.onEvent({ contract: "MiberaStaking", event: "Transfer" },
   async ({ event, context }) => {
     const from = event.params.from.toLowerCase();
     const to = event.params.to.toLowerCase();
@@ -64,7 +64,7 @@ export const handleMiberaStakingTransfer = MiberaStaking.Transfer.handler(
 );
 
 interface DepositArgs {
-  context: handlerContext;
+  context: EvmOnEventContext;
   stakingContract: string;
   stakingContractAddress: string;
   userAddress: string;
@@ -133,7 +133,7 @@ async function handleDeposit({
 }
 
 interface WithdrawalArgs {
-  context: handlerContext;
+  context: EvmOnEventContext;
   stakingContract: string;
   stakingContractAddress: string;
   userAddress: string;

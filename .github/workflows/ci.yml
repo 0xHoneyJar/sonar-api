@@ -13,15 +13,39 @@ jobs:
   template-guard:
     name: Template Protection
     runs-on: ubuntu-latest
+    # is_consumer gates the loa-template framework jobs below: this whole CI
+    # validates loa-TEMPLATE invariants, which do not apply to a loa-MOUNTED
+    # CONSUMER repo (it has project state + test fixtures the template lacks).
+    outputs:
+      is_consumer: ${{ steps.ctx.outputs.is_consumer }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Detect repo context (consumer vs template)
+        id: ctx
+        run: |
+          if [ -f ".loa-version.json" ]; then
+            echo "is_consumer=true" >> "$GITHUB_OUTPUT"
+            echo "Loa-mounted CONSUMER repo (.loa-version.json present) — template framework jobs will be skipped."
+          else
+            echo "is_consumer=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Block forbidden template files
         id: check-forbidden
         run: |
           echo "Checking for forbidden template files..."
+
+          # This guard was written for the loa TEMPLATE repo, where project state
+          # (prd.md, NOTES.md, deployment/, .claude/constructs/, ...) is pollution.
+          # sonar-api is a loa-MOUNTED CONSUMER repo (it has .loa-version.json), so
+          # those exact files are LEGITIMATE here. On a consumer repo this guard is
+          # red on every PR — a numb sensor. Detect the consumer and downgrade to
+          # warn-only; on the real template repo it still blocks.
+          CONSUMER=0
+          if [ -f ".loa-version.json" ]; then CONSUMER=1; fi
 
           # Define forbidden patterns for the loa template repository
           # These files should NEVER be committed to the main loa template
@@ -82,6 +106,10 @@ jobs:
             echo "Note: .claude/constructs/ contains user-licensed skills that should never be committed."
             echo "If this is intentional, add [skip-template-guard] to commit message."
             echo "============================================================"
+            if [ "$CONSUMER" -eq 1 ]; then
+              echo "(consumer repo — these are legitimate project files; warn-only, not blocking)"
+              exit 0
+            fi
             exit 1
           fi
 
@@ -96,6 +124,7 @@ jobs:
   validate:
     name: Validate Framework Files
     needs: template-guard
+    if: needs.template-guard.outputs.is_consumer != 'true'   # loa-template check; skip on consumer repos
     runs-on: ubuntu-latest
 
     steps:
@@ -232,6 +261,7 @@ jobs:
   markdown-lint:
     name: Lint Markdown
     needs: template-guard
+    if: needs.template-guard.outputs.is_consumer != 'true'   # loa-template check; skip on consumer repos
     runs-on: ubuntu-latest
 
     steps:
@@ -266,6 +296,7 @@ jobs:
   yaml-lint:
     name: Lint YAML
     needs: template-guard
+    if: needs.template-guard.outputs.is_consumer != 'true'   # loa-template check; skip on consumer repos
     runs-on: ubuntu-latest
 
     steps:

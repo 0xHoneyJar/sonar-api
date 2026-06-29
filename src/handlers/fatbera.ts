@@ -1,11 +1,5 @@
 import {
-  AutomatedStake,
-  BeaconDeposit,
-  BlockRewardController,
-  FatBeraAccounting,
-  FatBeraDeposits,
-  ValidatorDepositRouter,
-  ValidatorWithdrawalModule,
+  indexer,
   type FatBeraDeposit,
   type LatestValidatorDeposit,
   type LatestValidatorReward,
@@ -15,8 +9,8 @@ import {
   type WithdrawalBatch,
   type WithdrawalFulfillment,
   type WithdrawalRequest,
-  type handlerContext,
-} from "generated";
+  type EvmOnEventContext,
+} from "envio";
 
 import { recordAction } from "../lib/actions";
 import {
@@ -46,7 +40,7 @@ function isTrackedValidatorPubkey(pubkey: string) {
 // --- Dual-write helpers: write to both history and singleton entities ---
 
 function writeValidatorDeposit(
-  context: handlerContext,
+  context: EvmOnEventContext,
   record: ValidatorDeposits
 ): void {
   context.ValidatorDeposits.set(record);
@@ -63,7 +57,7 @@ function writeValidatorDeposit(
 }
 
 function writeValidatorReward(
-  context: handlerContext,
+  context: EvmOnEventContext,
   record: ValidatorBlockRewards
 ): void {
   context.ValidatorBlockRewards.set(record);
@@ -86,7 +80,7 @@ function writeValidatorReward(
 }
 
 async function getWithdrawalRequestsForBatch(
-  context: handlerContext,
+  context: EvmOnEventContext,
   batchId: string
 ): Promise<WithdrawalRequest[]> {
   return context.WithdrawalRequest.getWhere({ batch_id: { _eq: batchId } });
@@ -115,7 +109,8 @@ function buildValidatorDepositRecord(args: {
   };
 }
 
-export const handleFatBeraDeposit = FatBeraDeposits.Deposit.handler(
+indexer.onEvent(
+  { contract: "FatBeraDeposits", event: "Deposit" },
   async ({ event, context }) => {
     const { sender, owner, assets, shares } = event.params;
 
@@ -147,6 +142,15 @@ export const handleFatBeraDeposit = FatBeraDeposits.Deposit.handler(
 
     // Skip writes and calculations during preload
     if ((context as any).isPreload) return;
+
+    // H1 (BB review, PR #75): the merged FatBeraDeposits+FatBeraAccounting config
+    // start_block (1066385) exists ONLY so FatBeraAccounting events are not missed.
+    // FatBeraDeposit entities + "deposit" activity actions must still begin at
+    // FATBERA_DEPOSIT_TRACKING_START_BLOCK (1966971) — the pre-merge behavior.
+    // Gate BEFORE the writes; previously this gate sat after them (regression).
+    if (blockHeight < FATBERA_DEPOSIT_TRACKING_START_BLOCK) {
+      return;
+    }
 
     const deposit: FatBeraDeposit = {
       id,
@@ -180,10 +184,6 @@ export const handleFatBeraDeposit = FatBeraDeposits.Deposit.handler(
         contract: event.srcAddress.toLowerCase(),
       },
     });
-
-    if (blockHeight < FATBERA_DEPOSIT_TRACKING_START_BLOCK) {
-      return;
-    }
 
     if (transactionTo === VALIDATOR_DEPOSIT_ROUTER_ADDRESS) {
       return;
@@ -238,7 +238,8 @@ export const handleFatBeraDeposit = FatBeraDeposits.Deposit.handler(
   }
 );
 
-export const handleBeaconDeposit = BeaconDeposit.Deposit.handler(
+indexer.onEvent(
+  { contract: "BeaconDeposit", event: "Deposit" },
   async ({ event, context }) => {
     const validatorInfo = isTrackedValidatorPubkey(event.params.pubkey);
     if (!validatorInfo) {
@@ -274,7 +275,13 @@ export const handleBeaconDeposit = BeaconDeposit.Deposit.handler(
   }
 );
 
-export const handleBlockRewardProcessed = BlockRewardController.BlockRewardProcessed.handler(
+indexer.onEvent(
+  {
+    contract: "BlockRewardController",
+    event: "BlockRewardProcessed",
+    // Use raw pubkey — Envio applies keccak256() internally for bytes indexed topics
+    where: { params: VALIDATORS.map((v) => ({ pubkey: v.pubkey })) },
+  },
   async ({ event, context }) => {
     const validatorInfo = VALIDATORS.find(
       (validator) => validator.id === event.params.pubkey.toLowerCase()
@@ -332,14 +339,11 @@ export const handleBlockRewardProcessed = BlockRewardController.BlockRewardProce
     };
 
     writeValidatorReward(context, reward);
-  },
-  {
-    // Use raw pubkey — Envio applies keccak256() internally for bytes indexed topics
-    eventFilters: VALIDATORS.map((v) => ({ pubkey: v.pubkey })),
   }
 );
 
-export const handleFatBeraRewardAdded = FatBeraAccounting.RewardAdded.handler(
+indexer.onEvent(
+  { contract: "FatBeraDeposits", event: "RewardAdded" },
   async ({ event, context }) => {
     if (event.params.token.toLowerCase() !== WBERA_ADDRESS) {
       return;
@@ -381,8 +385,13 @@ export const handleFatBeraRewardAdded = FatBeraAccounting.RewardAdded.handler(
   }
 );
 
-export const handleAutomatedStakeExecution =
-  AutomatedStake.WithdrawUnwrapAndStakeExecuted.handler(
+indexer.onEvent(
+  {
+    contract: "AutomatedStake",
+    event: "WithdrawUnwrapAndStakeExecuted",
+    // Use raw pubkey — Envio applies keccak256() internally for bytes indexed topics
+    where: { params: VALIDATORS.map((v) => ({ pubkey: v.pubkey })) },
+  },
     async ({ event, context }) => {
       if (event.block.number < FATBERA_DEPOSIT_TRACKING_START_BLOCK) {
         return;
@@ -427,15 +436,12 @@ export const handleAutomatedStakeExecution =
           outstandingFatBERA,
         })
       );
-    },
-    {
-      // Use raw pubkey — Envio applies keccak256() internally for bytes indexed topics
-      eventFilters: VALIDATORS.map((v) => ({ pubkey: v.pubkey })),
     }
-  );
+);
 
-export const handleFatBeraWithdrawalRequested =
-  FatBeraAccounting.WithdrawalRequested.handler(async ({ event, context }) => {
+indexer.onEvent(
+  { contract: "FatBeraDeposits", event: "WithdrawalRequested" },
+  async ({ event, context }) => {
     const batchId = event.params.batchId.toString();
     let withdrawalBatch = await context.WithdrawalBatch.get(batchId);
     if (!withdrawalBatch) {
@@ -484,9 +490,11 @@ export const handleFatBeraWithdrawalRequested =
           ? "full"
           : withdrawalBatch.status,
     });
-  });
+  }
+);
 
-export const handleFatBeraBatchStarted = FatBeraAccounting.BatchStarted.handler(
+indexer.onEvent(
+  { contract: "FatBeraDeposits", event: "BatchStarted" },
   async ({ event, context }) => {
     const batchId = event.params.batchId.toString();
     const [existingBatch, batchRequests] = await Promise.all([
@@ -537,8 +545,9 @@ export const handleFatBeraBatchStarted = FatBeraAccounting.BatchStarted.handler(
   }
 );
 
-export const handleFatBeraWithdrawalFulfilled =
-  FatBeraAccounting.WithdrawalFulfilled.handler(async ({ event, context }) => {
+indexer.onEvent(
+  { contract: "FatBeraDeposits", event: "WithdrawalFulfilled" },
+  async ({ event, context }) => {
     const batchId = event.params.batchId.toString();
     const withdrawalBatch = await context.WithdrawalBatch.get(batchId);
     if (!withdrawalBatch) {
@@ -562,10 +571,16 @@ export const handleFatBeraWithdrawalFulfilled =
       transactionHash: event.transaction.hash,
     };
     context.WithdrawalFulfillment.set(fulfillment);
-  });
+  }
+);
 
-export const handleValidatorWithdrawalRequested =
-  ValidatorWithdrawalModule.ValidatorWithdrawalRequested.handler(
+indexer.onEvent(
+  {
+    contract: "ValidatorWithdrawalModule",
+    event: "ValidatorWithdrawalRequested",
+    // Use raw pubkey — Envio applies keccak256() internally for bytes indexed topics
+    where: { params: VALIDATORS.map((v) => ({ cometBFTPublicKey: v.pubkey })) },
+  },
     async ({ event, context }) => {
       const validatorId = event.params.cometBFTPublicKey.toLowerCase();
       const validatorInfo = VALIDATORS.find((validator) => validator.id === validatorId);
@@ -619,15 +634,22 @@ export const handleValidatorWithdrawalRequested =
           outstandingFatBERA: previousDeposit.outstandingFatBERA,
         })
       );
-    },
-    {
-      // Use raw pubkey — Envio applies keccak256() internally for bytes indexed topics
-      eventFilters: VALIDATORS.map((v) => ({ cometBFTPublicKey: v.pubkey })),
     }
-  );
+);
 
-export const handleValidatorDepositRequested =
-  ValidatorDepositRouter.ValidatorDepositRequested.handler(
+indexer.onEvent(
+  {
+    contract: "ValidatorDepositRouter",
+    event: "ValidatorDepositRequested",
+    where: {
+      params: [
+        { validatorIndex: 0n },
+        { validatorIndex: 1n },
+        { validatorIndex: 2n },
+        { validatorIndex: 3n },
+      ],
+    },
+  },
     async ({ event, context }) => {
       if (event.block.number < FATBERA_DEPOSIT_TRACKING_START_BLOCK) {
         return;
@@ -735,16 +757,8 @@ export const handleValidatorDepositRequested =
           })
         );
       }
-    },
-    {
-      eventFilters: [
-        { validatorIndex: 0n },
-        { validatorIndex: 1n },
-        { validatorIndex: 2n },
-        { validatorIndex: 3n },
-      ],
     }
-  );
+);
 
 export {
   BERACHAIN_CHAIN_ID,

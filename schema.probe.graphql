@@ -1,0 +1,75 @@
+# Envio 3.2.1 deploy-path probe schema.
+# Minimal subset of schema.graphql — only the entities the ported HoneyJar
+# Transfer handler reads/writes. Definitions copied verbatim from schema.graphql.
+
+type Transfer {
+  id: ID!
+  tokenId: BigInt!
+  from: String!
+  to: String!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  transactionHash: String!
+  collection: String!
+  chainId: Int!
+}
+
+type Mint {
+  id: ID!
+  tokenId: BigInt!
+  to: String!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  transactionHash: String!
+  collection: String!
+  chainId: Int!
+}
+
+type Token {
+  id: ID!
+  collection: String!
+  chainId: Int!
+  tokenId: BigInt!
+  owner: String!
+  isBurned: Boolean!
+  mintedAt: BigInt!
+  lastTransferTime: BigInt!
+}
+
+type Holder {
+  id: ID!
+  address: String! @index
+  balance: Int!
+  totalMinted: Int!
+  lastActivityTime: BigInt!
+  firstMintTime: BigInt
+  collection: String! @index
+  chainId: Int!
+}
+
+type CollectionStat {
+  id: ID!
+  collection: String!
+  totalSupply: Int!
+  totalMinted: Int!
+  totalBurned: Int!
+  uniqueHolders: Int!
+  lastMintTime: BigInt
+  chainId: Int!
+}
+
+type UserBalance {
+  id: ID!
+  address: String!
+  generation: Int!
+  balanceHomeChain: Int!
+  balanceEthereum: Int!
+  balanceBerachain: Int!
+  balanceTotal: Int!
+  mintedHomeChain: Int!
+  mintedEthereum: Int!
+  mintedBerachain: Int!
+  mintedTotal: Int!
+  lastActivityTime: BigInt!
+  firstMintTime: BigInt
+}

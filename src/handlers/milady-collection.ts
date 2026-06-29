@@ -5,8 +5,7 @@
  * Only records transfers to burn addresses (zero or dead address).
  */
 
-import { MiladyCollection } from "generated";
-import type { NftBurn, NftBurnStats } from "generated";
+import { indexer, type NftBurn, type NftBurnStats } from "envio";
 import { recordAction } from "../lib/actions";
 import { isBurnTransfer } from "../lib/mint-detection";
 
@@ -18,7 +17,8 @@ const ETHEREUM_CHAIN_ID = 1;
  * Handle Transfer - Track NFT burns (transfers to zero/dead address)
  * Event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
  */
-export const handleMiladyCollectionTransfer = MiladyCollection.Transfer.handler(
+indexer.onEvent(
+  { contract: "MiladyCollection", event: "Transfer" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const from = event.params.from.toLowerCase();

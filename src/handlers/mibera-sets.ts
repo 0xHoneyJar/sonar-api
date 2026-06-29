@@ -10,7 +10,10 @@
  *   - 12: Super Set
  */
 
-import { MiberaSets, Erc1155MintEvent } from "generated";
+import {
+  indexer,
+  type Erc1155MintEvent,
+} from "envio";
 
 import { recordAction } from "../lib/actions";
 import { publishMintEvent } from "../lib/events-publisher";
@@ -45,7 +48,7 @@ function getSetTier(tokenId: bigint): string {
  * Handle TransferSingle events
  * Tracks mints (from zero/distribution) and transfers (between users)
  */
-export const handleMiberaSetsSingle = MiberaSets.TransferSingle.handler(
+indexer.onEvent({ contract: "MiberaSets", event: "TransferSingle" },
   async ({ event, context }) => {
     const { operator, from, to, id, value } = event.params;
     const fromLower = from.toLowerCase();
@@ -153,7 +156,7 @@ export const handleMiberaSetsSingle = MiberaSets.TransferSingle.handler(
  * Handle TransferBatch events
  * Tracks mints (from zero/distribution) and transfers (between users)
  */
-export const handleMiberaSetsBatch = MiberaSets.TransferBatch.handler(
+indexer.onEvent({ contract: "MiberaSets", event: "TransferBatch" },
   async ({ event, context }) => {
     const { operator, from, to, ids, values } = event.params;
     const fromLower = from.toLowerCase();

@@ -3,7 +3,13 @@
  * Also tracks orders (non-mint transfers) for SilkRoad marketplace.
  */
 
-import { CandiesMarket1155, Erc1155MintEvent, CandiesInventory, CandiesBacking, MiberaOrder } from "generated";
+import {
+  indexer,
+  type Erc1155MintEvent,
+  type CandiesInventory,
+  type CandiesBacking,
+  type MiberaOrder,
+} from "envio";
 
 import { ZERO_ADDRESS, BERACHAIN_ID } from "./constants";
 import { MINT_COLLECTION_KEYS } from "./mints/constants";
@@ -19,7 +25,7 @@ const getCollectionKey = (address: string): string => {
   return key ?? address.toLowerCase();
 };
 
-export const handleCandiesMintSingle = CandiesMarket1155.TransferSingle.handler(
+indexer.onEvent({ contract: "CandiesMarket1155", event: "TransferSingle" },
   async ({ event, context }) => {
     const { operator, from, to, id, value } = event.params;
     const fromLower = from.toLowerCase();
@@ -127,7 +133,7 @@ export const handleCandiesMintSingle = CandiesMarket1155.TransferSingle.handler(
   }
 );
 
-export const handleCandiesMintBatch = CandiesMarket1155.TransferBatch.handler(
+indexer.onEvent({ contract: "CandiesMarket1155", event: "TransferBatch" },
   async ({ event, context }) => {
     const { operator, from, to, ids, values } = event.params;
 

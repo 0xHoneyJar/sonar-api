@@ -6,11 +6,11 @@
  */
 
 import {
-  FriendtechShares,
-  FriendtechTrade,
-  FriendtechHolder,
-  FriendtechSubjectStats,
-} from "generated";
+  indexer,
+  type FriendtechTrade,
+  type FriendtechHolder,
+  type FriendtechSubjectStats,
+} from "envio";
 
 import { recordAction } from "../lib/actions";
 import {
@@ -24,7 +24,8 @@ const COLLECTION_KEY = FRIENDTECH_COLLECTION_KEY;
  * Handle Trade events from friend.tech
  * Only tracks trades for Mibera-related subjects
  */
-export const handleFriendtechTrade = FriendtechShares.Trade.handler(
+indexer.onEvent(
+  { contract: "FriendtechShares", event: "Trade" },
   async ({ event, context }) => {
     try {
       const {

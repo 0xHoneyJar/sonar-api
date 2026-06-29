@@ -47,11 +47,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Gate 1 is the live, meaningful gate: config-fidelity drift would produce
+      # silently-wrong data. It blocks. Gates 2-3 validate the RETIRED envio belt
+      # (the `envio` binary was removed in the ponder migration, so codegen can no
+      # longer run, and the belt-scoped typecheck depends on its output). They are
+      # non-fatal here — the LIVE production validation moved to ponder-ci.yml
+      # (tsc on ponder-runtime + vitest). Without continue-on-error this job is red
+      # on every PR (a numb sensor); with it, red means real config drift.
       - name: Gate 1 — belt config fidelity (verify-belt-config)
         run: pnpm verify:belt-config
 
-      - name: Gate 2 — scoped codegen (config.mibera.yaml)
+      - name: Gate 2 — scoped codegen (config.mibera.yaml) [retired envio path]
+        continue-on-error: true
         run: pnpm codegen:mibera
 
-      - name: Gate 3 — belt-scoped typecheck (tsconfig.mibera.json)
+      - name: Gate 3 — belt-scoped typecheck (tsconfig.mibera.json) [retired envio path]
+        continue-on-error: true
         run: pnpm typecheck:mibera

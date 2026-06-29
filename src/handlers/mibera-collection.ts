@@ -12,17 +12,17 @@
  * which was preventing TrackedHolder entries from being created.
  */
 
-import { MiberaCollection } from "generated";
-import type {
-  handlerContext,
-  MiberaTransfer,
-  MintActivity,
-  NftBurn,
-  NftBurnStats,
-  TrackedHolder as TrackedHolderEntity,
-  MiberaStakedToken as MiberaStakedTokenEntity,
-  MiberaStaker as MiberaStakerEntity,
-} from "generated";
+import {
+  indexer,
+  type EvmOnEventContext,
+  type MiberaTransfer,
+  type MintActivity,
+  type NftBurn,
+  type NftBurnStats,
+  type TrackedHolder as TrackedHolderEntity,
+  type MiberaStakedToken as MiberaStakedTokenEntity,
+  type MiberaStaker as MiberaStakerEntity,
+} from "envio";
 import { recordAction } from "../lib/actions";
 import { publishMintEvent } from "../lib/events-publisher";
 import { isMintFromZero, isBurnTransfer, isBurnAddress } from "../lib/mint-detection";
@@ -37,7 +37,8 @@ const ZERO = ZERO_ADDRESS.toLowerCase();
  * Handle Transfer - Track all NFT transfers including mints, burns, and holder balances
  * Event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
  */
-export const handleMiberaCollectionTransfer = MiberaCollection.Transfer.handler(
+indexer.onEvent(
+  { contract: "MiberaCollection", event: "Transfer" },
   async ({ event, context }) => {
     const timestamp = BigInt(event.block.timestamp);
     const from = event.params.from.toLowerCase();
@@ -289,7 +290,7 @@ export const handleMiberaCollectionTransfer = MiberaCollection.Transfer.handler(
 // =============================================================================
 
 interface AdjustHolderArgs {
-  context: handlerContext;
+  context: EvmOnEventContext;
   holderAddress: string;
   delta: number;
   txHash: string;
@@ -363,7 +364,7 @@ async function adjustHolder({
 // =============================================================================
 
 interface MiberaStakeArgs {
-  context: handlerContext;
+  context: EvmOnEventContext;
   stakingContract: string;
   stakingContractAddress: string;
   userAddress: string;

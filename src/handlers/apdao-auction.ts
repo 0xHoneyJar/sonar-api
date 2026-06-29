@@ -4,12 +4,12 @@
  */
 
 import {
-  ApdaoAuctionHouse,
-  ApdaoAuction,
-  ApdaoBid,
-  ApdaoQueuedToken,
-  ApdaoAuctionStats,
-} from "generated";
+  indexer,
+  type ApdaoAuction,
+  type ApdaoBid,
+  type ApdaoQueuedToken,
+  type ApdaoAuctionStats,
+} from "envio";
 
 const CHAIN_ID = 80094;
 
@@ -37,8 +37,9 @@ async function getOrCreateStats(context: any): Promise<ApdaoAuctionStats> {
 /**
  * AuctionCreated — New auction starts for a seat token
  */
-export const handleAuctionCreated =
-  ApdaoAuctionHouse.AuctionCreated.handler(async ({ event, context }) => {
+indexer.onEvent(
+  { contract: "ApdaoAuctionHouse", event: "AuctionCreated" },
+  async ({ event, context }) => {
     try {
       const { apdaoId, startTime, endTime } = event.params;
       const timestamp = BigInt(event.block.timestamp);
@@ -73,13 +74,15 @@ export const handleAuctionCreated =
         `[ApdaoAuction] AuctionCreated handler failed for tx ${event.transaction.hash}: ${error}`
       );
     }
-  });
+  }
+);
 
 /**
  * AuctionBid — Someone bids on an active auction
  */
-export const handleAuctionBid =
-  ApdaoAuctionHouse.AuctionBid.handler(async ({ event, context }) => {
+indexer.onEvent(
+  { contract: "ApdaoAuctionHouse", event: "AuctionBid" },
+  async ({ event, context }) => {
     try {
       const { apdaoId, sender, value, extended } = event.params;
       const timestamp = BigInt(event.block.timestamp);
@@ -122,13 +125,15 @@ export const handleAuctionBid =
         `[ApdaoAuction] AuctionBid handler failed for tx ${event.transaction.hash}: ${error}`
       );
     }
-  });
+  }
+);
 
 /**
  * AuctionExtended — Auction end time extended due to a late bid
  */
-export const handleAuctionExtended =
-  ApdaoAuctionHouse.AuctionExtended.handler(async ({ event, context }) => {
+indexer.onEvent(
+  { contract: "ApdaoAuctionHouse", event: "AuctionExtended" },
+  async ({ event, context }) => {
     try {
       const { apdaoId, endTime } = event.params;
 
@@ -145,13 +150,15 @@ export const handleAuctionExtended =
         `[ApdaoAuction] AuctionExtended handler failed for tx ${event.transaction.hash}: ${error}`
       );
     }
-  });
+  }
+);
 
 /**
  * AuctionSettled — Auction finalized with winner and amount
  */
-export const handleAuctionSettled =
-  ApdaoAuctionHouse.AuctionSettled.handler(async ({ event, context }) => {
+indexer.onEvent(
+  { contract: "ApdaoAuctionHouse", event: "AuctionSettled" },
+  async ({ event, context }) => {
     try {
       const { apdaoId, winner, amount } = event.params;
       const timestamp = BigInt(event.block.timestamp);
@@ -183,71 +190,72 @@ export const handleAuctionSettled =
         `[ApdaoAuction] AuctionSettled handler failed for tx ${event.transaction.hash}: ${error}`
       );
     }
-  });
+  }
+);
 
 /**
  * TokensAddedToAuctionQueue — Owner adds seats to the exit auction queue
  */
-export const handleTokensAddedToQueue =
-  ApdaoAuctionHouse.TokensAddedToAuctionQueue.handler(
-    async ({ event, context }) => {
-      try {
-        const { tokenIds, owner } = event.params;
-        const timestamp = BigInt(event.block.timestamp);
-        const ownerLower = owner.toLowerCase();
+indexer.onEvent(
+  { contract: "ApdaoAuctionHouse", event: "TokensAddedToAuctionQueue" },
+  async ({ event, context }) => {
+    try {
+      const { tokenIds, owner } = event.params;
+      const timestamp = BigInt(event.block.timestamp);
+      const ownerLower = owner.toLowerCase();
 
-        for (const tokenId of tokenIds) {
-          const queuedId = `${CHAIN_ID}_${tokenId}`;
-          const queued: ApdaoQueuedToken = {
-            id: queuedId,
-            tokenId: BigInt(tokenId.toString()),
-            owner: ownerLower,
-            queuedAt: timestamp,
-            transactionHash: event.transaction.hash,
-            isQueued: true,
-            removedAt: undefined,
-            chainId: CHAIN_ID,
-          };
+      for (const tokenId of tokenIds) {
+        const queuedId = `${CHAIN_ID}_${tokenId}`;
+        const queued: ApdaoQueuedToken = {
+          id: queuedId,
+          tokenId: BigInt(tokenId.toString()),
+          owner: ownerLower,
+          queuedAt: timestamp,
+          transactionHash: event.transaction.hash,
+          isQueued: true,
+          removedAt: undefined,
+          chainId: CHAIN_ID,
+        };
 
-          context.ApdaoQueuedToken.set(queued);
-        }
-      } catch (error) {
-        context.log.error(
-          `[ApdaoAuction] TokensAddedToAuctionQueue handler failed for tx ${event.transaction.hash}: ${error}`
-        );
+        context.ApdaoQueuedToken.set(queued);
       }
+    } catch (error) {
+      context.log.error(
+        `[ApdaoAuction] TokensAddedToAuctionQueue handler failed for tx ${event.transaction.hash}: ${error}`
+      );
     }
-  );
+  }
+);
 
 /**
  * TokensRemovedFromAuctionQueue — Owner removes seats from the exit auction queue
  */
-export const handleTokensRemovedFromQueue =
-  ApdaoAuctionHouse.TokensRemovedFromAuctionQueue.handler(
-    async ({ event, context }) => {
-      try {
-        const { tokenIds } = event.params;
-        const timestamp = BigInt(event.block.timestamp);
+indexer.onEvent(
+  { contract: "ApdaoAuctionHouse", event: "TokensRemovedFromAuctionQueue" },
+  async ({ event, context }) => {
+    try {
+      const { tokenIds } = event.params;
+      const timestamp = BigInt(event.block.timestamp);
 
-        // Batch-fetch all tokens in parallel instead of sequential loop
-        const queuedIds = tokenIds.map((tokenId) => `${CHAIN_ID}_${tokenId}`);
-        const existingTokens = await Promise.all(
-          queuedIds.map((queuedId) => context.ApdaoQueuedToken.get(queuedId))
-        );
+      // Batch-fetch all tokens in parallel instead of sequential loop
+      const queuedIds = tokenIds.map((tokenId) => `${CHAIN_ID}_${tokenId}`);
+      const existingTokens = await Promise.all(
+        queuedIds.map((queuedId) => context.ApdaoQueuedToken.get(queuedId))
+      );
 
-        for (const existing of existingTokens) {
-          if (existing) {
-            context.ApdaoQueuedToken.set({
-              ...existing,
-              isQueued: false,
-              removedAt: timestamp,
-            });
-          }
+      for (const existing of existingTokens) {
+        if (existing) {
+          context.ApdaoQueuedToken.set({
+            ...existing,
+            isQueued: false,
+            removedAt: timestamp,
+          });
         }
-      } catch (error) {
-        context.log.error(
-          `[ApdaoAuction] TokensRemovedFromAuctionQueue handler failed for tx ${event.transaction.hash}: ${error}`
-        );
       }
+    } catch (error) {
+      context.log.error(
+        `[ApdaoAuction] TokensRemovedFromAuctionQueue handler failed for tx ${event.transaction.hash}: ${error}`
+      );
     }
-  );
+  }
+);
