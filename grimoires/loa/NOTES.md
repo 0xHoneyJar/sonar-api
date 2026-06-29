@@ -1,4 +1,26 @@
+---
+title: "Session Notes"
+trust_tier: operator-authored
+read_state: unread
+confidence: 0.6
+decay_class: working
+last_confirmed: 2026-06-23
+operator_signed: self_attested
+---
+
 # Session Notes
+
+## ⏳ ACTIVE SPIKE — self-host Envio+HyperSync measure (cost-read due 2026-06-22 · `bd-fj1n.4`)
+> Running DARK on Railway project `devoted-happiness`/`5972976f`, service `sonar-api`/`920a3274`, deploy
+> `e92ec5e3` (`ENVIO_RESTART=0`, `NODE_OPTIONS=12288`). Does NOT touch green / consumers / `BELT_UPSTREAM`.
+> **TOIL VERDICT (in, 2026-06-20):** 0 sync incidents — rode clean through Arbitrum(~475M)+Zora(~47M), the
+> KF-015 Ponder-OOM regions, ~40 min to head, 0 OOM. HyperSync-on-all-chains killed the toil that flipped
+> the original TCO to managed. **COST (pending):** let run ~48h → read MEASURED Railway $/mo + HyperSync
+> sub → `bd-fj1n.4` crossover vs managed-Envio (toil≈0 both sides, so it's pure $). Fixes in
+> `feat/envio-321-port` (ahead 2 of origin, durable in main `.git`): `3cc18c6b` (Dockerfile.belt build),
+> `16f0433c` (events-publisher flood). Spec: `grimoires/loa/specs/2026-06-20-spike-self-host-envio-hypersync-measure.md`.
+> SVM-substrate research in flight (is self-host-Envio chain-agnostic EVM+SVM, or EVM-only — the real
+> scalability question). Session-cron `4c2222c9` set but session-only; THIS note + `bd-fj1n.4` are the durable reminder.
 
 ## Session Continuity — green-build LIVE state (2026-05-22 session 4)
 
@@ -439,3 +461,213 @@ None. (bd-1ra resolved 2026-05-20 — `origin` + `upstream` remotes configured;
   source → deploy → backfill → observe per chain → reconcile vs on-chain → repoint. Order: Berachain first
   (biggest share, eRPC ready), then Base/OP/ETH. **MiberaCollection must index ALL transfers incl. to-contracts.**
   Tests + prod-promotion rigor = before the repoint (operator deferred). Build directly (experiment frame).
+
+---
+
+## Session 2026-06-08 — per-token ownership port: CODE COMPLETE → PR #69
+
+The Stash's last structural gap (per-token ERC-721 ownership on green) is built, reviewed, and in PR.
+Driven via supervised `/coord` from loa-freeside (the orbital station): per bead → pre-scope → in-cell
+agent in sonar-api → FAGAN cross-model council → **consumer-check across the Markov blanket** → fold → commit.
+
+**DONE** (PR #69, base `feat/candies-holder-balance`, stacks on #68; supersedes stale #38):
+- `bd-jyn` f69ee402 — token entity + Mibera handler (`token.owner` = raw on-chain, operator decision)
+- `bd-1jg` 268457d9 — TrackedErc721Bera handler (Tarot + 10 Fractures + apdao_seat), token-only (score-api INSULATED)
+- `bd-d2b` 28aff13b — GeneralMints (MST/GIF) mint-only → upsert on secondary + burn
+- `bd-3nh` d7fb271d — `chain_metadata` view (design a) for inventory's `as_of_block`
+- `e146eee0` (kept) pushed to #68 (its home)
+- `bd-gpc` CLOSED — green is genesis-complete (Mibera = 10,000 mints = full supply; all earliest actions
+  Apr–May 2025, ~1yr pre-boundary) → `bd-r90` is a STANDARD from-genesis re-run, not true-genesis-from-scratch.
+
+**WHEN YOU RETURN** (operator-gated, in order):
+1. 🔐 `bd-54c` — rotate `SONAR_SIGNING_SEED_HEX` (exposed in transcript; independent; do this FIRST).
+2. Merge PR #69 (after review) → the 4 beads close on merge.
+3. `bd-r90` reindex green-v3 from genesis (ADR-010, operator session; runbook
+   `candies-holder-balance-reindex.md` now has the `chain_metadata` view re-apply step) → `bd-rr0` repoint
+   → `bd-4kf` cutover (keep blue until green verified).
+4. ⚠ `bd-beh` BLOCKS `bd-4kf`: fix `promotion-gate.js`'s green query (drop `block_height` — its Part-1
+   logic only uses `latest_processed_block`) so the cutover gate can run green-side.
+5. 🧹 close stale PR #38 (superseded by #69).
+
+Follow-ups filed: `bd-0oc` (score-api fracture event feed, pre-existing + immaterial: fractures soul-bound/complete),
+`bd-beh` (chain_metadata gate reconciliation, gates the cutover).
+Verify (post-reindex, green): `Token(where:{collection,owner,isBurned:false}){tokenId}` returns the wallet's
+Mibera + Tarot + Fractures + MST; row count ≈ blue's ~130k; conservation holds per collection.
+
+---
+
+## 2026-06-16 — KRANZ: GREEN PATH FROZEN (indexing strategy reframe → managed Envio)
+
+⚠️ **The "WHEN YOU RETURN" green-path list above (steps 2–5: merge #69 → `bd-r90` reindex → `bd-rr0`
+repoint → `bd-4kf` cutover-to-green → `bd-beh` gate-fix) is SUPERSEDED for now.** The loa-finn TCO
+experiment (2026-06-16) voted to move Layer-1 **off** sovereign-Ponder to **managed Envio**. Direction
+settled, NUMBER not — gated on a real billing cycle (`bd-buho`, loa-finn). Do not sink new effort into
+the green/Ponder path it voted to leave.
+
+- **Coordinate runbook (read this first):** `grimoires/loa/context/2026-06-16-phase-a-envio-standup-coordinate.md`
+- **ADR (gates on bd-buho):** `grimoires/loa/context/2026-06-15-indexing-strategy-reframe-adr.md`
+- **FROZEN:** session-11 WS3 (`bd-s11-erpc-1155-87l.{2,5,6,7}`), `bd-r90` green reindex, deep #72 fix
+  (`bd-s11-erpc-1155-87l.4`). Revive green-v3 only enough to keep it **serving** (rollback/parity baseline).
+- **DO REGARDLESS (safe, independent of the swap):** 🔐 rotate exposed `SONAR_SIGNING_SEED_HEX` (`bd-54c`);
+  🧹 clean the REAL dead orphans (~$25/mo: `belt-indexer-green`, `belt-indexer` old-Envio, `belt-indexer-green-v2`,
+  deleted-service volume — NOT the #71 inverted list; do NOT touch green-v3).
+- **bd-4kf:** the orphan-cleanup half = found money (do it); the blue→**green** cutover half = frozen.
+  After ratification, inventory cuts blue→**managed-Envio**, not blue→green.
+- **Phase B (consumer repoint + Railway retirement) is HARD-GATED on bd-buho ratifying. Not yet.**
+- **#69 merge:** operator judgment — committed code can merge cheaply, but `bd-r90` (the reindex that
+  populates it on green) is the frozen part. See the coordinate runbook's "Open forks".
+
+### Decision Log
+- **2026-06-17 — G-A1 [ACCEPTED-DEFERRED]:** the Cloud-config field-name assertion against the *actual managed-Cloud envio version* is deferred to G-A2 (bd-7l7.5, account-gated probe). G-A1 (bd-7l7.3/.4) verified against the LOCAL `envio@3.0.0-alpha.17` schema only (codegen exit 0 both configs, grep-zero erpc). Rationale: the HyperSync field name is version-dependent (history: strip added `rpc_config`, then `05373ab7` corrected → `rpc` for alpha.17); the Cloud version may differ. Branch: `feat/envio-cloud-hypersync`. Runtime HyperSync-resolves-per-chain (esp. Berachain explicit endpoint + Base break-glass/ENVIO_API_TOKEN) is verified at the S2 canary, not by codegen.
+
+## 2026-06-17 — RESUME POINTER: canary pushed, awaiting operator Envio deploy
+- **DONE this session:** 🔐 seed rotation (`bd-54c` CLOSED — new SONAR_SIGNING_SEED_HEX on all 4 indexer Railway services, green-v3 redeployed clean). G-A1 HyperSync restore + G-A2-deferred + lazy events import.
+- **Canary branch PUSHED:** `canary/envio-cloud-hypersync` → `0xHoneyJar/sonar-api` (cce33b4e). Based on PUBLIC `sonar/main` (NOT the local fork — local is 24-ahead/5-behind; reconciling that is separate estate work). 2 commits: HyperSync config (eRPC stripped, Berachain explicit) + lazy/optional `@0xhoneyjar/events` import (managed-runtime portability; 14/14 tests, codegen 0). Local worktree at `/tmp/sonar-canary` if iteration needed.
+- **AWAITING OPERATOR (Envio Cloud, zksoju acct):** deploy that branch · HyperSync env only · **OMIT NATS_URL + SONAR_SIGNING_SEED_HEX** (pillar disables loudly = canary-w/o-pillar) · watch postinstall survive + 6-chain sync.
+- **THEN capture (bd-buho payload):** measured $/mo (the missing number) + Cloud envio version (G-A2) + GraphQL parity vs live green + per-chain freshness → loa-finn `pnpm indexing:capture` → `indexing:read` → ratify/revise ADR → close bd-buho.
+- **Events-pillar on Cloud (OQ-3) = separate track:** the private-repo postinstall means full-pillar-on-Cloud needs vendor / Envio-private-key / R1. "Delete all Railway" likely → "keep a small pillar." Decided per-track, post-measurement.
+
+## SDD design session (2026-06-17) — Phase-A managed-Envio, grounding synthesis
+- HEAD 1e812628. Envio source live at HEAD: Dockerfile.belt runs envio@3.0.0-alpha.17, BELT_CONFIG picks config.yaml (green,6ch) / config.mibera.yaml (blue).
+- G-A1 nuance: installed schema field is `rpc` NOT `rpc_config` (naming-drift hazard, config.mibera.yaml:224 comment). All chains route erpc.railway.internal:4000 via `for: sync`+`for: live`. De-HyperSync commits: 01d19638/cb0c2f4e/d7f38fef. Base ALREADY uses HyperSync break-glass (ENVIO_API_TOKEN). HyperSync is Envio's DEFAULT for these chains if bare rpc removed.
+- Events-pillar (src/lib/events-publisher.ts): subject = nft.mint.detected.<collectionSlug>.v1; TLS/mTLS Path-ε (PEM bodies in NATS_TLS_CA/CLIENT_CERT/CLIENT_KEY env); InMemoryPrevHashStore → genesis on restart (Sprint-1 limit). 6 Envio handlers publish: mibera-sets, puru-apiculture1155, mints, mibera-collection, mibera-zora, vm-minted. @0xhoneyjar/events vendored via scripts/rebuild-events-dist.sh from cluster-pinned loa-freeside SHA (custom postinstall+git clone in build → managed-Cloud build constraint).
+- Ponder nats-publisher.ts = fuller (outbox+reorg-safe+DLQ) vs Envio events-publisher.ts = simpler (no outbox). Adopting Envio without outbox = reliability regression.
+- Per-token (G-A4): ponder-runtime/src/handlers/token-projection/shared.ts — PURE collection-agnostic helper, last-write-wins (blockNumber,logIndex), `token` entity re-derivable from Transfer log. Consumer = inventory-api Stash (reads token index by contract addr). 3 beads: bd-jyn(Mibera) bd-1jg(TrackedErc721) bd-d2b(GeneralMints/MST/GIF).
+- G-A5: loa-finn runbook src/research/standups/envio-hyperindex.md footprint = "93 Berachain contracts" — UNDER-SCOPED (Berachain-only). Must correct to 6-chain.
+- Gateway seam: Caddyfile reverse_proxy {$BELT_UPSTREAM}, admin loopback-only :2019, swap ONLY via scripts/promote.sh (sole writer). Phase B.
+- loa-finn ledger: pnpm indexing:capture add / indexing:read; hash-chained.
+- Security (Flatline SKP-001 CRIT 950): rotate SONAR_SIGNING_SEED_HEX (bd-54c) NOW — independent live action. Managed deploy uses SEPARATE key (SKP-002).
+
+## Sprint planning session (2026-06-17) — Phase-A managed-Envio
+- Replaced superseded sonar-belt-factory v2.0 sprint.md with Phase-A plan (5 sprints S1-S5, global IDs 177-181). Old plan was already archived to context/sprint-sonar-belt-factory-v2-SUPERSEDED-2026-05-22.md.
+- Ledger: superseded `sonar-belt-factory` cycle; created+activated `indexing-managed-envio` cycle; allocated sprints 177-181 via ledger-lib add_sprint. next_sprint_number now 182.
+- Structure: S1=A.0+A.1 head (🔐 seed rotation FIRST via existing bd-54c + separate Phase-A key + G-A5/G-A1/G-A2); S2=G-A3/OQ-3 events-pillar blocker-decider + R1 contingency; S3=G-A4 per-token + §5.5 ALL-GREEN gate record (HARD clock barrier); S4=backfill+parity (pre-clock); S5=30-day measured cycle + ratify + E2E (only sprint that costs money, clock starts here).
+- Two highest-risk items FRONT-LOADED per request: (1) bd-54c seed rotation = S1-T1.1 (already existed — labeled sprint:177/phase-a, NOT duplicated); (2) G-A3 in-process pillar test on Cloud canary (OQ-3: does Cloud build sandbox run rebuild-events-dist.sh postinstall?) = S2, the delete-Railway-vs-R1 decider.
+- Phase B (consumer repoint + Railway teardown) explicitly OUT — hard-gated on bd-buho (loa-finn) ratifying.
+- bd-buho + the loa-finn ledger are EXTERNAL deps (loa-finn repo), not created here. bd-54c is THE only pre-existing in-repo bead reused.
+- Beads created: epics bd-7l7(S1) bd-658(S2) bd-4zf(S3) bd-bua(S4) bd-yqs(S5) + 20 child tasks; cross-sprint blocking deps wired (S5 gated on both S4 backfill AND S3 §5.5 gate record = the clock barrier). Conditional R1 tasks (bd-658.4/.5) flagged P1+conditional (only built on G-A3 FAIL). Resolved this session: Zora HyperSync supported (R4 closed); cost-fit not a barrier — only OQ-3 remains the genuine architectural risk.
+
+## Sprint planning session (2026-06-17 PM) — Envio alpha.17→3.2.1 API PORT (Phase A.1-PORT, NEW cycle)
+- NEW cycle `envio-3.2.1-api-port` (parent `indexing-managed-envio`); sprint plan at `grimoires/loa/cycles/envio-3.2.1-api-port/sprint.md`; 3 sprints global IDs 182/183/184; next_sprint_number now 185. The port is the canary-surfaced HARD PREREQUISITE: resolves gate G-A2 by-design and unblocks the managed deploy → 6-chain price/version → bd-buho. It slots BEFORE indexing-managed-envio S4 backfill (177-181 plan unchanged, root sprint.md untouched).
+- **T0 GROUNDING CORRECTION (load-bearing).** SDD §2A.7 was grounded against the WRONG branch (`feat/envio-cloud-hypersync@d0a4034b`) and said T0 = "establish the envio@3.2.1 pin." Verified vs the actual build target `canary/envio-cloud-hypersync`: pin ALREADY present (package.json:30 `"envio":"3.2.1"`, locked pnpm-lock.yaml:1270 git:7fb1fecd), lazy @0xhoneyjar/events ✓, HyperSync ✓ (d0a4034b), FatBera merge ✓ (f888c19f). SDD's own escape clause (sdd.md:308) applies → T0 degrades to a VERIFY. REAL remaining T0: (a) remove stale `optionalDependencies.generated` (STILL present canary package.json:45-46), (b) ground 3.2.1 loader/isPreload model — 18 `(context as any).isPreload` across 7 files, tsc CANNOT catch a model change, (c) .gitignore `.envio/`+`envio-env.d.ts` (absent canary).
+- Scope grounded this session (all match SDD §2A): 31 handler files; 33 `from "generated"` importers (29 top-level + 2 tracked-erc20/ subdir + 2 libs); 86 `.handler(`; 2 `.contractRegister` (sf-vaults + crayons/CrayonsFactory); 6 publishMintEvent callers; verify-belt-config.js + belt-build.yml + EventHandlers.ts all EXIST. L5 vitest is codegen-INDEPENDENT (0 test imports from generated) → stable baseline; L4 createTestIndexer is NET-NEW, not a port.
+- Structure: S1 Foundation Batch0 (T0-T4, serial, MEDIUM); S2 Handler port (T5-T11, LARGE — T5-T10 PARALLEL fan-out by family, T11 sf-vaults SOLO/LAST = only contractRegister+Effects+viem); S3 Finalize+Cloud gate (T12 delete EventHandlers + L3/L4/L5, T13 ONLY Cloud round-trip AC-PORT-9, T13.E2E P0). 31 parallel handler leaves marked for /implement fan-out.
+- Beads: epics bd-2io(S1/g182) bd-o0g(S2/g183) bd-voi(S3/g184) + 15 tasks. T0=bd-xvl(P0,ready entry). Deps: T1←T0, T2←T1, T3/T4←T0; T5-T10←T2 (labeled `parallel`); T11←T5..T10 (labeled `solo`); T12←T11+T3+T4; T13←T12; T13.E2E←T13 (labeled p0-must-complete). Silent-drift guardrail = T3 coverage bijection + T12 L3 eventConfigs==N + T13 promotion-gate.js expansion-mode parity vs live green + 6-publisher coverage.
+
+## 2026-06-17 (late PM) — Flatline SDD review + DEPLOY-PATH PROBE = GREEN ✅
+- **Flatline 3-model SDD review: 16 blockers / 11 high-consensus / 100% agreement** (`grimoires/loa/a2a/flatline/sdd-review.json`). Port MECHANICS sound; gaps are in VERIFICATION + infra/security: (1) **parity methodology broken** — validating 3.2.1-Cloud vs live green (alpha.17) compares two engines → use ON-CHAIN ground-truth + a sample floor; (2) **dynamic-contract bijection hole** — the config↔onEvent coverage check misses `sf-vaults` + `CrayonsFactory` (contractRegister); (3) **probe deploy path BEFORE porting 31** (top rec); (4) key/secret custody to Cloud unresolved (3rd-party-trust); (5) G-A3 pillar flaws (synthetic-only, InMemoryPrevHashStore resets on Cloud restart, NATS backfill DOS, test-subject prefix not enforced→prod-publish risk); (6) billing may start at project-creation not gate-GREEN. NOT yet folded into SDD §2A.
+- Operator chose **"probe deploy path first."**
+- **PROBE GREEN (the central de-risk):** branch `probe/envio-321-deploypath` (b5a8e66; trigger e392aee1) — minimal config.probe.yaml (Optimism, HoneyJar Transfer) + ONE handler ported to the 3.2.1 `indexer.onEvent`/`from "envio"` API, others excluded via `handlers: src/probe_handlers` glob scoping. Deployed to a separate Cloud instance `thj-indexer-probe` → **at Optimism head, processing batches, ZERO errors, NO crash-loop, NO `Cannot find generated`** (logs 2026-06-17T23-54). **→ The SDD §2A port transform is PROVEN on Cloud. The 31-handler port is de-risked.**
+- 3.2.1 handler discovery model = AUTO-GLOB of `handlers:` dir (default `src/handlers`; `evm.schema.json:25`) → un-ported handlers crash-loop unless excluded; `handlers: src/probe_handlers` is the clean scoping lever (also enables incremental porting).
+- **REMAINING before full port:** (a) **sf-vaults probe** (DEFERRED — the ONLY contractRegister+Effects+viem-RPC handler, 1189 lines; SKP-003/005 Cloud-RPC + dynamic-registration risk UNPROVEN); (b) **harden SDD §2A** vs the 16 flatline blockers; (c) full 31-handler port (cycle envio-3.2.1-api-port, S182-184).
+- Branches on 0xHoneyJar/sonar-api: `canary/envio-cloud-hypersync` (full config, crash-loops on the un-ported handlers — that's expected) · `probe/envio-321-deploypath` (GREEN). Both off public sonar/main.
+- PARKED: **KF-016** (new known-failure class — alpha.17→3.2.1 `from "generated"` crash-loop + the onEvent fix; now have evidence, add to known-failures.md). ✅ killed stray `pnpm start` 59956; ✅ operator paused/deleted `sonar-api-3`.
+
+## 2026-06-17 (night) — /compose PORT: FOUNDATION + hardened L3 DONE (banked before the fan-out)
+- Operator ran the full port via **/compose** (governed composition runtime, per-tier model routing). Vehicle = **`code-implement-and-review`** — KEY: its emitted segment natively supports a parallel fan-out via `args.items` (wave-scheduled SONNET leaves, worktree-isolatable, opus FAGAN gate) — so "code-implement-and-review-shaped fan-out" was exactly right.
+- **FOUNDATION (S182) — valid_run PROVEN.** /compose run `envio321-foundation-01`: 1 segment, converged (FAGAN APPROVED iter 1), terminal gate `compose-verify-run` = **valid_run** (envelope `sha256:9dd428…`, legba chain ✓). Commit **fbd454dd**. Built the safety net: L1–L5 verify loop (`scripts/verify-envio-321.sh`), bijection guardrail (`scripts/check-onevent-bijection.mjs`, SKP-005 dynamic handled), config restructure (dropped per-contract `handler:`, added top-level `handlers: src/handlers`), removed stale `optionalDependencies.generated`. Grounded: `isPreload` IS a real 3.2.1 `BaseHandlerContext` property (the 18 `(context as any)` accesses are valid).
+- **L3 hardened — commit 01d97d2c** (`test/registration-coverage.test.ts`): replaced the tautological L3 with a REAL runtime registration check (`vi.mock` envio indexer → spy onEvent/contractRegister → import handlers → assert recorded == config pairs). Catches a present-but-never-fired `onEvent` (the class the static bijection misses). Pre-port full config = **0/83 registered (honest gap)**; probe config passes 1/1. 212 vitest green, codegen exit 0.
+- **BRANCH `feat/envio-321-port` — LOCAL ONLY (not pushed), in worktree `/tmp/sonar-canary`.** Branched off `probe/envio-321-deploypath` (so it carries the proven probe handler `src/probe_handlers/honey-jar-probe.ts` + `config.probe.yaml` as the passing L4/registration fixture) which is off `canary/envio-cloud-hypersync` (HyperSync + lazy events + envio@3.2.1 pin+lock + FatBera merge). NOTE: worktree node_modules is now a REAL dir with envio@3.2.1 installed (verification runs locally).
+- **RESUME = Run 2: the 31-handler PORT fan-out.** Vehicle: `/compose` code-implement-and-review with `args.items`. Pattern (proven this session): `compose-dispatch.sh <code-implement-and-review.yaml> --form-c --run-id <id> --json` (exit 3, manifest at `~/.loa/constructs/substrates/.run/compose/<id>/`) → `Workflow({scriptPath: <emitted segment>, args: {items:[{id, task:"port <handler> alpha.17→3.2.1: ContractName.Event.handler()/from-generated → indexer.onEvent({contract,event})/from-envio, preserve entity logic", acceptance:"verify-envio-321 L1-L5 + bijection + registration pass for this contract", isolation:"worktree"}, …]}})` → wrap each handoff seed `{construct_slug,persona,output_type,invocation_mode:"room",stage_index,verdict}` via `compose-handoff-wrap.sh` (invocation_mode MUST be room|studio|headless, NOT "fresh") → `compose-verify-run <id> --require-executed --legba` (valid_run). Batch by family (SDD §2A.5, ~6 families); **sf-vaults SOLO/LAST** (only contractRegister+Effects+viem-RPC). Then FINALIZE (delete EventHandlers.ts) + **AC-PORT-9 Cloud re-deploy gate** → 6-chain price/version → ratify bd-buho.
+- Cost: foundation run ~325k tokens / 2 agents. Port fan-out est ~1.5–2M.
+
+## 2026-06-18 (S183/S184) — PORT COMPLETE on config.yaml (proven), AC-PORT-9 is the only remaining gate
+- **config.yaml port DONE + PROVEN.** All 83 (contract×event) registrations ported alpha.17→3.2.1. Branch `feat/envio-321-port` (base now pushed to origin; 3 new commits LOCAL — see push note). Commits on top of `01d97d2c`:
+  - **`e307d7c3`** — 30 handlers + 2 libs (fan-out). /compose run `envio321-port-02` = **valid_run** (8 sonnet/opus leaves + opus FAGAN gate, converged iter 1). Transform: `from "generated"`→`from "envio"`; Contract objects dropped; `indexer` value import; `handlerContext`→`EvmOnEventContext` (7 handlers+2 libs); `.handler()`→`indexer.onEvent({contract,event})`; fatbera `eventFilters`→`where:{params}`. Bodies byte-identical.
+  - **`c03f0e74`** — sf-vaults (contractRegister+Effects+viem) + delete obsolete `src/EventHandlers.ts`. /compose run `envio321-sfvaults-01` = **valid_run** (single-context opus path). contractRegister body remap: `anyContext.addSFMultiRewards(x)`→`context.chain.SFMultiRewards.add(x)` (3.2.1 ContractRegistration.add).
+  - **`66d8ed5d`** — L3 mock: added `createEffect` stub to `vi.mock("envio")` in `test/registration-coverage.test.ts` so the spy can import the Effects handler (sf-vaults). This was the only blocker to L3 hitting 83/83.
+- **verify:321 (config.yaml) = 6 passed / 0 failed / 0 advisory.** L1 codegen 0, L2 tsc 0, **L3 registration 83/83 (all pairs fire at runtime)**, L4 createTestIndexer green, L5 vitest 206 passed, **bijection perfect 83/83 (2 contractRegister, 0 orphans)**. AC-PORT-1..8 met.
+- **FIRST FAN-OUT FAILED (recovery learned):** the compose Form-C segment's per-wave stall timer (`STALL_MS`) is a HARD wall-clock cap (fires once at STALL_MS, NOT an inactivity timer), default **90s** — too short for multi-file leaves → all 7 handler families `drain_timeout` while still editing. Abandonment does NOT roll back disk edits (partial/broken files left). FIX: pass **`stall_s: 1200`** in args; reset partial edits via `git restore --source=HEAD` (the destructive-bash-hook-recommended safe form — `git checkout -- <path>` is BLOCKED). Also: **do NOT use `isolation:"worktree"`** for leaves that edit one shared canary via absolute paths (it isolates the wrong branch); disjoint-file concurrent edits are safe.
+- **MIBERA BELT — DEFERRED to the Ponder→Envio cutover (operator decision 2026-06-18).** `src/belts/mibera/EventHandlers.mibera.ts` is config.mibera.yaml's curated loader (a re-export aggregator) — broken by the port (imports the dropped `handleX` exports). It is NOT obsolete cruft: it's a live CI-gated separate deployment (belt-build.yml 3 gates, codegen:mibera, tsconfig.mibera.json, verify-belt-config). config.mibera is a clean SUBSET of config.yaml. Operator: "once we cut Ponder, all remnants are cleared" → leave untouched; harmless to config.yaml (scoped tsconfig excludes it). The mibera handler MODULES (in src/handlers/) ARE ported.
+- **TOPOLOGY (clears the confusion):** 3 indexers — Envio-classic (dead/frozen), **sovereign-Ponder (`ponder.config.ts`, GREEN = current prod)**, **managed-Envio (`config.yaml`@3.2.1, just ported = TARGET)**. This session was an envio API-version port (alpha.17→3.2.1), NOT a system migration. Per ADR 2026-06-16: move Layer-1 Ponder→managed-Envio to shed Railway toil, but gated on `bd-buho` (1 real billing cycle). This session = the prerequisite; the cutover is future/evidence-gated.
+- **RESUME = AC-PORT-9 (operator-driven, the ONLY Cloud round-trip).** Push the 3 commits to origin → operator points an Envio Cloud instance at `feat/envio-321-port` (full `config.yaml`) → confirm it gets PAST the crash-loop + syncs the 6 chains (1, 10, 8453, 42161, 7777777, 80094). FR-4 parity vs live green via promotion-gate.js expansion-mode (open: parity-vs-on-chain-ground-truth, NOT vs alpha.17 green — flatline SKP-002/012). → unblocks managed deploy → 6-chain price/version → `bd-buho` ratify. Beads closed: bd-o0g, bd-5hq, bd-un9. Open tail: bd-4t2c (Cloud gate), bd-lst9 (E2E), bd-voi (S184 epic).
+
+## 2026-06-23 — Session synthesis (⚠ SUPERSEDES the AC-PORT-9 resume pointer directly above)
+
+**The "AC-PORT-9 / Cloud" pointer above is RETIRED.** Operator confirmed sonar runs on **Railway, not managed Envio Cloud**. The managed-Cloud cutover cluster (bd-4t2c / bd-lst9 / bd-voi / bd-7l7.1 / bd-7l7.5 + epic bd-2io) is **CLOSED as superseded**. KF-015 OOM is already solved on Railway (`NODE_OPTIONS=--max-old-space-size` service var) — not a Cloud lever.
+
+**Shipped:**
+- **PR #75 MERGED** (`9cf7152f`) — envio 3.2.1 port; a BB-equiv review caught + I fixed a real FatBera-deposit-window regression (H1) + verify-tsconfig gap (H2). verify:321 6/6, bijection 83/83.
+- **PR #76 MERGED** (`c17a7e9f`) — Pythians ($PTN) NFT-collection ownership SVM pipe (Helius DAS getAssetsByGroup, run-marker reconcile, two wipe guards). Hardened after an adversarial review caught a committed `node_modules` symlink + 8 issues. Branch `feat/svm-pythians-holders` → `feat/envio-cloud-hypersync`.
+- Bead reconciliation committed: sonar `7860cf28` (17 closes), loa-finn `8d686d82` (bd-bqek dune-meter-merge + bd-ijnh retract).
+
+**Verified MVP truth (corrects my own earlier over-claims this session):**
+- The **Shadow-Mode MVP is BUILT** — loa-freeside **#296** (`shadow-access-audit`): `packages/protocol/shadow-audit` + `adapters/sonar` (Transfer-replay, reorg-safe) + `services/shadow-audit` + SDD (`loa-freeside/grimoires/loa/sdd.md`). NOT a gap.
+- **Sonar's role = serve the `Transfer` stream** the loa-freeside `adapters/sonar` adapter folds (`belt-gateway-production/v1/graphql`). **MET.** No sonar audit-layer work needed (I retracted a redundant spec + bead).
+- Remaining: dune-meter merge (loa-freeside `feat/dune-meter-cost-adapter` `8b8c0142` — fixed, unmerged; loa-finn Corpus-Engine next cycle, NOT the audit) · control-plane wiring (coexistence adapter built-not-wired, deferred post-validation) · external-audit on-demand indexing (deferred SKU). Arrakis = external context only, `decisionEligible:false` at MVP.
+
+**Recall discipline (meta-lesson):** `/recall` (QMD) is healthy (~11.7k files); use the DEFAULT `query` mode — **never `--mode search`** on conceptual intents (returns 0; caused 3 over-assertions this session). Pruned the phantom `construct-observer` collection + stamped 22 grimoire artifacts → `recall-doctor` verdict now **HONEST**.
+
+**RESUME (grounded):** Shadow-Mode audit MVP is shipped; sonar has no MVP-blocking work (PR #76 is review-ready). Next high-leverage is operator-gated: (a) loa-finn re-point (Corpus Engine = the product; close drift sprints — needs per-sprint grounding) + the dune-meter merge; (b) the 29 orphan QMD collections (governance-declaration reconciliation, doctor coverage warning).
+
+---
+
+## 2026-06-24 — autonomous session: SVM contract-guard antibody + grounded Q&A
+
+**Answered operator Qs (grounded):** (1) **"pythians" = Pythians ($PTN)**, a Solana NFT collection — PR #76 **MERGED** (SVM ownership pipe, Helius DAS). (2) **Shadow-Mode audit MVP = engine-complete** (loa-freeside #296 merged; #300+#301 merged; data path verified live-green). Sole last-mile = the composition-root **gateway** — and it is NOT "one wiring file": construct-scar + a 4-lens rigorous-review compose pass confirmed **3 net-new adapters** (OwnershipSource bridge, block-time resolution, RoleSource loader) + a bootstrap app remain. Deferred post-validation by operator. Pull-ready candidate spec: `grimoires/loa/context/2026-06-24-shadow-audit-gateway-sprint-candidate.md` (gitignored, local). (3) **No sonar integration issue** — sonar's contract is met + guarded. (4) **Shadow mode = built**, not yet serving.
+
+**SHIPPED — PR #78** (`feat/svm-contract-guard` → feat/envio-cloud-hypersync): extended the EVM belt-gateway antibody to the **SVM read seam** — `scripts/verify-svm-contract.mjs` + `svm-contract.json` + a 2nd scheduled CI job + `npm verify:svm-contract` + runbook `grimoires/loa/runbooks/svm-contract-drift.md`. Reviewed by `/compose` (rigorous-review, 27 findings); all actionable findings folded in. Security scans green; awaiting operator merge.
+
+**TWO FINDINGS (banked):**
+- **Pythians data-readiness gap:** `svm_collection_nft` is absent from BOTH the belt-gateway AND the self-host SVM Hasura public surface (genesis_stone is on both). The merged pipe writes to a table that isn't created/tracked → **data not consumer-readable**. "Supported" in code, not in data. Fix = the `CREATE TABLE svm.collection_nft` + Hasura-tracking ops step in `grimoires/loa/specs/2026-06-23-svm-pythians-collection-design.md`, then promote the guard type to `status:live`.
+- **Guard scope limit (honest):** the read surface exposes no `mutation_root`/`*_constraint`, so the guard catches column/type-drift (the #300 class) but NOT the write-path on_conflict constraint-name class that bit #76. Closure = an offline DDL-bind verifier (the #1 documented follow-up in the runbook).
+
+**Honesty caveat:** the compose review's findings are real workflow output (4 agents, 367k tokens, 1.9M ms, file-anchored), but I did not complete the Form-C seam-protocol envelope wrap → the run does NOT carry a `valid_run` certification (`compiled_run`/`broken_run`). Findings stand on their grounding, not the gate.
+
+**RESUME (2026-06-24):** PR #78 (SVM guard) **MERGED** (`27df49c2`, squash) into feat/envio-cloud-hypersync — Bridgebuilder-reviewed (COMMENTED, no blockers; F-001 exit-code semantics + F-002 `::`-injection + F-004 nullability-scope folded in; F-003 endpoint-env-wiring deferred). Local now synced (caught up to #76; Pythians source present). Two operator-gated follow-ups remain: (a) the Pythians table ops step `CREATE TABLE svm.collection_nft` + Hasura tracking (un-blocks Pythians data — small); (b) un-defer the shadow-audit gateway sprint (candidate spec pull-ready). **Config nit:** `.loa.config.yaml:1935` `persona_path: grimoires/observer/ARCHETYPE.md` is stale (file absent) → plain `/bridgebuilder-review` fails until repointed; workaround used = `--persona default` + `npm ci` in the BB skill dir + `BRIDGEBUILDER_MODEL=claude-headless` (no API key in env). loa-freeside still on a pre-#300 feature branch — pull before touching the gateway.
+
+## 2026-06-24 (later) — Pythians LIVE to prod gateway (autonomous; closes the data-readiness gap)
+
+**Goal:** "get pythians live to prod gateway." DONE end-to-end — schema + data both live, guard armed.
+
+**Topology grounded (Railway, project `freeside-sonar`):** `belt-gateway` is a **Caddy reverse proxy** (`BELT_UPSTREAM` → `belt-hasura-selfhost`), NOT a separate Hasura/federation — so tracking on the self-host Hasura auto-surfaces at the gateway. The SVM indexers are **on-demand `npx tsx` runs, NOT deployed services** (belt-indexer-selfhost is the EVM Envio belt; no Solana/Helius RPC anywhere in the estate).
+
+**Ops applied to `belt-hasura-selfhost` (prod, source `default`) — idempotent/additive, mirrors `svm_genesis_stone`:**
+- `CREATE SCHEMA/TABLE/INDEX IF NOT EXISTS svm.collection_nft` (DDL verbatim from the design spec). PK constraint verified = `collection_nft_pkey` (== indexer `on_conflict`).
+- `pg_track_table` + `pg_create_select_permission` role=`public`, columns=`*`, filter=`{}`, allow_aggregations=true.
+- **Backfilled via the operator's Helius DAS RPC: 3,682 Pythians NFTs upserted, 0 stale removed @ slot 428730330.**
+
+**Verified live (unauthenticated, at `belt-gateway-production/v1/graphql`):** `svm_collection_nft_aggregate{count}=3682`, real owner wallets, no errors. `verify:svm-contract` GREEN — 20 assertions across 2 live types; future drift on the Pythians read seam now hard-fails CI.
+
+**Shipped:** **PR #80 MERGED** (squash) into feat/envio-cloud-hypersync — promoted `svm_collection_nft` guard `pending-exposure`→`live` (`scripts/svm-contract.json`) + corrected the drift runbook (it falsely said the table was absent from both surfaces; genericized the pending-exposure section into a take-it-live template). Reviewed by construct-scar (studio-mode): **no CRITICAL/HIGH** — exposure sound (public on-chain data only, writes admin-gated, types match, on_conflict correct). MED-1 (empty-but-live false-negative) resolved by the backfill; MED-2 (lying runbook) fixed in the PR.
+
+**OPERATIONAL FOLLOW-UPS (operator-gated, NOT built):**
+- **Staleness:** ownership is a current-state snapshot; with no deployed indexer the 3,682 rows go stale as NFTs transfer. Decide: scheduled re-run (Railway cron service / GH Action with the Helius key as a secret) vs. accept manual refresh. The `updated_at` column lets consumers detect staleness.
+- **MED-1 residue:** consider a machine-readable `dataStatus`/`populated` field in the manifest so a cross-repo consumer can gate holder logic on data-live, not just schema-live (deferred; no consumer reads the type yet).
+- **Cross-repo open Q (scar pushback):** does loa-freeside `adapters/sonar` (shadow-audit) read `svm_collection_nft`, and does it treat an empty result as "non-holder" vs "data-not-ready"? If a consumer wires Pythians before a refresh, stale/empty → wrong membership.
+- Helius DAS RPC is operator-supplied (used this session); still not stored in the Railway estate.
+
+## 2026-06-24 (later still) — Pythians is a SNAPSHOT, not an index → NEW cycle `svm-collection-events`
+
+Operator pushed back: the live snapshot (current ownership) is **useless for scoring** — the Score API
+(`0xHoneyJar/score-api`, separate building) is entirely event-sourced (`trigger/utils/indexer-client.ts`
+reads MiberaTransfer{from,to,tokenId,isMint,ts,txHash,block} → derives mint/buy/sell/stake/hold verbs).
+Needs full ownership HISTORY + txs. Decisions (operator): **generic all-SVM** event model (not Pythians-
+only); **Helius backfill + webhooks** (HyperSync-SVM out per the 2026-06-20 substrate finding).
+- PRD + SDD written to `grimoires/loa/cycles/svm-collection-events/` (NOT the canonical prd/sdd.md =
+  managed-Envio cycle, untouched). Contract = `svm_collection_event` keyed by collection_key
+  (from/to/nft_mint/kind/slot/block_time/tx_signature/instruction_index), the SVM analog of EVM MiberaTransfer.
+- **Adversarial design review (web-verified vs Helius/Solana docs) caught a real flaw BEFORE build:**
+  the mint-signature-walk can't get full history — plain SPL `Transfer` omits the mint from accounts;
+  ALT-referenced txns are dropped by getSignaturesForAddress. **Method changed to token-account
+  ownership-chain tracing** (Helius Enhanced address-history). Also folded: PK gains instruction_index
+  (batch-tx dedup + consumer numeric1); `kind:'sale'` + price/marketplace from Helius events.nft
+  (buy/sell parity); cNFT branch (getSignaturesForAsset); G1 reconciliation-vs-DAS promoted to a
+  go/no-go gate before any "full history" claim. Snapshot stays independent+authoritative (DAS is
+  complete; events are best-effort until reconciliation proves coverage).
+- **External dep:** score-api fetcher (separate building, NOT in-cycle) — handoff contract in SDD §9.
+  **New infra:** Helius key must become a Railway secret + 2 new services (svm-backfill, svm-webhook).
+- STATUS: planning + reviewed SDD done; implementation (sprint-plan → build) is the next phase, gated on operator.
+
+## 2026-06-25 — svm-collection-events CYCLE COMPLETE + DEPLOYED (operator: "continue to completion, full incl deployment and api keys")
+
+Pythians is now **fully indexed (history + txs) + realtime-deployed**, end to end. Sprints 1-4 all FAGAN-reviewed ([[use-fagan-for-review]]).
+
+- **Sprint 1 (#81):** foundation — `CollectionEventSource` seam + pure `parseHeliusTx` + writer + `svm_collection_event` guard entry. FAGAN CHANGES_REQUIRED (C1 PK-intrinsic / H1 sale-leg-drop / H2 1970-timestamp / M1 string-price) → folded.
+- **Sprint 2 (#82) GO-LIVE:** `HeliusCollectionEventSource` (Enhanced address-history; pNFT mint-history is COMPLETE — no token-account tracing needed) + runner with §4.5 reconcile gate. Applied to prod: CREATE+track+public-select `svm.collection_event`, **backfilled 30,006 events / 3,682 NFTs** (reconcile 99.84%), guard → `live` (34 assertions, 3 live SVM types green). FAGAN F1 (same-slot ordering) + F2-F5 folded.
+- **Sprint 3 (#82) realtime:** `svm-webhook` Railway service DEPLOYED (`svm-webhook-production.up.railway.app`, /health 200, 3,682 members; auth fail-closed 401) + **Helius webhook registered** (id `905784f8…`, 3,682 mints, ANY) + every-6h GH Actions reconcile cron (secrets `HELIUS_API_KEY`/`SVM_HASURA_ADMIN_SECRET` set — schedule auto-activates on main; `workflow_dispatch` now). FAGAN F1 (CI cmd-injection via inputs.limit) + F2-F9 folded.
+- **Sprint 4 (#82):** generic `collection-registry.ts` (add a collection = 1 entry + `--collection`); score-api handoff contract doc (cycle dir).
+
+**Topology:** belt-gateway = Caddy proxy over belt-hasura-selfhost → tracking on self-host auto-surfaces at the gateway. Helius API key provisioned: GH Actions secret + the svm-webhook Railway service vars. (Note: the `railway add` CLI echoed the belt-hasura admin secret to stdout this session — rotate if concerned.)
+
+**OPEN (operator-gated):** (a) score-api fetcher — cross-repo, NOT wired (handoff doc ready, `numeric1=instruction_index`); (b) 0.16% reconcile tail + burnt-NFT pre-burn history (token-account tracing follow-up); (c) cycle planning docs (prd/sdd/sprint/handoff) are local-only (`grimoires/loa/cycles/` gitignored). DAS `svm_collection_nft` snapshot stays authoritative for current-owner; events = history.

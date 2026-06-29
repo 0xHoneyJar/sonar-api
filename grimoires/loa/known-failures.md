@@ -1,3 +1,13 @@
+---
+title: "Known Failures — Things We Tried That Didn't Work"
+trust_tier: operator-authored
+read_state: unread
+confidence: 0.6
+decay_class: working
+last_confirmed: 2026-06-23
+operator_signed: self_attested
+---
+
 # Known Failures — Things We Tried That Didn't Work
 
 > **Read this file at session start.** This is the operational log of degradation
@@ -68,7 +78,8 @@ actually tried, not just what someone *said* was tried.
 | [KF-012](#kf-012-free-berachain-rpc-returns-empty-200-on-filtered-eth_getlogs--erpc-silently-drops-indexer-logs) | **RESOLVED-VIA-CONFIG 2026-05-20** (eRPC `ignoreMethods:[eth_getLogs]` on lying upstream + widened getLogs cluster + per-upstream rate-limit pacing; sovereign path preserved) | indexer-belt-rebuild — Mibera belt RPC sync via eRPC | 1 |
 | [KF-013](#kf-013-envio-rust-cli-28p01-on-railway-managed-postgres-via-scram-over-ssl) | **RESOLVED-VIA-WORKAROUND 2026-05-21** (`--restart`-seeds-then-resume; sslmode=false was a misdiagnosis — Rust-CLI persisted_state 28P01 is fresh-init-only, resume skips it) | belt-indexer deploy/re-init on Railway managed Postgres | 2 |
 | [KF-014](#kf-014-bridgebuilder-pass-2-enrichment-unavailable-on-claude-headless-cli-subscription) | DEGRADED-ACCEPTED 2026-05-22 (Pass-1 convergence findings still post; only the educational enrichment layer is lost) | `/bridgebuilder` two-pass review on `claude-headless` | 3 |
-| [KF-015](#kf-015-envio-belt-indexer-node-js-heap-oom-on-multi-chain-belt-default-2gb-heap-vs-large-container) | **RESOLVED-VIA-CONFIG 2026-05-22** (`NODE_OPTIONS=--max-old-space-size=12288` — 6-chain belt OOM'd Node's ~2GB default heap in a 24GB container; green-only) | belt-indexer 6-chain consolidated cold-sync OOM | 1 |
+| [KF-015](#kf-015-envio-belt-indexer-node-js-heap-oom-on-multi-chain-belt-default-2gb-heap-vs-large-container) | **RESOLVED-VIA-CONFIG 2026-05-22** (`NODE_OPTIONS=--max-old-space-size=12288` — 6-chain belt OOM'd Node's ~2GB default heap in a 24GB container; green-only; RECURRED 2026-06-19 on managed-Envio Cloud @3.2.1 — heap/RAM lever there is TBD) | belt-indexer 6-chain consolidated cold-sync OOM | 2 |
+| [KF-016](#kf-016-envio-321-blocks-chain-indexing-on-hasura-trackdatabase-retry) | **RESOLVED-VIA-CONFIG 2026-06-21** (set `HASURA_GRAPHQL_ENDPOINT` to a reachable Hasura — `envio@3.2.1` blocks chain-indexing on the `Hasura.trackDatabase`→`createSelectPermission` retry loop when no Hasura is reachable; `block_height` stuck at 0, `latest_processed_block` -1. The local-upload spike slipped past it; the GitHub-sourced re-home did not — give the indexer a Hasura at deploy time) | self-host envio@3.2.1 deploy, indexer seeds schema but never indexes | 1 |
 
 ---
 
@@ -930,7 +941,8 @@ If a BB review posts with "Enrichment pass was unavailable; findings are unenric
 **Feature**: belt-indexer (`envio start`, v3.0.0-alpha.17) cold-syncing the 6-chain consolidated belt (`config.yaml`: ETH 1 / OP 10 / Base 8453 / Arbitrum 42161 / Berachain 80094 / Zora 7777777, 41 contracts) on Railway (24GB/service cap).
 **Symptom**: The 6-chain belt **crash-loops** with `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory` (+ V8 `FatalProcessOutOfMemory` frame), surfacing as `Error: Failed cli execution`. Operator-visible signature: **chains with dense mint regions FREEZE** (their `chain_metadata.latest_processed_block` stops advancing) while lighter chains keep moving — the dense-region fetcher OOM-crashes the whole process before it can checkpoint past that range; on Railway auto-restart the lighter chains resume from checkpoints and advance a bit, but the dense chains re-hit the same OOM range and re-freeze. Here: Arbitrum + Zora HoneyJar mint regions froze; ETH/OP/Base/Berachain advanced between crashes.
 **First observed**: 2026-05-22 (sonar-belt-factory S2 green-build — 6-chain consolidated belt cold-sync).
-**Recurrence count**: 1
+**Recurrence count**: 2
+**Recurrence (2026-06-19)**: same OOM on the **managed-Envio Cloud (HyperIndex)** instance running the **3.2.1-ported `config.yaml`** (AC-PORT-9 Cloud re-deploy gate). Confirms KF-015 is NOT alpha.17- or self-host-specific — it is intrinsic to the 6-chain cold-sync memory profile. Identical signature: heap hit ~2000 MB → `FATAL ERROR: Reached heap limit` → crash-loop (exit 134 SIGABRT, `"Indexer has failed, restarting"`). All 6 chains (1/10/8453/42161/80094/7777777) were actively backfilling via HyperSync (~12.9s in) before the OOM ⇒ **the PORT is correct on Cloud; this is purely a heap/RAM ceiling, not a port defect.** **Fix-path caveat**: the green resolution was a self-hosted Railway service-var (`NODE_OPTIONS=--max-old-space-size=12288`); on managed HyperIndex Cloud the heap/RAM may be platform-controlled — the cutover study must confirm the managed lever (Envio Cloud env var vs RAM-tier bump vs Envio support). Evidence: operator Cloud log export `logs-2026-06-19T19-54-20-791Z.json`.
 **Current workaround**: `NODE_OPTIONS=--max-old-space-size=12288` (12GB) on the belt-indexer service — Node's default old-space (~2GB) is far below the 24GB container; raise to ~50% of container so the 6 concurrent chain fetchers + dense getLogs responses fit (leave the other ~12GB for non-heap RSS / buffers so the *container* doesn't OOM-kill). Blue (4-chain) runs WITHOUT NODE_OPTIONS — fewer concurrent fetchers fit in the default heap.
 **Upstream issue**: not filed (Node default-heap-vs-container mismatch; standard Node ops, not an envio bug — though envio could surface a heap hint scaled to chain count).
 **Related visions / lore**: KF-012 (the dense-region throttle that makes those ranges memory-heavy); KF-013 (sibling green-build infra wall on the same deploy — distinct: 28P01 is fresh-init, this is steady-state resume).
@@ -941,14 +953,24 @@ If a BB review posts with "Enrichment pass was unavailable; findings are unenric
 |------|---------------|---------|----------|
 | 2026-05-22 | Resume green w/ default Node heap (~2GB), 6 chains | DID NOT WORK — crash-loop OOM; Arbitrum+Zora froze at start-of-dense-region while ETH/OP/Base/Bera advanced | green belt-indexer logs `FATAL ERROR: Reached heap limit ... JavaScript heap out of memory`; chain_metadata 42161/7777777 frozen across 3 checks (~10min) |
 | 2026-05-22 | `NODE_OPTIONS=--max-old-space-size=12288` on belt-indexer-green → resume redeploy | RESOLVED — Zora converged to head; Arbitrum +58.5M past the frozen block; no further OOM | chain_metadata poll: 7777777 → 46,395,369 (≈head); 42161 169,454,463 → 227,909,621 |
+| 2026-06-19 | AC-PORT-9: managed-Envio Cloud (HyperIndex) cold-sync of the 3.2.1-ported `config.yaml` (6 chains), default Node heap | OBSERVED — not yet fixed (cutover deferred). Same OOM at ~2000 MB; crash-loop (exit 134, `"Indexer has failed, restarting"`); all 6 chains backfilling via HyperSync before the OOM ⇒ resource ceiling, port correct | Cloud log `logs-2026-06-19T19-54-20-791Z.json`: `FATAL ERROR: Reached heap limit` + V8 OOM frame in `envio-linux-x64@3.2.1` |
 
 ### Reading guide
 
 When scaling an Envio belt to MORE chains/contracts (or any node process in a big container), the Node default heap (~2GB old-space) does NOT scale to the container — set `NODE_OPTIONS=--max-old-space-size=<~50% of container MB>`. **Diagnostic signature**: some chains' `latest_processed_block` FREEZE while others advance, + a V8 `FatalProcessOutOfMemory` / "JavaScript heap out of memory" frame + Railway crash-loops. Do NOT chase the RPC (the frozen chains synced fine through sparse ranges *before* the OOM — it's heap, not the endpoint) and do NOT confuse with KF-013 (28P01 is fresh-init; this is steady-state resume). Durable home: bake a `NODE_OPTIONS` default into `Dockerfile.belt` so any belt deploy inherits it; the green service-var is the immediate fix and persists post-swap (green becomes the sole belt).
 
+### KF-016 — envio@3.2.1 blocks chain-indexing on Hasura.trackDatabase retry
+
+**Status**: RESOLVED-VIA-CONFIG 2026-06-21 (set `HASURA_GRAPHQL_ENDPOINT` to a reachable Hasura at deploy).
+**Symptom**: a self-host `envio@3.2.1` indexer SEEDS the schema (chain_metadata rows exist) but NEVER indexes — `block_height: 0`, `latest_processed_block: -1` on every chain. Log floods every ~7s with `WARN: Hasura configuration request failed. Indexing will still work` + `TypeError: fetch failed` / `AggregateError [ECONNREFUSED]`, stack = `Hasura.res.mjs trackDatabase → createSelectPermission → retry`.
+**Root cause**: envio's startup `trackDatabase` (registers tables + select-perms on a Hasura) retries indefinitely on ECONNREFUSED when no Hasura is reachable, and on this path it gates the chain workers. The "Indexing will still work" wording LIES.
+**Recurrence count**: 1.
+**Deceptive part**: the *local-upload* spike (`railway up`) indexed fine through the same warning; the *GitHub-sourced* re-home blocked. Same code, same env — not reproducible by reading the warning.
+**Fix**: stand up a Hasura (`hasura/graphql-engine`, `HASURA_GRAPHQL_DATABASE_URL` → the indexer's Postgres), then set on the indexer `HASURA_GRAPHQL_ENDPOINT=http://<hasura>.railway.internal:8080` + matching `HASURA_GRAPHQL_ADMIN_SECRET`. trackDatabase then succeeds → chains index within ~1 min → and envio AUTO-TRACKS the 94 entity tables on that Hasura (no manual metadata-API tracking). Durable home: bake `HASURA_GRAPHQL_ENDPOINT` into the deploy template alongside KF-015's `NODE_OPTIONS`.
+**Reading guide**: fresh self-host envio seeds but won't index + only error is `trackDatabase`/`createSelectPermission` ECONNREFUSED → give it a Hasura; do NOT chase HyperSync/RPC.
 ---
 
-## KF-016: address-resolve head-of-line blocking — poison-pill RPC failures stall the resolution queue
+## KF-017: address-resolve head-of-line blocking — poison-pill RPC failures stall the resolution queue
 
 **Status**: OPEN
 **Feature**: `ponder-runtime/src/handlers/address-resolve.ts` (sonar-63, address-type classification)

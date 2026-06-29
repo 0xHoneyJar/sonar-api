@@ -28,6 +28,7 @@
 import { ponder } from "ponder:registry";
 import {
   miberaTransfer,
+  token,
   mintActivity,
   nftBurn,
   nftBurnStats,
@@ -39,6 +40,7 @@ import {
 import { isLiveEvent } from "../lib/sync-status";
 import { reorgSafeEmit } from "../lib/reorg-safe-emit";
 import { buildMintEnvelope } from "../lib/nats-publisher";
+import { tokenRowId, resolveTokenRow } from "./token-projection/shared";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const BERACHAIN_ID = 80094;
@@ -109,6 +111,75 @@ ponder.on("MiberaCollection:Transfer", async ({ event, context }) => {
       chainId: BERACHAIN_ID,
     })
     .onConflictDoNothing();
+
+  // ──────────────────────────────────────────────────────────────────────
+  // 1b. Per-token CURRENT-OWNER projection (token entity — bd-jyn / S1a)
+  //
+  //   UPSERT (B2): create-if-absent via insert().onConflictDoUpdate(). A token
+  //     whose mint predates this handler's index boundary has NO prior row;
+  //     resolveTokenRow(prev=null, …) CREATES it on the first transfer we see,
+  //     so ownership is never silently dropped by an update-only path.
+  //   BURN (B1): isBurn is this file's isBurnTransfer(from,to) — the collection's
+  //     REAL burn sink (0x0 + 0x…dead), NOT a hardcoded to==0x0. Burn flags
+  //     isBurned=true; the row is NOT deleted (consumer filters isBurned:false).
+  //   LAST-WRITE-WINS (B10): resolveTokenRow drops an out-of-order event whose
+  //     (blockNumber, logIndex) is older than the stored pair — ordering is the
+  //     (blockNumber, logIndex) key, NOT insert order and NOT timestamp. The
+  //     reorg-safe source of record is the `action` ledger (+ miberaTransfer
+  //     above); `token` is a re-derivable projection (drop + replay to rebuild).
+  //   KEYING: id = `${contract}_${chainId}_${tokenId}` — per (contract, chainId,
+  //     tokenId), never rolled up to a whole-contract aggregate.
+  //
+  //   NOTE (raw on-chain ownership): this runs for EVERY transfer, BEFORE the
+  //   staking early-returns in §5, so `token.owner` reflects the RAW on-chain
+  //   holder. A Mibera staked into PaddleFi/Jiko shows owner = the staking
+  //   contract (it left the user's wallet on-chain). The `trackedHolder` rollup
+  //   (§5/§6) deliberately keeps the user's count for hold-verification missions;
+  //   `token` is the on-chain-ownership view. The two views differ on purpose.
+  const tokenTransfer = { to, isMint, isBurn, blockNumber, logIndex, timestamp };
+  const tokenRowKey = tokenRowId(MIBERA_COLLECTION_ADDRESS, BERACHAIN_ID, tokenId);
+  const tokenProjected = resolveTokenRow(null, tokenTransfer);
+  await context.db
+    .insert(token)
+    .values({
+      id: tokenRowKey,
+      owner: tokenProjected.owner as `0x${string}`,
+      contract: MIBERA_COLLECTION_ADDRESS as `0x${string}`,
+      // Consumer filters `collection` on the LOWERCASED CONTRACT ADDRESS
+      // (inventory-api live-sonar.ts:92-94), not the human key — see schema note.
+      collection: MIBERA_COLLECTION_ADDRESS,
+      collectionKey: MIBERA_COLLECTION_KEY,
+      chainId: BERACHAIN_ID,
+      tokenId,
+      isBurned: tokenProjected.isBurned,
+      mintedAt: tokenProjected.mintedAt,
+      lastTransferTime: tokenProjected.lastTransferTime,
+      lastBlockNumber: tokenProjected.lastBlockNumber,
+      lastLogIndex: tokenProjected.lastLogIndex,
+    })
+    .onConflictDoUpdate((row: any) => {
+      const next = resolveTokenRow(
+        {
+          owner: row.owner,
+          isBurned: row.isBurned,
+          mintedAt: row.mintedAt,
+          lastTransferTime: row.lastTransferTime,
+          lastBlockNumber: row.lastBlockNumber,
+          lastLogIndex: row.lastLogIndex,
+        },
+        tokenTransfer,
+      );
+      // Only the per-transfer mutable fields change; the id/contract/collection/
+      // collectionKey/chainId/tokenId are stable for a given token id.
+      return {
+        owner: next.owner as `0x${string}`,
+        isBurned: next.isBurned,
+        mintedAt: next.mintedAt,
+        lastTransferTime: next.lastTransferTime,
+        lastBlockNumber: next.lastBlockNumber,
+        lastLogIndex: next.lastLogIndex,
+      };
+    });
 
   // ──────────────────────────────────────────────────────────────────────
   // 2. Handle mints — MintActivity + mint action + NATS publish

@@ -1,0 +1,111 @@
+-- scripts/chain-metadata-view.sql
+--
+-- bd-3nh (S2) — the green/Ponder freshness equivalent of Envio's `chain_metadata`.
+--
+-- WHY ------------------------------------------------------------------------
+-- inventory-api reads its ACVP `as_of_block` from a freshness marker:
+--
+--   inventory src/live-sonar.ts:42-50 (liveChainHead):
+--     { chain_metadata(where: {chain_id: {_eq: <N>}}) { latest_processed_block } }
+--
+-- That root field + those two field names are an EXACT GraphQL contract. Envio
+-- auto-generated a `chain_metadata` table per chain; Ponder/green does NOT
+-- (the Envio framework table was never an entity in our schema). This view is
+-- the drop-in replacement: a READ-ONLY projection over Ponder's internal
+-- per-chain checkpoint table — NO write path, so it cannot contend on the DB
+-- locks the handlers hold (flatline B11).
+--
+-- CONSUMER SCOPE (FAGAN finding 1 — intentional limitation) ------------------
+-- This view satisfies the PRODUCTION consumer (inventory-api: `chain_id` +
+-- `latest_processed_block`). It does NOT, and CANNOT, provide the richer Envio
+-- telemetry that two MIGRATION/OPS consumers query, because those fields are not
+-- in Ponder's served `_ponder_checkpoint` (they live in the separate `ponder_sync`
+-- store, if at all):
+--   - scripts/promotion-gate.js (the non-skippable blue→green cutover gate)
+--       queries `chain_metadata { chain_id block_height latest_processed_block }`.
+--       `block_height` = chain HEAD, absent here → a strict GraphQL query against
+--       green errors → the gate fails-closed. Its Part-1 parity logic actually
+--       uses `latest_processed_block`; the green query should drop `block_height`.
+--   - scripts/sync-dashboard.cjs (reindex monitor, dev tool) selects start_block,
+--       block_height, latest_fetched_block_number, num_events_processed,
+--       is_hyper_sync, timestamp_caught_up_to_head_or_endblock — all Envio-only.
+-- Reconciling those two consumers is a SEPARATE cutover-gating follow-up (bead
+-- `bd-beh`), NOT this view's scope. The view is deliberately the thin production
+-- contract, not a full Envio-telemetry replica.
+--
+-- DESIGN CHOICE (a) — view over `_ponder_checkpoint`, not a throttled handler.
+--   Ponder maintains exactly one row per indexed chain in
+--   `<schema>._ponder_checkpoint`, updated as it advances. That IS the
+--   per-chain processed block, so the preferred no-write-path design is viable.
+--   (Design (b), a throttled block handler, was rejected: it needs a new
+--    `blocks:` source in ponder.config.mibera.ts — all four existing
+--    OutboxFlush* block sources are already claimed by outbox-flush.ts, and
+--    Ponder throws "Multiple indexing functions registered for event" on a
+--    duplicate registration [ponder/dist/esm/build/config.js:129]. Adding a
+--    block source was out of this bead's file scope.)
+--
+-- SOURCE TABLE (Ponder 0.16.6 internal — pinned) -----------------------------
+--   Created by ponder/dist/esm/database/index.js:364 (raw DDL, snake_case):
+--     CREATE TABLE "<schema>"."_ponder_checkpoint" (
+--       "chain_name"           TEXT PRIMARY KEY,
+--       "chain_id"             BIGINT NOT NULL,
+--       "safe_checkpoint"      VARCHAR(75) NOT NULL,
+--       "latest_checkpoint"    VARCHAR(75) NOT NULL,
+--       "finalized_checkpoint" VARCHAR(75) NOT NULL
+--     )
+--   We read `latest_checkpoint` (the latest INDEXED block — matches Envio's
+--   "latest_processed_block" semantics, i.e. progress, not finality. Do NOT use
+--   safe_/finalized_checkpoint: on Berachain those lag latest by the 200-block
+--   reorg depth [sync-status REORG_DEPTH 80094 = 200] and would understate
+--   freshness).
+--
+-- CHECKPOINT ENCODING (ponder/dist/esm/utils/checkpoint.js) -------------------
+--   A checkpoint is a fixed-width 75-char zero-padded decimal string:
+--     [ blockTimestamp 10 ][ chainId 16 ][ blockNumber 16 ]
+--     [ transactionIndex 16 ][ eventType 1 ][ eventIndex 16 ]
+--   blockNumber therefore occupies 1-indexed positions 27..42 (16 wide):
+--     offset = BLOCK_TIMESTAMP_DIGITS(10) + CHAIN_ID_DIGITS(16) + 1 = 27
+--   The offset is pinned + tested in
+--   ponder-runtime/src/lib/checkpoint-block.ts (+ .test.ts) — if Ponder ever
+--   changes the layout that test fails BEFORE this view silently extracts the
+--   wrong slice.
+--
+-- TYPES ----------------------------------------------------------------------
+--   chain_id + latest_processed_block are cast to `integer` (int4) so Hasura
+--   exposes them as GraphQL `Int` (JSON number) — matching Envio's int4 columns
+--   AND the consumer's `{ chain_id; latest_processed_block: number }` type.
+--   bigint/int8 would surface as Hasura's `bigint` scalar (STRING-serialized),
+--   breaking the consumer's numeric `as_of_block`. All live chains are well
+--   under int4 max (2,147,483,647): highest is Arbitrum ~227M (decades of
+--   headroom). chain ids (1/10/8453/42161/7777777/80094) are likewise < int4.
+--
+-- GRAPHQL ROOT FIELD = `chain_metadata` (lowercase snake) --------------------
+--   The view is named `chain_metadata`, so it lands in `<schema>.chain_metadata`
+--   and is picked up by the EXISTING (unmodified) cutover tracker:
+--   scripts/cutover-hasura-tracking.sh keeps it through the belt-scope filter
+--   (information_schema.tables now contains it), then bakes
+--   custom_root_fields.select via INTROSPECTION of Envio's live `chain_metadata`
+--   field → maps `chain_metadata` → `chain_metadata` (lowercase preserved).
+--   ⚠ The snake_to_pascal FALLBACK would instead yield `ChainMetadata` (WRONG):
+--   the lowercase root field is achievable ONLY while Envio's Hasura still
+--   exposes a `chain_metadata` field at cutover-introspection time (it does in
+--   the A-4 runbook, which snapshots the live blue Hasura). Verify the baked
+--   select via the metadata-diff snapshot, never assume.
+--
+-- LIFECYCLE CAVEAT (operator) ------------------------------------------------
+--   `_ponder_checkpoint` is DROP ... CASCADE'd when Ponder re-creates the
+--   schema (a from-genesis reindex, bd-r90), which also drops this view.
+--   => Re-apply this file AFTER each reindex and BEFORE running
+--      scripts/cutover-hasura-tracking.sh cutover (so the view exists when the
+--      tracker filters/bakes). It is idempotent (CREATE OR REPLACE).
+--
+-- USAGE ----------------------------------------------------------------------
+--   psql "$PONDER_DB_URL" -v schema=ponder -f scripts/chain-metadata-view.sql
+--   (schema matches the cutover script's hardcoded `ponder`; pass the real
+--    served schema if it differs, e.g. -v schema=ponder_v3.)
+
+CREATE OR REPLACE VIEW :"schema".chain_metadata AS
+SELECT
+    chain_id::integer                                          AS chain_id,
+    substring(latest_checkpoint FROM 27 FOR 16)::bigint::integer AS latest_processed_block
+FROM :"schema"._ponder_checkpoint;

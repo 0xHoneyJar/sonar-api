@@ -34,13 +34,24 @@ const ok = (s) => c('32', s);
 const bad = (s) => c('31', s);
 const dim = (s) => c('2', s);
 
+const INTROSPECT_TIMEOUT_MS = 10_000;
+
 async function introspectType(endpoint, typeName) {
-  const query = `query($n:String!){ __type(name:$n){ name fields{ name type{ name kind ofType{ name kind ofType{ name } } } } } }`;
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ query, variables: { n: typeName } }),
-  });
+  // 4 ofType hops: wrapping-complete to [scalar!]! depth (else a triple-wrapped type flattens to null).
+  const query = `query($n:String!){ __type(name:$n){ name fields{ name type{ name kind ofType{ name kind ofType{ name kind ofType{ name } } } } } } }`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), INTROSPECT_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ query, variables: { n: typeName } }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new Error(`introspection HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
   const body = await res.json();
   if (body.errors) throw new Error(`introspection errors: ${JSON.stringify(body.errors).slice(0, 200)}`);
@@ -48,20 +59,24 @@ async function introspectType(endpoint, typeName) {
 }
 
 // flatten a GraphQL type ref down to its named scalar (NON_NULL/LIST unwrap)
-const baseTypeName = (t) => (t == null ? null : (t.name ?? baseTypeName(t.ofType) ?? null));
+const baseTypeName = (t) => (t?.name ?? baseTypeName(t?.ofType) ?? null);
 
 async function main() {
   const manifest = JSON.parse(await readFile(manifestPath ?? join(HERE, 'belt-contract.json'), 'utf8'));
   const endpoint = endpointArg || process.env[manifest.endpointEnv] || manifest.endpoint;
 
   const findings = []; // {type, kind: 'missing'|'type-drift'|'forbidden-present', field, detail}
+  const introspectErrors = []; // per-type introspection throws (reachable endpoint, bad per-type response)
+  const typeNames = Object.keys(manifest.types);
   for (const [typeName, spec] of Object.entries(manifest.types)) {
     let live;
     try {
       live = await introspectType(endpoint, typeName);
     } catch (e) {
-      console.error(bad(`✗ could not introspect ${typeName} @ ${endpoint}: ${e.message}`));
-      process.exit(2);
+      // Accumulate per-type throws instead of exit(2)-on-first — separates a per-type server
+      // error (reachable, bad response) from an unreachable endpoint; classified post-loop.
+      introspectErrors.push({ type: typeName, error: e.message });
+      continue;
     }
     if (!live) {
       findings.push({ type: typeName, kind: 'missing-type', field: '(type)', detail: `type ${typeName} not found on live schema` });
@@ -80,6 +95,16 @@ async function main() {
         findings.push({ type: typeName, kind: 'forbidden-present', field, detail: `a consumer might wrongly select this; assert it stays absent (it once didn't exist, and a consumer assumed it did)` });
       }
     }
+  }
+
+  // Classify introspection failures: ALL types failed → endpoint unreachable/systemic (exit 2);
+  // some-but-not-all → reachable endpoint with per-type errors → actionable (exit 1).
+  if (introspectErrors.length === typeNames.length) {
+    console.error(bad(`✗ could not introspect ANY type @ ${endpoint} (endpoint unreachable/systemic): ${introspectErrors.map((e) => `${e.type}: ${e.error}`).join(' | ')}`));
+    process.exit(2);
+  }
+  for (const e of introspectErrors) {
+    findings.push({ type: e.type, kind: 'introspect-error', field: '(type)', detail: `introspection failed against a reachable endpoint (per-type error, NOT unreachable): ${e.error}` });
   }
 
   if (asJson) {

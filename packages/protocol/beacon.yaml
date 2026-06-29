@@ -122,7 +122,8 @@ cycle_state:
 # When (if) a native MCP server lands in this repo, switch `shape: data` and
 # enumerate explicit tools (queryAction, queryMint, queryTransfer, etc.).
 #
-# Stable alias: https://indexer.hyperindex.xyz/b5da47c/v1/graphql  (authoritative)
+# Live default: https://belt-gateway-production.up.railway.app/v1/graphql  (200, authoritative).
+#   The legacy hyperindex alias b5da47c is DEAD (404/500 — live-probed 2026-06).
 # Production gateway: belt-gateway @ Caddy (Caddyfile · reverse_proxy {$BELT_UPSTREAM})
 
 mcp:
@@ -131,7 +132,7 @@ mcp:
     - remote-http
   remote:
     transport: streamable-http
-    endpoint: ${SONAR_GRAPHQL_ENDPOINT}     # resolved at gateway boot — default: https://indexer.hyperindex.xyz/b5da47c/v1/graphql
+    endpoint: ${SONAR_GRAPHQL_ENDPOINT}     # resolved at gateway boot — default: https://belt-gateway-production.up.railway.app/v1/graphql
   auth:
     kind: none                              # public read endpoint (production root returns {"message":"Sonar API"})
   capabilities:
@@ -140,7 +141,7 @@ mcp:
     - graphql                               # single passthrough tool — gateway forwards arbitrary GraphQL queries
   source_of_truth:
     type: database                          # Hasura on belt-hasura → Postgres on belt-indexer (PRD r2 FR-1)
-    url: "https://indexer.hyperindex.xyz/b5da47c/v1/graphql"
+    url: "https://belt-gateway-production.up.railway.app/v1/graphql"
   pricing:
     model: free
     description: First-party cluster cell — free reads against the stable alias

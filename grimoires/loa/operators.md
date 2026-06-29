@@ -10,6 +10,12 @@ operators:
       - merge
       - cycle.author
     active_since: "2026-05-03T00:00:00Z"
+trust_tier: operator-authored
+read_state: unread
+confidence: 0.6
+decay_class: working
+last_confirmed: 2026-06-23
+operator_signed: self_attested
 ---
 
 # Operators — cycle-098 Sprint 1B

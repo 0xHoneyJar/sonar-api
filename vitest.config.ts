@@ -22,6 +22,7 @@ export default defineConfig({
     include: [
       "test/**/*.test.ts",
       "ponder-runtime/tests/**/*.test.ts",
+      "ponder-runtime/src/**/*.test.ts",
       "src/**/*.test.ts",
       "src/**/*.spec.ts",
     ],

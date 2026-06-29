@@ -1,0 +1,20 @@
+# Dockerfile.svm-webhook — the SVM collection-event realtime webhook receiver (cycle svm-collection-events,
+# Sprint 3). A small long-running HTTP service: receives Helius webhook POSTs, decodes via the same pure
+# parseHeliusTx the backfill uses, upserts into svm.collection_event (idempotent with the backfill).
+#
+# Zero external runtime deps — the src/svm/* dep tree is fetch-only (no @solana/web3.js, no envio/generated),
+# so a slim node image + tsx is sufficient (no pnpm install of the heavy indexer).
+#
+# Railway env: PORT, HELIUS_WEBHOOK_SECRET, HELIUS_API_KEY, SVM_HASURA_ENDPOINT, HASURA_GRAPHQL_ADMIN_SECRET.
+FROM node:20-slim
+WORKDIR /app
+RUN npm install -g tsx@4
+# minimal ESM package marker so node/tsx treats the .ts files as ES modules
+RUN printf '{\n  "type": "module"\n}\n' > package.json
+COPY src/svm ./src/svm
+ENV PORT=8080
+EXPOSE 8080
+# Drop privileges — node:20-slim ships a non-root `node` user (FAGAN F8, defense-in-depth for an
+# internet-facing receiver). The app only reads src/svm at runtime.
+USER node
+CMD ["tsx", "src/svm/collection-event-webhook.ts"]

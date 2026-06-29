@@ -1,0 +1,55 @@
+# Cost Loop — the LOOPS-diagram "Cost" component, automated.
+# A small high-leverage loop: run the cost model on a cadence, post it, append to a ledger.
+# Build once → it reports while you sleep. The template for the other loops (drift, parity, sweep).
+name: cost-loop
+
+on:
+  schedule:
+    - cron: '17 13 * * 1'   # Mondays 13:17 UTC (off-:00 so we don't pile onto the API)
+  workflow_dispatch:
+    inputs:
+      hypersync_usd:
+        description: 'HyperSync monthly $ (to evaluate the $70 bar)'
+        required: false
+        default: '0'
+
+permissions:
+  contents: write   # to append the cost ledger
+
+jobs:
+  cost:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+
+      # ── DATA LAYER (TODO --pull): replace the model's ESTIMATED per-service RAM with the REAL
+      #    figures from Railway. Add repo secret RAILWAY_TOKEN, then POST to
+      #    https://backboard.railway.app/graphql/v2 for project cost-by-service and write
+      #    scripts/.railway-cost.json that the model reads. Until then it runs on grounded RATES +
+      #    estimated RAM (clearly flagged in the output). The loop wiring is what matters here.
+      # env: { RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }} }
+
+      - name: Run cost model
+        id: cost
+        env:
+          HYPERSYNC_USD: ${{ github.event.inputs.hypersync_usd }}
+        run: |
+          node scripts/railway-cost-model.mjs | tee cost-report.txt
+          echo '## 💸 Sonar infra cost' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat cost-report.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Append atomic-cost line to the ledger (loa-finn shape)
+        run: |
+          mkdir -p grimoires/loa/ledgers
+          COST_STAMP="$(date -u +%FT%TZ)" node scripts/railway-cost-model.mjs --json \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps({'stamp':d['stamp'],'measured_usd':d['measured']['last_month_usd'],'projected_rightsized_usd':d['projected']['rightsized_usd'],'source':'cost-loop'}))" \
+            >> grimoires/loa/ledgers/sonar-infra-cost.jsonl || true
+          if ! git diff --quiet grimoires/loa/ledgers/sonar-infra-cost.jsonl 2>/dev/null; then
+            git config user.name 'cost-loop'; git config user.email 'cost-loop@users.noreply.github.com'
+            git add grimoires/loa/ledgers/sonar-infra-cost.jsonl
+            git commit -m "chore(cost-loop): append cost ledger line [skip ci]" && git push || true
+          fi

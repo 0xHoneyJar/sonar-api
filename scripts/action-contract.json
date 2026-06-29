@@ -1,0 +1,38 @@
+{
+  "_purpose": "The chain-agnostic canonical READ contract the belt-gateway will PROMISE consumers (the Score API) for the `canonical.action` projection — ONE shape across EVM+SVM, no chain branching. Sibling of svm-contract.json (the per-chain SVM seam) and belt-contract.json (the EVM Transfer seam). Producer-side guard: CI introspects the live READ schema and fails the moment a consumer-depended column drifts/disappears — the 'built-against-an-assumed-schema' bug class, READ side, on the canonical seam.",
+  "_scope": "Same surface limits as svm-contract.json: the belt-gateway is read-only (no mutation_root / *_constraint types), so this guard catches the COLUMN/type-drift sub-class but NOT the write-path on_conflict CONSTRAINT-NAME sub-class (that needs an admin-endpoint introspection or an offline DDL-bind verifier — follow-ups, not claimed). Nullability drift also NOT detected (the verifier flattens NON_NULL/LIST to baseTypeName).",
+  "_pending_semantics": "A 'pending-exposure' type is declared by MERGED code but not yet present on the read surface — the guard surfaces it LOUDLY (warning, exit 0, not CI-fail) so a merged-but-unreachable pipe can't masquerade as 'supported'. `canonical_action` is pending-exposure: the projection DDL (grimoires/loa/cycles/canonical-event-normalization/action-projection.sql) is NOT applied to prod until go-live (S6), AFTER the score-mibera consumer handshake (S5). It flips to 'live' (and the guard begins hard-failing on drift) only then. Nothing emits/projects live ahead of a consumer (deployed-but-unconsumed, F7).",
+  "endpoint": "https://belt-gateway-production.up.railway.app/v1/graphql",
+  "endpointEnv": "ACTION_CONTRACT_ENDPOINT",
+  "types": {
+    "canonical_action": {
+      "status": "pending-exposure",
+      "consumer": "the Score API (0xHoneyJar/score-api) — chain-agnostic event-sourced scoring; reads ONE NftActivity shape (mint/transfer/sale/burn) across EVM+SVM instead of per-chain fetchers. Dedup by (tx, asset_ref, verb) during the FR-5 parity overlap window.",
+      "producer": "sonar src/canonical/{map-evm,map-svm}.ts → src/canonical/emit.ts (NATS push, nft.activity.recorded.*) + the canonical.action projection (this pull surface). PK content-addressed '{tx}:{asset_ref}:{verb}:{leg}'; root field canonical_action / table canonical.action; on_conflict constraint action_pkey.",
+      "requiredFields": {
+        "id": "String",
+        "verb": "String",
+        "chain": "String",
+        "collection_key": "String",
+        "asset_ref": "String",
+        "from": "String",
+        "to": "String",
+        "value": "numeric",
+        "decimals": "smallint",
+        "tx": "String",
+        "ts": "timestamptz",
+        "leg": "Int",
+        "metadata": "jsonb",
+        "emitted_at": "timestamptz"
+      },
+      "_invariants_doc": [
+        "(DOCUMENTATION ONLY — the verifier machine-checks requiredFields presence + baseType, NOT these prose invariants; see _scope.)",
+        "id is the content-addressed PK '{tx}:{asset_ref}:{verb}:{leg}' — a re-backfill re-derives the SAME id and upserts in place (idempotent push-surface twin: a re-run never double-counts).",
+        "verb ∈ {mint,transfer,sale,burn}; chain ∈ {evm,svm} (CHECK-constrained in the DDL).",
+        "value is EXACT smallest-units (wei | lamports) as numeric (Hasura serializes numeric as a String on the wire — no float loss); decimals is REQUIRED when value is set (DDL CHECK action_value_decimals_chk, mirroring the NftActivitySchema cross-field filter).",
+        "leg is the per-movement discriminator: log_index (EVM) | instruction_index (SVM). The push surface dedups more coarsely by (tx, asset_ref, verb) — the grain difference is intentional and reconciled at the consumer handshake (SDD §4 / map-evm MINOR-2).",
+        "metadata is the typed chain-specific richness (EVM {chain_id,contract,token_id,log_index,block_number} | SVM {collection_mint,nft_mint,instruction_index,slot,marketplace?}), discriminated on chain — a consumer that must PARSE an id reads metadata; equality/dedup uses the opaque top-level fields."
+      ]
+    }
+  }
+}

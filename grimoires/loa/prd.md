@@ -1,199 +1,158 @@
-# Product Requirements Document — sonar-api Consolidated Belt + Blue-Green Promotion
-
-> **Cycle**: `sonar-belt-factory` · **Revision**: r2 (reframed 2026-05-22) · **Persona**: SHIP/ARCH (BARTH + protocol/noether)
-> **Supersedes**: r1 "12 pure-product belts + BeaconV3 federation" — RETIRED at the S0 calibration spike (budget-infeasible + wrong axis; see `grimoires/loa/a2a/sprint-172/s0-multideploy-calibration.md`).
-> **Builds on**: `grimoires/loa/context/arch-brief-belt-federation.md` r2 (reviewed twice — Flatline + Bridgebuilder, PR #15) · `SCALE.md` Guardrail 1 (blue-green) + Guardrail 5 (stable alias) + D4.
-> **Grounding legend**: `[CODE:file]` = codebase reality · `> file:line` = doc quote · `(S0)` = S0 spike finding · `(PR#15)` = multi-model review finding · `(Direction 2026-05-22)` = operator decision this session.
-
-## Table of Contents
-1. Executive Summary
-2. Problem Statement
-3. Goals & Success Metrics
-4. User Personas & Use Cases
-5. Functional Requirements
-6. Non-Functional Requirements
-7. Technical Considerations
-8. Scope & Prioritization
-9. Success Criteria
-10. Risks & Dependencies
-
+---
+hivemind:
+  schema_version: "1.0"
+  artifact_type: product-spec
+  product_area: "sonar-api — Layer-1 indexing migration to managed Envio"
+  workstream: delivery
+  priority: high
+  jtbd: {category: functional, description: "stand up the existing 6-chain Envio source on managed Envio Cloud for ONE measured billing cycle, producing the missing `measured` number that ratifies-or-revises the indexing-strategy ADR — without touching consumers, retiring Railway, or losing the per-token / events-pillar features"}
+  learning_status: directionally-correct
+  source: team-internal
+trust_tier: operator-authored
+read_state: unread
+confidence: 0.6
+decay_class: working
+last_confirmed: 2026-06-23
+operator_signed: self_attested
 ---
 
-## Executive Summary
+# PRD — sonar-api Layer-1 indexing → Managed Envio (Phase A: stand-up + measured ratification)
 
-Keep the THJ sovereign indexer as **one consolidated Envio belt** (full Mibera-ecosystem footprint, 6 chains) serving a **stable, additive-only GraphQL API behind a fixed production alias**. Ship every change (new source, schema addition) via **blue-green promotion**: stand up a green deployment with the change, backfill it in the background while blue keeps serving, run a reconciliation gate, then **atomically swap the alias** blue→green and retire blue. The 8-hour reindex still happens — but off the live path, so consumers see **zero downtime**.
+> **Cycle**: `indexing-managed-envio` · **Revision**: r3 (2026-06-17 — **canary verdict folded in**: the "redeploy the existing source" premise is REFUTED; managed Envio requires a feature-sized envio alpha.17→3.2.1 API migration. r2 was Flatline-hardened; `grimoires/loa/a2a/flatline/prd-review.json`) · **Persona**: KRANZ (Act 1 coordinate) + ARCH (OSTROM, craft lens)
+> **Supersedes**: `prd.md` r2 "Consolidated Belt + Blue-Green Promotion" (`sonar-belt-factory`) — archived at `grimoires/loa/context/prd-sonar-belt-factory-r2-SUPERSEDED-2026-05-22.md`. That PRD's premise (self-host Envio on Railway, <$100/mo, beat "Envio ~$300") was **inverted** by the loa-finn TCO experiment: toil flips the winner to *managed* at a $3.59/hr breakeven.
+> **Gates on**: `bd-buho` (loa-finn, P1) — the ratification gate. This PRD plans the work that closes it.
+> **Builds on**: `grimoires/loa/context/2026-06-15-indexing-strategy-reframe-adr.md` (the ADR) · `2026-06-16-indexing-tco-verdict.md` (the verdict) · `2026-06-16-phase-a-envio-standup-coordinate.md` (KRANZ Act-1 runbook).
+> **Grounding legend**: `[CODE:file]` = code reality I read · `> file:line` = doc quote · `(git:SHA)` = commit evidence · `(op 2026-06-17)` = operator decision this session.
 
-This reframes the cycle away from r1's 12 physical belts (which the S0 spike proved cost ~$280–450/mo against a hard **< $100/mo** ceiling, and which solved the wrong problem). The per-belt schema-subset capability proven in S0 (Option A) is **held in reserve** (FR-10) for a future on-demand split, not the primary mechanism. The indexer owns **serving consistency**; score-api owns durable analytics (ClickHouse/Dune cron + fallbacks) as a safety net, not a crutch.
+## 1. Executive Summary
 
----
+The indexing-strategy ADR's direction — **move Layer-1 off sovereign-Ponder-on-Railway to managed Envio** — is *settled in direction, unratified in number*. The only Envio price that exists is the operator's recollected ~$70/mo (`vendor-quote`, never measured on the real footprint). **Phase A produces the one missing `measured` number** by standing the existing 6-chain Envio source up on managed Envio Cloud for one real billing cycle, then ratifies-or-revises the ADR and closes `bd-buho`.
 
-## Problem Statement
+Grounding correction baked into this plan: "going back to Envio" is **not a code migration and not a repo-revert** (op 2026-06-17 framing tested against git). The Envio source is **live at HEAD** — `Dockerfile.belt` runs `envio@3.0.0-alpha.17` on `config.yaml` (green, 6-chain) / `config.mibera.yaml` (blue) `[CODE:Dockerfile.belt]`. The only code change Phase A needs is **restoring HyperSync** (the source was deliberately de-HyperSync'd for the self-host cost cut — `git:01d19638` *"strip HyperSync entirely … cluster-owned eRPC"*; managed Envio Cloud *bundles* HyperSync). Everything else is a deploy + measure.
 
-### The Problem
-> `SCALE.md:15,21`: adding any contract source forces a full reindex of all 6 chains (the "8-hour sync"); per-source `start_block` tightening + HyperSync + V3 gave *negligible* backfill improvement — "the bottleneck is architectural." The pain that reaches consumers is the **stale/down live endpoint during that reindex**, not the reindex itself.
+Phase A is **additive and reversible**: nothing consumer-facing moves, nothing is retired. Consumer repoint and Railway teardown are **Phase B — hard-gated on `bd-buho` ratifying** and out of scope here (captured in §8 so the intent isn't lost).
 
-### User Pain Points
-- Consumers (frontends, score-api) see stale/missing data during any reindex `> SCALE.md:15`.
-- Adding a contract = operational dread (multi-hour downtime window).
-- Envio hosted (~$300/mo) is the cost baseline to beat (Direction 2026-05-22).
+> ### ⚠️ Canary verdict (2026-06-17) — the "only restoring HyperSync" claim above is SUPERSEDED
+> A live Envio Cloud canary (`canary/envio-cloud-hypersync` on `0xHoneyJar/sonar-api`, deploy instance `sonar-api-3`) proved the path is *reachable* — connect ✓, version ✓, install/postinstall ✓ (the lazy `@0xhoneyjar/events` import works on Cloud → OQ-3 answered), codegen ✓, FatBera same-address merge ✓ — but the indexer **crash-loops at runtime**: every handler `import … from "generated"` fails because **envio Cloud runs the latest `3.2.1`, and the source is on the deprecated `3.0.0-alpha.17` API.** alpha.17→3.2.1 is a **breaking API rewrite, not a config fix**: handler registration `ContractName.Event.handler(cb)` (exports, `from "generated"`) → `indexer.onEvent({contract,event}, cb)` (side-effecting, auto-discovered, `from "envio"`); `generated/` is gone (now `.envio/` module augmentation); `config.yaml`'s `handler:` model + `EventHandlers.ts` aggregation are obsolete; the test harness changed (`TestHelpers.MockDb` → `createTestIndexer`). Scope: **all 31 handlers + `EventHandlers.ts` + `src/lib/{actions,erc721-holders}.ts` + `config.yaml` + the test suite** — extensive but **mechanical** (entity read/write logic via `context.Entity.get/set` largely survives; the registration wrapper + imports + config + tests change).
+>
+> **NEW REQUIREMENT (gates the deploy + `bd-buho`):** port the Envio source to `3.2.1` BEFORE the managed deploy can run + be measured. This is **hidden one-time setup-toil not in the loa-finn TCO model** — record it as a `cost_basis` input when `bd-buho` is finally measured (the verdict's "toil flips the winner" counted ongoing ops toil, not this upfront port). Operator decision (op 2026-06-17): **commit to managed Envio; plan + execute the 3.2.1 migration as its own `/implement`-gated sprint.**
 
-### Current State `[CODE:reality]`
-- One consolidated Envio `3.0.0-alpha.17` belt (config field `rpc`) (S0/OQ-1), full ecosystem footprint, eRPC data source, on Railway (`belt-indexer` + `belt-hasura` + `Postgres`).
-- A Caddy **stable-alias gateway already exists** [CODE:Dockerfile.gateway, Caddyfile]: `:{$PORT}` → `reverse_proxy {$BELT_UPSTREAM}`; swap verified (`> grimoires/loa/NOTES.md:265`: bad upstream→502, revert→live).
-- Re-init runbook exists [CODE:grimoires/loa/runbooks/belt-reinit.md] (KF-013 `--restart`-seeds-then-resume + verification gate).
+## 2. Problem Statement
 
-### Desired State
-A consolidated belt whose updates are **zero-downtime** (blue-green promotion behind the stable alias), staying **< $100/mo** steady-state, where the indexer serves a **consistent** API and re-syncs happen in the background.
+### The problem
+> ADR (`…reframe-adr.md:17-27`): the experiment voted *move to managed*, but "**DO NOT RATIFY** as settled until a managed config runs one real billing cycle." `bd-buho` is the gate. The verdict (`…tco-verdict.md:31-35`): "the 1x head-to-head is **VENDOR-QUOTE** … the *direction* is settled; the *number* is not."
 
----
+### Sub-problems surfaced by codebase grounding (load-bearing — these shape the measurement)
+1. **Mis-framing**: "revert to a git commit" would destroy ~20 commits of Ponder-era work (the per-token ownership port `git:f69ee402…d7fb271d`) that the ADR calls "orthogonal, proceeds regardless." Refuted as a repo-revert; the kernel ("the source still exists") is true and stronger — it's *live at HEAD*.
+2. **HyperSync stripped**: current config routes via `erpc.railway.internal` for self-host (`git:01d19638`, `cb0c2f4e`, `d7f38fef`, 2026-05-27). Managed Envio Cloud needs bundled HyperSync. `[CODE:config.mibera.yaml:228-366]`
+3. **Feature divergence**: per-token `token` ownership (#69, Jun 2026) lives in `ponder-runtime/src/handlers/`. The Envio handlers (`src/handlers/*.ts`, `src/EventHandlers.ts`) froze **2026-03-17** `(git)` and **do not have it**. Standing up Envio = measuring a *lesser-featured* indexer unless the logic is re-ported.
+4. **Events-pillar side-effect**: sonar isn't only a GraphQL server — it publishes signed mint events to the cluster NATS JetStream (cluster-events-pillar-v1 / ACVP). `src/lib/events-publisher.ts` is called from 6 Envio handlers `[CODE]`; the Ponder green has a fuller version (`ponder-runtime/src/lib/nats-publisher.ts` + outbox + reorg-safe + DLQ). Managed Envio Cloud must be able to run this (private-NATS egress + Ed25519 signing seed) — **unverified, possible blocker** (§10 R1).
 
-## Goals & Success Metrics
+### Current state `[CODE:reality]`
+- Deployed indexer **is Envio HyperIndex** on Railway: `belt-indexer` (blue, `config.mibera.yaml`) + green (`config.yaml`, 6 chains: 1·10·42161·7777777·80094·8453), `envio@3.0.0-alpha.17`, fed by cluster-owned `eRPC` (HyperSync token deleted). A newer **Ponder green-v3** (`ponder-runtime/`) carries the per-token + fuller-pillar work.
+- **Stable-alias gateway exists**: Caddy `reverse_proxy {$BELT_UPSTREAM}` on `$PORT` — *"URL never changes; belt recovery = swap BELT_UPSTREAM"* `[CODE:Caddyfile, Dockerfile.gateway]`. This is the OSTROM seam; consumers read it, the backend is swappable behind it.
+- Consumers **hardcode the Envio deployment-DID** (`b5da47c` / `914708e`) `> SCALE.md:current-state` — the root of "blue-green is hard."
 
-### Primary Goals
-1. **G1 — Zero-downtime updates.** Adding a source or additive schema change never makes the production endpoint stale: changes ship via background green build + atomic alias swap.
-2. **G2 — Cost ceiling.** Total indexer infra **< $100/mo** steady-state (the bar to leave Envio's ~$300 hosted).
-3. **G3 — API serving consistency.** One stable GraphQL endpoint behind a fixed alias; consumers never touch backend deployment URLs or experience split-brain.
-4. **G4 — Background re-sync.** Cold-start / re-init / source-add backfill is a background operation (on green), not consumer downtime; time-to-promote is bounded by RPC backfill speed (operator: fast enough — Direction 2026-05-22).
+### Desired state (Phase A)
+A managed Envio Cloud deployment of the 6-chain source, synced to head, **at functional parity** (GraphQL + events-pillar + per-token decision) with the live green, run for one billing cycle with **toil + $ measured**, feeding a ratify-or-revise decision on the ADR. Live serving is untouched.
 
-### Key Performance Indicators (success gates)
+## 3. Goals & Success Metrics
+
+| # | Goal |
+|---|------|
+| **G1** | Produce the `measured` 1x row — real $/mo (`cost_basis` = Envio Cloud invoice + tier + footprint) + setup toil-hours + 30d incident count — on the **full 6-chain footprint**, flipping the loa-finn crossover `quote → measured` and emitting `RATIFY` (or a revised number). |
+| **G2** | Validate **functional parity, not just $**: GraphQL footprint entities (the 93 + `chain_metadata`), the NATS events-pillar publish, and a decision on per-token ownership. A cheaper-but-lesser indexer is not a ratification. |
+| **G3** | De-risk the managed direction: confirm Envio HyperSync coverage for all 6 chains (esp. Zora 7777777) and that the events-pillar can run on managed Envio — or identify the blocker before Phase B is ever unlocked. |
+
+### KPIs (gates)
 | KPI | Target |
 |---|---|
-| **G1 zero-downtime** | A promotion (add a source) completes with **0 consumer-visible downtime** — alias swap with no 5xx spike on the stable endpoint |
-| **G2 budget** | Measured Railway steady-state **< $100/mo** (1 belt + shared eRPC/gateway); transient 2× only *during* a promotion window |
-| **G3 stability** | **0 consumer config changes** across a promotion; reconciliation confirms no entity dropped |
-| **G4 promotion gate** | Green reaches `latest_processed_block ≥ blue` on **every** chain AND passes reconciliation before any swap |
+| Measured $/mo recorded with `cost_basis` | 1 real invoice, full 6-chain |
+| Toil logged as-it-happens (not post-hoc) | setup minutes + `toil_incidents_30d` |
+| GraphQL parity sample vs live green | 100% on footprint entities; any drift halts |
+| Events-pillar publish on managed | confirmed working OR documented blocker |
+| ADR outcome | ratified-or-revised; `bd-buho` closed |
 
-### Constraints
-- Hard budget **< $100/mo** (Direction 2026-05-22).
-- Sovereignty: OWN indexer/schema/gateway/eRPC; RENT free RPC + Railway; HyperSync = break-glass only.
-- Additive-only public GraphQL contract behind the alias (breaking changes need an explicit path — FR-7).
+## 4. Users & Stakeholders
+- **Operator** — attention cost is a first-class metric here (the whole TCO thesis). The stand-up steps (account, Discord quote, deploy) are operator-gated.
+- **Downstream GraphQL consumers** — inventory-api (`SONAR_GRAPHQL_ENDPOINT`), score-api (`ENVIO_GRAPHQL_URL`), apdao-auction-house, score-mibera, mibera-codex, dimensions. **Phase B**; in Phase A they keep reading live green untouched.
+- **Events-pillar consumers** — whatever subscribes to cluster-events-pillar-v1 NATS subjects. A stakeholder for the G2 parity check (their feed must not silently degrade if managed Envio adopts).
 
----
+## 5. Functional Requirements (Phase A)
 
-## User Personas & Use Cases
+| ID | Requirement |
+|----|-------------|
+| **FR-1** | **Restore HyperSync.** When deploying to managed Envio Cloud, the config shall use Envio's bundled HyperSync, not `erpc.railway.internal`. Implement by reverting the de-HyperSync RPC changes (`git:01d19638`/`cb0c2f4e`/`d7f38fef`) on a Cloud-targeted config branch, OR re-adding `hypersync_config` per chain. |
+| **FR-2** | **Deploy the existing 6-chain source** (`config.yaml` + `config.mibera.yaml`) to managed Envio Cloud (Production tier). Record the quoted $/mo + tier name verbatim the moment it is given (→ `cost_basis`). |
+| **FR-3** | **Backfill to head** on all 6 chains; record `freshness_lag_s` per chain vs the live green head. |
+| **FR-4** | **GraphQL parity** — sample a known wallet's holdings across the footprint collections (Mibera/Tarot/Fractures/MST + the HoneyJar set) and the 93 entities + `chain_metadata` vs live green. 100% on the sample to proceed; any drift halts. |
+| **FR-5** | **Events-pillar parity (auditable + non-interfering).** Confirm the managed deploy publishes signed mint events to the cluster NATS, with concrete acceptance: (a) the **exact subject set** enumerated, (b) signature **verified against a specific `signing_key_id`**, (c) sample size ≥ N events, (d) **published to a TEST/shadow subject, never the production subjects** (preserves NFR-3 — no double-publish during the trial), (e) named executor. If managed Envio cannot reach a private NATS over TLS or hold the seed → STOP and trigger the R1 fallback (do not start the cycle). |
+| **FR-6** | **Per-token ownership decision — with a deadline.** Before the cycle starts (gate G-A4), decide: re-port the per-token `token` logic into the Envio handlers for true parity, OR measure-without-it. If measure-without-it, FR-8 ratification REQUIRES an **operator-signed accepted-gap** — *the ADR shall not ratify a cost for a lesser-featured product without explicit sign-off.* (See §10 R3.) |
+| **FR-7** | **Run one 30-day billing cycle — only after §5.5 gate passes.** Log every intervention to the loa-finn toil ledger **as it happens** (`toil_incidents_30d` + minutes each). Define **early-halt criteria** (cost-overrun or incident thresholds → halt + label the partial cycle interpretable). Normalize the invoice: record **calendar-days covered vs invoice billing-period**, and exclude one-time setup/credits/taxes so `cost_usd_month` is steady-state, not a pro-rated artifact (→ FR-8 `cost_basis`). |
+| **FR-8** | **Capture + ratify** — `pnpm indexing:capture add --row '…cost_source:"measured"…'` then `pnpm indexing:read` (in loa-finn) → ratify-or-revise the ADR → close `bd-buho`. The captured `cost_usd_month` is the **normalized steady-state** (per FR-7), obtained by the operator, recorded in the loa-finn ledger `cost_basis` with tier + overage model noted. |
 
-### Primary Persona: Indexer Operator (zerker)
-Adds a contract / schema field, deploys green, watches it catch up, promotes on a green light, rolls back by reverting the alias if needed — all without paging consumers.
+## 5.5 Phase-A Validation Gate (pre-cycle — ALL must pass before the 30-day clock starts)
 
-### Secondary Persona: Consumer App (score-api, mibera-honeyroad, CubQuests, Set&Forgetti, dimensions, mibera-codex, future Dune/Quest API)
-Points at the fixed alias URL; queries composed entities (per-event, aggregates, cross-cutting `Action`/`Mint`/`Holder`); never sees the backend swap. **score-api** additionally captures snapshots into ClickHouse/Dune on a cron with fallbacks (durable analytics — out of scope here).
+> The verdict's whole point is a *valid measurement*. Paying for a 30-day cycle that proves the approach invalid (events-pillar can't run, version mismatch, wrong footprint) is wasted spend. This gate converts §10's mitigations into an **execution-order barrier**: the billing clock (FR-7) does not start until every check below is GREEN. (Flatline IMP-001/003/008, SKP-002/003.)
 
-### Tertiary Persona: Future Tenant (AP DAO)
-Future on-demand split (the reserved per-belt capability, FR-10) — not this cycle.
+| Gate | Check | Pass criterion |
+|------|-------|----------------|
+| **G-A1 — HyperSync restored** | `envio codegen` dry-run against the Cloud-targeted config | clean codegen; **zero `erpc.railway.internal` references**; `hypersync_config` present for all 6 chains (machine-verifiable). |
+| **G-A2 — version match** | Managed Envio Cloud's `envio` version vs the source's `3.0.0-alpha.17` schema/handler API | versions compatible, OR the upgrade delta is identified and bounded as a task — NOT discovered mid-cycle. |
+| **G-A3 — events-pillar reachability** | NATS TLS egress + Ed25519 signing from a managed Cloud deploy → **TEST subject** | reachable + signature verifies against a known `signing_key_id`. **FAIL → STOP**: trigger R1 fallback; do not start the cycle. |
+| **G-A4 — parity scope set** | per-token blast-radius spike (≤1 day) + parity sample sizing | per-token decision made (FR-6); parity sample = pragmatic **N per chain × collection** (not a single wallet). |
+| **G-A5 — footprint correct** | loa-finn runbook footprint = **6-chain** (not Berachain-only) | the under-scope is corrected as a precondition (else every downstream cost is unreliable). |
 
----
+**Only when G-A1…G-A5 are GREEN does FR-7's billing clock start.**
 
-## Functional Requirements
+## 6. Non-Functional Requirements
 
-### FR-1: Consolidated belt
-One Envio belt indexing the full footprint (6 chains, all current sources). Handlers compose freely *within* the belt — per-event entities, running aggregates (e.g. `PaddleSupplier` get→update→set), and cross-cutting normalized entities (`Action`, written by 21 handlers via `recordAction`) [CODE:src/handlers/*, src/lib/actions.ts]. No cross-belt composition (one belt → no federation).
+| ID | Requirement |
+|----|-------------|
+| **NFR-1 — footprint parity** | Full 6 chains, identical contract set, same time window — or the comparison is noise (verdict's measurement-integrity principle). The loa-finn runbook's "Berachain-only, 93 contracts" footprint is **under-scoped** — correct it to 6-chain. |
+| **NFR-2 — measurement integrity** | $ is tagged `measured` only after a real invoice exists; toil logged as-it-happens; the loa-finn ledger is hash-chained and refuses a tampered chain. |
+| **NFR-3 — reversibility / non-interference** | Green (and blue) stay HOT through all of Phase A. The managed stand-up is additive — no consumer repointed, no Railway service retired, no alias swapped. Phase A is one `git revert` + a Cloud teardown away from never-happened. |
+| **NFR-4 — HyperSync coverage** | All 6 chains must be Envio HyperSync first-class. Berachain (80094) verified (verdict footnote); ETH/OP/Arb/Base likely; **Zora (7777777) unverified** — confirm at quote time. |
 
-### FR-2: Stable alias (exists — specify the contract)
-The fixed public GraphQL endpoint = the Caddy `belt-gateway` [CODE:Caddyfile] (`reverse_proxy {$BELT_UPSTREAM}`). Proxy not DNS (atomic, single-source-of-truth). Define the alias contract: public URL, additive-only schema, the `BELT_UPSTREAM` swap as the only cutover lever (no per-consumer config) (resolves PR#15 SKP-001/F-001/Guardrail-5).
+## 7. Technical Considerations
+- **Source identity**: Envio HyperIndex, `envio@3.0.0-alpha.17`, 6 chains across `config.yaml` (all 6) + `config.mibera.yaml` ({1,10,80094,8453}). Two configs = one footprint.
+- **The seam**: Caddy gateway, `reverse_proxy {$BELT_UPSTREAM}`. Phase B sets `BELT_UPSTREAM` → the Envio Cloud URL (or keeps the gateway as the stable alias so consumers never see the new DID). Phase A leaves it pointed at live green.
+- **Events-pillar**: the Envio handlers' `events-publisher.ts` is *simpler* than the Ponder `nats-publisher.ts` (no outbox/reorg-safe/DLQ). Adopting managed Envio without re-porting the outbox is a **reliability regression** for the pillar even if egress works.
 
-### FR-3: Blue-green promotion
-Procedure to ship a change: (1) stand up green (new Railway service + own Postgres, via `belt-reinit.md`) with the change; (2) green backfills in background while blue serves; (3) reconciliation gate (FR-4); (4) atomic alias swap `BELT_UPSTREAM`→green; (5) retire blue. Green↔blue DB isolation is structural (separate service + Postgres) (resolves PR#15 SKP-002 isolation).
+## 8. Scope & Prioritization
 
-### FR-4: Promotion gate (reconciliation, not just block-height)
-Before the swap: green's `latest_processed_block ≥ blue`'s on **every** chain AND an entity-count reconciliation within tolerance vs blue (extends the existing AC-R7 score-api footprint reconciliation). Block-height alone is insufficient (PR#15 SKP-002). No swap until the gate passes.
+**IN (Phase A — this PRD):** FR-1…FR-8. Stand up, validate parity (3-way: GraphQL + pillar + per-token), measure one cycle, ratify. Additive, reversible, no consumer/Railway change.
 
-### FR-5: Rollback
-A bad promotion is reverted by setting `BELT_UPSTREAM` back to blue (proven reversible — `NOTES.md:265`). Blue is retained (not deleted) until green is verified healthy post-swap for a defined window (resolves PR#15 SKP-003 "no rollback path").
+**OUT (Phase B — HARD-GATED on `bd-buho` ratifying):**
+- Consumer repoint (inventory-api, score-api, apdao/score-mibera/codex/dimensions) — each verified from its *running* env, not committed defaults (the #71 scar).
+- **Railway teardown** — the "delete the complete Railway after" end-state (op 2026-06-17). Right as the goal (~$50–130/mo), but **gated on 3 carve-outs that do NOT trivially delete**:
+  1. **Events-pillar** has a confirmed home (managed Envio Cloud can publish, or it moves to a small dedicated service) — R1.
+  2. **eRPC** — shared cluster RPC proxy ("keep the free eRPC for Alchemy savings"); blast radius beyond sonar. Decide explicitly before deleting `erpc` + its cache.
+  3. **Stable-alias gateway** — consumers hardcode the deployment-DID; managed Envio = a new DID. Keep the gateway (or move the alias to DNS/Cloudflare) so the swap stays behind the contract — R5.
+- 🔐 **Rotate the exposed `SONAR_SIGNING_SEED_HEX` (`bd-54c`) NOW — not "own timeline."** Flatline escalated this (SKP-001) and was right to: a *known-compromised* Ed25519 seed is signing live NATS events right now; every event between exposure and rotation is forgeable and unfalsifiably attributable to whoever holds the seed. This is a **live security action, independent of the migration — do it immediately**, not as a Phase-B item.
+- 🔑 **Managed deploy uses a SEPARATE signing key** (SKP-002) — adopting managed Envio hands the signing seed + private NATS CA to a third party (Envio's infra). Do **not** give the production seed to a third party; provision a distinct key for the managed deploy and define the third-party secrets model before any production publish.
 
-### FR-6: Swap atomicity
-Decide + specify the swap mechanism's downtime characteristic: today `BELT_UPSTREAM` change → Railway redeploy (~seconds blip; `admin off` in Caddyfile precludes `caddy reload`). For true zero-downtime: enable Caddy admin + graceful `caddy reload`, OR run ≥2 gateway instances, OR accept the blip (score-api fallbacks cover it). Operator-gated by whether the blip is acceptable (PR#15 SKP-001 sub-question).
+## 9. Success Criteria
+- `bd-buho` closed with a `measured` 1x row on the 6-chain footprint; loa-finn `indexing:read` emits `RATIFY` (or a documented revision).
+- ADR ratified-or-revised with the measured number + the trust caveat lifted.
+- 3-way functional parity documented: GraphQL 100% sample, events-pillar verdict (works/blocker), per-token decision (ported/gap-flagged).
+- HyperSync 6-chain coverage confirmed (incl. Zora).
 
-### FR-7: Additive-only schema + breaking-change path
-Green's schema MUST be a superset of blue's so the swap is transparent (additive invariant). Define the path for **non-additive** changes (field rename/removal/retype): versioned alias / consumer-coordinated cutover (resolves PR#15 SKP-003/B1).
+## 10. Risks & Dependencies
 
-### FR-8: Green-build orchestration
-Operationalize standing up green from the `belt-reinit.md` runbook (own service + Postgres, `ENVIO_RESTART=1`-seeds-then-resume, verification gate before resume). Include the retry/escalation path if seeding is incomplete (PR#15 BB F-004).
+| ID | Risk | Severity | Mitigation |
+|----|------|----------|------------|
+| **R1** | **Events-pillar may not run on managed Envio** — can Envio Cloud handlers reach the private cluster NATS (TLS + CA) and hold the signing seed? Plus: the Phase-A test must NOT publish to production subjects (double-publish interference — SKP-001), and there is no named fallback architecture/ownership yet (SKP-001). | **Could block the whole direction** | Gate **G-A3** validates egress + signing to a **test subject** before the cycle. If blocked: the pillar becomes a small standalone publisher service (named owner + security model) and "delete all Railway" is off. Define the fallback shape in the SDD. |
+| **R2** | **6-chain Envio Cloud price ≫ the recollected ~$70** (which may have been a smaller/older footprint). | Could **revise** the verdict, not ratify | That is the point of measuring. Record the real number honestly; the ledger refuses to render a quote as measured. |
+| **R3** | **Per-token feature divergence** — Envio handlers lack #69's per-token ownership (Ponder-only, Jun 2026). | Apples-to-oranges measurement | FR-6 decision: re-port to Envio handlers, or measure-and-flag. |
+| **R4** | ~~Zora (7777777) HyperSync unverified~~ — **RESOLVED 2026-06-17 (op): HyperSync supports Zora.** | Closed | n/a |
+| **R5** | **Consumers hardcode the deployment-DID** — managed Envio = new DID. | Phase-B blast radius | Front Envio Cloud with the existing stable-alias gateway; never let consumers pin the raw `indexer.hyperindex.xyz/<DID>` URL. |
+| **R6** | **Envio version drift** — the source pins `envio@3.0.0-alpha.17` (self-host); managed Cloud may run a different/newer alpha with breaking schema/API changes, turning "deploy-and-measure" into an unplanned migration (SKP-003 / IMP-012). | Could invalidate the deploy or balloon scope | Gate **G-A2** verifies version compatibility before the cycle; bound any upgrade delta as an explicit task. |
+| **R7** | **Third-party secret exposure** — managed Envio holds the Ed25519 signing seed + private NATS CA in Envio's infra (SKP-002). | Security / trust-boundary expansion | Separate signing key for the managed deploy (§8); never share the production seed; define the third-party secrets model in the SDD. |
+| **R8** | **Envio is EVM-only** — the repo already carries a `@solana/web3.js` dep; an eventual Solana indexing need cannot run on Envio HyperIndex (op 2026-06-17: "we'll eventually want Solana"). | Future architecture, **not Phase A** | Out of scope here. Flag for the eventual multi-VM/Layer-2 decision: Solana needs a separate indexer (Envio won't cover it). Does not affect the Phase-A EVM footprint. |
 
-### FR-9: score-api boundary (durable analytics downstream)
-The indexer serves; **score-api owns durability/analytics** (cron capture → ClickHouse/Dune + fallbacks). The indexer must serve consistently (not be lossy); score-api is the safety net for indexer downtime, not a justification for gaps (PR#15 SKP-001 corrected emphasis; BB F-008 praised the lambda split).
+> **Resolved this session (op 2026-06-17):** Zora HyperSync = supported (R4 closed). Cost model known from prior hosted-Envio use; the de-risk found **cost-fit is not a barrier** — `field_selection` + `start_block` tightening already applied, Cloud bundles HyperSync (drops the self-host RPC line), and the footprint is consumer-fixed (no bloat to cut). The only cost variable is footprint growth since the ~$70 hosted era, which `bd-buho` measures. The genuine risk remains **OQ-3** (events-pillar postinstall on Cloud), which is architectural, not financial.
 
-### FR-10 (reserve, not built this cycle): on-demand split capability
-The S0-proven per-belt config + physical schema subset (Option A, codegen+tsc exit 0) is **held in reserve** for a future on-demand split (tenant isolation or a source needing instant-live without waiting for green). Documented, not wired.
+**Dependencies:** `bd-buho` (loa-finn, the gate this PRD closes) · Envio Cloud account + Discord 6-chain price quote (operator-gated) · the loa-finn hash-chained ledger (`pnpm indexing:capture` / `indexing:read`) · the loa-finn stand-up runbook (`src/research/standups/envio-hyperindex.md`, footprint corrected to 6-chain).
 
----
-
-## Non-Functional Requirements
-
-### Performance
-Time-to-promote bounded by full-corpus backfill wall-time (operator: RPC fast enough; worth a one-shot measured number — G4). Steady-state query latency via the Caddy gateway + per-IP rate limit [CODE:Caddyfile, 120 events/min].
-
-### Scalability
-Adding sources = batched into a green per promotion (one catch-up, one swap) — no per-source infra growth. Multi-team additions batch the same way.
-
-### Security
-Public read-only on-chain data (auth: none). Per-belt Postgres credentials via env. eRPC over private Railway network. KF-012 op-stack getLogs-liar verification per chain before trusting new-source data.
-
-### Reliability
-Zero-downtime promotion (G1); reversible rollback (FR-5); green DB isolation (FR-3); score-api fallback safety net (FR-9). Cost model must include transient promotion-window 2× vs current 89% memory headroom (PR#15 SKP-004).
-
-### Compliance
-Sovereignty posture (OWN core, RENT RPC/Railway). No new external SaaS dependency on the live path (HyperSync = break-glass only).
-
----
-
-## Technical Considerations
-
-### Architecture Notes
-Lambda split: indexer = hot serving tier (this cycle); score-api/ClickHouse = warm/cold analytics tier (downstream, out of scope). Alias = Caddy gateway. Promotion = blue-green via `BELT_UPSTREAM`.
-
-### Integrations
-Consumers via the stable alias; score-api cron capture; loa-freeside `freeside-mcp-gateway`/BeaconV3 as the org-wide routing layer (sonar-api is a freeside building — BeaconV3 declaration is a future/reserve concern, not load-bearing for this cycle's zero-downtime goal).
-
-### Dependencies
-Envio `3.0.0-alpha.17` (pinned, S0); Caddy gateway (shipped); eRPC (shipped); Railway managed Postgres. No new runtime deps.
-
-### Technical Constraints
-`isInitialized()` = table-existence (S0/D6); resume restarts each chain from DB `progressBlockNumber` → a green that needs historical data is a fresh `--restart` build, not an in-place resume. KF-013 re-init dance applies to green builds. `BERACHAIN id = 80094` is mainnet [CODE:config.yaml].
-
----
-
-## Scope & Prioritization
-
-### In Scope (this cycle)
-One consolidated belt (FR-1) · stable alias contract (FR-2) · blue-green promotion (FR-3) · reconciliation promotion gate (FR-4) · rollback (FR-5) · swap-atomicity decision (FR-6) · additive-only + breaking-change path (FR-7) · green-build orchestration (FR-8) · score-api boundary (FR-9).
-
-### In Scope (Future Iterations)
-On-demand split capability (FR-10, reserved) · BeaconV3 declaration to freeside-mcp-gateway · ClickHouse/Dune federation at the analytics layer (score-api).
-
-### Explicitly Out of Scope
-12 physical pure-product belts (RETIRED) · query-time federation gateway · permanent sibling belts · ClickHouse/Dune/score computation (score-api) · packaged tenant installable.
-
-### Priority Matrix
-P0: FR-2, FR-3, FR-4, FR-5. P1: FR-6, FR-7, FR-8. P2: FR-1 (mostly already true), FR-9 (boundary doc), FR-10 (reserve).
-
----
-
-## Success Criteria
-
-### Launch Criteria
-- [ ] **G1**: a source-add promotion completes with 0 consumer-visible downtime (alias swap, no 5xx spike on the stable endpoint).
-- [ ] **G2**: measured Railway steady-state < $100/mo; promotion-window transient cost quantified.
-- [ ] **G3**: 0 consumer config changes across a promotion; reconciliation shows no dropped entity (AC-R7 footprint preserved).
-- [ ] **G4**: promotion gate enforced — green ≥ blue on every chain + reconciliation pass before swap; rollback (revert `BELT_UPSTREAM`) exercised.
-- [ ] Swap-atomicity decision made (blip vs `caddy reload` vs ≥2 instances) with evidence.
-- [ ] Breaking (non-additive) schema change path documented.
-
----
-
-## Risks & Dependencies
-
-| # | Risk | Likelihood | Impact | Mitigation |
-|---|---|---|---|---|
-| R1 | Swap not truly atomic (Railway redeploy blip) | Med | Med | FR-6 decision: Caddy `caddy reload` / ≥2 instances / accept blip (score-api covers); measure |
-| R2 | Breaking (non-additive) schema change behind an additive-only alias | Med | High | FR-7 versioned-alias / consumer-coordinated path; additive invariant enforced |
-| R3 | Promotion on block-height alone passes a green with dropped entities | Med | High | FR-4 reconciliation gate (entity counts) before swap; AC-R7 footprint check |
-| R4 | Green build fails to seed all chains (KF-013) → silent-skip on resume | Med | High | FR-8 verification gate (chain_metadata count) + retry/escalation before promote |
-| R5 | Promotion-window 2× cost vs already-89% memory headroom | Med | Med | PR#15 SKP-004 — quantify; bound max promotion window; one belt steady-state |
-| R6 | Green never converges (backfill slower than block production) | Low | High | Operator: RPC fast enough; G4 measures full-corpus backfill wall-time once |
-| R7 | Re-scoping regresses score-api#151 footprint | Med | High | Reconciliation gate (FR-4) = AC-R7; shipped belt stays SOLE source until verified |
-| R8 | KF-012 op-stack getLogs-liar on a new source's chain | Med | High | Per-chain getLogs verification before trusting new-source data |
-
-### Dependencies
-Caddy gateway (shipped), eRPC (live), Railway, free RPC, Envio alpha.17 (pinned). loa-freeside (BeaconV3) only for the reserved future federation, non-blocking.
-
-> **Sources**: `grimoires/loa/context/arch-brief-belt-federation.md` r2 + PR #15 reviews (Flatline + BB, alias spike) · `SCALE.md` (Guardrail 1/5, D4) · S0 calibration (`grimoires/loa/a2a/sprint-172/s0-multideploy-calibration.md`) · `belt-reinit.md` · `known-failures.md` (KF-012/013/014) · operator Directions 2026-05-21/22.
+> **Sources**: `…reframe-adr.md`, `…tco-verdict.md`, `…phase-a-envio-standup-coordinate.md`, `SCALE.md`, `Caddyfile`/`Dockerfile.gateway`/`Dockerfile.belt`/`config.yaml`/`config.mibera.yaml`/`src/lib/events-publisher.ts`/`ponder-runtime/src/lib/nats-publisher.ts` `[CODE]`, git history (`01d19638`, `cb0c2f4e`, `d7f38fef`, `ec2dbd7e`, `f69ee402`), AskUserQuestion (op 2026-06-17).

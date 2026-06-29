@@ -17,6 +17,7 @@ handlers: src/belts/mibera
 contracts:
   # MiberaLiquidBacking - Liquid backing system (loans, RFV, marketplace for defaulted NFTs)
   - name: MiberaLiquidBacking
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       # Loan lifecycle events
       - event: LoanReceived(uint256 loanId, uint256[] ids, uint256 amount, uint256 expiry)
@@ -62,6 +63,7 @@ contracts:
             - hash
   # MiberaCollection - Transfer tracking for mint activity
   - name: MiberaCollection
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
@@ -72,6 +74,7 @@ contracts:
   # footprint score-api consumes (grimoires/loa/context/mibera-sovereign-indexer-experiment.md).
   # Handlers repoint to the belt entrypoint (DISS-001); event-defs verbatim from config.yaml.
   - name: PaddleFi
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Mint(address minter, uint256 mintAmount, uint256 mintTokens)
         field_selection:
@@ -86,6 +89,7 @@ contracts:
           transaction_fields:
             - hash
   - name: BgtToken
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: QueueBoost(address indexed account, bytes indexed pubkey, uint128 amount)
         field_selection:
@@ -94,6 +98,7 @@ contracts:
             - from
             - input
   - name: CubBadges1155
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
         field_selection:
@@ -104,6 +109,7 @@ contracts:
           transaction_fields:
             - hash
   - name: CandiesMarket1155
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
         field_selection:
@@ -116,6 +122,7 @@ contracts:
             - hash
             - value  # BERA paid → CandiesBacking.amount
   - name: GeneralMints
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
@@ -126,6 +133,7 @@ contracts:
           transaction_fields:
             - hash
   - name: TrackedErc721
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
@@ -134,6 +142,7 @@ contracts:
   # Seaport — OpenSea marketplace. Handler filters OrderFulfilled to Mibera (TRACKED_COLLECTIONS)
   # → MintActivity SALE/PURCHASE (score-api mibera_buyer/seller/sales). Berachain-only in this belt.
   - name: Seaport
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8,address,uint256,uint256)[] offer, (uint8,address,uint256,uint256,address)[] consideration)
         field_selection:
@@ -143,12 +152,14 @@ contracts:
   # Event-defs verbatim from config.yaml; handlers repoint to the belt entrypoint (DISS-001).
   # Base (8453)
   - name: FriendtechShares
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Trade(address trader, address subject, bool isBuy, uint256 shareAmount, uint256 ethAmount, uint256 protocolEthAmount, uint256 subjectEthAmount, uint256 supply)
         field_selection:
           transaction_fields:
             - hash
   - name: TrackedErc20
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 value)
         field_selection:
@@ -158,6 +169,7 @@ contracts:
             - to    # Required for source detection
   # Optimism (10)
   - name: MiberaSets
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
         field_selection:
@@ -168,6 +180,7 @@ contracts:
           transaction_fields:
             - hash
   - name: MiberaZora1155
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
         field_selection:
@@ -178,6 +191,7 @@ contracts:
           transaction_fields:
             - hash
   - name: MirrorObservability
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: WritingEditionPurchased(address indexed clone, uint256 tokenId, address indexed recipient, uint256 price, string message)
         field_selection:
@@ -185,6 +199,7 @@ contracts:
             - hash
   # Ethereum (1)
   - name: MiladyCollection
+    handler: src/belts/mibera/EventHandlers.mibera.ts
     events:
       - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
         field_selection:
@@ -201,7 +216,7 @@ chains:
     # Envio v3.0.0-alpha.14's schema field is `rpc` — SDD §4.1 / sprint.md S2-T1
     # name it `rpc_config`, which does not exist in the installed schema; see the
     # S2-T1 implementation report for the naming-drift finding.
-    # Explicit HyperSync — auto-discovery misses Berachain (restored per 6ad33270; managed Cloud bundles HyperSync). Canary.
+    # Explicit HyperSync — auto-discovery misses Berachain (restored per 6ad33270; managed Cloud bundles HyperSync). G-A1.
     hypersync_config:
       url: https://berachain.hypersync.xyz
     contracts:
@@ -264,7 +279,7 @@ chains:
   # ENVIO_API_TOKEN) — the break-glass for the dense op-stack backfill (2026-05-21 decision:
   # we pay a vendor for the one-time dense fill; eRPC cache + free realtime cover the rest).
   # To return to sovereign realtime later, restore the rpc: block (eRPC route /8453) + resume.
-  #   rpc: { url: <eRPC cluster proxy>/main/evm/8453, for: sync }
+  #   rpc: { url: <eRPC cluster proxy>/main/evm/8453, for: sync }  # G-A1: literal host neutralized for Cloud branch
   - id: 8453
     start_block: 2430439 # friend.tech start block (earliest contract; FriendtechShares inherits this floor)
     # 2026-05-21 break-glass (dense friend.tech backfill) is no longer accessible.

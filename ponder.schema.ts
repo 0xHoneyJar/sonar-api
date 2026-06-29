@@ -96,6 +96,51 @@ export const candiesBacking = onchainTable("candies_backing", (t) => ({
   chainId: t.integer().notNull(),
 }));
 
+// CandiesHolderBalance — per-holder current ERC-1155 balance for Candies
+// (mibera_drugs). Mirrors badgeBalance (the per-holder ERC-1155 model above),
+// but kept independent of the badge_holder/badge_amount rollup machinery: a
+// Candy holder needs only the (contract, tokenId, holder) → amount cell.
+//
+// CONSUMER CONTRACT (inventory-api src/live-sonar.ts — DO NOT break):
+//   CandiesHolderBalance(where: { holder_id: {_eq: <addrLower>}, amount: {_gt: "0"} })
+//     { contract tokenId amount }
+//
+// Hasura field-name derivation (verified against scripts/cutover-hasura-tracking.sh
+// + test/hasura-contract/fixtures/queries.json):
+//   - Ponder/Drizzle preserves each onchainTable column KEY verbatim as the
+//     Postgres column name (proven: the live Hasura contract fixtures query
+//     `tokenId`, `collectionKey`, `transactionHash` camelCase directly — those
+//     are the literal schema column keys, NOT snake_cased). Hasura then exposes
+//     each Postgres column by its literal name.
+//   - Therefore the column key `holder_id` → Postgres `holder_id` → Hasura
+//     field `holder_id` (the field inventory-api filters on). `tokenId`,
+//     `contract`, `amount` stay camelCase/as-is to match the consumer query.
+//   - The TABLE root field `CandiesHolderBalance` is produced by the cutover
+//     script's custom_root_fields bake: snake table `candies_holder_balance`
+//     → snake_to_pascal → `CandiesHolderBalance`.
+//
+// HASURA HOLDER FIELD NAME (write-it-down per the contract): `holder_id`.
+export const candiesHolderBalance = onchainTable(
+  "candies_holder_balance",
+  (t) => ({
+    // id = `${contract}-${chainId}-${tokenId}-${holder}` (all lowercased, addresses + numeric tokenId)
+    id: t.text().primaryKey(),
+    // holder owner address (lowercased). Column key is snake-case ON PURPOSE so
+    // Hasura exposes it as `holder_id` — the inventory-api filter field.
+    holder_id: t.hex().notNull(),
+    contract: t.hex().notNull(),
+    tokenId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    chainId: t.integer().notNull(),
+    amount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    updatedAt: t.bigint().notNull(),
+  }),
+  (table) => ({
+    // Query perf: inventory-api filters by holder; secondary lookups by contract.
+    holderIdx: index().on(table.holder_id),
+    contractIdx: index().on(table.contract),
+  }),
+);
+
 // ─────────────────────────────────────────────────────────────────────────
 // MiberaLiquidBacking — DailyRfvSnapshot (Berachain 80094)
 // ─────────────────────────────────────────────────────────────────────────
@@ -274,6 +319,73 @@ export const miberaTransfer = onchainTable("mibera_transfer", (t) => ({
   transactionHash: t.hex().notNull(),
   chainId: t.integer().notNull(),
 }));
+
+// ─────────────────────────────────────────────────────────────────────────
+// Token — per-token CURRENT ERC-721 ownership projection (bd-jyn / S1a)
+//
+// CONSUMER CONTRACT (inventory-api src/live-sonar.ts:87-97 — DO NOT break):
+//   Token(where: { collection: {_eq: <contractLower>},
+//                  owner:      {_eq: <addrLower>},
+//                  isBurned:   {_eq: false} }) { tokenId }
+//   - `collection` is filtered with the LOWERCASED CONTRACT ADDRESS, NOT the
+//     human collectionKey. Proven: live-sonar.ts:92-94 lowercases its 2nd arg
+//     into the `collection` filter, and inventory.ts:192-195/278 pass
+//     `contractAddress`/`checksummedContract` as that arg. So `token.collection`
+//     MUST hold the lowercased contract address for the consumer query to match.
+//   - Root field `Token`: the cutover custom_root_fields bake maps ponder snake
+//     table `token` → `Token` (introspection-match against envio's `Token`,
+//     schema.graphql:326, whose pascal_to_snake == "token"; and the
+//     snake_to_pascal("token")="Token" fallback). Same mechanism that maps
+//     `candies_holder_balance` → `CandiesHolderBalance`.
+//   - Column keys are preserved verbatim by Drizzle + exposed literally by
+//     Hasura (proven: hasura-contract fixtures query camelCase `tokenId`,
+//     `isMint`, `collectionKey` directly). So `owner`/`collection`/`isBurned`/
+//     `tokenId` reach the consumer with these exact names.
+//
+// PROJECTION CONTRACT (re-derivable; the reorg-safe SoR is `action` +
+// `mibera_transfer`): this table is a last-write-wins projection of on-chain
+// ownership ordered by (blockNumber, logIndex) — it can be dropped and rebuilt
+// by replaying the Transfer log. Transition + ordering helpers (unit-tested):
+// ponder-runtime/src/handlers/token-projection/shared.ts.
+//
+// FIELD-SET vs ENVIO Token: envio's Token columns (collection, chainId, tokenId,
+// owner, isBurned, mintedAt, lastTransferTime) are all present here (mintedAt
+// restored per review fold #1). This entity additionally carries `contract`/
+// `collectionKey` (bd-jyn) + `lastBlockNumber`/`lastLogIndex` (B10 ordering key) —
+// consumer-invisible supersets. The consumer-queried set
+// (collection/owner/isBurned/tokenId) is byte-exact.
+// ─────────────────────────────────────────────────────────────────────────
+
+export const token = onchainTable(
+  "token",
+  (t) => ({
+    // id = `${contract}_${chainId}_${tokenId}` (contract lowercased). Per
+    // (contract, chainId, tokenId) — never rolled up to a whole-contract aggregate.
+    id: t.text().primaryKey(),
+    owner: t.hex().notNull(),                // current on-chain owner (lowercased) — consumer filter
+    contract: t.hex().notNull(),             // collection contract address (lowercased)
+    collection: t.text().notNull(),          // consumer filter value == lowercased contract address
+    collectionKey: t.text().notNull(),       // human key ("mibera")
+    chainId: t.integer().notNull(),
+    tokenId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    isBurned: t.boolean().notNull(),         // consumer filter; isBurned=false ⇒ in circulation
+    mintedAt: t.bigint().notNull(),          // mirrors envio Token.mintedAt: BigInt! (0n = mint pre-dates index boundary)
+    lastTransferTime: t.bigint().notNull(),  // block timestamp of the last APPLIED transfer
+    // Ordering key for last-write-wins (B10). A transfer is applied only when its
+    // (blockNumber, logIndex) is >= the stored pair, so an out-of-order replay
+    // cannot clobber a newer owner. Consumer-invisible (not queried).
+    lastBlockNumber: t.bigint().notNull(),
+    lastLogIndex: t.integer().notNull(),
+  }),
+  (table) => ({
+    // owner = the consumer's high-selectivity filter (a wallet holds few tokens);
+    // this index serves the `Token(where:{collection,owner,isBurned})` hot path
+    // (collection + isBurned are cheap residual filters on the small owner result).
+    // contract index per bd-jyn folded spec (per-collection sweeps).
+    ownerIdx: index().on(table.owner),
+    contractIdx: index().on(table.contract),
+  }),
+);
 
 // ─────────────────────────────────────────────────────────────────────────
 // Unified mint activity (cross-source: ERC721 mints, ERC1155 mints, Seaport sales)
@@ -793,3 +905,166 @@ export const action = onchainTable(
     actionTypeIdx: index().on(table.actionType, table.timestamp),
   }),
 );
+
+// ─────────────────────────────────────────────────────────────────────────
+// green-belt: henlo (B-1 Group D)
+//
+// SOURCE OF TRUTH: grimoires/loa/migration/b-1-green-belt-map.yaml
+//   (entities HenloHolder … HenloSourceBurner — every column ported verbatim,
+//    incl. NULL/NOT NULL).
+//
+// Contract: TrackedErc20 (HENLO token 0xb2f7…6a5; Base 8453 + Berachain 80094).
+//   The HENLO token is the only TOKEN_CONFIGS entry with burnTracking +
+//   holderStats = true. The shared TrackedTokenBalance entity is already in the
+//   blue belt (tracked_token_balance above); these 8 are the green-belt gap.
+//
+// Type mapping (per the map's ponder_type column — note: address columns are
+// `text` in the map, so t.text() NOT t.hex()):
+//   text PK                     → t.text().primaryKey()
+//   text NOT NULL / NULL        → t.text().notNull() / t.text()
+//   numeric(78,0) NOT NULL/NULL → t.numeric({ precision: 78, scale: 0, mode: "bigint" })[.notNull()]
+//   bigint (int8) NOT NULL/NULL → t.bigint()[.notNull()]
+//   integer (int4) NOT NULL/NULL→ t.integer()[.notNull()]
+//
+// Envio source: src/handlers/tracked-erc20/holder-stats.ts (HenloHolder,
+//   HenloHolderStats) + burn-tracking.ts (HenloBurn, HenloBurnStats,
+//   HenloGlobalBurnStats, HenloBurner, HenloChainBurner, HenloSourceBurner).
+// ─────────────────────────────────────────────────────────────────────────
+
+// HenloHolder — id = holder address (lowercase). rollup-lww (balance LWW per transfer).
+export const henloHolder = onchainTable(
+  "henlo_holder",
+  (t) => ({
+    id: t.text().primaryKey(),               // address
+    address: t.text().notNull(),             // @index per envio
+    balance: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+    firstTransferTime: t.bigint(),
+    lastActivityTime: t.bigint().notNull(),
+    chainId: t.integer().notNull(),
+  }),
+  (table) => ({
+    addressIdx: index().on(table.address),
+  }),
+);
+
+// HenloHolderStats — id = chainId.toString(). rollup (uniqueHolders/totalSupply additive).
+export const henloHolderStats = onchainTable("henlo_holder_stats", (t) => ({
+  id: t.text().primaryKey(),                 // chainId
+  chainId: t.integer().notNull(),
+  uniqueHolders: t.integer().notNull(),
+  totalSupply: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  lastUpdateTime: t.bigint().notNull(),
+}));
+
+// HenloBurn — id = `${txHash}_${logIndex}`. append (one row per burn event).
+export const henloBurn = onchainTable("henlo_burn", (t) => ({
+  id: t.text().primaryKey(),                 // txHash_logIndex
+  amount: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  timestamp: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  transactionHash: t.text().notNull(),
+  from: t.text().notNull(),
+  source: t.text().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// HenloBurnStats — id = `${chainId}_${source}` and `${chainId}_total`. rollup.
+export const henloBurnStats = onchainTable("henlo_burn_stats", (t) => ({
+  id: t.text().primaryKey(),                 // chainId_source | chainId_total
+  chainId: t.integer().notNull(),
+  source: t.text().notNull(),
+  totalBurned: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  burnCount: t.integer().notNull(),
+  uniqueBurners: t.integer().notNull(),
+  lastBurnTime: t.bigint(),
+  firstBurnTime: t.bigint(),
+}));
+
+// HenloGlobalBurnStats — id = "global" singleton. rollup (all additive).
+export const henloGlobalBurnStats = onchainTable("henlo_global_burn_stats", (t) => ({
+  id: t.text().primaryKey(),                 // "global"
+  totalBurnedAllChains: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalBurnedMainnet: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  totalBurnedTestnet: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  burnCountAllChains: t.integer().notNull(),
+  incineratorBurns: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  overunderBurns: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  beratrackrBurns: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  userBurns: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  uniqueBurners: t.integer().notNull(),
+  incineratorUniqueBurners: t.integer().notNull(),
+  lastUpdateTime: t.bigint().notNull(),
+}));
+
+// HenloBurner — id = burner address. rollup-lww (materialized unique-burner; first-seen).
+export const henloBurner = onchainTable("henlo_burner", (t) => ({
+  id: t.text().primaryKey(),                 // burner address
+  address: t.text().notNull(),
+  firstBurnTime: t.bigint(),
+  chainId: t.integer().notNull(),
+}));
+
+// HenloChainBurner — id = `${chainId}_${burnerId}`. rollup-lww (first-seen per chain).
+export const henloChainBurner = onchainTable("henlo_chain_burner", (t) => ({
+  id: t.text().primaryKey(),                 // chainId_burnerAddress
+  chainId: t.integer().notNull(),
+  address: t.text().notNull(),
+  firstBurnTime: t.bigint(),
+}));
+
+// HenloSourceBurner — id = `${chainId}_${source}_${burnerId}`. rollup-lww (first-seen per source).
+export const henloSourceBurner = onchainTable("henlo_source_burner", (t) => ({
+  id: t.text().primaryKey(),                 // chainId_source_burnerAddress
+  chainId: t.integer().notNull(),
+  source: t.text().notNull(),
+  address: t.text().notNull(),
+  firstBurnTime: t.bigint(),
+}));
+
+// ─────────────────────────────────────────────────────────────────────────
+// green-belt: mirror (B-1 Group H)
+//
+// SOURCE OF TRUTH: grimoires/loa/migration/b-1-green-belt-map.yaml
+//   (entities MirrorArticlePurchase + MirrorArticleStats — every column
+//    ported verbatim, incl. NULL/NOT NULL).
+//
+// Contract: MirrorObservability (Optimism 10) — WritingEditionPurchased.
+//   The handler (ponder-runtime/src/handlers/mirror-observability.ts) filters
+//   to Mibera article clones and writes both tables.
+//
+// Type mapping (per the map's ponder_type column — note: address + tx-hash
+// columns are `text` in the map, so t.text() NOT t.hex()):
+//   text PK                     → t.text().primaryKey()
+//   text NOT NULL / NULL        → t.text().notNull() / t.text()
+//   numeric(78,0) NOT NULL/NULL → t.numeric({ precision: 78, scale: 0, mode: "bigint" })[.notNull()]
+//   bigint (int8) NOT NULL/NULL → t.bigint()[.notNull()]
+//   integer (int4) NOT NULL/NULL→ t.integer()[.notNull()]
+//
+// Envio source: src/handlers/mirror-observability.ts (WritingEditionPurchased
+//   → context.MirrorArticlePurchase.set + context.MirrorArticleStats.set/get).
+// ─────────────────────────────────────────────────────────────────────────
+
+// MirrorArticlePurchase — id = `${txHash}_${logIndex}`. APPEND (one row per purchase event).
+export const mirrorArticlePurchase = onchainTable("mirror_article_purchase", (t) => ({
+  id: t.text().primaryKey(),                 // txHash_logIndex
+  clone: t.text().notNull(),
+  tokenId: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  recipient: t.text().notNull(),
+  price: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  message: t.text(),                         // nullable per envio (message || undefined)
+  timestamp: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  transactionHash: t.text().notNull(),
+  chainId: t.integer().notNull(),
+}));
+
+// MirrorArticleStats — id = `${cloneLower}_${chainId}`. ROLLUP (additive counters).
+export const mirrorArticleStats = onchainTable("mirror_article_stats", (t) => ({
+  id: t.text().primaryKey(),                 // cloneLower_chainId
+  clone: t.text().notNull(),
+  totalPurchases: t.integer().notNull(),
+  totalRevenue: t.numeric({ precision: 78, scale: 0, mode: "bigint" }).notNull(),
+  uniqueCollectors: t.integer().notNull(),
+  lastPurchaseTime: t.bigint(),              // nullable per the map
+  chainId: t.integer().notNull(),
+}));

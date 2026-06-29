@@ -1,14 +1,19 @@
-# belt-contract-guard — the live drift alarm for sonar's GraphQL read-contract.
+# belt-contract-guard — the live drift alarm for sonar's GraphQL read-contracts (EVM + SVM).
 #
 # Sibling of loa-freeside cycle-112 ("Schema-Emission Coherence Floor", the NATS-emit
 # floor): same doctrine — the wire is the contract; verify it — for the GraphQL READ
 # surface that consumers (the loa-freeside shadow-audit's adapters/sonar) depend on.
 #
+# Two independent jobs, one per seam (an EVM drift must not mask an SVM drift):
+#   - verify-live-contract      → EVM Transfer seam              (scripts/verify-belt-contract.mjs)
+#   - verify-live-svm-contract  → SVM genesis-stone / collection → (scripts/verify-svm-contract.mjs)
+#
 # Origin: loa-freeside#300 — the shadow-audit shipped a query against an ASSUMED Transfer
 # schema (logIndex/txHash/value) that the live wire never served → 400 → no audit could
-# run, invisible because its tests mocked the wire. This guard introspects the LIVE
-# belt-gateway and fails the moment a consumer-depended field drifts — so the producer
-# learns here, on a schedule, instead of a consumer learning in production.
+# run, invisible because its tests mocked the wire. The SVM seam hit the same class in
+# PR #76 (an on_conflict constraint name that would have failed the upsert at runtime).
+# This guard introspects the LIVE schema and fails the moment a consumer-depended field
+# drifts — so the producer learns here, on a schedule, instead of a consumer in production.
 #
 # Scheduled (not per-PR): the check hits a live endpoint, so it lives off the PR hot path
 # to avoid network flake gating merges. A real drift (exit 1) fails loud; a transient
@@ -45,3 +50,57 @@ jobs:
             exit 0
           fi
           echo "belt-gateway contract holds ✓"
+
+  verify-live-svm-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify live SVM contract
+        run: |
+          # Introspect ONCE (--json); the captured JSON is both the log and the annotation source.
+          # (A second pretty re-run would be a separate live observation that could diverge from $code.)
+          set +e
+          out=$(node scripts/verify-svm-contract.mjs --json)
+          code=$?
+          set -e
+          echo "$out"
+          printf '%s' "$out" | node -e 'const esc=v=>String(v||"").replace(/\n/g," ").replace(/::/g,":");let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);for(const w of (j.warnings||[]))console.log(`::warning title=SVM ${esc(w.type)} pending-exposure::${esc(w.detail).slice(0,400)}`);for(const t of (j.promotable||[]))console.log(`::warning title=SVM ${esc(t)} promote-to-live::${esc(t)} is now exposed and matches its declared contract — promote it to status:live in scripts/svm-contract.json so future drift hard-fails CI.`);}catch(e){}})'
+          if [ "$code" = "1" ]; then
+            echo "::error title=SVM contract drift::A consumer-depended SVM read column changed/disappeared. Runbook: grimoires/loa/runbooks/svm-contract-drift.md. Fix the producer or update scripts/svm-contract.json + every consumer in lockstep."
+            exit 1
+          elif [ "$code" = "2" ]; then
+            echo "::warning title=SVM endpoint unreachable::Could not introspect the live endpoint (transient?). Not failing the guard; re-runs on the next schedule."
+            exit 0
+          fi
+          echo "SVM contract holds ✓ (pending-exposure types surfaced as warnings above)"
+
+  verify-live-action-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify live canonical action contract
+        run: |
+          # The chain-agnostic canonical `action` projection READ contract (scripts/action-contract.json),
+          # reusing the svm-contract verifier via --manifest. canonical_action is pending-exposure (not yet
+          # on the live surface) → surfaces a warning, exit 0. Becomes a hard CI gate the moment the type
+          # goes live (S6) and its status flips to "live".
+          set +e
+          out=$(node scripts/verify-svm-contract.mjs --manifest scripts/action-contract.json --json)
+          code=$?
+          set -e
+          echo "$out"
+          printf '%s' "$out" | node -e 'const esc=v=>String(v||"").replace(/\n/g," ").replace(/::/g,":");let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);for(const w of (j.warnings||[]))console.log(`::warning title=ACTION ${esc(w.type)} pending-exposure::${esc(w.detail).slice(0,400)}`);for(const t of (j.promotable||[]))console.log(`::warning title=ACTION ${esc(t)} promote-to-live::${esc(t)} is now exposed and matches its declared contract — promote it to status:live in scripts/action-contract.json so future drift hard-fails CI.`);}catch(e){}})'
+          if [ "$code" = "1" ]; then
+            echo "::error title=canonical action contract drift::A consumer-depended canonical action read column changed/disappeared. Fix the producer or update scripts/action-contract.json + every consumer in lockstep."
+            exit 1
+          elif [ "$code" = "2" ]; then
+            echo "::warning title=action endpoint unreachable::Could not introspect the live endpoint (transient?). Not failing the guard; re-runs on the next schedule."
+            exit 0
+          fi
+          echo "canonical action contract holds ✓ (pending-exposure types surfaced as warnings above)"

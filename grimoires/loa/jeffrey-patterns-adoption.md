@@ -4,6 +4,12 @@ status: scoping (no implementation yet — survey + recommendations)
 created: 2026-05-09
 relates_to: cycle-102-model-stability, cross-cycle infrastructure
 sources: Jeffrey's posts on FrankenSQLite, agent-ergonomics, dcg; ~/.claude/skills/ inventory; Loa's existing surfaces
+trust_tier: operator-authored
+read_state: unread
+confidence: 0.6
+decay_class: working
+last_confirmed: 2026-06-23
+operator_signed: self_attested
 ---
 
 # Jeffrey Emanuel Pattern Adoption — Strategy Doc

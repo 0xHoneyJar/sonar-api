@@ -46,6 +46,7 @@ envio-env.d.ts
 
 # Dependencies
 node_modules/
+node_modules
 .pnp
 .pnp.js
 
@@ -266,3 +267,5 @@ grimoires/loa/ledger.json.bak*
 #   grimoires/loa/runbooks/           (framework-shipped runbooks)
 #   grimoires/loa/known-failures.md   (shared zone)
 #   grimoires/loa/ledger.json         (project sprint ledger)
+grimoires/loa/migration/green-hasura-meta.pre-colconfig.json
+ledger.json.lock
