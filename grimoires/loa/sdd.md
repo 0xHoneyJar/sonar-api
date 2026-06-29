@@ -16,6 +16,15 @@ last_confirmed: 2026-06-23
 operator_signed: self_attested
 ---
 
+> ⚠️ **STALE / FRAMING FALSIFIED — see `grimoires/loa/drift-report.md` (2026-06-29).**
+> This SDD belongs to the **parked `indexing-managed-envio` cycle**. It designs a
+> **managed-Envio-Cloud** cutover and sources its per-token + reliability model from
+> **Ponder green-v3** (`ponder-runtime/`). Both are now inverted: Ponder is **vestigial**
+> and the runtime landed as **self-hosted Envio on Railway** (PR #101, `main`). Whether
+> the Ponder-only per-token (#69) + outbox/reorg-safe/DLQ NATS work was re-ported to the
+> Envio surface is **unconfirmed** (drift GAP-A / PD-5). Do not treat as current design
+> truth. Body retained as the parked cycle's record.
+
 # Software Design Document: sonar-api → Managed Envio (Phase A — Validation Gate + Measured Stand-Up)
 
 **Version:** 1.1 (managed-Envio Phase A + the alpha.17→3.2.1 API port)

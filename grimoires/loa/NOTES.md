@@ -671,3 +671,20 @@ Pythians is now **fully indexed (history + txs) + realtime-deployed**, end to en
 **Topology:** belt-gateway = Caddy proxy over belt-hasura-selfhost → tracking on self-host auto-surfaces at the gateway. Helius API key provisioned: GH Actions secret + the svm-webhook Railway service vars. (Note: the `railway add` CLI echoed the belt-hasura admin secret to stdout this session — rotate if concerned.)
 
 **OPEN (operator-gated):** (a) score-api fetcher — cross-repo, NOT wired (handoff doc ready, `numeric1=instruction_index`); (b) 0.16% reconcile tail + burnt-NFT pre-burn history (token-account tracing follow-up); (c) cycle planning docs (prd/sdd/sprint/handoff) are local-only (`grimoires/loa/cycles/` gitignored). DAS `svm_collection_nft` snapshot stays authoritative for current-owner; events = history.
+
+## 2026-06-29 — Post-promote continuity alignment (`/ride`): Envio-canonical reconciliation + Ponder-as-target drift flagged
+
+Triggered after **PR #101 merged to `main`** (`87705e43`, branch `feat/envio-cloud-hypersync`: canonical normalization + SVM events + labeling registry). Re-extracted code truth and reconciled the grimoire against the operator's reality correction: **sonar migrated BACK from Ponder to Envio; Envio self-hosted on Railway (NOT managed Envio Cloud) is canonical/live; `ponder-runtime/` + `ponder@0.16.6` are vestigial.**
+
+**Grounded (code truth):** `package.json` name `envio-indexer`, scripts `envio codegen/dev/start`; `Dockerfile.belt:1,53` = "Envio HyperIndex belt … Railway" running `pnpm envio start`; `config.yaml:11` `name: thj-indexer` (6 chains, 41 contracts); `src/` import-lean 37 envio : 1 ponder. `Dockerfile.belt-ponder:1-3` self-describes as "Replaces the envio Dockerfile.belt for the migration to Ponder" — now reverted.
+
+**Dominant drift = inverted runtime authority.** Flagged in `drift-report.md` (regenerated, supersedes the stale 2026-05-19 one that scored the repo 8.5/10 with zero Ponder awareness):
+- **PD-1/PD-2 (CRITICAL):** `.github/workflows/ponder-ci.yml` calls itself "the PRODUCTION validation gate" + "envio was removed in the ponder migration"; `belt-build.yml` calls the envio path "RETIRED." Both invert reality — a green `ponder-ci` is a confidently-wrong sensor over vestigial code.
+- **PD-3:** `ponder-runtime/GUIDELINES.md:48-52` — "the envio gates are retired."
+- **PD-4/PD-5 (HIGH):** canonical `prd.md`/`sdd.md` (parked `indexing-managed-envio` cycle) frame sovereign-Ponder as current + managed-Envio-**Cloud** as target — **doubly falsified**. → **correction banners prepended to both** (bodies retained as parked-cycle record).
+- **PD-6:** "envio-cloud" in branch/commit names ≡ self-hosted Envio on Railway (managed-Cloud abandoned post KF-015 OOM @3.2.1). AC-PORT-9 "Cloud gate" should be marked RESOLVED.
+- **PD-7/PD-8:** `package.json` carries dead `ponder`, omits live `envio`; root `ponder.*` + `ponder-runtime/` + `Dockerfile.belt-ponder` vestigial.
+
+**GAP-A (code-truth anomaly, honest-green):** `config.yaml` declares `handler: src/EventHandlers.ts` for all 41 contracts but **that file is absent from HEAD** (last touched by #75 managed-Cloud port). Only `src/belts/mibera/EventHandlers.mibera.ts` exists. → operator confirm live `BELT_CONFIG` + whether the ref is stale before claiming the 6-chain green belt is live-shippable from HEAD.
+
+**Artifacts written:** `drift-report.md` (regenerated), correction banners on `prd.md`+`sdd.md`, `reality/architecture-overview.md` (corrected runtime topology). **Flag-don't-fix:** CI workflows, `package.json` deps, and `ponder-runtime/` deletion left untouched (CI/release-automation outside micro-fix latitude) — listed as recommended `/implement` actions. **Open re-port Q:** whether #69 per-token ownership + fuller outbox/DLQ NATS publisher (Ponder-only) survived the revert onto the Envio surface.

@@ -16,6 +16,16 @@ last_confirmed: 2026-06-23
 operator_signed: self_attested
 ---
 
+> ⚠️ **STALE / FRAMING FALSIFIED — see `grimoires/loa/drift-report.md` (2026-06-29).**
+> This PRD belongs to the **parked `indexing-managed-envio` cycle**. Its two load-bearing
+> premises were both **falsified by what actually shipped** (PR #101, `main`):
+> (1) it treats **sovereign-Ponder-on-Railway** as the *current* Layer-1 — Ponder was
+> **reverted to vestigial**; Envio is the live runtime (`Dockerfile.belt` runs `envio start`).
+> (2) it frames the **target as managed Envio Cloud** — the cutover landed as
+> **self-hosted Envio on Railway** (the managed-Cloud attempt hit the KF-015 OOM @3.2.1
+> and was abandoned). Do **not** treat this doc as a forward plan or as current-state
+> truth. Body retained as the parked cycle's record; see drift findings PD-4/PD-6.
+
 # PRD — sonar-api Layer-1 indexing → Managed Envio (Phase A: stand-up + measured ratification)
 
 > **Cycle**: `indexing-managed-envio` · **Revision**: r3 (2026-06-17 — **canary verdict folded in**: the "redeploy the existing source" premise is REFUTED; managed Envio requires a feature-sized envio alpha.17→3.2.1 API migration. r2 was Flatline-hardened; `grimoires/loa/a2a/flatline/prd-review.json`) · **Persona**: KRANZ (Act 1 coordinate) + ARCH (OSTROM, craft lens)

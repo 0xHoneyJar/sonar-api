@@ -1,25 +1,12 @@
 <!-- AGENT-CONTEXT
-name: loa
+name: envio-indexer
 type: framework
-purpose: Loa is an agent-driven development framework for [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) (Anthropic's official CLI).
-key_files: [CLAUDE.md, .claude/loa/CLAUDE.loa.md, .loa.config.yaml, .claude/scripts/, .claude/skills/]
+purpose: Blockchain event indexer for the THJ ecosystem.
+key_files: [CLAUDE.md, .claude/loa/CLAUDE.loa.md, .loa.config.yaml, .claude/scripts/, .claude/skills/, package.json]
 interfaces:
   core: [/auditing-security, /autonomous-agent, /bridgebuilder-review, /browsing-constructs, /bug-triaging]
-  project: [/cost-budget-enforcer, /cross-repo-status-reader, /flatline-attacker, /graduated-trust, /hitl-jury-panel]
-dependencies: [git, jq, yq]
-ecosystem:
-  - repo: 0xHoneyJar/loa-finn
-    role: runtime
-    interface: hounfour-router
-    protocol: loa-hounfour@8.3.1
-  - repo: 0xHoneyJar/loa-hounfour
-    role: protocol
-    interface: npm-package
-    protocol: loa-hounfour@8.3.1
-  - repo: 0xHoneyJar/arrakis
-    role: distribution
-    interface: jwt-auth
-    protocol: loa-hounfour@8.3.1
+  project: [/cost-budget-enforcer, /cross-repo-status-reader, /dig, /flatline-attacker, /graduated-trust]
+dependencies: [git, jq, yq, node]
 capability_requirements:
   - filesystem: read
   - filesystem: write (scope: state)
@@ -27,62 +14,67 @@ capability_requirements:
   - git: read_write
   - shell: execute
   - github_api: read_write (scope: external)
-version: v1.147.0
+version: 0.1.0
 installation_mode: unknown
 trust_level: L2-verified
 -->
 
-# loa
+# envio-indexer
 
-<!-- provenance: CODE-FACTUAL -->
-Loa is an agent-driven development framework for [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) (Anthropic's official CLI).
+<!-- provenance: DERIVED -->
+Blockchain event indexer for the THJ ecosystem.
 
-The framework provides 40 specialized skills, built with TypeScript/JavaScript, Python, Shell.
+The framework provides 41 specialized skills, built with TypeScript/JavaScript, Python, Shell.
 
 ## Key Capabilities
-<!-- provenance: CODE-FACTUAL -->
+<!-- provenance: DERIVED -->
+The project exposes 15 key entry points across its public API surface.
 
-# Loa Reality — API Surface
-## Slash commands (53 total)
-### Golden Path (5)
-### Workflow (truenames)
-### Run mode
-### Ad-hoc
-## Key bash entry points
-### Mount + setup
-- `.claude/scripts/mount-loa.sh` — install on existing repo (one command)
-- `.claude/scripts/golden-path.sh` — Golden Path dispatcher
-### Orchestration
-- `.claude/scripts/run-mode.sh` — autonomous sprint executor
-- `.claude/scripts/run-bridge.sh` — iterative excellence loop
-- `.claude/scripts/spiral.sh` — autopoietic meta-orchestrator
-- `.claude/scripts/post-merge-orchestrator.sh` — release pipeline
-- `.claude/scripts/post-pr-validation.sh` — post-PR Bridgebuilder loop
-### Audit / safety
+### .claude/commands/scripts
+
+- **check_audit_prerequisites** — Check prerequisites for audit phase (`./.claude/commands/scripts/common.sh:148`)
+- **check_dir_exists** — Check if a directory exists (`./.claude/commands/scripts/common.sh:47`)
+- **check_file_exists** — Check if a file exists (`./.claude/commands/scripts/common.sh:38`)
+- **check_implement_prerequisites** — Check prerequisites for implementation phase (`./.claude/commands/scripts/common.sh:133`)
+- **check_review_prerequisites** — Check prerequisites for review phase (`./.claude/commands/scripts/common.sh:140`)
+- **check_reviewer_report** — Check if reviewer.md exists for a sprint (`./.claude/commands/scripts/common.sh:117`)
+- **check_senior_approval** — Check if senior lead has approved the sprint (`./.claude/commands/scripts/common.sh:103`)
+- **check_setup_complete** — Check if setup has been completed (`./.claude/commands/scripts/common.sh:56`)
+- **check_sprint_dir** — Check if sprint directory exists (`./.claude/commands/scripts/common.sh:125`)
+- **check_sprint_in_plan** — Check if sprint exists in sprint.md (`./.claude/commands/scripts/common.sh:77`)
+- **check_sprint_not_completed** — Check if sprint is already completed (`./.claude/commands/scripts/common.sh:93`)
+- **error** — Print error message and exit (`./.claude/commands/scripts/common.sh:14`)
+- **get_user_type** — Get user type from setup marker (`./.claude/commands/scripts/common.sh:63`)
+- **is_thj_user** — Check if user is THJ developer (`./.claude/commands/scripts/common.sh:72`)
+- **success** — Print success message (`./.claude/commands/scripts/common.sh:25`)
 
 ## Architecture
-<!-- provenance: CODE-FACTUAL -->
-The architecture follows a three-zone model: System (`.claude/`) contains framework-managed scripts and skills, State (`grimoires/`, `.beads/`) holds project-specific artifacts and memory, and App (`src/`, `lib/`) contains developer-owned application code. The framework orchestrates 40 specialized skills through slash commands.
+<!-- provenance: DERIVED -->
+The architecture follows a three-zone model: System (`.claude/`) contains framework-managed scripts and skills, State (`grimoires/`, `.beads/`) holds project-specific artifacts and memory, and App (`src/`, `lib/`) contains developer-owned application code. The framework orchestrates       41 specialized skills through slash commands.
 ```mermaid
 graph TD
+    abis[abis]
     docs[docs]
     evals[evals]
+    generated[generated]
     grimoires[grimoires]
     lib[lib]
-    skills[skills]
-    tests[tests]
-    tools[tools]
+    migrations[migrations]
+    packages[packages]
     Root[Project Root]
+    Root --> abis
     Root --> docs
     Root --> evals
+    Root --> generated
     Root --> grimoires
     Root --> lib
-    Root --> skills
-    Root --> tests
-    Root --> tools
+    Root --> migrations
+    Root --> packages
 ```
 Directory structure:
 ```
+./abis
+./build
 ./docs
 ./docs/architecture
 ./docs/integration
@@ -93,30 +85,40 @@ Directory structure:
 ./evals/graders
 ./evals/harness
 ./evals/results
+./evals/sonar-migration
 ./evals/suites
 ./evals/tasks
 ./evals/tests
+./generated
+./generated/lib
+./generated/src
 ./grimoires
 ./grimoires/loa
 ./grimoires/pub
 ./lib
-./skills
-./skills/legba
-./tests
-./tests/__pycache__
-./tests/bash
-./tests/conformance
-./tests/e2e
-./tests/edge-cases
-./tests/fixtures
-./tests/helpers
-./tests/integration
-./tests/lib
-./tests/perf
+./migrations
+./migrations/label
+./migrations/svm
+./packages
+./packages/protocol
+./ponder-runtime
+./ponder-runtime/src
 ```
 
 ## Interfaces
-<!-- provenance: CODE-FACTUAL -->
+<!-- provenance: DERIVED -->
+### HTTP Routes
+
+- **GET** `/health` (`./ponder-runtime/src/api/index.ts:31`)
+
+### CLI Commands
+
+./src/sense/cli/sonar-sense.ts:84:  cli.command("doctor", {
+./src/sense/cli/sonar-sense.ts:101:  cli.command("native", {
+./src/sense/cli/sonar-sense.ts:120:  cli.command("balance", {
+./src/sense/cli/sonar-sense.ts:140:  cli.command("owns", {
+./src/sense/cli/sonar-sense.ts:161:  cli.command("read", {
+
 ### Skill Commands
 
 #### Loa Core
@@ -134,10 +136,10 @@ Directory structure:
 - **/enhancing-prompts** — Enhancing Prompts
 - **/eval-running** — Eval Running Skill
 - **/flatline-knowledge** — Provides optional NotebookLM integration for the Flatline Protocol, enabling external knowledge retrieval from curated AI-powered notebooks.
-- **/flatline-reviewer** — Flatline reviewer
-- **/flatline-scorer** — Flatline scorer
-- **/flatline-skeptic** — Flatline skeptic
-- **/gpt-reviewer** — Gpt reviewer
+- **/flatline-reviewer** — Uflatline reviewer
+- **/flatline-scorer** — Uflatline scorer
+- **/flatline-skeptic** — Uflatline skeptic
+- **/gpt-reviewer** — Ugpt reviewer
 - **/implementing-tasks** — Sprint Task Implementer
 - **/managing-credentials** — /loa-credentials — Credential Management
 - **/mounting-framework** — Mounting the Loa Framework
@@ -154,33 +156,44 @@ Directory structure:
 
 - **/cost-budget-enforcer** — Daily token-cap enforcement for autonomous Loa cycles. Replaces the
 - **/cross-repo-status-reader** — Read structured cross-repo state for ≤50 repos in parallel via `gh api`, with TTL cache + stale fallback, BLOCKER extraction from each repo's `grimoires/loa/NOTES.md` tail, and per-source error capture so one repo's failure does not abort the full read. The operator-visibility primitive for the Agent-Network Operator (P1).
-- **/flatline-attacker** — Flatline attacker
+- **/dig** — K-Hole Mode
+- **/flatline-attacker** — Uflatline attacker
 - **/graduated-trust** — The L4 primitive maintains a per-(scope, capability, actor) trust ledger
 - **/hitl-jury-panel** — Replace `AskUserQuestion`-class decisions during operator absence with a panel of ≥3 deliberately-diverse panelists. Each panelist (model + persona) returns a view and reasoning; the skill logs all views BEFORE selection, then picks one binding view via a deterministic seed derived from `(decision_id, context_hash)`. Provides an autonomous adjudication primitive without compromising auditability.
 - **/loa-setup** — /loa setup — Onboarding Wizard
 - **/scheduled-cycle-template** — Compose `/schedule` (cron registration) with the existing autonomous-mode primitives into a generic 5-phase cycle: **read state → decide → dispatch → await → log**. Caller plugs five small phase scripts (the *DispatchContract*) into a YAML; the L3 lib runs them under a flock, records every phase to a hash-chained audit log, and (optionally) consults the L2 cost gate before letting any work begin.
 - **/soul-identity-doc** — L7 soul-identity-doc
-- **/spiraling** — Spiraling
+- **/spiraling** — Spiraling — /spiral Autopoietic Meta-Orchestrator
 - **/structured-handoff** — L6 structured-handoff
 - **/validating-construct-manifest** — Validate a construct pack directory before it lands in a registry or a local install. Surfaces:
 
 ## Module Map
-<!-- provenance: CODE-FACTUAL -->
+<!-- provenance: DERIVED -->
 | Module | Files | Purpose | Documentation |
 |--------|-------|---------|---------------|
-| `docs/` | 10 | Documentation | \u2014 |
-| `evals/` | 5818 | Benchmarking and regression framework for the Loa agent development system. Ensures framework changes don't degrade agent behavior through | [evals/README.md](evals/README.md) |
-| `grimoires/` | 2511 | Home to all grimoire directories for the Loa | [grimoires/README.md](grimoires/README.md) |
+| `abis/` | 2 | Uabis | \u2014 |
+| `docs/` | 18 | Documentation | \u2014 |
+| `evals/` | 126 | Benchmarking and regression framework for the Loa agent development system. Ensures framework changes don't degrade agent behavior through | [evals/README.md](evals/README.md) |
+| `generated/` | 82 | Ugenerated | \u2014 |
+| `grimoires/` | 340 | Home to all grimoire directories for the Loa | [grimoires/README.md](grimoires/README.md) |
 | `lib/` | 1 | Source code | \u2014 |
-| `skills/` | 5112 | Specialized agent skills | \u2014 |
-| `tests/` | 587 | Test suites | \u2014 |
-| `tools/` | 5 | Shell scripts and utilities | \u2014 |
+| `migrations/` | 6 | Database migrations | \u2014 |
+| `packages/` | 1 | Upackages | \u2014 |
+| `ponder-runtime/` | 54 | Test suites | \u2014 |
+| `scripts/` | 50 | Utility scripts | \u2014 |
+| `simstim/` | 56 | > Telegram Bridge for Remote Loa (Claude Code) Monitoring and | [simstim/README.md](simstim/README.md) |
+| `spike/` | 16 | Uspike | \u2014 |
+| `src/` | 87 | Source code | \u2014 |
+| `test/` | 31 | Test suites | \u2014 |
+| `tests/` | 686 | Test suites | \u2014 |
+| `tools/` | 23 | Shell scripts and utilities | \u2014 |
 
 ## Verification
 <!-- provenance: CODE-FACTUAL -->
 - Trust Level: **L2 — CI Verified**
-- 587 test files across 1 suite
-- CI/CD: GitHub Actions (36 workflows)
+- 717 test files across 2 suites
+- CI/CD: GitHub Actions (12 workflows)
+- Type safety: TypeScript
 - Security: SECURITY.md present
 
 ## Agents
@@ -191,53 +204,46 @@ The project defines 1 specialized agent persona.
 |-------|----------|-------|
 | Bridgebuilder | You are the Bridgebuilder — a senior engineering mentor who has spent decades building systems at scale. | Your voice is warm, precise, and rich with analogy. |
 
-## Culture
+## Ecosystem
 <!-- provenance: OPERATIONAL -->
-**Naming**: Vodou terminology (Loa, Grimoire, Hounfour, Simstim) as cognitive hooks for agent framework concepts.
-
-**Principles**: Think Before Coding — plan and analyze before implementing, Simplicity First — minimum complexity for the current task, Surgical Changes — minimal diff, maximum impact, Goal-Driven — every action traces to acceptance criteria.
-
-**Methodology**: Agent-driven development with iterative excellence loops (Simstim, Run Bridge, Flatline Protocol).
-**Creative Methodology**: Creative methodology drawing from cyberpunk fiction, free jazz improvisation, and temporary autonomous zones.
-
-**Influences**: Neuromancer (Gibson) — Simstim as shared consciousness metaphor, Flatline Protocol — adversarial multi-model review as creative tension, TAZ (Hakim Bey) — temporary spaces for autonomous agent exploration.
-
-**Knowledge Production**: Knowledge production through collective inquiry — Flatline as multi-model study group.
+### Dependencies
+- `@effect/schema`
+- `@noble/curves`
+- `@noble/hashes`
+- `@solana/web3.js`
+- `@types/node`
+- `canonicalize`
+- `effect`
+- `ethers`
+- `hono`
+- `incur`
+- `nats`
+- `ponder`
+- `typescript`
+- `viem`
+- `vitest`
 
 ## Quick Start
 <!-- provenance: OPERATIONAL -->
+Available commands:
 
-**Prerequisites**: [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) (Anthropic's CLI for Claude), Git, jq, [yq v4+](https://github.com/mikefarah/yq). See **[INSTALLATION.md](INSTALLATION.md)** for full details.
-
-> [!WARNING]
-> **Some Loa features invoke external AI APIs and incur costs.** The three most expensive are:
-> - **Flatline Protocol** — multi-model adversarial review (~$15–25 per planning cycle, Opus + GPT-5.3-codex)
-> - **Simstim** — HITL-accelerated full cycle (~$25–65 per cycle, Opus + GPT-5.3-codex + Gemini)
-> - **Spiral** — autonomous multi-cycle orchestrator (~$10–35 per cycle depending on profile)
->
-> **Flatline Protocol** and **Simstim** are **enabled by default** but require API keys (`OPENAI_API_KEY`, `GOOGLE_API_KEY`) to function — without them, multi-model review phases are skipped. **Spiral** is **disabled by default** and must be explicitly enabled. See [`docs/CONFIG_REFERENCE.md`](docs/CONFIG_REFERENCE.md#cost-matrix) for the full cost table. Run `/loa setup` inside Claude Code before enabling autonomous modes to choose a budget-appropriate configuration.
-
-```bash
-# Install (one command, any existing repo — adds Loa as git submodule)
-curl -fsSL https://raw.githubusercontent.com/0xHoneyJar/loa/main/.claude/scripts/mount-loa.sh | bash
-
-# Or pin to a specific version
-curl -fsSL https://raw.githubusercontent.com/0xHoneyJar/loa/main/.claude/scripts/mount-loa.sh | bash -s -- --tag v1.109.4
-
-# Start Claude Code
-claude
+- `npm run build` — tsc
+- `npm run dev` — envio
+- `npm run start` — envio
+- `npm run test` — vitest
+- `npm run test:hasura` — vitest
 <!-- ground-truth-meta
-head_sha: 2b70d2fba56a6e5921e3241e889de43ee3366061
-generated_at: 2026-05-11T13:09:08Z
+head_sha: 87705e43e907cfc3d2abf23bebe759d89b83b478
+generated_at: 2026-06-29T23:18:02Z
 generator: butterfreezone-gen v1.0.0
 sections:
-  agent_context: dbf6d2026aca10060b33bb5fdf4df62bff19359d162c1545d1a2a1f85dc882cb
-  capabilities: ca1f0122b28b76b45029b89aaf8d0a5c42d18a0eac40a3d450701ea41d0199f5
-  architecture: 5f17d57717b1d879ad87a009a8b67c98a8217134c50c069d6c0d0dadeccd71b6
-  interfaces: a879a429060fc13c5fce7d87f68e59a286fdb98ec764cd3c8cb8d645139c6cc2
-  module_map: 2d2998f52ea1c44b92acf4fef1e0fb6cfe8505a1e431723f12dd18554d0a0a2b
-  verification: e81cf3a5528573e33f729414917956787e9f231a349de6a6514edc262f86a3e9
+  agent_context: 6f9b8fc31106f923e5a316e378ddaf82eb3170609c3901e629e2d1f0318dd0a7
+  capabilities: b1901b285afaff1ab69386c70539785c317413a7749845657cd1520bae196dec
+  architecture: 1abcc740111ced460570ec0622280720a0fc4987f5a9242c3785120f318d61ca
+  interfaces: 37e0133a86b4dab6abc89d80e91627f225338b2849c9cdcece584d5b8d82ec74
+  module_map: 38382826259f4c6ddea64d74b6ea56622e5f99d7dc714423cf0341f5a8a5146d
+  verification: fc65e51e119ab20477de9a87a29a58a7bcc629421eb4adc0f34af686b2548a87
   agents: ca263d1e05fd123434a21ef574fc8d76b559d22060719640a1f060527ef6a0b6
-  culture: f73380f93bb4fadf36ccc10d60fc57555914363fc90e4f15b4dc4eb92bd1640f
-  quick_start: d9f37d2522d05d1683438abcbd4bd48dd92b87a6afeed611102d2fde349f9192
+  ecosystem: f8f27c1e4bc63c09dc7970f2764ba11319fd86536e6e5285961e7951e582f8d4
+  quick_start: 4418a467b6bb65c20d06c88536cfa53e7f2fd585fa04670d8839c6ce0014e444
 -->
