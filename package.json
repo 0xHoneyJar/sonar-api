@@ -11,6 +11,7 @@
     "start": "envio start",
     "test": "vitest run",
     "test:hasura": "vitest run test/hasura-contract",
+    "pulse": "bash scripts/sonar-pulse.sh",
     "cost": "node scripts/railway-cost-model.mjs",
     "verify:belt-config": "node scripts/verify-belt-config.js",
     "verify:belt-contract": "node scripts/verify-belt-contract.mjs",
