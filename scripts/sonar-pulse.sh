@@ -87,7 +87,10 @@ fi
 bb=.github/workflows/belt-build.yml
 if [ ! -f "$bb" ]; then
   say "    ⚠ belt-build.yml ABSENT (cannot check the Envio gate framing)"; unverified=1
-elif grep -qiE 'RETIRED|retired envio path' "$bb" 2>/dev/null; then
+elif grep -qiE 'RETIRED envio|\[retired envio path\]' "$bb" 2>/dev/null; then
+  # precise: the INVERTED phrasing names ENVIO as retired ("RETIRED envio belt",
+  # "[retired envio path]"). A bare "retired" also matches the de-inverted file's
+  # correct "ponder-ci is retired" / "NOT retired" — so we must not grep it broadly.
   say "    ✗ belt-build.yml marks the LIVE envio gates 'RETIRED' (defanged — bd-c7jv)"; drift=1
 else
   say "    ✓ belt-build.yml treats the Envio gates as live"
