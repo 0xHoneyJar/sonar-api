@@ -32,7 +32,9 @@ import "./handlers/aquabera-vault-direct";
 import "./handlers/aquabera-wall";
 import "./handlers/badges1155";
 import "./handlers/bgt";
-import "./handlers/constants";
+// constants.ts is intentionally NOT imported here: it is shared config, not a
+// handler — it registers nothing. The handlers that need it pull it in
+// transitively, and Envio's autoload of src/handlers/ loads it regardless.
 import "./handlers/crayons";
 import "./handlers/crayons-collections";
 import "./handlers/fatbera";
