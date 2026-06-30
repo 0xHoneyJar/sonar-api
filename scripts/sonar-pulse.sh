@@ -77,7 +77,30 @@ for cfg in "$GREEN" "$BLUE"; do
   fi
 done
 
-# ── 3. Verdict ───────────────────────────────────────────────────────────────
+# ── 3. Runtime-authority coherence ───────────────────────────────────────────
+# The class of drift that froze in the past lightcone after the Ponder→Envio
+# revert: the runtime is Envio, but a sensor or a dep still names the corpse.
+# A green check over a dead runtime is the lie this whole sensor exists to catch.
+say ""
+say "▸ runtime authority (does CI / deps name the LIVE runtime?)"
+if grep -q '"name": *"envio-indexer"' package.json 2>/dev/null \
+   && grep -qE '"(dev|start)": *"envio ' package.json 2>/dev/null; then
+  say "    ✓ package.json declares the Envio runtime (name=envio-indexer, envio dev/start)"
+else
+  say "    ✗ package.json does not clearly declare the Envio runtime (DRIFT)"; drift=1
+fi
+if [ -f .github/workflows/ponder-ci.yml ] && grep -qiE 'PRODUCTION|production gate' .github/workflows/ponder-ci.yml 2>/dev/null; then
+  say "    ✗ ponder-ci.yml still claims a 'production gate' over vestigial ponder-runtime/ (INVERTED — bd-c7jv)"; drift=1
+else
+  say "    ✓ no ponder-ci 'production gate' over the dead runtime"
+fi
+if grep -qiE 'RETIRED|retired envio path' .github/workflows/belt-build.yml 2>/dev/null; then
+  say "    ✗ belt-build.yml marks the LIVE envio gates 'RETIRED' (defanged — bd-c7jv)"; drift=1
+else
+  say "    ✓ belt-build.yml treats the Envio gates as live"
+fi
+
+# ── 4. Verdict ───────────────────────────────────────────────────────────────
 rule
 if [ "$drift" -eq 0 ]; then
   say "  COHERENT — handler paths resolve and every belt's registrations bijection."
