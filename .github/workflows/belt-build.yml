@@ -17,7 +17,7 @@
 #      field_selection / address / start_block are byte-identical to config.yaml.
 #      A belt config that drops a field a handler reads produces silently-wrong
 #      data, not a crash — this makes that unshippable.
-#   2. envio-free belt tests — BLOCKING. `npx vitest run` runs the binary-free belt
+#   2. envio-free belt tests — BLOCKING. `pnpm test` (vitest run) runs the binary-free belt
 #      gates: test/green-belt-handler-resolves.test.ts (every `handler:` path in the
 #      LIVE config.yaml resolves on disk — catches the dangling-handler class,
 #      bd-z5sw) and test/registration-coverage.test.ts (runtime registration
@@ -73,7 +73,9 @@ jobs:
       - name: Gate 2 — envio-free belt tests (vitest)
         env:
           ENVIO321_CONFIG: config.yaml
-        run: npx vitest run
+        # `pnpm test` (= vitest run) uses the lockfile-pinned vitest, not whatever
+        # `npx` would resolve at runtime — deterministic CI (BB BR-003).
+        run: pnpm test
 
       # Gate 3 — INFORMATIONAL. Scoped `envio codegen --config config.mibera.yaml`.
       # Requires the `envio` CLI, which is NOT provisioned in CI (not in
