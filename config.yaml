@@ -358,6 +358,12 @@ contracts:
           transaction_fields:
             - hash
   - name: FatBeraDeposits
+    # Merged FatBeraDeposits + FatBeraAccounting (same address 0xBAE1…91d4) per the
+    # PR #75 "H1" review intent (see src/handlers/fatbera.ts:146). The handler registers
+    # ALL five events under FatBeraDeposits; the former separate FatBeraAccounting entry
+    # left its 4 reward/withdrawal events configured-but-never-registered (bd-fssj:
+    # registration-coverage gaps=4/orphans=4). Network start_block uses the earlier
+    # 1066385 so the reward/withdrawal events (which predate deposits) are not missed.
     handler: src/EventHandlers.ts
     events:
       - event: Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares)
@@ -366,9 +372,6 @@ contracts:
             - hash
             - from
             - to
-  - name: FatBeraAccounting
-    handler: src/EventHandlers.ts
-    events:
       - event: RewardAdded(address indexed token, uint256 rewardAmount)
         field_selection:
           transaction_fields:
@@ -792,10 +795,8 @@ chains:
       - name: FatBeraDeposits
         address:
           - 0xBAE11292a3E693AF73651BDa350d752AE4A391d4
-        start_block: 1966971
-      - name: FatBeraAccounting
-        address:
-          - 0xBAE11292a3E693AF73651BDa350d752AE4A391d4
+        # Merged FatBeraDeposits+FatBeraAccounting (bd-fssj). Earlier of the two
+        # start_blocks so the reward/withdrawal events (from 1066385) aren't missed.
         start_block: 1066385
       - name: BeaconDeposit
         address:
