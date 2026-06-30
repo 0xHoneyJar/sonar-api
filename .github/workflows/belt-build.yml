@@ -1,21 +1,36 @@
-# belt-build.yml — the Mibera belt build gate (S2-T2, AC-3 + AC-11).
+# belt-build.yml — the Envio belt build gate (the LIVE production validation).
 #
 # Project CI for the freeside-sonar belt factory — distinct from ci.yml, which
-# is the loa-framework template CI. Three gates, in order:
+# is the loa-framework template CI.
 #
-#   1. verify:belt-config  — the §5.1 config-fidelity check: config.mibera.yaml's
-#      field_selection / address / start_block are byte-identical to config.yaml
-#      (PRD FR-1, AC-2 / AC-11). A belt config that drops a field a handler reads
-#      produces silently-wrong data, not a crash — this makes that unshippable.
-#   2. codegen:mibera      — scoped `envio codegen --config config.mibera.yaml`
-#      (AC-3). The DISS-001 fix: handlers: src/belts/mibera scopes the autoload
-#      glob so codegen generates only the two Mibera contracts.
-#   3. typecheck:mibera    — `tsc -p tsconfig.mibera.json` (AC-3 / DISS-002). The
-#      belt-scoped typecheck: whole-repo tsc fails because the 27 non-belt
-#      monolith handlers import generated types belt-scoped codegen never made;
-#      tsconfig.mibera.json roots the typecheck at the belt's own closure.
+# RUNTIME REALITY: this repo runs self-hosted Envio HyperIndex. package.json
+# name=envio-indexer; scripts are `envio codegen/dev/start`; Dockerfile.belt runs
+# `pnpm envio start`; the live Railway belt-indexer-selfhost service runs
+# BELT_CONFIG=config.yaml on Envio. The earlier Ponder migration was REVERTED —
+# ponder-runtime/ + the ponder dep are vestigial, and the old ponder-ci.yml
+# "production gate" over that dead code is retired. THIS file is the production
+# gate: green here means the live Envio belt is shippable.
 #
-# Factory invariant: each belt gets a job here (codegen:<belt> + typecheck:<belt>).
+# Gates, in order:
+#
+#   1. verify:belt-config  — BLOCKING. The config-fidelity check: config.mibera.yaml's
+#      field_selection / address / start_block are byte-identical to config.yaml.
+#      A belt config that drops a field a handler reads produces silently-wrong
+#      data, not a crash — this makes that unshippable.
+#   2. envio-free belt tests — BLOCKING. `npx vitest run` runs the binary-free belt
+#      gates: test/green-belt-handler-resolves.test.ts (every `handler:` path in the
+#      LIVE config.yaml resolves on disk — catches the dangling-handler class,
+#      bd-z5sw) and test/registration-coverage.test.ts (runtime registration
+#      coverage; ENVIO321_CONFIG=config.yaml targets the live green belt). These
+#      mock the `envio` package, so they run and block without the CLI.
+#   3-4. codegen:mibera / typecheck:mibera — INFORMATIONAL (continue-on-error).
+#      These invoke the real `envio` CLI, which is NOT provisioned in CI (envio is
+#      not in package.json / pnpm-lock, and no workflow installs it). They run as a
+#      best-effort signal and stay skipped-green until an envio binary (or a
+#      self-hosted runner) is provisioned. They are NOT "retired": Envio is the
+#      live runtime; this is a CI-provisioning gap.
+#
+# Factory invariant: each belt gets a job here.
 
 name: Belt Build Gate
 
@@ -27,8 +42,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  mibera-belt:
-    name: Mibera belt — verify · codegen · typecheck
+  envio-belt:
+    name: Envio belt — config · tests (blocking) · codegen/typecheck (informational)
     runs-on: ubuntu-latest
 
     steps:
@@ -47,20 +62,29 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Gate 1 is the live, meaningful gate: config-fidelity drift would produce
-      # silently-wrong data. It blocks. Gates 2-3 validate the RETIRED envio belt
-      # (the `envio` binary was removed in the ponder migration, so codegen can no
-      # longer run, and the belt-scoped typecheck depends on its output). They are
-      # non-fatal here — the LIVE production validation moved to ponder-ci.yml
-      # (tsc on ponder-runtime + vitest). Without continue-on-error this job is red
-      # on every PR (a numb sensor); with it, red means real config drift.
+      # Gate 1 — BLOCKING. Config-fidelity drift would produce silently-wrong data.
       - name: Gate 1 — belt config fidelity (verify-belt-config)
         run: pnpm verify:belt-config
 
-      - name: Gate 2 — scoped codegen (config.mibera.yaml) [retired envio path]
+      # Gate 2 — BLOCKING. Envio-binary-free belt invariants: every handler path on
+      # the live green belt (config.yaml) resolves on disk, plus runtime
+      # registration coverage. These tests mock `envio`, so they run and block
+      # without the CLI. ENVIO321_CONFIG targets the live green belt.
+      - name: Gate 2 — envio-free belt tests (vitest)
+        env:
+          ENVIO321_CONFIG: config.yaml
+        run: npx vitest run
+
+      # Gate 3 — INFORMATIONAL. Scoped `envio codegen --config config.mibera.yaml`.
+      # Requires the `envio` CLI, which is NOT provisioned in CI (not in
+      # package.json / pnpm-lock; no install step). Best-effort until a binary or a
+      # self-hosted runner is added. NOT a retired path.
+      - name: Gate 3 — scoped codegen (config.mibera.yaml) [informational: envio CLI not in CI]
         continue-on-error: true
         run: pnpm codegen:mibera
 
-      - name: Gate 3 — belt-scoped typecheck (tsconfig.mibera.json) [retired envio path]
+      # Gate 4 — INFORMATIONAL. Belt-scoped typecheck depends on Gate 3's codegen
+      # output (generated/), so it is gated on the same missing envio CLI.
+      - name: Gate 4 — belt-scoped typecheck (tsconfig.mibera.json) [informational: depends on codegen output]
         continue-on-error: true
         run: pnpm typecheck:mibera
