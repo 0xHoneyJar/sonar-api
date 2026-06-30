@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Detect repo context (consumer vs template)
         id: ctx
@@ -73,21 +75,33 @@ jobs:
 
           VIOLATIONS=()
 
+          # Only check files newly added by this PR/push (diff-filter=A).
+          # Existing project files on consumer repos should not trip the template guard.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CHANGED_FILES=$(git diff --name-only --diff-filter=A "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" 2>/dev/null || echo "")
+          else
+            CHANGED_FILES=$(git diff --name-only --diff-filter=A "${{ github.event.before }}" "${{ github.sha }}" 2>/dev/null || echo "")
+          fi
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No changed files to check"
+            exit 0
+          fi
+
           # Check for forbidden files
           for pattern in "${FORBIDDEN_FILES[@]}"; do
-            if [ -f "$pattern" ]; then
+            if printf '%s\n' "$CHANGED_FILES" | grep -qxF "$pattern"; then
               VIOLATIONS+=("$pattern")
             fi
           done
 
           # Check for forbidden directories/patterns
           for pattern in "${FORBIDDEN_DIRS[@]}"; do
-            # Find any files matching the pattern (excluding README.md)
             while IFS= read -r file; do
               if [[ "$file" != *"/README.md" ]]; then
                 VIOLATIONS+=("$file")
               fi
-            done < <(find . -path "./$pattern*" -type f 2>/dev/null | head -50)
+            done < <(printf '%s\n' "$CHANGED_FILES" | awk -v p="$pattern" 'index($0, p) == 1 { print }' | head -50)
           done
 
           if [ ${#VIOLATIONS[@]} -gt 0 ]; then
