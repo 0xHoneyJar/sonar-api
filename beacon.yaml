@@ -13,6 +13,7 @@ identity:
   source_of_truth: hypersync-postgres-hasura
 sources:
   status: verified
+  probe_source: commit
   transport: hypersync
   chains:
     - id: 1
@@ -34,6 +35,7 @@ sources:
     status: verified
 read_surface:
   status: verified
+  probe_source: fixture
   graphql:
     alias: sonar.0xhoneyjar.xyz
     endpoint: https://sonar.0xhoneyjar.xyz/v1/graphql
@@ -357,6 +359,7 @@ deploy_model:
       deployment_status: SUCCESS
     - name: Postgres-6J4w
       deployment_status: SUCCESS
+  probe_source: fixture
 events:
   status: unverified
   transport: nats-jetstream

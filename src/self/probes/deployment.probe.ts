@@ -21,9 +21,18 @@ function loadFixture(): DeployModelBlock {
   return parseRailwayFixture(raw);
 }
 
+function withProbeSource(
+  block: DeployModelBlock,
+  probeSource: DeployModelBlock["probe_source"],
+  status: DeployModelBlock["status"] = "verified",
+  reason?: string,
+): DeployModelBlock {
+  return { ...block, status, probe_source: probeSource, ...(reason ? { reason } : {}) };
+}
+
 export async function probeDeployment(mode: SelfMode): Promise<ProbeResult<DeployModelBlock>> {
   if (mode === "offline") {
-    return verified(loadFixture());
+    return verified(withProbeSource(loadFixture(), "fixture"));
   }
 
   const hasToken = Boolean(process.env.RAILWAY_TOKEN && process.env.RAILWAY_PROJECT_ID);
@@ -34,13 +43,18 @@ export async function probeDeployment(mode: SelfMode): Promise<ProbeResult<Deplo
 
   if (hasToken) {
     try {
-      return verified(await fetchRailwayDeployment());
+      return verified(withProbeSource(await fetchRailwayDeployment(), "live"));
     } catch (e) {
       if (mode === "hybrid") {
         try {
-          return verified(await fetchRailwayViaCli());
+          return verified(withProbeSource(await fetchRailwayViaCli(), "live"));
         } catch {
-          return verified(loadFixture());
+          const reason = e instanceof Error ? e.message : String(e);
+          return {
+            status: "unknown",
+            value: withProbeSource(loadFixture(), "fixture", "unknown", reason),
+            reason: `Railway GQL failed: ${reason}`,
+          };
         }
       }
       return unknown(e instanceof Error ? e.message : String(e));
@@ -49,9 +63,14 @@ export async function probeDeployment(mode: SelfMode): Promise<ProbeResult<Deplo
 
   if (mode === "hybrid") {
     try {
-      return verified(await fetchRailwayViaCli());
-    } catch {
-      return verified(loadFixture());
+      return verified(withProbeSource(await fetchRailwayViaCli(), "live"));
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      return {
+        status: "unknown",
+        value: withProbeSource(loadFixture(), "fixture", "unknown", reason),
+        reason: `deployment probe unavailable: ${reason}`,
+      };
     }
   }
 

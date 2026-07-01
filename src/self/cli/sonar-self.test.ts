@@ -31,6 +31,19 @@ describe("secret-scrub", () => {
     expect(result.ok).toBe(false);
     expect(result.violations.length).toBeGreaterThan(0);
   });
+
+  it("allows bare 64-char transaction hashes", async () => {
+    const { scrubSecrets } = await import("../scrub/secret-scrub.js");
+    const tx = "0x" + "a".repeat(64);
+    const result = scrubSecrets(`transactionHash: ${tx}\n`);
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects signing seed in key context", async () => {
+    const { scrubSecrets } = await import("../scrub/secret-scrub.js");
+    const result = scrubSecrets(`signing_key: ${"b".repeat(64)}\n`);
+    expect(result.ok).toBe(false);
+  });
 });
 
 describe("beacon-merge", () => {

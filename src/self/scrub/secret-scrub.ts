@@ -5,7 +5,10 @@ const SECRET_PATTERNS: Array<{ re: RegExp; label: string }> = [
   { re: /AKIA[0-9A-Z]{16}/, label: "AWS access key" },
   { re: /ghp_[A-Za-z0-9]{20,}/, label: "GitHub personal access token" },
   { re: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/, label: "PEM private key" },
-  { re: /\b[0-9a-fA-F]{64}\b/, label: "64-char hex secret (signing seed class)" },
+  {
+    re: /(?:seed|private_key|signing_key|SONAR_SIGNING)\s*:\s*["']?[0-9a-fA-F]{64}\b/i,
+    label: "64-char hex signing seed in key context",
+  },
 ];
 
 const RAILWAY_INTERNAL = /\.railway\.internal\b/g;

@@ -1921,7 +1921,7 @@ run_bridge:
 bridgebuilder:
   enabled: true
   repos: []                           # Auto-detect + add extras here
-  model: "claude-opus-4-6"
+  model: "claude-headless"            # Subscription CLI (OAuth) — no ANTHROPIC_API_KEY
   max_prs: 10
   max_files_per_pr: 50
   max_diff_bytes: 100000
@@ -1932,4 +1932,4 @@ bridgebuilder:
     - quality
     - test-coverage
     - operational-readiness
-  persona_path: "grimoires/observer/ARCHETYPE.md"
+  persona_path: ".claude/data/bridgebuilder-persona.md"

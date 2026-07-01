@@ -11,6 +11,7 @@ export interface ChainRef {
 
 export interface SourcesBlock {
   status: "verified" | "unknown";
+  probe_source?: "commit" | "live" | "fixture";
   transport: "hypersync" | "rpc" | "mixed";
   chains: ChainRef[];
   contract_source_count: number;
@@ -24,6 +25,7 @@ export interface SourcesBlock {
 
 export interface ReadSurfaceBlock {
   status: "verified" | "unknown";
+  probe_source?: "live" | "fixture";
   graphql: {
     alias: string;
     endpoint: string;
@@ -46,6 +48,7 @@ export interface DeployService {
 
 export interface DeployModelBlock {
   status: "verified" | "unknown";
+  probe_source?: "live" | "fixture";
   pattern?: string;
   alias_is_contract?: boolean;
   immutable_deployments?: boolean;

@@ -8,7 +8,7 @@ function spawnVitest(proofPath: string, repoRoot: string): Promise<number> {
     const child = spawn("pnpm", ["exec", "vitest", "run", proofPath], {
       cwd: repoRoot,
       stdio: "ignore",
-      shell: true,
+      shell: false,
     });
     child.on("close", (code) => resolveExit(code ?? 1));
     child.on("error", () => resolveExit(1));

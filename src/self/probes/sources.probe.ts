@@ -56,6 +56,7 @@ export function parseSourcesFromConfig(
 
     const block: SourcesBlock = {
       status: "verified",
+      probe_source: "commit",
       transport: detectTransport(chainEntries),
       chains,
       contract_source_count,

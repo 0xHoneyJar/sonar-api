@@ -23,9 +23,17 @@ function loadFixture(): string[] {
   return raw.fields;
 }
 
-function toReadSurfaceBlock(endpoint: string, fields: string[]): ReadSurfaceBlock {
+function toReadSurfaceBlock(
+  endpoint: string,
+  fields: string[],
+  probeSource: ReadSurfaceBlock["probe_source"],
+  status: ReadSurfaceBlock["status"] = "verified",
+  reason?: string,
+): ReadSurfaceBlock {
   return {
-    status: "verified",
+    status,
+    probe_source: probeSource,
+    ...(reason ? { reason } : {}),
     graphql: {
       alias: graphqlAliasFromEndpoint(endpoint),
       endpoint,
@@ -43,7 +51,7 @@ export async function probeReadSurface(mode: SelfMode): Promise<ProbeResult<Read
   const endpoint = defaultGraphqlEndpoint();
 
   if (mode === "offline") {
-    return verified(toReadSurfaceBlock(endpoint, loadFixture()));
+    return verified(toReadSurfaceBlock(endpoint, loadFixture(), "fixture"));
   }
 
   try {
@@ -51,10 +59,15 @@ export async function probeReadSurface(mode: SelfMode): Promise<ProbeResult<Read
     if (fields.length === 0) {
       return unknown("introspection returned empty query root");
     }
-    return verified(toReadSurfaceBlock(endpoint, fields));
+    return verified(toReadSurfaceBlock(endpoint, fields, "live"));
   } catch (e) {
     if (mode === "hybrid") {
-      return verified(toReadSurfaceBlock(endpoint, loadFixture()));
+      const reason = e instanceof Error ? e.message : String(e);
+      return {
+        status: "unknown",
+        value: toReadSurfaceBlock(endpoint, loadFixture(), "fixture", "unknown", reason),
+        reason: `live introspection failed: ${reason}`,
+      };
     }
     return unknown(e instanceof Error ? e.message : String(e));
   }

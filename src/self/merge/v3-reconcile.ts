@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { BeaconV2Document } from "../domain/beacon-v2.domain.js";
@@ -11,6 +11,9 @@ export interface V3AcvpEntry {
 
 export function loadV3AcvpIds(repoRoot: string): V3AcvpEntry[] {
   const path = resolve(repoRoot, "packages/protocol/beacon.yaml");
+  if (!existsSync(path)) {
+    return [];
+  }
   const doc = parseYaml(readFileSync(path, "utf8")) as {
     acvp_invariants?: Array<{
       id: string;

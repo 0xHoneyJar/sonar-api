@@ -129,6 +129,7 @@ export function pickGeneratedSnapshot(doc: BeaconV2Document): Record<string, unk
 function normalizeForDiff(block: unknown): unknown {
   if (!block || typeof block !== "object") return block;
   const copy = structuredClone(block) as Record<string, unknown>;
+  // Structural identity only — ephemeral deployment_status ids drift on every deploy.
   if (Array.isArray(copy.services)) {
     copy.services = (copy.services as Array<Record<string, unknown>>).map((s) => ({
       name: s.name,

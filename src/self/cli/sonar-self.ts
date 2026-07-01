@@ -11,50 +11,60 @@ const sharedOptions = z.object({
   format: z.enum(["json", "yaml"]).default("yaml"),
 });
 
-function bindCommand(
-  self: ReturnType<typeof makeLiveSonarSelf>,
-  check: boolean,
-  write: boolean,
-) {
-  return {
-    options: sharedOptions,
-    async run(c: {
-      options: z.infer<typeof sharedOptions>;
-      ok: (data: unknown) => unknown;
-    }) {
-      const result = await self.run({
-        check,
-        write,
-        mode: c.options.mode,
-        allowUnknown: c.options["allow-unknown"],
-        proveAcvp: c.options["prove-acvp"],
-        verbose: c.options.verbose,
-        format: c.options.format,
-      });
+export function buildSonarSelfCli(self = makeLiveSonarSelf()) {
+  let exitCode: number | undefined;
 
-      if (result.message && result.exitCode !== 0) {
-        if (c.options.verbose) {
+  function bindCommand(check: boolean, write: boolean) {
+    return {
+      options: sharedOptions,
+      async run(c: {
+        options: z.infer<typeof sharedOptions>;
+        ok: (data: unknown) => unknown;
+      }) {
+        const result = await self.run({
+          check,
+          write,
+          mode: c.options.mode,
+          allowUnknown: c.options["allow-unknown"],
+          proveAcvp: c.options["prove-acvp"],
+          verbose: c.options.verbose,
+          format: c.options.format,
+        });
+
+        if (result.exitCode !== 0) {
+          if (result.message) {
+            console.error(result.message);
+          }
+          if (result.drift?.length) {
+            for (const line of result.drift) {
+              console.error(line);
+            }
+          }
+          if (result.unknownProbes?.length) {
+            console.error(`unknown probes: ${result.unknownProbes.join(", ")}`);
+          }
+        } else if (c.options.verbose && result.message) {
           console.error(result.message);
         }
-      }
 
-      if (result.output) {
-        process.stdout.write(`${result.output}\n`);
-      } else if (write && result.exitCode === 0) {
-        process.stdout.write("beacon.yaml written\n");
-      } else if (check && result.exitCode === 0) {
-        process.stdout.write("coherent\n");
-      }
+        if (result.output) {
+          process.stdout.write(`${result.output}\n`);
+        } else if (write && result.exitCode === 0) {
+          process.stdout.write("beacon.yaml written\n");
+        } else if (check && result.exitCode === 0) {
+          process.stdout.write("coherent\n");
+        }
 
-      exitCode = result.exitCode;
-      return c.ok({ exitCode: result.exitCode, drift: result.drift, unknownProbes: result.unknownProbes });
-    },
-  };
-}
+        exitCode = result.exitCode;
+        return c.ok({
+          exitCode: result.exitCode,
+          drift: result.drift,
+          unknownProbes: result.unknownProbes,
+        });
+      },
+    };
+  }
 
-let exitCode: number | undefined;
-
-export function buildSonarSelfCli(self = makeLiveSonarSelf()) {
   const cli = Cli.create("sonar-self", {
     version: "0.1.0",
     description:
@@ -63,17 +73,17 @@ export function buildSonarSelfCli(self = makeLiveSonarSelf()) {
 
   cli.command("emit", {
     description: "Build beacon draft and print to stdout (default).",
-    ...bindCommand(self, false, false),
+    ...bindCommand(false, false),
   });
 
   cli.command("check", {
     description: "Diff committed beacon.yaml against live territory. Exit 0=coherent, 1=drift, 2=inconclusive.",
-    ...bindCommand(self, true, false),
+    ...bindCommand(true, false),
   });
 
   cli.command("write", {
     description: "Validate and write root beacon.yaml from territory probes.",
-    ...bindCommand(self, false, true),
+    ...bindCommand(false, true),
   });
 
   return { cli, getExit: () => exitCode };
