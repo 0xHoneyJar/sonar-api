@@ -1,9 +1,20 @@
-import type { CollectionKey, IngestJobRecord, IngestRequestBody } from "./types.js";
+import type {
+  CollectionKey,
+  IngestJobRecord,
+  IngestJobStatus,
+  IngestRequestBody,
+} from "./types.js";
 import { collectionKeyId, makeIngestJobId } from "./normalize.js";
 
 export interface IngestJobStorePort {
   get(key: CollectionKey): Promise<IngestJobRecord | undefined>;
   upsertQueued(key: CollectionKey, body: IngestRequestBody, nowMs?: number): Promise<IngestJobRecord>;
+  listByStatus(status: IngestJobStatus, limit?: number): Promise<IngestJobRecord[]>;
+  updateStatus(
+    key: CollectionKey,
+    status: IngestJobStatus,
+    args?: { errorMessage?: string; nowMs?: number },
+  ): Promise<IngestJobRecord | undefined>;
 }
 
 /** In-memory store for tests and local dev without Postgres. */
@@ -44,6 +55,26 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
       updatedAtMs: nowMs,
     };
     this.jobs.set(id, record);
+    return record;
+  }
+
+  async listByStatus(status: IngestJobStatus, limit = 50): Promise<IngestJobRecord[]> {
+    return [...this.jobs.values()]
+      .filter((job) => job.status === status)
+      .sort((a, b) => a.createdAtMs - b.createdAtMs)
+      .slice(0, limit);
+  }
+
+  async updateStatus(
+    key: CollectionKey,
+    status: IngestJobStatus,
+    args?: { errorMessage?: string; nowMs?: number },
+  ): Promise<IngestJobRecord | undefined> {
+    const record = this.jobs.get(collectionKeyId(key));
+    if (!record) return undefined;
+    record.status = status;
+    record.errorMessage = args?.errorMessage;
+    record.updatedAtMs = args?.nowMs ?? Date.now();
     return record;
   }
 

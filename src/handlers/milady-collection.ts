@@ -47,13 +47,29 @@ indexer.onEvent(
       // Update burn stats
       const statsId = `${ETHEREUM_CHAIN_ID}_${MILADY_COLLECTION_KEY}`;
       const existingStats = await context.NftBurnStats.get(statsId);
+      const burnerMarkerId = `burner:${from}:${ETHEREUM_CHAIN_ID}`;
+      const existingBurnerMarker = await context.NftBurn.get(burnerMarkerId);
+      const uniqueBurnersDelta = existingBurnerMarker ? 0 : 1;
+
+      if (!existingBurnerMarker) {
+        context.NftBurn.set({
+          id: burnerMarkerId,
+          collectionKey: MILADY_COLLECTION_KEY,
+          tokenId: 0n,
+          from,
+          timestamp,
+          blockNumber: BigInt(event.block.number),
+          transactionHash: txHash,
+          chainId: ETHEREUM_CHAIN_ID,
+        });
+      }
 
       const stats: NftBurnStats = {
         id: statsId,
         chainId: ETHEREUM_CHAIN_ID,
         collectionKey: MILADY_COLLECTION_KEY,
         totalBurned: (existingStats?.totalBurned ?? 0) + 1,
-        uniqueBurners: existingStats?.uniqueBurners ?? 1, // TODO: Track unique burners properly
+        uniqueBurners: (existingStats?.uniqueBurners ?? 0) + uniqueBurnersDelta,
         lastBurnTime: timestamp,
         firstBurnTime: existingStats?.firstBurnTime ?? timestamp,
       };
