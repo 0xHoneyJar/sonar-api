@@ -1,0 +1,10 @@
+{
+  "name": "sonar-kitchen-api",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@hono/node-server": "^1.14.4",
+    "hono": "^4.12.23",
+    "pg": "^8.16.0"
+  }
+}

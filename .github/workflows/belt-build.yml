@@ -6,10 +6,9 @@
 # RUNTIME REALITY: this repo runs self-hosted Envio HyperIndex. package.json
 # name=envio-indexer; scripts are `envio codegen/dev/start`; Dockerfile.belt runs
 # `pnpm envio start`; the live Railway belt-indexer-selfhost service runs
-# BELT_CONFIG=config.yaml on Envio. The earlier Ponder migration was REVERTED —
-# ponder-runtime/ + the ponder dep are vestigial, and the old ponder-ci.yml
-# "production gate" over that dead code is retired. THIS file is the production
-# gate: green here means the live Envio belt is shippable.
+# BELT_CONFIG=config.yaml on Envio. ponder-runtime/ was REMOVED — kitchen HTTP
+# lives in src/kitchen/ (Dockerfile.kitchen → Railway kitchen-api). THIS file
+# is the production gate: green here means the live Envio belt is shippable.
 #
 # Gates, in order:
 #
@@ -65,6 +64,9 @@ jobs:
       # Gate 1 — BLOCKING. Config-fidelity drift would produce silently-wrong data.
       - name: Gate 1 — belt config fidelity (verify-belt-config)
         run: pnpm verify:belt-config
+
+      - name: Anti-ponder guard (kitchen lives in src/kitchen/)
+        run: test ! -d ponder-runtime && ! grep -q '"ponder"' package.json
 
       # Gate 2 — BLOCKING. Envio-binary-free belt invariants: every handler path on
       # the live green belt (config.yaml) resolves on disk, plus runtime
