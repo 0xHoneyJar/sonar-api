@@ -6,6 +6,13 @@ function normalizeAddress(contract: string): string {
   return contract.toLowerCase();
 }
 
+/** Safe for YAML `# comment` suffix — strips structure-breaking characters. */
+export function sanitizeKitchenLabel(label: string): string {
+  const trimmed = label.trim();
+  const sanitized = trimmed.replace(/[^A-Za-z0-9 _-]/g, "_").replace(/_+/g, "_");
+  return sanitized.slice(0, 80) || "kitchen_collection";
+}
+
 /** Returns the slice of config.yaml belonging to one chain block (from `- id:` through next chain). */
 export function extractChainBlock(configYaml: string, chainId: number): string | undefined {
   const lines = configYaml.split("\n");
@@ -99,9 +106,10 @@ export function patchConfigForKitchenIngest(args: {
     return { changed: false, configYaml: args.configYaml };
   }
 
-  const label =
+  const label = sanitizeKitchenLabel(
     args.label?.trim() ||
-    `kitchen_${args.key.chainId}_${args.key.contract.slice(2, 10)}`;
+      `kitchen_${args.key.chainId}_${args.key.contract.slice(2, 10)}`,
+  );
   const patchedBlock = appendTrackedErc721ToChainBlock(chainBlock, args.key.contract, label);
   const lines = args.configYaml.split("\n");
   let start = -1;

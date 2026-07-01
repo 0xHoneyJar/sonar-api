@@ -61,4 +61,14 @@ describe("config-patcher", () => {
     });
     expect(changed).toBe(false);
   });
+
+  it("sanitizes labels before embedding in YAML comments", () => {
+    const { configYaml } = patchConfigForKitchenIngest({
+      configYaml: FIXTURE,
+      key: { chainId: 1, contract: "0xED5Af388653567Af2F388e6224DcC93746104133" },
+      label: "evil\n      - name: Pwned",
+    });
+    expect(configYaml).not.toMatch(/\n\s+- name: Pwned/);
+    expect(configYaml).toContain("# evil_");
+  });
 });
