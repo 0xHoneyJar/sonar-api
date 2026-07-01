@@ -1,0 +1,11 @@
+{
+  "services": [
+    { "name": "belt-gateway", "alias": "sonar.0xhoneyjar.xyz", "deployment_status": "SUCCESS" },
+    { "name": "belt-hasura-selfhost", "deployment_status": "SUCCESS" },
+    { "name": "belt-indexer-selfhost", "deployment_status": "SUCCESS" },
+    { "name": "svm-webhook", "deployment_status": "SUCCESS" },
+    { "name": "kitchen-api", "deployment_status": "SUCCESS" },
+    { "name": "Postgres-6J4w", "deployment_status": "SUCCESS" }
+  ],
+  "captured_at": "2026-07-01T00:00:00.000Z"
+}

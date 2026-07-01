@@ -1541,6 +1541,53 @@
           "label": "S3 (final) — Finalize + Cloud gate: T12 delete EventHandlers.ts + coverage + L3 boot count + L4 + L5; T13 Cloud canary integration gate (AC-PORT-9, only round-trip); T13.E2E goal validation + deploy unblock"
         }
       ]
+    },
+    {
+      "id": "sonar-self",
+      "label": "sonar self — territory-derived beacon + drift-check immune system",
+      "status": "active",
+      "created": "2026-07-01T00:00:00Z",
+      "prd": "grimoires/loa/cycles/sonar-self/prd.md",
+      "sdd": "grimoires/loa/cycles/sonar-self/sdd.md",
+      "sprint": "grimoires/loa/cycles/sonar-self/sprint.md",
+      "cycle_folder": "grimoires/loa/cycles/sonar-self/",
+      "source_issues": [
+        "https://github.com/0xHoneyJar/sonar-api/issues/21",
+        "https://github.com/0xHoneyJar/sonar-api/issues/105",
+        "https://github.com/0xHoneyJar/sonar-api/issues/23"
+      ],
+      "context": "grimoires/loa/context/sonar-self-brief.md",
+      "sprints": [
+        {
+          "global_id": 185,
+          "local_label": "sprint-1",
+          "status": "completed",
+          "created": "2026-07-01T00:00:00Z",
+          "label": "S1 — Config + gateway introspectors → emit root beacon.yaml (FR-1 partial, FR-2, FR-3)"
+        },
+        {
+          "global_id": 186,
+          "local_label": "sprint-2",
+          "status": "completed",
+          "created": "2026-07-01T00:00:00Z",
+          "label": "S2 — Railway/deployment probe + deploy_model (FR-1 complete)"
+        },
+        {
+          "global_id": 187,
+          "local_label": "sprint-3",
+          "status": "completed",
+          "created": "2026-07-01T00:00:00Z",
+          "label": "S3 — --check drift mode + CI wiring (FR-4)"
+        },
+        {
+          "global_id": 188,
+          "local_label": "sprint-4",
+          "status": "completed",
+          "created": "2026-07-01T00:00:00Z",
+          "label": "S4 — ACVP status surfacing + v2/v3 reconciliation (FR-5, #23, #21)"
+        }
+      ],
+      "note": "Parallel to indexing-managed-envio (stale — abandoned-by-territory). Does not supersede root prd.md."
     }
   ],
   "global_sprint_counter": 171,
@@ -1740,6 +1787,6 @@
       "sprint_plan": "grimoires/loa/a2a/bug-20260428-i640-1cc190/sprint.md"
     }
   ],
-  "next_sprint_number": 185,
-  "last_updated": "2026-06-17T22:35:17Z"
+  "next_sprint_number": 189,
+  "last_updated": "2026-07-01T00:00:00Z"
 }

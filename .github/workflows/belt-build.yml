@@ -79,6 +79,10 @@ jobs:
         # `npx` would resolve at runtime — deterministic CI (BB BR-003).
         run: pnpm test
 
+      # Gate 2b — beacon drift (offline). Exit 2 fails CI (no --allow-unknown).
+      - name: Gate 2b — beacon drift check (sonar self)
+        run: pnpm self:check
+
       # Gate 3 — INFORMATIONAL. Scoped `envio codegen --config config.mibera.yaml`.
       # Requires the `envio` CLI, which is NOT provisioned in CI (not in
       # package.json / pnpm-lock; no install step). Best-effort until a binary or a

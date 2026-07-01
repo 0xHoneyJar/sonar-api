@@ -12,6 +12,9 @@
     "test": "vitest run",
     "test:hasura": "vitest run test/hasura-contract",
     "pulse": "bash scripts/sonar-pulse.sh",
+    "self": "tsx src/self/cli/sonar-self.ts emit",
+    "self:check": "tsx src/self/cli/sonar-self.ts check --mode offline",
+    "self:write": "tsx src/self/cli/sonar-self.ts write --mode hybrid",
     "cost": "node scripts/railway-cost-model.mjs",
     "verify:belt-config": "node scripts/verify-belt-config.js",
     "verify:belt-contract": "node scripts/verify-belt-contract.mjs",
@@ -28,8 +31,11 @@
   "devDependencies": {
     "@types/node": "20.8.8",
     "@types/pg": "^8.15.4",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.3",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "yaml": "^2.8.1",
+    "zod": "^3.25.76"
   },
   "dependencies": {
     "@effect/schema": "^0.75.0",
@@ -39,6 +45,7 @@
     "@solana/web3.js": "^1.98.4",
     "canonicalize": "^2.0.0",
     "effect": "^3.10.0",
+    "envio": "3.2.1",
     "ethers": "^6.15.0",
     "hono": "^4.12.23",
     "incur": "^0.4.8",
