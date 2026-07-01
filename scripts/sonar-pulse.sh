@@ -75,6 +75,17 @@ elif grep -q '"name": *"envio-indexer"' package.json 2>/dev/null \
 else
   say "    ✗ package.json does not clearly declare the Envio runtime (DRIFT)"; drift=1
 fi
+# ponder-runtime/ must not exist — kitchen HTTP lives in src/kitchen/ (Envio belt).
+if [ -d ponder-runtime ]; then
+  say "    ✗ ponder-runtime/ directory exists (DELETED — kitchen API is src/kitchen/ → Railway kitchen-api)"; drift=1
+else
+  say "    ✓ ponder-runtime/ absent (Envio-only runtime)"
+fi
+if grep -q '"ponder"' package.json 2>/dev/null; then
+  say "    ✗ package.json still declares ponder dep (DRIFT)"; drift=1
+else
+  say "    ✓ package.json has no ponder dep"
+fi
 # F-002: check the file EXISTS before grepping — absence must not read as "✓ live".
 pc=.github/workflows/ponder-ci.yml
 if [ ! -f "$pc" ]; then

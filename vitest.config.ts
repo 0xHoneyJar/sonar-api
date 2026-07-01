@@ -1,11 +1,11 @@
 import { defineConfig } from "vitest/config";
 
 /**
- * Vitest config for sonar-ponder-migration-v1.
+ * Vitest config for envio-indexer (sonar-api).
  *
  * Scopes test discovery to project-owned tests:
  *  - test/                  legacy envio unit tests (chai-based may be skipped)
- *  - ponder-runtime/tests/  ponder migration unit + byte-parity tests
+ *  - src/kitchen/           kitchen upstream API (ordering-service probe + ingest)
  *  - src/                   envio src unit tests (e.g. .spec.ts colocated)
  *
  * EXCLUDED (sacred no-touch from sprint A-2 perspective):
@@ -21,8 +21,7 @@ export default defineConfig({
   test: {
     include: [
       "test/**/*.test.ts",
-      "ponder-runtime/tests/**/*.test.ts",
-      "ponder-runtime/src/**/*.test.ts",
+      "src/kitchen/**/*.test.ts",
       "src/**/*.test.ts",
       "src/**/*.spec.ts",
     ],

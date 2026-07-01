@@ -1,0 +1,16 @@
+# Dockerfile.kitchen — Envio belt kitchen upstream API (ordering-service probe + ingest).
+#
+# Small Hono HTTP service: reads collection index status from belt Hasura GraphQL,
+# persists ingest jobs on belt Postgres. NOT part of the Envio indexer worker.
+#
+# Railway env: PORT, SERVICE_TOKEN, BELT_GRAPHQL_URL, KITCHEN_DATABASE_URL (or ENVIO_PG_*).
+FROM node:22-bookworm-slim
+WORKDIR /app
+RUN npm install -g tsx@4
+COPY package.kitchen.json ./package.json
+RUN npm install --omit=dev
+COPY src/kitchen ./src/kitchen
+ENV PORT=8080
+EXPOSE 8080
+USER node
+CMD ["tsx", "src/kitchen/server.ts"]

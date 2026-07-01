@@ -20,8 +20,17 @@ operator_signed: self_attested
 ## Operator reality correction (the anchor for this ride)
 
 > **sonar MIGRATED BACK FROM PONDER TO ENVIO.** Envio — **self-hosted on Railway,
-> NOT managed Envio Cloud** — is the canonical/live runtime. `ponder-runtime/` and
-> the `ponder@0.16.6` dependency are **vestigial / superseded**, not the target.
+> NOT managed Envio Cloud** — is the canonical/live runtime. **`ponder-runtime/` was
+> deleted 2026-07** — kitchen HTTP rehomed to `src/kitchen/` → Railway `kitchen-api`.
+
+### 2026-07 ponder-runtime removal (kitchen rehome)
+
+| Action | Detail |
+|--------|--------|
+| **Deleted** | `ponder-runtime/`, root `ponder.*`, `spike/ponder-A-0/`, `scripts/migration/`, `ponder` npm dep |
+| **Rehomed** | Kitchen `/v1/collections/*` → `src/kitchen/` + `Dockerfile.kitchen` |
+| **Dropped features** (explicit — not silently lost) | per-token 721 `token` projection, `TrackedHolder1155`, NATS outbox/DLQ stack, address-type resolve |
+| **Guardrail** | `scripts/sonar-pulse.sh` + `ARCHITECTURE.md` — fail / document if ponder-runtime reappears |
 
 Every finding below is measured against that corrected ground truth. The dominant
 drift class in this repo is **inverted runtime authority**: code-adjacent docs, CI

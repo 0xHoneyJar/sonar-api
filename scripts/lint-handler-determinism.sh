@@ -1,33 +1,17 @@
 #!/usr/bin/env bash
 #
-# lint-handler-determinism.sh — a sensor for the bug-class that took FAGAN five
-# iterations to fully catch on sonar-api#63: persisted NONDETERMINISM in ponder
-# handlers.
+# lint-handler-determinism.sh — wall-clock / unpinned-RPC sensor for Envio handlers.
 #
-# Ponder re-executes handlers on reorg and during replay, so any value written
-# into an onchainTable, AND any state read whose result decides what is written,
-# MUST be deterministic across executions. Two failure modes we actually hit:
-#
-#   1. Wall-clock time (the JS Date now-call / argless new-Date) persisted into
-#      indexed state. Replay produces a different value. Use event.block.timestamp
-#      / event.block.number instead (a block's timestamp is fixed).
-#
-#   2. A block-dependent RPC state read (getCode / getBalance / getStorageAt /
-#      getProof / readContract / call) inside a BLOCK handler that is NOT pinned to
-#      a block. Unpinned reads return `latest`, which moves between executions.
-#      (#63 fix: getCode pinned to blockNumber=currentBlock.) Event handlers are
-#      exempt — there the default block IS the event's block (deterministic).
-#
-# A sensor only earns trust if it does not cry wolf, so both rules are scoped
-# tightly. Exit 1 on any un-allowlisted violation.
+# Envio replays handlers on reorg, so persisted state must be deterministic.
+# (Originally scoped to ponder-runtime; retargeted to src/handlers after ponder removal.)
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HANDLERS="$ROOT/ponder-runtime/src/handlers"
+HANDLERS="$ROOT/src/handlers"
 fail=0
 
 if [ ! -d "$HANDLERS" ]; then
-  echo "lint-handler-determinism: no ponder-runtime handlers dir, nothing to check."
+  echo "lint-handler-determinism: no src/handlers dir, nothing to check."
   exit 0
 fi
 
