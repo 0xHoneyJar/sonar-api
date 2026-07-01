@@ -10,7 +10,11 @@ import { base } from "viem/chains";
 import { classifyCode, needsRecheck } from "../lib/address-type";
 
 const BASE_CHAIN_ID = 8453;
-const RPC_URL = process.env.ENVIO_RPC_URL ?? "https://mainnet.base.org";
+// Base-specific RPC — do not reuse ENVIO_RPC_URL (Berachain in sf-vaults.ts).
+const RPC_URL =
+  process.env.ADDRESS_RESOLVE_BASE_RPC_URL ??
+  process.env.BASE_RPC_URL ??
+  "https://mainnet.base.org";
 
 const baseClient = createPublicClient({
   chain: base,
@@ -75,7 +79,12 @@ async function collectDueRows(
     type: { _eq: "eoa" },
     recheckAfter: { _lte: currentBlock },
   });
-  return sortById([...pending, ...dueEoa]).slice(0, MAX_PER_TICK);
+  const dueDelegated = await context.AddressType.getWhere({
+    chainId: { _eq: chainId },
+    type: { _eq: "delegated_eoa" },
+    recheckAfter: { _lte: currentBlock },
+  });
+  return sortById([...pending, ...dueEoa, ...dueDelegated]).slice(0, MAX_PER_TICK);
 }
 
 indexer.onBlock(
@@ -93,7 +102,10 @@ indexer.onBlock(
     let head: bigint;
     try {
       head = await baseClient.getBlockNumber();
-    } catch {
+    } catch (error) {
+      context.log.error(
+        `[address-resolve] getBlockNumber failed on chain ${chainId}: ${error}`,
+      );
       return;
     }
     if (head > currentBlock && head - currentBlock > CAUGHT_UP_THRESHOLD_BLOCKS) {
@@ -107,7 +119,10 @@ indexer.onBlock(
     try {
       const blockHeader = await baseClient.getBlock({ blockNumber: currentBlock });
       resolvedTs = blockHeader.timestamp;
-    } catch {
+    } catch (error) {
+      context.log.error(
+        `[address-resolve] getBlock failed at ${currentBlock} on chain ${chainId}: ${error}`,
+      );
       return;
     }
 
@@ -118,7 +133,10 @@ indexer.onBlock(
           address: row.address,
           blockNumber: currentBlock,
         });
-      } catch {
+      } catch (error) {
+        context.log.warn(
+          `[address-resolve] getAddressCode failed for ${row.address} at block ${currentBlock}: ${error}`,
+        );
         continue;
       }
 

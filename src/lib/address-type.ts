@@ -22,5 +22,7 @@ export function classifyCode(
 export function needsRecheck(
   type: "eoa" | "contract" | "delegated_eoa",
 ): boolean {
-  return type === "eoa";
+  // eoa: counterfactual ERC-4337 deploy may flip empty→contract.
+  // delegated_eoa: EIP-7702 revocation may flip delegated→plain EOA.
+  return type === "eoa" || type === "delegated_eoa";
 }

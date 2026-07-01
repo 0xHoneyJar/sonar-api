@@ -310,15 +310,15 @@ type TrackedHolder1155 {
   lastUpdated: BigInt!
 }
 
-# On-chain address classification (sonar-api#63): eoa | contract | delegated_eoa | pending.
+# On-chain address classification (sonar-api#63): pending | eoa | contract | delegated_eoa.
 type AddressType {
   id: ID!
-  chainId: Int!
+  chainId: Int! @index
   address: String! @index
-  type: String!
+  type: String! @index
   resolvedAtBlock: BigInt
   lastResolved: BigInt
-  recheckAfter: BigInt
+  recheckAfter: BigInt @index
 }
 
 type CollectionStat {

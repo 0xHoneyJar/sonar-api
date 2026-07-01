@@ -80,7 +80,7 @@ describe("address-type — needsRecheck", () => {
     expect(needsRecheck("contract")).toBe(false);
   });
 
-  it("delegated_eoa is terminal", () => {
-    expect(needsRecheck("delegated_eoa")).toBe(false);
+  it("delegated_eoa needs recheck for EIP-7702 revocation", () => {
+    expect(needsRecheck("delegated_eoa")).toBe(true);
   });
 });

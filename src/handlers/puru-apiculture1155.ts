@@ -222,7 +222,9 @@ indexer.onEvent({ contract: "PuruApiculture1155", event: "TransferSingle" },
     }
 
     await touchAddress(context, chainId, fromLower);
-    await touchAddress(context, chainId, toLower);
+    if (!isBurnAddress(toLower)) {
+      await touchAddress(context, chainId, toLower);
+    }
   }
 );
 
@@ -428,7 +430,9 @@ indexer.onEvent({ contract: "PuruApiculture1155", event: "TransferBatch" },
     }
 
     await touchAddress(context, chainId, fromLower);
-    await touchAddress(context, chainId, toLower);
+    if (!isBurnAddress(toLower)) {
+      await touchAddress(context, chainId, toLower);
+    }
   }
 );
 
@@ -541,6 +545,12 @@ async function adjustHolder1155Token(
   const existing = await context.TrackedHolder1155.get(id);
   const current = existing?.balance ?? 0n;
   const { stored, shouldDelete } = nextBalance(current, args.delta);
+
+  if (shouldDelete && current + args.delta < 0n) {
+    context.log.warn(
+      `[puru-apiculture1155] TrackedHolder1155 underflow clamp contract=${args.contractAddress} chain=${args.chainId} tokenId=${args.tokenId.toString()} holder=${address} current=${current.toString()} delta=${args.delta.toString()}`,
+    );
+  }
 
   if (shouldDelete) {
     if (existing) {
