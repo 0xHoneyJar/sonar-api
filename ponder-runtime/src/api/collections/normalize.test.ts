@@ -32,6 +32,6 @@ describe("collectionKeyFromParams", () => {
 describe("makeIngestJobId", () => {
   it("is stable for a collection key", () => {
     const key = collectionKeyFromParams(String(FIXTURE_CHAIN_ID), FIXTURE_CONTRACT)!;
-    expect(makeIngestJobId(key)).toBe("ingest_80094_4b08a069");
+    expect(makeIngestJobId(key)).toBe(`ingest_80094_${FIXTURE_CONTRACT.slice(2)}`);
   });
 });

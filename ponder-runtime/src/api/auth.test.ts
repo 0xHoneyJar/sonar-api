@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { extractBearerToken, isAuthorizedRequest } from "./auth";
+import { extractBearerToken, isAuthorizedRequest, kitchenAuthAllowOpen } from "./auth";
 
 describe("extractBearerToken", () => {
   it("parses Bearer tokens case-insensitively", () => {
@@ -15,9 +15,25 @@ describe("extractBearerToken", () => {
 });
 
 describe("isAuthorizedRequest", () => {
-  it("allows all requests when SERVICE_TOKEN is unset", () => {
+  it("allows open auth only when kitchenAuthAllowOpen is true", () => {
+    const prevNode = process.env.NODE_ENV;
+    const prevAllow = process.env.SONAR_KITCHEN_ALLOW_OPEN_AUTH;
+    process.env.NODE_ENV = "development";
+    delete process.env.SONAR_KITCHEN_ALLOW_OPEN_AUTH;
+    expect(kitchenAuthAllowOpen()).toBe(true);
     expect(isAuthorizedRequest(undefined, undefined)).toBe(true);
-    expect(isAuthorizedRequest("Bearer anything", undefined)).toBe(true);
+
+    process.env.NODE_ENV = "production";
+    expect(kitchenAuthAllowOpen()).toBe(false);
+    expect(isAuthorizedRequest(undefined, undefined)).toBe(false);
+
+    process.env.SONAR_KITCHEN_ALLOW_OPEN_AUTH = "true";
+    expect(kitchenAuthAllowOpen()).toBe(true);
+    expect(isAuthorizedRequest(undefined, undefined)).toBe(true);
+
+    process.env.NODE_ENV = prevNode;
+    if (prevAllow === undefined) delete process.env.SONAR_KITCHEN_ALLOW_OPEN_AUTH;
+    else process.env.SONAR_KITCHEN_ALLOW_OPEN_AUTH = prevAllow;
   });
 
   it("requires exact bearer match when token is configured", () => {

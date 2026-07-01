@@ -100,7 +100,10 @@ describe("kitchen collection routes", () => {
     );
     expect(ingest.status).toBe(202);
     const queued = await ingest.json();
-    expect(queued).toMatchObject({ status: "queued", job_id: "ingest_80094_4b08a069" });
+    expect(queued).toMatchObject({
+      status: "queued",
+      job_id: `ingest_80094_${FIXTURE_CONTRACT.slice(2)}`,
+    });
 
     const status = await app.request(
       `/${FIXTURE_CHAIN_ID}/${FIXTURE_CONTRACT}/status`,

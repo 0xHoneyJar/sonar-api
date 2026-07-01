@@ -30,6 +30,5 @@ export function collectionKeyId(key: CollectionKey): string {
 }
 
 export function makeIngestJobId(key: CollectionKey): string {
-  const slug = key.contract.slice(2, 10);
-  return `ingest_${key.chainId}_${slug}`;
+  return `ingest_${key.chainId}_${key.contract.slice(2)}`;
 }
