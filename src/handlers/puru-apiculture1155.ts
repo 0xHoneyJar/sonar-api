@@ -18,12 +18,19 @@ import {
   indexer,
   type Erc1155MintEvent,
   type TrackedHolder as TrackedHolderEntity,
+  type TrackedHolder1155 as TrackedHolder1155Entity,
   type EvmOnEventContext,
 } from "envio";
 
 import { recordAction } from "../lib/actions";
 import { publishMintEvent } from "../lib/events-publisher";
 import { isMintFromZero, isBurnAddress } from "../lib/mint-detection";
+import {
+  aggregateBatchDeltas,
+  erc1155HolderId,
+  nextBalance,
+} from "../lib/erc1155-holder";
+import { touchAddress } from "../lib/touch-address";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -188,6 +195,34 @@ indexer.onEvent({ contract: "PuruApiculture1155", event: "TransferSingle" },
         direction: "in",
       });
     }
+
+    if (fromLower !== toLower) {
+      if (!isMint) {
+        await adjustHolder1155Token(context, {
+          contractAddress,
+          collectionKey,
+          chainId,
+          tokenId,
+          holderAddress: fromLower,
+          delta: -quantity,
+          timestamp,
+        });
+      }
+      if (!isBurnAddress(toLower)) {
+        await adjustHolder1155Token(context, {
+          contractAddress,
+          collectionKey,
+          chainId,
+          tokenId,
+          holderAddress: toLower,
+          delta: quantity,
+          timestamp,
+        });
+      }
+    }
+
+    await touchAddress(context, chainId, fromLower);
+    await touchAddress(context, chainId, toLower);
   }
 );
 
@@ -360,6 +395,40 @@ indexer.onEvent({ contract: "PuruApiculture1155", event: "TransferBatch" },
         });
       }
     }
+
+    if (fromLower !== toLower) {
+      const perTokenDeltas = aggregateBatchDeltas(
+        idsArray.map((id) => BigInt(id.toString())),
+        valuesArray.map((value) => BigInt(value.toString())),
+      );
+      for (const [tokenId, qty] of perTokenDeltas) {
+        if (!isMint) {
+          await adjustHolder1155Token(context, {
+            contractAddress,
+            collectionKey,
+            chainId,
+            tokenId,
+            holderAddress: fromLower,
+            delta: -qty,
+            timestamp,
+          });
+        }
+        if (!isBurnAddress(toLower)) {
+          await adjustHolder1155Token(context, {
+            contractAddress,
+            collectionKey,
+            chainId,
+            tokenId,
+            holderAddress: toLower,
+            delta: qty,
+            timestamp,
+          });
+        }
+      }
+    }
+
+    await touchAddress(context, chainId, fromLower);
+    await touchAddress(context, chainId, toLower);
   }
 );
 
@@ -442,4 +511,54 @@ async function adjustHolder1155({
   };
 
   context.TrackedHolder.set(holder);
+}
+
+interface AdjustHolderTokenArgs {
+  contractAddress: string;
+  collectionKey: string;
+  chainId: number;
+  tokenId: bigint;
+  holderAddress: string;
+  delta: bigint;
+  timestamp: bigint;
+}
+
+async function adjustHolder1155Token(
+  context: EvmOnEventContext,
+  args: AdjustHolderTokenArgs,
+): Promise<void> {
+  if (args.delta === 0n) return;
+
+  const address = args.holderAddress.toLowerCase();
+  if (address === ZERO_ADDRESS) return;
+
+  const id = erc1155HolderId(
+    args.contractAddress,
+    args.chainId,
+    args.tokenId,
+    address,
+  );
+  const existing = await context.TrackedHolder1155.get(id);
+  const current = existing?.balance ?? 0n;
+  const { stored, shouldDelete } = nextBalance(current, args.delta);
+
+  if (shouldDelete) {
+    if (existing) {
+      context.TrackedHolder1155.deleteUnsafe(id);
+    }
+    return;
+  }
+
+  const row: TrackedHolder1155Entity = {
+    id,
+    contract: args.contractAddress,
+    collectionKey: args.collectionKey,
+    chainId: args.chainId,
+    tokenId: args.tokenId,
+    address,
+    balance: stored,
+    lastUpdated: args.timestamp,
+  };
+
+  context.TrackedHolder1155.set(row);
 }
