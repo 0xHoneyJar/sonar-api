@@ -39,6 +39,7 @@ export interface IngestJobRecord {
   contactEmail?: string;
   communityName?: string;
   status: IngestJobStatus;
+  errorMessage?: string;
   createdAtMs: number;
   updatedAtMs: number;
 }

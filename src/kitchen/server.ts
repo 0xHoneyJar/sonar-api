@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 
 import { createHasuraCollectionStatusReader } from "./hasura-status-reader.js";
 import { MemoryIngestJobStore } from "./ingest-store.js";
+import { kitchenWorkerEnabled, startKitchenIngestWorker } from "./ingest-worker.js";
 import {
   createPostgresIngestJobStore,
   kitchenDatabaseUrlFromEnv,
@@ -26,13 +27,18 @@ async function resolveIngestStore(): Promise<IngestJobStorePort> {
 export async function createKitchenServer() {
   const store = await resolveIngestStore();
   const reader = createHasuraCollectionStatusReader();
-  return createKitchenApp({ reader, store });
+  const app = createKitchenApp({ reader, store });
+  return { app, store, reader };
 }
 
 const port = Number(process.env.PORT ?? 8080);
 
 createKitchenServer()
-  .then((app) => {
+  .then(({ app, store, reader }) => {
+    if (kitchenWorkerEnabled()) {
+      startKitchenIngestWorker({ store, reader });
+      console.log("kitchen ingest worker enabled");
+    }
     serve({ fetch: app.fetch, port }, () => {
       console.log(`kitchen-api listening on :${port}`);
     });

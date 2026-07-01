@@ -590,6 +590,10 @@ chains:
       - name: MiladyCollection
         address:
           - 0x5af0d9827e0c53e4799bb226655a1de152a425a5 # Milady Maker
+      # Community onboarding — Azuki (kitchen order 6ddc06f5)
+      - name: TrackedErc721
+        address:
+          - 0xed5af388653567af2f388e6224dcc93746104133 # azuki_kitchen_e2e
 
   # Arbitrum
   - id: 42161
