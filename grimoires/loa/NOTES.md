@@ -4,8 +4,20 @@ trust_tier: operator-authored
 read_state: unread
 confidence: 0.6
 decay_class: working
-last_confirmed: 2026-06-23
+last_confirmed: 2026-07-01
 operator_signed: self_attested
+---
+
+## 2026-07-01 — Construct triage sprint COMPLETE (autonomous)
+
+**Scope:** Sonar-API issue/PR hygiene + kitchen completion + infra artifacts + Envio re-port backlog doc.
+
+**GitHub hygiene (Sprint 0):** Closed #85, #97, #7, #40, #108, #112, #113; reframed #48/#20; labeled #62/#63 `envio-re-port`; closed stale PRs #49/#38/#12/#15. #39 left open (public GraphQL probe failed — needs belt-gateway operator check).
+
+**Code:** [PR #114](https://github.com/0xHoneyJar/sonar-api/pull/114) — kitchen ingest worker + config-patcher, `kitchen-build.yml` CI, handler hardening (#14), eRPC runbooks (#71/#73), `envio-re-port-backlog.md`. 340 vitest passing.
+
+**Operator next:** merge PR #114 → `KITCHEN_WORKER_ENABLED=true` on kitchen-api → advance #111 Azuki order → execute eRPC/Railway runbooks.
+
 ---
 
 # Session Notes
