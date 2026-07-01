@@ -21,10 +21,19 @@ import { db } from "ponder:api";
 import schema from "ponder:schema";
 import { graphql } from "ponder";
 
+import { createCollectionRoutes } from "./collections/routes";
+import { createPonderCollectionStatusReader } from "./collections/ponder-status-reader";
+
 const app = new Hono();
 
 // Default Ponder graphql at /graphql — UNCHANGED contract per AC-3 (G-8 LOCKED).
 app.use("/graphql", graphql({ db, schema }));
+
+// Kitchen upstream API (sonar-api#107) — ordering-service probe + ingest enqueue.
+app.route(
+  "/v1/collections",
+  createCollectionRoutes({ reader: createPonderCollectionStatusReader(db) }),
+);
 
 // Liveness + readiness defer to Ponder 0.16.6's built-in /health + /ready
 // endpoints (attached automatically by the HTTP server). Ponder RESERVES both
