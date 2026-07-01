@@ -297,6 +297,30 @@ type TrackedHolder {
   tokenCount: Int!
 }
 
+# Per-(contract, chain, tokenId, wallet) ERC-1155 balance (sonar-api#62).
+# Populated by puru-apiculture1155 handler; COVERAGE = DISTINCT collectionKey.
+type TrackedHolder1155 {
+  id: ID!
+  contract: String!
+  collectionKey: String! @index
+  chainId: Int!
+  tokenId: BigInt!
+  address: String! @index
+  balance: BigInt!
+  lastUpdated: BigInt!
+}
+
+# On-chain address classification (sonar-api#63): pending | eoa | contract | delegated_eoa.
+type AddressType {
+  id: ID!
+  chainId: Int! @index
+  address: String! @index
+  type: String! @index
+  resolvedAtBlock: BigInt
+  lastResolved: BigInt
+  recheckAfter: BigInt @index
+}
+
 type CollectionStat {
   id: ID!
   collection: String!

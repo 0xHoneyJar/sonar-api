@@ -27,6 +27,7 @@
  * src/belts/mibera). Keep this list in sync with src/handlers/*.ts.
  */
 
+import "./handlers/address-resolve";
 import "./handlers/apdao-auction";
 import "./handlers/aquabera-vault-direct";
 import "./handlers/aquabera-wall";
