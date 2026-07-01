@@ -1,0 +1,48 @@
+# kitchen-build.yml — build gate for the kitchen-api sidecar (Dockerfile.kitchen).
+# Closes Bridgebuilder F-002 from PR #110: regressions in src/kitchen/ must not ship silently.
+
+name: Kitchen Build Gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/kitchen/**"
+      - "Dockerfile.kitchen"
+      - "package.kitchen.json"
+      - ".github/workflows/kitchen-build.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/kitchen/**"
+      - "Dockerfile.kitchen"
+      - "package.kitchen.json"
+      - ".github/workflows/kitchen-build.yml"
+  workflow_dispatch:
+
+jobs:
+  kitchen-image:
+    name: kitchen-api — docker build + health smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Dockerfile.kitchen
+        run: docker build -f Dockerfile.kitchen -t sonar-kitchen-api:ci .
+
+      - name: Smoke /health (no Postgres required)
+        run: |
+          cid=$(docker run -d -e PORT=8080 -e NODE_ENV=development -p 18080:8080 sonar-kitchen-api:ci)
+          trap "docker rm -f $cid" EXIT
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:18080/health | grep -q '"ok":true'; then
+              echo "kitchen /health OK"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "kitchen /health smoke failed"
+          docker logs "$cid"
+          exit 1

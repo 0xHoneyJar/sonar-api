@@ -90,16 +90,33 @@ indexer.onEvent(
       // Update article stats
       const statsId = `${cloneLower}_${chainId}`;
       const existingStats = await context.MirrorArticleStats.get(statsId);
+      const collectorMarkerId = `collector:${cloneLower}:${recipientLower}:${chainId}`;
+      const existingCollectorMarker = await context.MirrorArticlePurchase.get(collectorMarkerId);
+      const uniqueCollectorsDelta = existingCollectorMarker ? 0 : 1;
+
+      if (!existingCollectorMarker) {
+        context.MirrorArticlePurchase.set({
+          id: collectorMarkerId,
+          clone: cloneLower,
+          tokenId: 0n,
+          recipient: recipientLower,
+          price: 0n,
+          timestamp,
+          blockNumber: BigInt(event.block.number),
+          transactionHash: event.transaction.hash,
+          chainId,
+        });
+      }
 
       if (existingStats) {
         context.MirrorArticleStats.set({
           ...existingStats,
           totalPurchases: existingStats.totalPurchases + 1,
           totalRevenue: existingStats.totalRevenue + priceBigInt,
+          uniqueCollectors: existingStats.uniqueCollectors + uniqueCollectorsDelta,
           lastPurchaseTime: timestamp,
         });
       } else {
-        // First purchase for this article
         const newStats: MirrorArticleStats = {
           id: statsId,
           clone: cloneLower,

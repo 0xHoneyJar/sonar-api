@@ -10,7 +10,10 @@ CREATE TABLE IF NOT EXISTS kitchen_ingest_jobs (
   status text NOT NULL DEFAULT 'queued',
   contact_email text,
   community_name text,
+  error_message text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (chain_id, contract)
 );
+
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS error_message text;

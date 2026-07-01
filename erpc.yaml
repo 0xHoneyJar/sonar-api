@@ -311,9 +311,12 @@ projects:
         endpoint: https://optimism.drpc.org
         rateLimitBudget: bud-op-drpc
 
-      # ── Ethereum 1 (geth/erigon — the op-stack getLogs-liar class does NOT apply; lower
-      # risk). getLogs cluster = publicnode + tenderly (verified 457 logs agree) + drpc.
-      # MiladyCollection is dense in the mint era; the full-chain backfill is the heaviest leg.
+      # ── Ethereum 1 (geth/erigon — KF-012 class: malformed eth_getLogs missing log.blockNumber).
+      # Mitigation: HyperRPC primary for getLogs-heavy backfill + free upstreams as fallback.
+      # Verify lying upstream with scripts/verify-erpc-getlogs-upstreams.sh before deprioritizing.
+      - id: eth-hyperrpc
+        endpoint: https://eth.hyperrpc.xyz
+        rateLimitBudget: bud-eth-hyperrpc
       - id: eth-publicnode
         endpoint: https://ethereum-rpc.publicnode.com
         rateLimitBudget: bud-eth-publicnode

@@ -1,8 +1,8 @@
 import pg from "pg";
 
-import type { CollectionKey, IngestJobRecord, IngestJobStatus, IngestRequestBody } from "./types.js";
-import { collectionKeyId, makeIngestJobId } from "./normalize.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
+import { collectionKeyId, makeIngestJobId } from "./normalize.js";
+import type { CollectionKey, IngestJobRecord, IngestJobStatus, IngestRequestBody } from "./types.js";
 
 const ENSURE_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS kitchen_ingest_jobs (
@@ -14,10 +14,13 @@ CREATE TABLE IF NOT EXISTS kitchen_ingest_jobs (
   status text NOT NULL DEFAULT 'queued',
   contact_email text,
   community_name text,
+  error_message text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (chain_id, contract)
 );
+
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS error_message text;
 `;
 
 type JobRow = {
@@ -29,6 +32,7 @@ type JobRow = {
   status: string;
   contact_email: string | null;
   community_name: string | null;
+  error_message: string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -45,10 +49,14 @@ function rowToRecord(row: JobRow): IngestJobRecord {
     contactEmail: row.contact_email ?? undefined,
     communityName: row.community_name ?? undefined,
     status: row.status as IngestJobStatus,
+    errorMessage: row.error_message ?? undefined,
     createdAtMs: row.created_at.getTime(),
     updatedAtMs: row.updated_at.getTime(),
   };
 }
+
+const JOB_COLUMNS = `chain_id, contract, job_id, order_id, source, status,
+              contact_email, community_name, error_message, created_at, updated_at`;
 
 export async function ensureKitchenIngestTable(pool: pg.Pool): Promise<void> {
   await pool.query(ENSURE_TABLE_SQL);
@@ -59,8 +67,7 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
 
   async get(key: CollectionKey): Promise<IngestJobRecord | undefined> {
     const result = await this.pool.query<JobRow>(
-      `SELECT chain_id, contract, job_id, order_id, source, status,
-              contact_email, community_name, created_at, updated_at
+      `SELECT ${JOB_COLUMNS}
        FROM kitchen_ingest_jobs
        WHERE chain_id = $1 AND lower(contract) = lower($2)`,
       [key.chainId, key.contract],
@@ -80,11 +87,10 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
       const result = await this.pool.query<JobRow>(
         `UPDATE kitchen_ingest_jobs
          SET job_id = $3, order_id = $4, source = $5, status = 'queued',
-             contact_email = $6, community_name = $7,
+             contact_email = $6, community_name = $7, error_message = NULL,
              updated_at = to_timestamp($8 / 1000.0)
          WHERE chain_id = $1 AND lower(contract) = lower($2)
-         RETURNING chain_id, contract, job_id, order_id, source, status,
-                   contact_email, community_name, created_at, updated_at`,
+         RETURNING ${JOB_COLUMNS}`,
         [
           key.chainId,
           key.contract,
@@ -107,8 +113,7 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
          (chain_id, contract, job_id, order_id, source, status, contact_email, community_name, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, 'queued', $6, $7, to_timestamp($8 / 1000.0), to_timestamp($8 / 1000.0))
        ON CONFLICT (chain_id, contract) DO NOTHING
-       RETURNING chain_id, contract, job_id, order_id, source, status,
-                 contact_email, community_name, created_at, updated_at`,
+       RETURNING ${JOB_COLUMNS}`,
       [
         key.chainId,
         key.contract,
@@ -129,6 +134,37 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
       throw new Error(`ingest upsert lost race for ${collectionKeyId(key)}`);
     }
     return raced;
+  }
+
+  async listByStatus(status: IngestJobStatus, limit = 50): Promise<IngestJobRecord[]> {
+    const result = await this.pool.query<JobRow>(
+      `SELECT ${JOB_COLUMNS}
+       FROM kitchen_ingest_jobs
+       WHERE status = $1
+       ORDER BY created_at ASC
+       LIMIT $2`,
+      [status, limit],
+    );
+    return result.rows.map(rowToRecord);
+  }
+
+  async updateStatus(
+    key: CollectionKey,
+    status: IngestJobStatus,
+    args?: { errorMessage?: string; nowMs?: number },
+  ): Promise<IngestJobRecord | undefined> {
+    const nowMs = args?.nowMs ?? Date.now();
+    const result = await this.pool.query<JobRow>(
+      `UPDATE kitchen_ingest_jobs
+       SET status = $3,
+           error_message = $4,
+           updated_at = to_timestamp($5 / 1000.0)
+       WHERE chain_id = $1 AND lower(contract) = lower($2)
+       RETURNING ${JOB_COLUMNS}`,
+      [key.chainId, key.contract, status, args?.errorMessage ?? null, nowMs],
+    );
+    const row = result.rows[0];
+    return row ? rowToRecord(row) : undefined;
   }
 }
 

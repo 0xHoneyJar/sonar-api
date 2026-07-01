@@ -146,6 +146,7 @@ indexer.onEvent(
       context.log.error(
         `[Friendtech] Trade handler failed for tx ${event.transaction.hash}: ${error}`
       );
+      throw error;
     }
   }
 );
