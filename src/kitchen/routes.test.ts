@@ -149,6 +149,39 @@ describe("kitchen collection routes", () => {
     await expect(res.json()).resolves.toEqual({ status: "failed" });
   });
 
+  it("re-queues ingest after a failed job", async () => {
+    const key = {
+      chainId: FIXTURE_CHAIN_ID,
+      contract: FIXTURE_CONTRACT as `0x${string}`,
+    };
+    await store.upsertQueued(key, {
+      order_id: "44444444-4444-4444-8444-444444444444",
+      source: "ordering-service",
+    });
+    store.markFailed(key);
+
+    const res = await app.request(`/${FIXTURE_CHAIN_ID}/${FIXTURE_CONTRACT}/ingest`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        order_id: "55555555-5555-4555-8555-555555555555",
+        source: "ordering-service",
+      }),
+    });
+
+    expect(res.status).toBe(202);
+    await expect(res.json()).resolves.toMatchObject({ status: "queued" });
+
+    const status = await app.request(`/${FIXTURE_CHAIN_ID}/${FIXTURE_CONTRACT}/status`, {
+      headers: authHeaders(),
+    });
+    expect(status.status).toBe(200);
+    await expect(status.json()).resolves.toEqual({ status: "indexing" });
+  });
+
   it("returns 200 when ingest is requested for an already indexed collection", async () => {
     app = createCollectionRoutes({
       reader: makeReader({

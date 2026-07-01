@@ -75,7 +75,31 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
     nowMs = Date.now(),
   ): Promise<IngestJobRecord> {
     const existing = await this.get(key);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.status !== "failed") return existing;
+      const result = await this.pool.query<JobRow>(
+        `UPDATE kitchen_ingest_jobs
+         SET job_id = $3, order_id = $4, source = $5, status = 'queued',
+             contact_email = $6, community_name = $7,
+             updated_at = to_timestamp($8 / 1000.0)
+         WHERE chain_id = $1 AND lower(contract) = lower($2)
+         RETURNING chain_id, contract, job_id, order_id, source, status,
+                   contact_email, community_name, created_at, updated_at`,
+        [
+          key.chainId,
+          key.contract,
+          makeIngestJobId(key),
+          body.order_id,
+          body.source,
+          body.contact_email ?? null,
+          body.community_name ?? null,
+          nowMs,
+        ],
+      );
+      const row = result.rows[0];
+      if (!row) throw new Error(`ingest requeue failed for ${collectionKeyId(key)}`);
+      return rowToRecord(row);
+    }
 
     const jobId = makeIngestJobId(key);
     const result = await this.pool.query<JobRow>(

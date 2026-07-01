@@ -21,7 +21,16 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
   ): Promise<IngestJobRecord> {
     const id = collectionKeyId(key);
     const existing = this.jobs.get(id);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.status !== "failed") return existing;
+      existing.status = "queued";
+      existing.orderId = body.order_id;
+      existing.source = body.source;
+      existing.contactEmail = body.contact_email;
+      existing.communityName = body.community_name;
+      existing.updatedAtMs = nowMs;
+      return existing;
+    }
 
     const record: IngestJobRecord = {
       jobId: makeIngestJobId(key),
