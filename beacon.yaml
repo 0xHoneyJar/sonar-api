@@ -1,0 +1,391 @@
+schema_version: "2"
+_generated_sections:
+  - sources
+  - read_surface
+  - deploy_model
+identity:
+  name: sonar-api
+  aka:
+    - freeside-sonar
+    - thj-indexer
+  role: onchain-indexer
+  runtime: envio-selfhost
+  source_of_truth: hypersync-postgres-hasura
+sources:
+  status: verified
+  probe_source: commit
+  transport: hypersync
+  chains:
+    - id: 1
+      name: ethereum
+    - id: 10
+      name: optimism
+    - id: 8453
+      name: base
+    - id: 42161
+      name: arbitrum
+    - id: 80094
+      name: berachain
+    - id: 7777777
+      name: zora
+  contract_source_count: 40
+  svm:
+    lane: src/svm/*
+    transport: webhook
+    status: verified
+read_surface:
+  status: verified
+  probe_source: fixture
+  graphql:
+    alias: sonar.0xhoneyjar.xyz
+    endpoint: https://sonar.0xhoneyjar.xyz/v1/graphql
+    schema_hint:
+      - Action
+      - Action_aggregate
+      - Action_by_pk
+      - ApdaoAuction
+      - ApdaoAuctionStats
+      - ApdaoAuctionStats_aggregate
+      - ApdaoAuctionStats_by_pk
+      - ApdaoAuction_aggregate
+      - ApdaoAuction_by_pk
+      - ApdaoBid
+      - ApdaoBid_aggregate
+      - ApdaoBid_by_pk
+      - ApdaoQueuedToken
+      - ApdaoQueuedToken_aggregate
+      - ApdaoQueuedToken_by_pk
+      - AquaberaBuilder
+      - AquaberaBuilder_aggregate
+      - AquaberaBuilder_by_pk
+      - AquaberaDeposit
+      - AquaberaDeposit_aggregate
+      - AquaberaDeposit_by_pk
+      - AquaberaStats
+      - AquaberaStats_aggregate
+      - AquaberaStats_by_pk
+      - AquaberaWithdrawal
+      - AquaberaWithdrawal_aggregate
+      - AquaberaWithdrawal_by_pk
+      - BadgeAmount
+      - BadgeAmount_aggregate
+      - BadgeAmount_by_pk
+      - BadgeBalance
+      - BadgeBalance_aggregate
+      - BadgeBalance_by_pk
+      - BadgeHolder
+      - BadgeHolder_aggregate
+      - BadgeHolder_by_pk
+      - BgtBoostEvent
+      - BgtBoostEvent_aggregate
+      - BgtBoostEvent_by_pk
+      - CandiesBacking
+      - CandiesBacking_aggregate
+      - CandiesBacking_by_pk
+      - CandiesInventory
+      - CandiesInventory_aggregate
+      - CandiesInventory_by_pk
+      - CandiesTrade
+      - CandiesTrade_aggregate
+      - CandiesTrade_by_pk
+      - CollectionStat
+      - CollectionStat_aggregate
+      - CollectionStat_by_pk
+      - DailyRfvSnapshot
+      - DailyRfvSnapshot_aggregate
+      - DailyRfvSnapshot_by_pk
+      - Erc1155MintEvent
+      - Erc1155MintEvent_aggregate
+      - Erc1155MintEvent_by_pk
+      - FatBeraDeposit
+      - FatBeraDeposit_aggregate
+      - FatBeraDeposit_by_pk
+      - FriendtechHolder
+      - FriendtechHolder_aggregate
+      - FriendtechHolder_by_pk
+      - FriendtechSubjectStats
+      - FriendtechSubjectStats_aggregate
+      - FriendtechSubjectStats_by_pk
+      - FriendtechTrade
+      - FriendtechTrade_aggregate
+      - FriendtechTrade_by_pk
+      - GlobalCollectionStat
+      - GlobalCollectionStat_aggregate
+      - GlobalCollectionStat_by_pk
+      - HenloBurn
+      - HenloBurnStats
+      - HenloBurnStats_aggregate
+      - HenloBurnStats_by_pk
+      - HenloBurn_aggregate
+      - HenloBurn_by_pk
+      - HenloBurner
+      - HenloBurner_aggregate
+      - HenloBurner_by_pk
+      - HenloChainBurner
+      - HenloChainBurner_aggregate
+      - HenloChainBurner_by_pk
+      - HenloGlobalBurnStats
+      - HenloGlobalBurnStats_aggregate
+      - HenloGlobalBurnStats_by_pk
+      - HenloHolder
+      - HenloHolderStats
+      - HenloHolderStats_aggregate
+      - HenloHolderStats_by_pk
+      - HenloHolder_aggregate
+      - HenloHolder_by_pk
+      - HenloSourceBurner
+      - HenloSourceBurner_aggregate
+      - HenloSourceBurner_by_pk
+      - HenloVaultBalance
+      - HenloVaultBalance_aggregate
+      - HenloVaultBalance_by_pk
+      - HenloVaultDeposit
+      - HenloVaultDeposit_aggregate
+      - HenloVaultDeposit_by_pk
+      - HenloVaultEpoch
+      - HenloVaultEpoch_aggregate
+      - HenloVaultEpoch_by_pk
+      - HenloVaultRound
+      - HenloVaultRound_aggregate
+      - HenloVaultRound_by_pk
+      - HenloVaultStats
+      - HenloVaultStats_aggregate
+      - HenloVaultStats_by_pk
+      - HenloVaultUser
+      - HenloVaultUser_aggregate
+      - HenloVaultUser_by_pk
+      - Holder
+      - Holder_aggregate
+      - Holder_by_pk
+      - HoneyJar_Approval
+      - HoneyJar_ApprovalForAll
+      - HoneyJar_ApprovalForAll_aggregate
+      - HoneyJar_ApprovalForAll_by_pk
+      - HoneyJar_Approval_aggregate
+      - HoneyJar_Approval_by_pk
+      - HoneyJar_BaseURISet
+      - HoneyJar_BaseURISet_aggregate
+      - HoneyJar_BaseURISet_by_pk
+      - HoneyJar_OwnershipTransferred
+      - HoneyJar_OwnershipTransferred_aggregate
+      - HoneyJar_OwnershipTransferred_by_pk
+      - HoneyJar_SetGenerated
+      - HoneyJar_SetGenerated_aggregate
+      - HoneyJar_SetGenerated_by_pk
+      - HoneyJar_Transfer
+      - HoneyJar_Transfer_aggregate
+      - HoneyJar_Transfer_by_pk
+      - LatestValidatorDeposit
+      - LatestValidatorDeposit_aggregate
+      - LatestValidatorDeposit_by_pk
+      - LatestValidatorReward
+      - LatestValidatorReward_aggregate
+      - LatestValidatorReward_by_pk
+      - LatestVaultStrategy
+      - LatestVaultStrategy_aggregate
+      - LatestVaultStrategy_by_pk
+      - MiberaLoan
+      - MiberaLoanStats
+      - MiberaLoanStats_aggregate
+      - MiberaLoanStats_by_pk
+      - MiberaLoan_aggregate
+      - MiberaLoan_by_pk
+      - MiberaOrder
+      - MiberaOrder_aggregate
+      - MiberaOrder_by_pk
+      - MiberaStakedToken
+      - MiberaStakedToken_aggregate
+      - MiberaStakedToken_by_pk
+      - MiberaStaker
+      - MiberaStaker_aggregate
+      - MiberaStaker_by_pk
+      - MiberaTrade
+      - MiberaTrade_aggregate
+      - MiberaTrade_by_pk
+      - MiberaTransfer
+      - MiberaTransfer_aggregate
+      - MiberaTransfer_by_pk
+      - Mint
+      - MintActivity
+      - MintActivity_aggregate
+      - MintActivity_by_pk
+      - MintEvent
+      - MintEvent_aggregate
+      - MintEvent_by_pk
+      - Mint_aggregate
+      - Mint_by_pk
+      - MirrorArticlePurchase
+      - MirrorArticlePurchase_aggregate
+      - MirrorArticlePurchase_by_pk
+      - MirrorArticleStats
+      - MirrorArticleStats_aggregate
+      - MirrorArticleStats_by_pk
+      - NftBurn
+      - NftBurnStats
+      - NftBurnStats_aggregate
+      - NftBurnStats_by_pk
+      - NftBurn_aggregate
+      - NftBurn_by_pk
+      - PaddleBorrower
+      - PaddleBorrower_aggregate
+      - PaddleBorrower_by_pk
+      - PaddleLiquidation
+      - PaddleLiquidation_aggregate
+      - PaddleLiquidation_by_pk
+      - PaddlePawn
+      - PaddlePawn_aggregate
+      - PaddlePawn_by_pk
+      - PaddleSupplier
+      - PaddleSupplier_aggregate
+      - PaddleSupplier_by_pk
+      - PaddleSupply
+      - PaddleSupply_aggregate
+      - PaddleSupply_by_pk
+      - PremintParticipation
+      - PremintParticipation_aggregate
+      - PremintParticipation_by_pk
+      - PremintPhaseStats
+      - PremintPhaseStats_aggregate
+      - PremintPhaseStats_by_pk
+      - PremintRefund
+      - PremintRefund_aggregate
+      - PremintRefund_by_pk
+      - PremintUser
+      - PremintUser_aggregate
+      - PremintUser_by_pk
+      - SFMultiRewardsPosition
+      - SFMultiRewardsPosition_aggregate
+      - SFMultiRewardsPosition_by_pk
+      - SFPosition
+      - SFPosition_aggregate
+      - SFPosition_by_pk
+      - SFVaultStats
+      - SFVaultStats_aggregate
+      - SFVaultStats_by_pk
+      - SFVaultStrategy
+      - SFVaultStrategy_aggregate
+      - SFVaultStrategy_by_pk
+      - Token
+      - Token_aggregate
+      - Token_by_pk
+      - TrackedHolder
+      - TrackedHolder_aggregate
+      - TrackedHolder_by_pk
+      - TrackedTokenBalance
+      - TrackedTokenBalance_aggregate
+      - TrackedTokenBalance_by_pk
+      - TradeStats
+      - TradeStats_aggregate
+      - TradeStats_by_pk
+      - Transfer
+      - Transfer_aggregate
+      - Transfer_by_pk
+      - TreasuryActivity
+      - TreasuryActivity_aggregate
+      - TreasuryActivity_by_pk
+      - TreasuryItem
+      - TreasuryItem_aggregate
+      - TreasuryItem_by_pk
+      - TreasuryStats
+      - TreasuryStats_aggregate
+      - TreasuryStats_by_pk
+      - UserBalance
+      - UserBalance_aggregate
+      - UserBalance_by_pk
+      - UserVaultSummary
+      - UserVaultSummary_aggregate
+      - UserVaultSummary_by_pk
+      - ValidatorBlockRewards
+      - ValidatorBlockRewards_aggregate
+      - ValidatorBlockRewards_by_pk
+      - ValidatorDeposits
+      - ValidatorDeposits_aggregate
+      - ValidatorDeposits_by_pk
+      - ValidatorWithdrawalTotals
+      - ValidatorWithdrawalTotals_aggregate
+      - ValidatorWithdrawalTotals_by_pk
+      - Vault
+      - Vault_aggregate
+      - Vault_by_pk
+      - WithdrawalBatch
+      - WithdrawalBatch_aggregate
+      - WithdrawalBatch_by_pk
+      - WithdrawalFulfillment
+      - WithdrawalFulfillment_aggregate
+      - WithdrawalFulfillment_by_pk
+      - WithdrawalRequest
+      - WithdrawalRequest_aggregate
+      - WithdrawalRequest_by_pk
+      - chain_metadata
+      - chain_metadata_aggregate
+      - label_entity_label
+      - label_entity_label_aggregate
+      - label_entity_label_by_pk
+      - label_entity_primary
+      - label_entity_primary_aggregate
+      - svm_collection_event
+      - svm_collection_event_aggregate
+      - svm_collection_event_by_pk
+      - svm_collection_nft
+      - svm_collection_nft_aggregate
+      - svm_collection_nft_by_pk
+      - svm_collection_owner_derived
+      - svm_collection_owner_derived_aggregate
+      - svm_genesis_stone
+      - svm_genesis_stone_aggregate
+      - svm_genesis_stone_by_pk
+  auth:
+    kind: none
+  mcp:
+    shape: proxy
+    tools:
+      - graphql
+deploy_model:
+  status: verified
+  pattern: vercel-for-indexers
+  alias_is_contract: true
+  immutable_deployments: true
+  services:
+    - name: belt-gateway
+      alias: sonar.0xhoneyjar.xyz
+      deployment_status: SUCCESS
+    - name: belt-hasura-selfhost
+      deployment_status: SUCCESS
+    - name: belt-indexer-selfhost
+      deployment_status: SUCCESS
+    - name: svm-webhook
+      deployment_status: SUCCESS
+    - name: kitchen-api
+      deployment_status: SUCCESS
+    - name: Postgres-6J4w
+      deployment_status: SUCCESS
+  probe_source: fixture
+events:
+  status: unverified
+  transport: nats-jetstream
+  publishes:
+    - topic: mibera.*.minted.v1
+      schema: "@0xhoneyjar/events/schemas/nft-mint-detected"
+consumers:
+  - name: score-api
+    reads:
+      - graphql
+  - name: freeside-inventory
+    reads:
+      - graphql
+  - name: mibera-codex
+    reads:
+      - graphql
+acvp_invariants:
+  - id: event_completeness
+    status: aspirational
+    proof: tests/acvp/event_completeness.test.ts
+    scope: No event drops between block N and N+1 for any indexed contract source on any chain
+  - id: monotonicity
+    status: aspirational
+    proof: tests/acvp/monotonicity.test.ts
+    scope: latest_processed_block on a given chainId never decreases on the live alias (reorgs handled in-belt)
+  - id: audit_replay
+    status: aspirational
+    proof: tests/acvp/audit_replay.test.ts
+    scope: Reindexing the consolidated belt from per-chain start_block produces byte-identical Action / Transfer / MintEvent rows

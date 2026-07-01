@@ -1,0 +1,59 @@
+# Beacon v2 seed — sonar-api federation surface (hand-maintained declared blocks)
+# Generated sections (sources, read_surface, deploy_model) are overwritten by `pnpm self --write`.
+# Building identity (BeaconV3) lives in packages/protocol/beacon.yaml.
+
+schema_version: "2"
+_generated_sections:
+  - sources
+  - read_surface
+  - deploy_model
+
+identity:
+  name: sonar-api
+  aka:
+    - freeside-sonar
+    - thj-indexer
+  role: onchain-indexer
+  runtime: envio-selfhost
+  source_of_truth: hypersync-postgres-hasura
+
+sources:
+  status: unknown
+  reason: not yet probed
+
+read_surface:
+  status: unknown
+  reason: not yet probed
+
+deploy_model:
+  status: unknown
+  reason: not yet probed
+
+events:
+  status: unverified
+  transport: nats-jetstream
+  publishes:
+    - topic: mibera.*.minted.v1
+      schema: "@0xhoneyjar/events/schemas/nft-mint-detected"
+
+consumers:
+  - name: score-api
+    reads:
+      - graphql
+  - name: freeside-inventory
+    reads:
+      - graphql
+  - name: mibera-codex
+    reads:
+      - graphql
+
+acvp_invariants:
+  - id: event_completeness
+    status: aspirational
+    proof: tests/acvp/event_completeness.test.ts
+  - id: monotonicity
+    status: aspirational
+    proof: tests/acvp/monotonicity.test.ts
+  - id: audit_replay
+    status: aspirational
+    proof: tests/acvp/audit_replay.test.ts
