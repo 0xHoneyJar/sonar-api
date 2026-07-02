@@ -27,13 +27,14 @@ describe("verify-belt-config", () => {
     const names = new Set(BELT_CONTRACTS.map((c) => c.name));
     const chains = new Set(BELT_CONTRACTS.map((c) => c.chainId));
     expect(names.size).toBe(15);
+    expect(BELT_CONTRACTS.length).toBe(17);
     expect([...chains].sort((a, b) => a - b)).toEqual([1, 10, 8453, 80094]);
-    // TrackedErc721 is referenced on BOTH Berachain (80094) and Optimism (10).
+    // TrackedErc721 is referenced on Ethereum (Azuki), Optimism (lore), and Berachain (fractures).
     expect(
       BELT_CONTRACTS.filter((c) => c.name === "TrackedErc721")
         .map((c) => c.chainId)
         .sort((a, b) => a - b),
-    ).toEqual([10, 80094]);
+    ).toEqual([1, 10, 80094]);
     expect(BELT_CHAIN_ID).toBe(80094); // back-compat export
   });
 

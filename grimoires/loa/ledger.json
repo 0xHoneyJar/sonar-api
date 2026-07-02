@@ -1590,8 +1590,22 @@
       "note": "Parallel to indexing-managed-envio (stale — abandoned-by-territory). Does not supersede root prd.md."
     }
   ],
-  "global_sprint_counter": 171,
+  "global_sprint_counter": 172,
+  "last_updated": "2026-06-30T21:24:00Z",
   "bugfix_cycles": [
+    {
+      "id": "cycle-bug-20260702-63f78a",
+      "label": "Bug Fix — chain-1 Azuki TrackedErc721 never indexes holders after full belt reinit",
+      "type": "bugfix",
+      "status": "completed",
+      "source_issue": "https://github.com/0xHoneyJar/sonar-api/issues/118",
+      "created_at": "2026-07-02T03:40:53Z",
+      "sprints": [
+        "sprint-bug-172"
+      ],
+      "triage": "grimoires/loa/a2a/bug-20260702-63f78a/triage.md",
+      "sprint_plan": "grimoires/loa/a2a/bug-20260702-63f78a/sprint.md"
+    },
     {
       "id": "cycle-bug-20260418-i554-00a529",
       "label": "Bug Fix - .loa-version.json + CLAUDE.loa.md version markers stale",

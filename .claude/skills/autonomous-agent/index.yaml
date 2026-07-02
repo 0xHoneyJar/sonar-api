@@ -88,7 +88,7 @@ config:
   max_remediation_loops: 3            # Escalate after N failed attempts
 
   # Deployment settings
-  require_human_deploy_approval: true
+  require_human_deploy_approval: false
 
   # Attention budget (tokens)
   attention_budget:

@@ -41,6 +41,9 @@ export const TRACKED_ERC721_COLLECTION_KEYS: Record<string, string> = {
   // NOTE: mibera_zora is ERC-1155 (Zora platform), handled by MiberaZora1155 handler
   // NOTE: puru collections are ERC-1155 (party.app), handled by PuruApiculture1155 handler
 
+  // ===== COMMUNITY ONBOARDING (kitchen E2E) =====
+  "0xed5af388653567af2f388e6224dcc93746104133": "azuki_kitchen_e2e",
+
   // ===== APIOLOGY DAO =====
   // ApiologyDAO seat NFT — governance membership token for apdao-auction-house
   // (paired with ApdaoAuctionHouse proxy at 0xE840929c…0A0b). Consumed via

@@ -29,8 +29,9 @@ import { fileURLToPath } from 'node:url';
  * referenced on. Event-definition (events + field_selection) fidelity is checked
  * once per unique contract name (chain-agnostic, vs the monolith top-level def);
  * address + start_block fidelity is checked per (contract, chain). TrackedErc721
- * is referenced on TWO chains (Berachain lore/fractures + Optimism lore), so it
- * appears twice — its def is checked once, its address/start_block per chain.
+ * is referenced on THREE chains (Ethereum Azuki kitchen E2E, Optimism lore, Berachain
+ * lore/fractures), so it appears three times — its def is checked once, its
+ * address/start_block per chain.
  */
 export const BELT_CONTRACTS = [
   // Berachain (80094) — score-api footprint
@@ -53,6 +54,7 @@ export const BELT_CONTRACTS = [
   { name: 'TrackedErc721', chainId: 10 },
   // Ethereum (1)
   { name: 'MiladyCollection', chainId: 1 },
+  { name: 'TrackedErc721', chainId: 1 },
 ];
 
 /** @deprecated belt is now multi-chain — use BELT_CONTRACTS[].chainId. Kept for back-compat. */
