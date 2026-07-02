@@ -1,0 +1,26 @@
+# Learning — sprint-bug-172 (20260702-63f78a)
+
+**Date:** 2026-06-30
+**Type:** bugfix
+**Issue:** #118
+
+## Pattern
+
+**Silent belt config drift:** Adding a contract to `config.yaml` without (1) explicit `start_block`, (2) `config.mibera.yaml` parity, and (3) `BELT_CONTRACTS` gate entry allows production indexing gaps that CI never catches.
+
+## Prevention
+
+- Extend `verify:belt-config` / `BELT_CONTRACTS` whenever chain-level TrackedErc721 bindings are added to monolith config.
+- Kitchen onboarding should assert gate coverage in `test/azuki-chain1-tracked-erc721.test.ts` pattern.
+- Post config-only contract adds on caught-up chains: assume **KF-013** required on `belt-indexer-selfhost`.
+
+## Operator checklist (post-merge)
+
+1. Merge PR → redeploy `belt-indexer-selfhost`
+2. KF-013: `ENVIO_RESTART=1` → deploy → remove → redeploy
+3. GraphQL: Azuki `TrackedHolder_aggregate` > 0 on chain 1
+4. Re-onboard kitchen Azuki job → unblock #111
+
+## Adversarial review
+
+- codex-headless: clean (review + audit, 2026-07-02)

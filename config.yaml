@@ -594,6 +594,7 @@ chains:
       - name: TrackedErc721
         address:
           - 0xed5af388653567af2f388e6224dcc93746104133 # azuki_kitchen_e2e
+        start_block: 14162194 # Azuki collection deployment
 
   # Arbitrum
   - id: 42161

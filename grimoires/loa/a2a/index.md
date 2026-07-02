@@ -1,47 +1,13 @@
-# Sprint Status Index
+# A2A Sprint Index
 
-## Cycle indexer-belt-rebuild: Indexer Belt Rebuild — Deployment #1
+| Sprint | Status | Type | Report |
+|--------|--------|------|--------|
+| sprint-bug-172 | COMPLETED (production verify deferred) | bugfix | [reviewer.md](./sprint-bug-172/reviewer.md) |
 
-| Sprint | Global ID | Status | Phase |
-|--------|-----------|--------|-------|
-| Sprint 1 | — | COMPLETED | audit: APPROVED |
-| Sprint 2 | — | PENDING | operator-paired (deploy/ops) — not autonomous |
+## sprint-bug-172
 
-## Cycle 041: Vision-Aware Planning — Creative Agency for AI Peers
-
-| Sprint | Global ID | Status | Phase |
-|--------|-----------|--------|-------|
-| Sprint 1 | 74 | COMPLETED | — |
-| Sprint 2 | 75 | COMPLETED | audit: APPROVED |
-| Sprint 3 | 76 | COMPLETED | audit: APPROVED |
-
-## Cycle 039: Two-Pass Bridge Review
-
-| Sprint | Global ID | Status | Phase |
-|--------|-----------|--------|-------|
-| Sprint 1 | 63 | COMPLETED | — |
-| Sprint 2 | 64 | COMPLETED | — |
-| Sprint 3 | 65 | COMPLETED | — |
-| Sprint 4 | 66 | COMPLETED | — |
-| Sprint 5 | 67 | COMPLETED | — |
-| Sprint 6 | 68 | COMPLETED | — |
-| Sprint 7 | 69 | COMPLETED | — |
-| Sprint 8 | 70 | COMPLETED | audit: APPROVED |
-| Sprint 9 | 71 | COMPLETED | review: PENDING |
-
-## Cycle 038: Organizational Memory Sovereignty — Three-Zone State Architecture
-
-| Sprint | Global ID | Status | Phase |
-|--------|-----------|--------|-------|
-| Sprint 1 | 57 | COMPLETED | — |
-| Sprint 2 | 58 | COMPLETED | — |
-| Sprint 3 | 59 | COMPLETED | — |
-| Sprint 4 | 60 | COMPLETED | — |
-| Sprint 5 | 61 | COMPLETED | — |
-| Sprint 6 | 62 | COMPLETED | — |
-
-## Cycle 037: Bridgebuilder Deep Review — Architectural Fixes
-
-| Sprint | Global ID | Status | Phase |
-|--------|-----------|--------|-------|
-| Sprint 1 | 56 | COMPLETED | — |
+- **Bug:** 20260702-63f78a — chain-1 Azuki TrackedErc721 never indexes holders
+- **Issue:** [#118](https://github.com/0xHoneyJar/sonar-api/issues/118)
+- **Review:** All good (`engineer-feedback.md`)
+- **Audit:** APPROVED (`auditor-sprint-feedback.md`)
+- **Operator:** Redeploy belt + KF-013 → verify GraphQL holders → re-onboard kitchen (#111)
