@@ -422,3 +422,22 @@ describe("decodeWebhookPayload (realtime)", () => {
     expect(eventId(fromWebhook)).toBe("SHARED:MINT_MEMBER_1:0");
   });
 });
+
+describe("SVM_BACKFILL_SINCE bound (walk-train discovery: blue-chip density)", () => {
+  it("stops paging once a page reaches pre-bound txs, keeping only in-window events", async () => {
+    process.env.SVM_BACKFILL_SINCE = "1000000";
+    const { HeliusCollectionEventSource } = await import("../src/svm/collection-event-source");
+    const src = new HeliusCollectionEventSource("k", "pyTh2UtBKfuDW6KCdT3swospYeoLmmKaGujWA91Moru", { paceMs: 0 });
+    const pages = [
+      Array.from({ length: 100 }, (_, i) => ({ signature: `sig${i}`, slot: 20 - 0, timestamp: 2000000 - i, type: "TRANSFER", tokenTransfers: [{ mint: "MINTx", fromUserAccount: null, toUserAccount: null }] })),
+      [{ signature: "old", slot: 1, timestamp: 900000, type: "TRANSFER", tokenTransfers: [] }], // pre-bound → stop
+      [{ signature: "never", slot: 0, timestamp: 1, type: "TRANSFER", tokenTransfers: [] }],
+    ];
+    let calls = 0;
+    (src as never as { addressHistory: unknown }).addressHistory = async () => pages[calls++];
+    const out = [];
+    for await (const e of src.mintHistory("MINTx")) out.push(e);
+    expect(calls).toBe(2); // page 3 never fetched — the bound stopped pagination
+    delete process.env.SVM_BACKFILL_SINCE;
+  }, 15000);
+});

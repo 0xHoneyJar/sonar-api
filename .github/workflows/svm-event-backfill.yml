@@ -22,6 +22,10 @@ on:
         description: "true = full walk (onboarding); default incremental"
         required: false
         default: ""
+      since:
+        description: "unix seconds — bound walks to txs newer than this (recent-window onboarding)"
+        required: false
+        default: ""
 
 concurrency:
   group: svm-event-backfill
@@ -56,6 +60,7 @@ jobs:
           LIMIT_INPUT: ${{ github.event.inputs.limit }}
           COLLECTION_INPUT: ${{ github.event.inputs.collection }}
           FULL_INPUT: ${{ github.event.inputs.full }}
+          SINCE_INPUT: ${{ github.event.inputs.since }}
         run: |
           ARGS=""
           if printf '%s' "$LIMIT_INPUT" | grep -qE '^[0-9]+$'; then ARGS="--limit $LIMIT_INPUT"; fi
@@ -63,4 +68,6 @@ jobs:
           case "$COLLECTION_INPUT" in (*[!a-z0-9_]*) echo "invalid collection"; exit 2;; esac
           [ -n "$COLLECTION_INPUT" ] && ARGS="$ARGS --collection $COLLECTION_INPUT"
           [ "$FULL_INPUT" = "true" ] && ARGS="$ARGS --full"
+          case "$SINCE_INPUT" in (*[!0-9]*) [ -n "$SINCE_INPUT" ] && { echo "since must be unix seconds"; exit 2; };; esac
+          [ -n "$SINCE_INPUT" ] && export SVM_BACKFILL_SINCE="$SINCE_INPUT"
           npx --yes tsx src/svm/collection-event-indexer.ts $ARGS
