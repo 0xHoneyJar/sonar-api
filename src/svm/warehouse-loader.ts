@@ -141,7 +141,7 @@ async function fetchCursor(collectionKey: string): Promise<string | null> {
     method: "POST",
     headers: { "x-hasura-admin-secret": SECRET, "Content-Type": "application/json" },
     body: JSON.stringify({
-      query: `query Cursor($k: String!) { svm_collection_event(where: {collection_key: {_eq: $k}}, order_by: {block_time: desc}, limit: 1) { block_time } }`,
+      query: `query Cursor($k: String!) { svm_collection_event(where: {collection_key: {_eq: $k}, source: {_eq: "dune-warehouse"}}, order_by: {block_time: desc}, limit: 1) { block_time } }`, // warehouse rows ONLY — a webhook row must not make a first load skip history (Codex P1)
       variables: { k: collectionKey },
     }),
   });
@@ -195,7 +195,7 @@ export async function runLoader(
     if (events.length > 0) {
       latestIso = new Date(Math.max(...events.map((e) => e.blockTime)) * 1000).toISOString();
       if (!opts.dry) {
-        await deps.upsert(events, cfg.collectionKey, cfg.collectionMint, "dune-warehouse");
+        await deps.upsert(events, cfg.collectionKey, cfg.collectionMint, "dune-warehouse", { ifAbsentOnly: true }); // coarse source never clobbers classified rows (Codex P1)
         result.eventsUpserted += events.length;
       }
     }

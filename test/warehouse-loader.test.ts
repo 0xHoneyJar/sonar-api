@@ -116,7 +116,7 @@ describe("runLoader", () => {
     WAREHOUSE_QUERY_IDS.events = 999;
     const d = deps();
     await runLoader({ collectionKey: "pythians", from: "2026-06-01T00:00:00Z", to: "2026-06-20T00:00:00Z" }, d);
-    expect(d.upsert).toHaveBeenCalledWith(expect.any(Array), "pythians", expect.any(String), "dune-warehouse");
+    expect(d.upsert).toHaveBeenCalledWith(expect.any(Array), "pythians", expect.any(String), "dune-warehouse", { ifAbsentOnly: true }); // Codex P1: coarse source never clobbers
     expect(d.syncStatus).toHaveBeenCalledWith(expect.objectContaining({ collectionKey: "pythians", lastEventSource: "dune-warehouse" }));
   });
 
@@ -128,9 +128,9 @@ describe("runLoader", () => {
 
 describe("FL SKP-004 — credit budget", () => {
   it("stops cleanly between windows when DUNE_CREDIT_BUDGET is exceeded", async () => {
-    process.env.DUNE_CREDIT_BUDGET = "0.1"; // read at module load — this test documents the env contract...
-    // (module-level constant → budget behavior is exercised via a fresh import)
-    const { runLoader: freshRun, WAREHOUSE_QUERY_IDS: ids } = await import("../src/svm/warehouse-loader?budget=" + Date.now());
+    process.env.DUNE_CREDIT_BUDGET = "0.1"; // module-level constant → force a FRESH module registry (BB HIGH: deterministic, not a Vite cache-key trick)
+    vi.resetModules();
+    const { runLoader: freshRun, WAREHOUSE_QUERY_IDS: ids } = await import("../src/svm/warehouse-loader");
     ids.events = 999;
     const dune = { runQuery: vi.fn().mockResolvedValue({ rows: [], executionCostCredits: 5 }) };
     const r = await freshRun(

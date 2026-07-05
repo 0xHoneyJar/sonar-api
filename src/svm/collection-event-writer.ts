@@ -25,6 +25,15 @@ const UPSERT = `mutation Up($objects: [svm_collection_event_insert_input!]!) {
   ) { affected_rows }
 }`;
 
+// Codex P1 (PR #125): the warehouse is the COARSE source — a Dune 'transfer' row must never
+// overwrite a richer Helius-classified row (sale with price/marketplace) sharing the same PK.
+// update_columns: [] = Hasura "on conflict do nothing": existing rows win, absent rows insert.
+const INSERT_IF_ABSENT = `mutation UpIfAbsent($objects: [svm_collection_event_insert_input!]!) {
+  insert_svm_collection_event(objects: $objects,
+    on_conflict: { constraint: collection_event_pkey, update_columns: [] }
+  ) { affected_rows }
+}`;
+
 export type EventSource = "helius-backfill" | "helius-webhook" | "dune-warehouse";
 
 export interface CollectionEventRow {
@@ -127,11 +136,13 @@ export async function upsertCollectionEvents(
   collectionKey: string,
   collectionMint: string,
   source: EventSource = "helius-backfill",
+  opts?: { ifAbsentOnly?: boolean },
 ): Promise<number> {
   const rows = dedupeById(toRows(events, collectionKey, collectionMint, source));
+  const mutation = opts?.ifAbsentOnly ? INSERT_IF_ABSENT : UPSERT;
   let affected = 0;
   for (const batch of chunk(rows, UPSERT_BATCH)) {
-    const d = await hasura<{ insert_svm_collection_event: { affected_rows: number } }>(UPSERT, { objects: batch });
+    const d = await hasura<{ insert_svm_collection_event: { affected_rows: number } }>(mutation, { objects: batch });
     affected += d.insert_svm_collection_event.affected_rows;
   }
   return affected;
