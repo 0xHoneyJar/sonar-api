@@ -1529,6 +1529,10 @@ flatline_protocol:
   # Master toggle - set to false to disable Flatline Protocol
   enabled: true
 
+  # Autonomous-run integration (enabled by operator directive 2026-07-05)
+  autonomous_mode:
+    enabled: true
+
   # Auto-trigger after planning commands (plan-and-analyze, architect, sprint-plan)
   auto_trigger: true
 

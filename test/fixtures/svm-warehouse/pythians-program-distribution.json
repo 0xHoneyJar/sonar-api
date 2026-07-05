@@ -1,0 +1,16 @@
+{
+  "_source": "Dune tokens_solana.transfers × tokens_solana.nft, pythians collection, measured 2026-07-05 (T-2)",
+  "_reading": "outer_executing_account cleanly separates marketplace custody legs from plain pNFT transfers. Candy Guard mint count (3,683) equals the member count — cross-confirmation of the member set. Precision vs Helius sale/list/delist labels still requires the DB fixture join (runbook step 5.3) — this distribution is the program-ID MAP evidence, not the precision measurement.",
+  "marketplace_program_candidates": {
+    "M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K": { "label": "magic-eden-v2", "transfer_legs": 7825 },
+    "TSWAPaqyCSx2KABk68Shruf4rp7CxcNi8hAsbdwmHbN": { "label": "tensor-swap", "transfer_legs": 6450 },
+    "mmm3XBJg5gk8XJxEKBvdgptZz6SgK4tXvn36sodowMc": { "label": "magic-eden-mmm", "transfer_legs": 3314 },
+    "TCMPhJdwDryooaGtiocG1u3xcYbRpiJzb283XfCZsDp": { "label": "tensor-tcomp", "transfer_legs": 2882 },
+    "SHARKobtfF1bHhxD2eqftjHBdVSCbKo9JtgK71FhELP": { "label": "sharky-lending", "transfer_legs": 226 }
+  },
+  "plain_transfer_program": { "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s": { "label": "token-metadata (pNFT transfer)", "transfer_legs": 7200 } },
+  "mint_program": { "Guard1JwRhJkVH6XZhzoYxeBVQe872VH6QggF4BWmS9g": { "label": "candy-guard", "mints": 3683 } },
+  "burn_program": { "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA": { "label": "spl-token", "burns": 7 } },
+  "long_tail_programs": 17,
+  "decision": "batch-1 ships kinds mint/transfer/burn only (option c — coarse, never wrong); option (a) program-ID marketplace classification is well-evidenced by this map and gets its precision measurement vs Helius-classified labels at runbook step 5.3 before any SVM_EMIT_MARKETPLACE_KINDS flip"
+}

@@ -1,154 +1,169 @@
 {
-  "_purpose": "The live SVM GraphQL READ contract the belt-gateway PROMISES its consumers (and which the SVM indexers' upserted columns must surface). Sibling of belt-contract.json (the EVM Transfer seam). Producer-side guard: CI introspects the live READ schema and fails the moment a consumer-depended SVM column drifts/disappears — the 'built-against-an-assumed-schema' bug class on the SVM seam, READ side.",
-  "_scope": "VERIFIED 2026-06-24: the belt-gateway is read-only — it exposes NO mutation_root / *_insert_input / *_constraint types (the self-host SVM Hasura hides them behind the admin role too). So this guard catches the COLUMN/type-drift sub-class (a renamed/removed field — the loa-freeside#300 EVM class) but NOT the write-path on_conflict CONSTRAINT-NAME sub-class that bit PR #76 (svm_collection_nft_pkey → collection_nft_pkey): that name lives in the admin-role mutation schema, structurally invisible from the surface introspected here. Closing the constraint-name class needs a SEPARATE admin-endpoint introspection of <type>_constraint.enumValues, OR an offline DDL-bind verifier (parse sonar's migration source) — both tracked as follow-ups, not claimed here. ALSO NOT detected: nullability drift — the verifier flattens NON_NULL/LIST wrappers (baseTypeName), so a non-null→nullable change passes the type assertion silently and the manifest has no nullability syntax. Documented limit, shared with the EVM guard.",
-  "_pending_semantics": "A 'pending-exposure' type is declared by MERGED indexer code but not yet present on this read surface — the guard surfaces it LOUDLY (warning, exit 0, not CI-fail) so a merged-but-unreachable pipe can't masquerade as 'supported'.",
-  "endpoint": "https://belt-gateway-production.up.railway.app/v1/graphql",
-  "endpointEnv": "SVM_CONTRACT_ENDPOINT",
-  "types": {
-    "svm_genesis_stone": {
-      "status": "live",
-      "consumer": "downstream membership/score readers via the belt-gateway (genesis-stones ownership)",
-      "producer": "sonar src/svm/genesis-stone-indexer.ts — insert_svm_genesis_stone_one, on_conflict constraint genesis_stone_pkey",
-      "requiredFields": {
-        "mint": "String",
-        "wallet": "String",
-        "element": "smallint",
-        "element_name": "String",
-        "weather": "smallint",
-        "slot": "bigint",
-        "sig": "String",
-        "claimed_at": "timestamptz",
-        "source": "String"
-      },
-      "_invariants_doc": [
-        "(DOCUMENTATION ONLY — the verifier does NOT machine-check these; see _scope. Key renamed from 'invariants' so non-enforcement is self-evident.)",
-        "mint is the PK (base58 stone mint); the indexer upserts on_conflict constraint genesis_stone_pkey (constraint name NOT verifiable from the read surface — see _scope).",
-        "element/weather are smallint, NOT String — the indexer writes numeric codes; element_name is the String label. (These ARE machine-checked via requiredFields types.)",
-        "slot is bigint (Hasura serializes as String on the wire, but the GraphQL scalar is bigint)."
-      ]
-    },
-    "svm_collection_nft": {
-      "status": "live",
-      "consumer": "downstream membership/score readers via the belt-gateway (per-NFT collection ownership, e.g. Pythenians)",
-      "producer": "sonar src/svm/pythians-collection-indexer.ts — insert_svm_collection_nft, on_conflict constraint collection_nft_pkey (root field svm_collection_nft / table svm.collection_nft)",
-      "requiredFields": {
-        "id": "String",
-        "collection_key": "String",
-        "collection_mint": "String",
-        "nft_mint": "String",
-        "owner": "String",
-        "delegate": "String",
-        "name": "String",
-        "compressed": "Boolean",
-        "slot": "bigint",
-        "source": "String",
-        "updated_at": "timestamptz"
-      },
-      "_liveNote": "Went LIVE 2026-06-24: `CREATE TABLE svm.collection_nft` (PK constraint collection_nft_pkey, matching the indexer on_conflict) + Hasura pg_track_table + public-role select permission (columns:*, filter:{}) applied to belt-hasura-selfhost (source `default`), mirroring the svm_genesis_stone sibling. Auto-surfaces at belt-gateway (a Caddy reverse proxy over the self-host Hasura — no separate metadata). Verified present + contract-matching on both the self-host public surface and the belt-gateway read surface; the guard now hard-fails CI on future drift. DATA-READINESS CAVEAT: the table is live + consumer-readable but is populated by the on-demand pythians-collection-indexer (Helius DAS getAssetsByGroup), which is NOT a deployed Railway service — run `SOLANA_RPC_URL=<helius-DAS> HASURA_GRAPHQL_ADMIN_SECRET=<selfhost-secret> SVM_HASURA_ENDPOINT=https://belt-hasura-selfhost-production.up.railway.app npx tsx src/svm/pythians-collection-indexer.ts` to backfill/refresh holders.",
-      "_invariants_doc": [
-        "(DOCUMENTATION ONLY — not machine-checked; see _scope. Key renamed from 'invariants' so non-enforcement is self-evident.)",
-        "id is the PK (NFT mint, base58); the indexer upserts on_conflict constraint collection_nft_pkey (named after the bare table svm.collection_nft, NOT the Hasura root field svm_collection_nft). Constraint name NOT verifiable from the read surface — see _scope.",
-        "owner is the token-account owner — may be an escrow/stake PDA for listed/staked NFTs; delegate is surfaced alongside (often the real lister). Consumer disambiguation owner-vs-delegate belongs in a consumer-side type/lint, not forbiddenFields here.",
-        "compressed marks DAS compressed NFTs; both regular and compressed members are indexed."
-      ]
-    },
-    "svm_collection_owner_derived": {
-      "status": "live",
-      "consumer": "downstream membership/score readers via the belt-gateway — current BENEFICIAL owner per collection NFT (resolves through marketplace escrow custody)",
-      "producer": "sonar migrations/svm/001_collection_owner_derived.sql — a VIEW over svm.collection_event, deployed by scripts/svm-ensure-owner-view.ts (root field svm_collection_owner_derived / view svm.collection_owner_derived)",
-      "requiredFields": {
-        "collection_key": "String",
-        "collection_mint": "String",
-        "nft_mint": "String",
-        "owner": "String",
-        "via_kind": "String",
-        "slot": "bigint",
-        "block_time": "timestamptz",
-        "tx_signature": "String"
-      },
-      "_scope": [
-        "ALWAYS-FRESH by construction: a plain VIEW over the self-healing svm.collection_event stream (6h cron + realtime webhook) — no cron, no DAS, no Helius. The inverse of svm_collection_nft, the on-demand DAS custodial snapshot that goes stale between manual runs.",
-        "owner = the `to` of each mint's latest mint|transfer|sale event; list/delist escrow-custody and burns are skipped, so a listed NFT's owner stays the lister (the BENEFICIAL owner) — the resolution of the owner-vs-escrow ambiguity that svm_collection_nft documents on its own `owner` field.",
-        "COMPLEMENT, not replacement: svm_collection_nft remains the DAS custodial-owner snapshot. For Pythenians the two agree on 97.77% of mints (3600/3682); the 82 disagreements are exactly the escrow-listed NFTs (74 map to known marketplace_escrow addresses in label.entity_label).",
-        "Verified 2026-06-26 against the live DAS snapshot. Honest-green: surfaces the beneficial owner without claiming DAS-authority."
-      ]
-    },
-    "svm_collection_event": {
-      "status": "live",
-      "status_was": "pending-exposure (Sprint 1) → live (Sprint 2 go-live, 2026-06-25)",
-      "consumer": "the Score API (0xHoneyJar/score-api) — event-sourced scoring; the SVM analog of the EVM MiberaTransfer stream (mint/transfer/burn/sale → mint/buy/sell/hold verbs)",
-      "producer": "sonar src/svm/collection-event-{source,writer,indexer}.ts — insert_svm_collection_event, on_conflict constraint collection_event_pkey (root field svm_collection_event / table svm.collection_event). Backfill = Helius Enhanced address-history (pNFT mint-history is complete); realtime = collection-event-webhook.ts + the every-6h GH Actions reconcile cron.",
-      "requiredFields": {
-        "id": "String",
-        "collection_key": "String",
-        "collection_mint": "String",
-        "nft_mint": "String",
-        "kind": "String",
-        "from": "String",
-        "to": "String",
-        "instruction_index": "Int",
-        "price": "bigint",
-        "marketplace": "String",
-        "slot": "bigint",
-        "block_time": "timestamptz",
-        "tx_signature": "String",
-        "source": "String"
-      },
-      "_liveNote": "Went LIVE 2026-06-25 (Sprint 2): CREATE TABLE svm.collection_event (PK collection_event_pkey == the indexer on_conflict) + pg_track_table + public-role select on belt-hasura-selfhost (source `default`), auto-surfacing at belt-gateway. Backfilled 30,006 events across all 3,682 Pythenians NFTs via Helius Enhanced address-history (3,682 mint / 5,306 sale / rest transfer); sales carry resolved seller/buyer/price/marketplace from events.nft. The §4.5 reconciliation-vs-DAS gate passed at 99.84% (3,676/3,682; the 6 mismatches are a documented fail-safe tail — a missed late transfer / odd self-sale — and the DAS svm_collection_nft snapshot remains the authoritative current-owner source per SDD §7). Future drift now hard-fails CI. Freshness: the every-6h GH Actions reconcile cron (svm-event-backfill.yml) + the webhook receiver (collection-event-webhook.ts). KNOWN-LIMIT: requiredFields types confirmed against the live schema; from/to GraphQL fields confirmed (consumer already queries from/to on MiberaTransfer). Burnt-NFT pre-burn history + the 0.16% tail are the tracked follow-ups (token-account tracing) before the multi-collection registry.",
-      "_invariants_doc": [
-        "(DOCUMENTATION ONLY — not machine-checked; see _scope.)",
-        "id is the content-addressed PK '{tx_signature}:{nft_mint}:{instruction_index}'; the indexer upserts on_conflict constraint collection_event_pkey (named after the bare table svm.collection_event). Constraint name NOT verifiable from the read surface — see _scope.",
-        "kind ∈ {mint,transfer,burn,sale,list,delist}; from/to are owner-level (null for mint/burn respectively); for sale, from/to are the resolved seller/buyer and price (lamports) + marketplace come from Helius events.nft (not the escrow transfer).",
-        "list/delist (#85, score-api request) are MARKETPLACE-STATE events, NOT ownership changes: a listing (owner→escrow, Helius NFT_LISTING) and a cancel (escrow→owner, NFT_CANCEL_LISTING) carry `marketplace` (MAGIC_EDEN/TENSOR) — list also carries the ask `price`. from/to keep the raw escrow movement (the consumer filters escrow addresses on its side). Additive — existing {mint,transfer,burn,sale} consumers are unaffected.",
-        "instruction_index is the per-NFT leg ordinal within a tx — it disambiguates batch txs (distinct PKs) AND is the consumer's integer dedup discriminator (maps to score-api numeric1)."
-      ]
-    },
-    "label_entity_label": {
-      "status": "live",
-      "consumer": "score-api + freeside agents — address→entity attribution",
-      "producer": "sonar src/labels/ingest.ts via the labeler Postgres role (DH-1)",
-      "requiredFields": {
-        "address": "String",
-        "chain": "String",
-        "collection_scope": "String",
-        "entity": "String",
-        "label": "String",
-        "entity_type": "String",
-        "method": "String",
-        "confidence": "numeric",
-        "validity_from": "timestamptz",
-        "validity_to": "timestamptz",
-        "evidence_ref": "String",
-        "status": "String",
-        "signature_valid": "Boolean"
-      },
-      "_invariants_doc": [
-        "SELECT-only public role (DH-1)",
-        "provenance mandatory: method + evidence_ref (FR-2)"
-      ]
-    },
-    "label_entity_primary": {
-      "status": "live",
-      "consumer": "score-api — precedence-resolved primary per (address,chain,collection_scope)",
-      "producer": "sonar label.entity_primary view (S5)",
-      "requiredFields": {
-        "address": "String",
-        "chain": "String",
-        "collection_scope": "String",
-        "label": "String",
-        "entity_type": "String",
-        "method": "String",
-        "confidence": "numeric",
-        "effective_confidence": "numeric",
-        "status": "String",
-        "evidence_ref": "String",
-        "signature_valid": "Boolean"
-      },
-      "_invariants_doc": [
-        "NULL-scope OR-in-globals (DH-3)",
-        "read-time revocation via signer_key JOIN (DH-6)",
-        "contested excluded"
-      ]
-    }
+ "_purpose": "The live SVM GraphQL READ contract the belt-gateway PROMISES its consumers (and which the SVM indexers' upserted columns must surface). Sibling of belt-contract.json (the EVM Transfer seam). Producer-side guard: CI introspects the live READ schema and fails the moment a consumer-depended SVM column drifts/disappears — the 'built-against-an-assumed-schema' bug class on the SVM seam, READ side.",
+ "_scope": "VERIFIED 2026-06-24: the belt-gateway is read-only — it exposes NO mutation_root / *_insert_input / *_constraint types (the self-host SVM Hasura hides them behind the admin role too). So this guard catches the COLUMN/type-drift sub-class (a renamed/removed field — the loa-freeside#300 EVM class) but NOT the write-path on_conflict CONSTRAINT-NAME sub-class that bit PR #76 (svm_collection_nft_pkey → collection_nft_pkey): that name lives in the admin-role mutation schema, structurally invisible from the surface introspected here. Closing the constraint-name class needs a SEPARATE admin-endpoint introspection of <type>_constraint.enumValues, OR an offline DDL-bind verifier (parse sonar's migration source) — both tracked as follow-ups, not claimed here. ALSO NOT detected: nullability drift — the verifier flattens NON_NULL/LIST wrappers (baseTypeName), so a non-null→nullable change passes the type assertion silently and the manifest has no nullability syntax. Documented limit, shared with the EVM guard.",
+ "_pending_semantics": "A 'pending-exposure' type is declared by MERGED indexer code but not yet present on this read surface — the guard surfaces it LOUDLY (warning, exit 0, not CI-fail) so a merged-but-unreachable pipe can't masquerade as 'supported'.",
+ "endpoint": "https://belt-gateway-production.up.railway.app/v1/graphql",
+ "endpointEnv": "SVM_CONTRACT_ENDPOINT",
+ "types": {
+  "svm_genesis_stone": {
+   "status": "live",
+   "consumer": "downstream membership/score readers via the belt-gateway (genesis-stones ownership)",
+   "producer": "sonar src/svm/genesis-stone-indexer.ts — insert_svm_genesis_stone_one, on_conflict constraint genesis_stone_pkey",
+   "requiredFields": {
+    "mint": "String",
+    "wallet": "String",
+    "element": "smallint",
+    "element_name": "String",
+    "weather": "smallint",
+    "slot": "bigint",
+    "sig": "String",
+    "claimed_at": "timestamptz",
+    "source": "String"
+   },
+   "_invariants_doc": [
+    "(DOCUMENTATION ONLY — the verifier does NOT machine-check these; see _scope. Key renamed from 'invariants' so non-enforcement is self-evident.)",
+    "mint is the PK (base58 stone mint); the indexer upserts on_conflict constraint genesis_stone_pkey (constraint name NOT verifiable from the read surface — see _scope).",
+    "element/weather are smallint, NOT String — the indexer writes numeric codes; element_name is the String label. (These ARE machine-checked via requiredFields types.)",
+    "slot is bigint (Hasura serializes as String on the wire, but the GraphQL scalar is bigint)."
+   ]
+  },
+  "svm_collection_nft": {
+   "status": "live",
+   "consumer": "downstream membership/score readers via the belt-gateway (per-NFT collection ownership, e.g. Pythenians)",
+   "producer": "sonar src/svm/pythians-collection-indexer.ts — insert_svm_collection_nft, on_conflict constraint collection_nft_pkey (root field svm_collection_nft / table svm.collection_nft)",
+   "requiredFields": {
+    "id": "String",
+    "collection_key": "String",
+    "collection_mint": "String",
+    "nft_mint": "String",
+    "owner": "String",
+    "delegate": "String",
+    "name": "String",
+    "compressed": "Boolean",
+    "slot": "bigint",
+    "source": "String",
+    "updated_at": "timestamptz"
+   },
+   "_liveNote": "Went LIVE 2026-06-24: `CREATE TABLE svm.collection_nft` (PK constraint collection_nft_pkey, matching the indexer on_conflict) + Hasura pg_track_table + public-role select permission (columns:*, filter:{}) applied to belt-hasura-selfhost (source `default`), mirroring the svm_genesis_stone sibling. Auto-surfaces at belt-gateway (a Caddy reverse proxy over the self-host Hasura — no separate metadata). Verified present + contract-matching on both the self-host public surface and the belt-gateway read surface; the guard now hard-fails CI on future drift. DATA-READINESS CAVEAT: the table is live + consumer-readable but is populated by the on-demand pythians-collection-indexer (Helius DAS getAssetsByGroup), which is NOT a deployed Railway service — run `SOLANA_RPC_URL=<helius-DAS> HASURA_GRAPHQL_ADMIN_SECRET=<selfhost-secret> SVM_HASURA_ENDPOINT=https://belt-hasura-selfhost-production.up.railway.app npx tsx src/svm/pythians-collection-indexer.ts` to backfill/refresh holders.",
+   "_invariants_doc": [
+    "(DOCUMENTATION ONLY — not machine-checked; see _scope. Key renamed from 'invariants' so non-enforcement is self-evident.)",
+    "id is the PK (NFT mint, base58); the indexer upserts on_conflict constraint collection_nft_pkey (named after the bare table svm.collection_nft, NOT the Hasura root field svm_collection_nft). Constraint name NOT verifiable from the read surface — see _scope.",
+    "owner is the token-account owner — may be an escrow/stake PDA for listed/staked NFTs; delegate is surfaced alongside (often the real lister). Consumer disambiguation owner-vs-delegate belongs in a consumer-side type/lint, not forbiddenFields here.",
+    "compressed marks DAS compressed NFTs; both regular and compressed members are indexed."
+   ]
+  },
+  "svm_collection_owner_derived": {
+   "status": "live",
+   "consumer": "downstream membership/score readers via the belt-gateway — current BENEFICIAL owner per collection NFT (resolves through marketplace escrow custody)",
+   "producer": "sonar migrations/svm/001_collection_owner_derived.sql — a VIEW over svm.collection_event, deployed by scripts/svm-ensure-owner-view.ts (root field svm_collection_owner_derived / view svm.collection_owner_derived)",
+   "requiredFields": {
+    "collection_key": "String",
+    "collection_mint": "String",
+    "nft_mint": "String",
+    "owner": "String",
+    "via_kind": "String",
+    "slot": "bigint",
+    "block_time": "timestamptz",
+    "tx_signature": "String"
+   },
+   "_scope": [
+    "ALWAYS-FRESH by construction: a plain VIEW over the self-healing svm.collection_event stream (6h cron + realtime webhook) — no cron, no DAS, no Helius. The inverse of svm_collection_nft, the on-demand DAS custodial snapshot that goes stale between manual runs.",
+    "owner = the `to` of each mint's latest mint|transfer|sale event; list/delist escrow-custody and burns are skipped, so a listed NFT's owner stays the lister (the BENEFICIAL owner) — the resolution of the owner-vs-escrow ambiguity that svm_collection_nft documents on its own `owner` field.",
+    "COMPLEMENT, not replacement: svm_collection_nft remains the DAS custodial-owner snapshot. For Pythenians the two agree on 97.77% of mints (3600/3682); the 82 disagreements are exactly the escrow-listed NFTs (74 map to known marketplace_escrow addresses in label.entity_label).",
+    "Verified 2026-06-26 against the live DAS snapshot. Honest-green: surfaces the beneficial owner without claiming DAS-authority."
+   ]
+  },
+  "svm_collection_event": {
+   "status": "live",
+   "status_was": "pending-exposure (Sprint 1) → live (Sprint 2 go-live, 2026-06-25)",
+   "consumer": "the Score API (0xHoneyJar/score-api) — event-sourced scoring; the SVM analog of the EVM MiberaTransfer stream (mint/transfer/burn/sale → mint/buy/sell/hold verbs)",
+   "producer": "sonar src/svm/collection-event-{source,writer,indexer}.ts — insert_svm_collection_event, on_conflict constraint collection_event_pkey (root field svm_collection_event / table svm.collection_event). Backfill = Helius Enhanced address-history (pNFT mint-history is complete); realtime = collection-event-webhook.ts + the every-6h GH Actions reconcile cron.",
+   "requiredFields": {
+    "id": "String",
+    "collection_key": "String",
+    "collection_mint": "String",
+    "nft_mint": "String",
+    "kind": "String",
+    "from": "String",
+    "to": "String",
+    "instruction_index": "Int",
+    "price": "bigint",
+    "marketplace": "String",
+    "slot": "bigint",
+    "block_time": "timestamptz",
+    "tx_signature": "String",
+    "source": "String"
+   },
+   "_liveNote": "Went LIVE 2026-06-25 (Sprint 2): CREATE TABLE svm.collection_event (PK collection_event_pkey == the indexer on_conflict) + pg_track_table + public-role select on belt-hasura-selfhost (source `default`), auto-surfacing at belt-gateway. Backfilled 30,006 events across all 3,682 Pythenians NFTs via Helius Enhanced address-history (3,682 mint / 5,306 sale / rest transfer); sales carry resolved seller/buyer/price/marketplace from events.nft. The §4.5 reconciliation-vs-DAS gate passed at 99.84% (3,676/3,682; the 6 mismatches are a documented fail-safe tail — a missed late transfer / odd self-sale — and the DAS svm_collection_nft snapshot remains the authoritative current-owner source per SDD §7). Future drift now hard-fails CI. Freshness: the every-6h GH Actions reconcile cron (svm-event-backfill.yml) + the webhook receiver (collection-event-webhook.ts). KNOWN-LIMIT: requiredFields types confirmed against the live schema; from/to GraphQL fields confirmed (consumer already queries from/to on MiberaTransfer). Burnt-NFT pre-burn history + the 0.16% tail are the tracked follow-ups (token-account tracing) before the multi-collection registry.",
+   "_invariants_doc": [
+    "(DOCUMENTATION ONLY — not machine-checked; see _scope.)",
+    "id is the content-addressed PK '{tx_signature}:{nft_mint}:{instruction_index}'; the indexer upserts on_conflict constraint collection_event_pkey (named after the bare table svm.collection_event). Constraint name NOT verifiable from the read surface — see _scope.",
+    "kind ∈ {mint,transfer,burn,sale,list,delist}; from/to are owner-level (null for mint/burn respectively); for sale, from/to are the resolved seller/buyer and price (lamports) + marketplace come from Helius events.nft (not the escrow transfer).",
+    "list/delist (#85, score-api request) are MARKETPLACE-STATE events, NOT ownership changes: a listing (owner→escrow, Helius NFT_LISTING) and a cancel (escrow→owner, NFT_CANCEL_LISTING) carry `marketplace` (MAGIC_EDEN/TENSOR) — list also carries the ask `price`. from/to keep the raw escrow movement (the consumer filters escrow addresses on its side). Additive — existing {mint,transfer,burn,sale} consumers are unaffected.",
+    "instruction_index is the per-NFT leg ordinal within a tx — it disambiguates batch txs (distinct PKs) AND is the consumer's integer dedup discriminator (maps to score-api numeric1)."
+   ]
+  },
+  "label_entity_label": {
+   "status": "live",
+   "consumer": "score-api + freeside agents — address→entity attribution",
+   "producer": "sonar src/labels/ingest.ts via the labeler Postgres role (DH-1)",
+   "requiredFields": {
+    "address": "String",
+    "chain": "String",
+    "collection_scope": "String",
+    "entity": "String",
+    "label": "String",
+    "entity_type": "String",
+    "method": "String",
+    "confidence": "numeric",
+    "validity_from": "timestamptz",
+    "validity_to": "timestamptz",
+    "evidence_ref": "String",
+    "status": "String",
+    "signature_valid": "Boolean"
+   },
+   "_invariants_doc": [
+    "SELECT-only public role (DH-1)",
+    "provenance mandatory: method + evidence_ref (FR-2)"
+   ]
+  },
+  "label_entity_primary": {
+   "status": "live",
+   "consumer": "score-api — precedence-resolved primary per (address,chain,collection_scope)",
+   "producer": "sonar label.entity_primary view (S5)",
+   "requiredFields": {
+    "address": "String",
+    "chain": "String",
+    "collection_scope": "String",
+    "label": "String",
+    "entity_type": "String",
+    "method": "String",
+    "confidence": "numeric",
+    "effective_confidence": "numeric",
+    "status": "String",
+    "evidence_ref": "String",
+    "signature_valid": "Boolean"
+   },
+   "_invariants_doc": [
+    "NULL-scope OR-in-globals (DH-3)",
+    "read-time revocation via signer_key JOIN (DH-6)",
+    "contested excluded"
+   ]
+  },
+  "svm_sync_status": {
+   "status": "pending-exposure",
+   "status_was": "declared (svm-warehouse-loader sprint-1, 2026-07-05) — goes live at rollout step 1 (migration 002 + Hasura pg_track_table)",
+   "consumer": "the Score API (#121 Q4/Q6 freshness ask) + any staleness monitor — the queryable answer to 'is this collection quiet or is the pipe down' (KF-018 closure)",
+   "producer": "sonar src/svm/{warehouse-loader,collection-event-webhook,collection-event-indexer,sync-status}.ts — upsert via insert_svm_sync_status_one, on_conflict constraint sync_status_pkey (root field svm_sync_status / table svm.sync_status, migrations/svm/002_sync_status.sql)",
+   "requiredFields": {
+    "collection_key": "String",
+    "last_event_at": "timestamptz",
+    "last_event_source": "String",
+    "last_reconcile_at": "timestamptz",
+    "last_reconcile_result": "String",
+    "updated_at": "timestamptz"
+   },
+   "_external_dependency_note": "the warehouse SUPPLY lane additionally depends on Dune tables tokens_solana.nft + tokens_solana.transfers (columns pinned in src/svm/sql/*.sql) — an upstream-schema dependency documented here per PRD risk 1; not a read-surface type, so not guarded by introspection, verified instead by the loader's row validation + §4.5 gate"
   }
+ }
 }
