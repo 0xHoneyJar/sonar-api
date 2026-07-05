@@ -88,6 +88,15 @@ export function installMeterExitLog(label: string): void {
   if (exitLogInstalled) return;
   exitLogInstalled = true;
   process.on("exit", () => logMeterSummary(label));
+  // BB HIGH (PR #123): 'exit' does NOT fire on unhandled POSIX signals, and Railway sends
+  // SIGTERM on every deploy/restart — exactly when the long-running webhook's summary matters
+  // most. Convert signals to a normal exit (which then fires the handler above), but only if
+  // nobody else handles them (respect an app-level graceful-shutdown handler if one appears).
+  for (const sig of ["SIGTERM", "SIGINT"] as const) {
+    if (process.listenerCount(sig) === 0) {
+      process.on(sig, () => process.exit(0));
+    }
+  }
 }
 
 /** Test seam. */
