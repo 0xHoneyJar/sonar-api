@@ -24,6 +24,7 @@
  */
 
 import { fileURLToPath } from "node:url";
+import { installMeterExitLog } from "./helius-meter";
 import {
   DasNftCollectionSource,
   type CollectionSnapshot,
@@ -158,6 +159,7 @@ export async function indexSnapshot(
 }
 
 async function main(): Promise<void> {
+  installMeterExitLog("ownership-snapshot"); // KF-018/#122: credit-burn ledger line, crash paths included
   if (!SECRET) throw new Error("HASURA_GRAPHQL_ADMIN_SECRET required");
   if (!HASURA) throw new Error("SVM_HASURA_ENDPOINT required (no prod default — set it explicitly)");
   const src: NftCollectionSource = new DasNftCollectionSource(RPC, PYTHIANS_COLLECTION);

@@ -24,6 +24,7 @@ import { DasNftCollectionSource, type CollectionSnapshot } from "./nft-collectio
 import { HeliusCollectionEventSource, type CollectionEvent } from "./collection-event-source";
 import { upsertCollectionEvents } from "./collection-event-writer";
 import { ensureKindConstraint } from "./ensure-kind-constraint";
+import { installMeterExitLog } from "./helius-meter";
 import { resolveCollection, DEFAULT_COLLECTION_KEY } from "./collection-registry";
 
 const API_KEY = process.env.HELIUS_API_KEY ?? "";
@@ -323,6 +324,7 @@ async function loadSyncStatusWriter(): Promise<SyncStatusWriter | undefined> {
 }
 
 async function main(): Promise<void> {
+  installMeterExitLog("reconcile-cron"); // KF-018/#122: credit-burn ledger line, crash paths included
   const opts = parseArgs();
   const cfg = resolveCollection(opts.collection); // fail fast on an unknown key
   if (!opts.verifyOff) {

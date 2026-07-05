@@ -25,6 +25,7 @@ import { ensureKindConstraint } from "./ensure-kind-constraint";
 import { DasNftCollectionSource } from "./nft-collection-source";
 import { COLLECTIONS, resolveCollection, type CollectionConfig } from "./collection-registry";
 import { writeSyncStatus } from "./sync-status";
+import { installMeterExitLog, meterSummary } from "./helius-meter";
 
 /**
  * FL SKP-003/SKP-001: member-set disjointness is an ASSUMPTION, not a guarantee (shared mints
@@ -211,7 +212,7 @@ export async function handle(req: http.IncomingMessage, res: http.ServerResponse
     );
     res.writeHead(200, { "Content-Type": "application/json" });
     const member_overlaps = auditQuiet(); // FL SKP-003: surfaced, never silent
-    res.end(JSON.stringify({ ok: true, collections: perCollection, member_overlaps }));
+    res.end(JSON.stringify({ ok: true, collections: perCollection, member_overlaps, helius_meter: meterSummary() }));
     return;
   }
   if (req.method !== "POST") {
@@ -269,6 +270,7 @@ export async function handle(req: http.IncomingMessage, res: http.ServerResponse
 }
 
 async function main(): Promise<void> {
+  installMeterExitLog("webhook"); // summary on shutdown/restart; live counts via /health helius_meter
   if (!SECRET) throw new Error("HELIUS_WEBHOOK_SECRET required");
   if (!API_KEY && !RPC) throw new Error("HELIUS_API_KEY or SOLANA_RPC_URL required");
   if (!process.env.SVM_HASURA_ENDPOINT) throw new Error("SVM_HASURA_ENDPOINT required");

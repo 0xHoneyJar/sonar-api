@@ -18,6 +18,7 @@
  */
 
 import { DasNftCollectionSource } from "./nft-collection-source";
+import { meter } from "./helius-meter";
 
 /**
  * SVM collection-event kinds. `mint`/`transfer`/`burn`/`sale` are ownership changes (`sale` carries
@@ -309,6 +310,7 @@ export class HeliusCollectionEventSource implements CollectionEventSource {
 
     for (let attempt = 0; ; attempt++) {
       if (this.paceMs > 0) await sleep(this.paceMs); // spacing → stay under the rate limit
+      meter("enhanced", "address-history"); // per ATTEMPT (retries included) — Enhanced bills 100 credits/call, the lane's dominant burn
       const res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
       // 429 (rate limit) / 5xx are transient — back off and retry (respect Retry-After when present).
       if (res.status === 429 || res.status >= 500) {
