@@ -701,3 +701,4 @@ Triggered after **PR #101 merged to `main`** (`87705e43`, branch `feat/envio-clo
 
 **Artifacts written:** `drift-report.md` (regenerated), correction banners on `prd.md`+`sdd.md`, `reality/architecture-overview.md` (corrected runtime topology). **Flag-don't-fix:** CI workflows, `package.json` deps, and `ponder-runtime/` deletion left untouched (CI/release-automation outside micro-fix latitude) — listed as recommended `/implement` actions. **Open re-port Q:** whether #69 per-token ownership + fuller outbox/DLQ NATS publisher (Ponder-only) survived the revert onto the Envio surface.
 [cleanup] NOTE: workspace-cleanup.sh unusable on darwin (BSD realpath -m); manual archive of parked indexing-managed-envio cycle artifacts
+## svm-warehouse-loader sprint-1 (2026-07-05): T-1..T-8 implemented (T-2 = map measured, precision deferred to post-topup 5.3), T-9 runbook. 429/0 suite. Flatline skipped (autonomous_mode unset). Helius live checks deferred (operator tops up later).
