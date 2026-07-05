@@ -119,7 +119,7 @@ export class DuneClient {
     let cost: number | null = null;
     for (let offset = 0; ; offset += pageSize) {
       const page = await this.fetchPage<Row>(executionId, pageSize, offset);
-      rows.push(...page.rows);
+      for (const r of page.rows) rows.push(r); // no spread-append — same stack-overflow class at large page sizes
       cost = page.executionCostCredits ?? cost;
       if (rows.length >= page.totalRowCount || page.rows.length === 0) break;
     }
