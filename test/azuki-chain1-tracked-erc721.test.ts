@@ -43,7 +43,7 @@ describe("chain-1 Azuki TrackedErc721 subscription (bug 20260702-63f78a)", () =>
     const tracked = BELT_CONTRACTS.filter((c) => c.name === "TrackedErc721").map(
       (c) => c.chainId,
     );
-    expect(tracked.sort((a, b) => a - b)).toEqual([1, 10, 80094]);
+    expect(tracked.sort((a, b) => a - b)).toEqual([1, 10, 8453, 80094]);
   });
 
   it("keeps config.mibera.yaml field-identical for chain-1 Azuki binding", () => {

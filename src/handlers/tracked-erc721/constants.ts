@@ -44,6 +44,19 @@ export const TRACKED_ERC721_COLLECTION_KEYS: Record<string, string> = {
   // ===== COMMUNITY ONBOARDING (kitchen E2E) =====
   "0xed5af388653567af2f388e6224dcc93746104133": "azuki_kitchen_e2e",
 
+  // ===== BASE — COMMUNITY ONBOARDING BATCH 1 (top-10 ramp, #121) =====
+  // 8 ERC-721s on Base (8453); the batch's 2 ERC-1155s (BasePaint, Parallel Planetfall)
+  // are deferred to the 1155 lane. hypio's on-chain name is "Hypio" (marketplace label
+  // "Wealthy Hypio Babies" — key follows on-chain truth).
+  "0xcb28749c24af4797808364d71d71539bc01e76d4": "based_punks",
+  "0x3319197b0d0f8ccd1087f2d2e47a8fb7c0710171": "hypio",
+  "0xee7d1b184be8185adc7052635329152a4d0cdefa": "kemonokaki",
+  "0x699727f9e01a822efdcf7333073f0461e5914b4e": "warplets",
+  "0x1260f90e0b1c482b38b88f26dee17c57615d670b": "lil_bangers",
+  "0x9e7a06c281355f60570e47a12650c89fe1d36ff3": "based_onchain_punks",
+  "0x95bc4c2e01c2e2d9e537e7a9fe58187e88dd8019": "nodes_by_hunter",
+  "0x20fd75eccd7bb9c4eb9e3bb4c09c6b382e15d63e": "veecon_2024_tickets",
+
   // ===== APIOLOGY DAO =====
   // ApiologyDAO seat NFT — governance membership token for apdao-auction-house
   // (paired with ApdaoAuctionHouse proxy at 0xE840929c…0A0b). Consumed via
@@ -71,6 +84,16 @@ export const TRANSFER_TRACKED_COLLECTIONS = new Set<string>([
   // NOTE: puru collections are ERC-1155, transfers tracked by puru-apiculture1155.ts handler
 
   // Mibera Lore Articles - track all transfers for timeline
+  // Base batch 1 — community scoring consumes transfer activity, not just holdings
+  "based_punks",
+  "hypio",
+  "kemonokaki",
+  "warplets",
+  "lil_bangers",
+  "based_onchain_punks",
+  "nodes_by_hunter",
+  "veecon_2024_tickets",
+
   "lore_1_introducing_mibera",
   "lore_2_honey_online_offline",
   "lore_3_bera_kali_acc",
