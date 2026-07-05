@@ -34,7 +34,7 @@ jobs:
     # headroom under this cap (FAGAN F3). The runner collects-all → reconciles → writes-once BY DESIGN
     # (the §4.5 gate reconciles the full set before any write), so writes can't be made incremental
     # without weakening the gate. If a collection grows toward this cap, raise it / shard by collection.
-    timeout-minutes: 60
+    timeout-minutes: 240  # full onboarding walks (10k mints @ paid-plan pace ≈ 25-40min; 60 killed SMB at 4,992 mints — run 28735197963, ~400k credits burned unpersisted)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -48,6 +48,9 @@ jobs:
           # #85: emit marketplace list/delist kinds. Safe — the runner calls ensureKindConstraint() at
           # startup (widen-before-write), so the CHECK is always ready before any list/delist upsert.
           SVM_EMIT_MARKETPLACE_KINDS: "true"
+          # Dev plan = 50 RPS (paid 2026-07-05); default pacing was tuned for the free tier's 10 RPS.
+          # 150ms ≈ 6.7 RPS — 5x faster walks, still far under plan limit even with webhook traffic.
+          SVM_BACKFILL_PACE_MS: "150"
           # Pass the input through env (NOT direct ${{ }} interpolation into the script) and digit-guard
           # it — never splice untrusted workflow input into a shell command.
           LIMIT_INPUT: ${{ github.event.inputs.limit }}
