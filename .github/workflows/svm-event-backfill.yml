@@ -47,6 +47,8 @@ jobs:
       - name: Backfill svm.collection_event (reconcile-gated)
         env:
           HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+          # KF-001 class: Node Happy-Eyeballs/IPv6 stalls on GH runners → DAS/Enhanced timeouts (run 28754856273 died on call #1; local = 0.5s)
+          NODE_OPTIONS: "--dns-result-order=ipv4first"
           SVM_HASURA_ENDPOINT: https://belt-hasura-selfhost-production.up.railway.app
           HASURA_GRAPHQL_ADMIN_SECRET: ${{ secrets.SVM_HASURA_ADMIN_SECRET }}
           # #85: emit marketplace list/delist kinds. Safe — the runner calls ensureKindConstraint() at
