@@ -125,3 +125,20 @@ describe("runLoader", () => {
     await expect(runLoader({ collectionKey: "pythians", from: "2026-06-01T00:00:00Z", to: "2026-06-02T00:00:00Z" }, deps())).rejects.toThrow(/DUNE_EVENTS_QUERY_ID/);
   });
 });
+
+describe("FL SKP-004 — credit budget", () => {
+  it("stops cleanly between windows when DUNE_CREDIT_BUDGET is exceeded", async () => {
+    process.env.DUNE_CREDIT_BUDGET = "0.1"; // read at module load — this test documents the env contract...
+    // (module-level constant → budget behavior is exercised via a fresh import)
+    const { runLoader: freshRun, WAREHOUSE_QUERY_IDS: ids } = await import("../src/svm/warehouse-loader?budget=" + Date.now());
+    ids.events = 999;
+    const dune = { runQuery: vi.fn().mockResolvedValue({ rows: [], executionCostCredits: 5 }) };
+    const r = await freshRun(
+      { collectionKey: "pythians", from: "2026-01-01T00:00:00Z", to: "2026-04-01T00:00:00Z", dry: true },
+      { dune, upsert: vi.fn(), syncStatus: vi.fn(), log: vi.fn() },
+    );
+    expect(dune.runQuery).toHaveBeenCalledTimes(1); // 3 windows planned, stopped after the first
+    expect(r.duneCredits).toBe(5);
+    delete process.env.DUNE_CREDIT_BUDGET;
+  });
+});

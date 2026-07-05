@@ -202,3 +202,21 @@ describe("runReconcile — --verify-off (Helius dark)", () => {
     await expect(runReconcile(opts({ verifyOff: true }), deps)).resolves.toBeUndefined();
   });
 });
+
+describe("FL SKP-002 — first-load guard", () => {
+  it("refuses incremental mode when derived-owner coverage < 50% (empty index = full-walk cost bomb)", async () => {
+    const { runReconcile } = await import("../src/svm/collection-event-indexer");
+    const members = [
+      { nftMint: "J1S9H3QjnRtBbbuD4HjPV6RpRhwuk4zKbxsnCHuTgh9w", owner: "BUjZjAS2vbbb65g7Z1Ca9ZRVYoJscURG5L3AkVvHP9ac", delegate: null, name: null, compressed: false },
+      { nftMint: "6mszaj17KSfVqADrQj3o4W3zoLMTykgmV37W4QadCczK", owner: "BUjZjAS2vbbb65g7Z1Ca9ZRVYoJscURG5L3AkVvHP9ac", delegate: null, name: null, compressed: false },
+    ];
+    const deps = {
+      snapshot: async () => ({ collectionMint: "m", slot: 1, source: "das" as const, members }),
+      events: { mintHistory: async function* () {} },
+      fetchDerivedOwners: async () => new Map<string, string>(), // brand-new collection: nothing indexed
+      upsert: async () => 0,
+      log: () => {},
+    };
+    await expect(runReconcile({ collection: "pythians", dry: true }, deps as never)).rejects.toThrow(/coverage 0%.*warehouse-loader/s);
+  });
+});

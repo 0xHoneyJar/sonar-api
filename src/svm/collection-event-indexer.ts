@@ -240,6 +240,16 @@ export async function runReconcile(opts: ReconcileOpts, deps: ReconcileDeps): Pr
     log(`FULL: walking all ${toWalk.length} member NFTs (--full)`);
   } else {
     const derived = await deps.fetchDerivedOwners(cfg.collectionKey);
+    // FL SKP-002: with no (or barely any) indexed events, EVERY mint reads as "drifted" and the
+    // incremental path silently degenerates into the full Enhanced walk it exists to prevent — the
+    // exact cost bomb this cycle removes, sneaking back through an empty derived set. Refuse and
+    // route to the cheap lane instead: warehouse-load first, or an EXPLICIT --full.
+    const coverage = members.length === 0 ? 1 : derived.size / members.length;
+    if (coverage < 0.5) {
+      throw new Error(
+        `incremental reconcile refused: derived-owner coverage ${(coverage * 100).toFixed(0)}% (<50%) — this collection has few/no indexed events, so "incremental" would walk ~everything at 100cr/mint. Load history first (warehouse-loader --collection ${cfg.collectionKey}), or pass --full to walk deliberately (FL SKP-002)`,
+      );
+    }
     toWalk = selectDriftedMints(members, derived);
     log(
       `INCREMENTAL: ${toWalk.length}/${members.length} mint(s) drifted (derived owner vs DAS) — walking only those (--full for a full walk)`,

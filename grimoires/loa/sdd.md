@@ -57,7 +57,7 @@ Default ship: `action` → mint/transfer/burn 1:1. Marketplace kinds behind the 
 DDL migration `migrations/svm/002_sync_status.sql`: `(collection_key text primary key, last_event_at timestamptz, last_event_source text, last_reconcile_at timestamptz, last_reconcile_result text, updated_at timestamptz)`. Hasura-tracked + public-select like `svm_collection_event` (same `pg_track_table` motion, pending-exposure→live lifecycle per `scripts/svm-contract.json`). Writers: loader, webhook (on upsert batch), reconcile. This is #121 Q4/Q6's promised consumer-visible freshness signal.
 
 ### 2.8 Registry additions (FR-6)
-8 entries in `COLLECTIONS` `[src/svm/collection-registry.ts:28-35]` from the verified candidates doc (mad_lads, claynosaurz, smb_gen2, degods, daa_higher_self, famous_fox, y00ts, galactic_geckos) + per-entry optional `duneQueryIds`.
+8 entries in `COLLECTIONS` `[src/svm/collection-registry.ts:28-35]` from the verified candidates doc (mad_lads, claynosaurz, smb_gen2, degods, daa_higher_self, famous_fox, y00ts, galactic_geckos). Query ids are GLOBAL env config (`DUNE_EVENTS_QUERY_ID`), not per-entry — one parameterized query serves every collection (FL IMP-009 cleanup).
 
 ## 3. Security
 - `DUNE_API_KEY` env-only, never argv/logs (NFR-4); joins GH workflow secrets for any scheduled loader runs.
@@ -77,3 +77,18 @@ DDL migration `migrations/svm/002_sync_status.sql`: `(collection_key text primar
 2. Loader: pythians gap-heal first (`--from 2026-06-25`) → G1 parity check vs the 108-event Dune ground truth → then batch-1 collections one by one, cost logged.
 3. Webhook deploy: pythians-only via override env first, then registry mode.
 4. Post-topup (operator): Helius webhook re-verified live, incremental reconcile measured via helius-meter, #122 closed.
+
+
+## 6. Flatline SDD review — dispositions (run fl-svm-loader-sdd, 2026-07-05, 3 voices, 76% agreement)
+
+| Finding | Disposition |
+|---|---|
+| SKP-004 credit exhaustion mid-load | FIXED: `DUNE_CREDIT_BUDGET` cap, clean between-window stop; DB cursor makes re-runs resume losslessly |
+| SKP-003/SKP-001 disjointness unenforced | FIXED: `auditMemberOverlap` on refresh (loud) + `member_overlaps` on /health; routing stays deterministic by registry order |
+| SKP-001 ordinal depends on Dune ordering | ALREADY SAFE: SQL has ORDER BY AND `mapRows` re-sorts before ordinal assignment (defense in depth; test feeds shuffled rows) |
+| SKP-002 first-load incremental = full walk | FIXED: incremental refuses at <50% derived-owner coverage → directs to warehouse-load or explicit --full |
+| IMP-001 cursor second-precision loss | ALREADY SAFE: window lower bound is INCLUSIVE (`>=`) and PK idempotency absorbs the overlap second |
+| IMP-004 sync_status CHECK constraints | FIXED in migration 002 (source + result enums) |
+| IMP-005/006 dune retry/pagination recovery | PARTIAL: retry taxonomy exists (429/5xx, Retry-After, cap); a dropped mid-pagination fetch retries in-place; execution re-run is the coarse fallback — accepted for batch-1 volumes |
+| IMP-009 duneQueryIds ambiguity | FIXED: §2.8 amended — global env id, not per-entry |
+| 3 disputed items | recorded in a2a/sprint-svm-loader-1/flatline-sdd.json; none actionable without live measurement |

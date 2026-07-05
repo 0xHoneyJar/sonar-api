@@ -31,6 +31,10 @@ export const WAREHOUSE_QUERY_IDS = {
 };
 
 const WINDOW_DAYS = 30;
+// FL SKP-004: optional per-run Dune credit budget. The loop stops CLEANLY between windows when
+// cumulative credits exceed it; the DB cursor makes a re-run resume from the last ingested event,
+// so an aborted load loses nothing (idempotent PK + windowed commits).
+const CREDIT_BUDGET = Number(process.env.DUNE_CREDIT_BUDGET ?? 0) || null;
 const GENESIS_FALLBACK = "2020-01-01T00:00:00Z"; // pre-dates all Solana NFT activity; real runs cursor forward
 
 /** Raw row shape from warehouse-events.sql — validated field-by-field before mapping. */
@@ -196,6 +200,10 @@ export async function runLoader(
       }
     }
     deps.log(`[loader] ${cfg.collectionKey} ${w.from}..${w.to}: ${rows.length} rows, ${events.length} events${opts.dry ? " [DRY]" : ""}`);
+    if (CREDIT_BUDGET && result.duneCredits > CREDIT_BUDGET) {
+      deps.log(`[loader] STOP: Dune credit budget ${CREDIT_BUDGET} exceeded (${result.duneCredits} spent) — window committed; re-run resumes from cursor (FL SKP-004)`);
+      break;
+    }
   }
 
   if (!opts.dry && latestIso) {

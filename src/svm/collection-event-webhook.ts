@@ -26,6 +26,27 @@ import { DasNftCollectionSource } from "./nft-collection-source";
 import { COLLECTIONS, resolveCollection, type CollectionConfig } from "./collection-registry";
 import { writeSyncStatus } from "./sync-status";
 
+/**
+ * FL SKP-003/SKP-001: member-set disjointness is an ASSUMPTION, not a guarantee (shared mints
+ * across collections have historical precedent). Detection, not silent first-match: overlapping
+ * mints are counted per collection pair, logged LOUDLY, and surfaced on /health. Routing stays
+ * deterministic (registry order), but an overlap is never silent.
+ */
+export function auditMemberOverlap(sets: ReadonlyArray<{ key: string; members: ReadonlySet<string> }>): Record<string, number> {
+  const overlaps: Record<string, number> = {};
+  for (let i = 0; i < sets.length; i++) {
+    for (let j = i + 1; j < sets.length; j++) {
+      let n = 0;
+      for (const m of sets[i].members) if (sets[j].members.has(m)) n++;
+      if (n > 0) {
+        overlaps[`${sets[i].key}|${sets[j].key}`] = n;
+        console.warn(`[webhook] MEMBER OVERLAP: ${n} mint(s) in BOTH ${sets[i].key} and ${sets[j].key} — routing by registry order; events for shared mints may be mis-attributed (FL SKP-003)`);
+      }
+    }
+  }
+  return overlaps;
+}
+
 const PORT = Number(process.env.PORT ?? 8080);
 const SECRET = process.env.HELIUS_WEBHOOK_SECRET ?? "";
 const API_KEY = process.env.HELIUS_API_KEY ?? "";
@@ -49,6 +70,19 @@ interface MemberSetState {
 // as the pre-§2.5 behavior); unset = watch EVERY registry entry with one service.
 const OVERRIDE = (process.env.COLLECTION ?? "").trim();
 const watched: readonly CollectionConfig[] = OVERRIDE ? [resolveCollection(OVERRIDE)] : Object.values(COLLECTIONS);
+
+/** Overlap counts without re-logging (for /health polls); refresh paths use the loud auditor. */
+function auditQuiet(): Record<string, number> {
+  const sets = [...collections.values()].map((st) => ({ key: st.cfg.collectionKey, members: st.members }));
+  const overlaps: Record<string, number> = {};
+  for (let i = 0; i < sets.length; i++)
+    for (let j = i + 1; j < sets.length; j++) {
+      let n = 0;
+      for (const m of sets[i].members) if (sets[j].members.has(m)) n++;
+      if (n > 0) overlaps[`${sets[i].key}|${sets[j].key}`] = n;
+    }
+  return overlaps;
+}
 
 const collections = new Map<string, MemberSetState>(
   watched.map((cfg) => [cfg.collectionKey, { cfg, members: new Set<string>(), loadedAt: 0, source: "none", refreshInFlight: null }]),
@@ -82,6 +116,7 @@ export async function refreshMembers(collectionKey: string): Promise<void> {
     const snap = await new DasNftCollectionSource(RPC, st.cfg.collectionMint).snapshot();
     st.members = new Set(snap.members.map((m) => m.nftMint));
     st.loadedAt = Date.now();
+    auditMemberOverlap([...collections.values()].map((x) => ({ key: x.cfg.collectionKey, members: x.members })));
     st.source = "das";
     console.log(`[webhook] member set refreshed via DAS: ${st.members.size} ${st.cfg.collectionKey} NFTs`);
     return;
@@ -175,7 +210,8 @@ export async function handle(req: http.IncomingMessage, res: http.ServerResponse
       [...collections.values()].map((st) => [st.cfg.collectionKey, { members: st.members.size, loadedAt: st.loadedAt, source: st.source }]),
     );
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: true, collections: perCollection }));
+    const member_overlaps = auditQuiet(); // FL SKP-003: surfaced, never silent
+    res.end(JSON.stringify({ ok: true, collections: perCollection, member_overlaps }));
     return;
   }
   if (req.method !== "POST") {

@@ -10,8 +10,10 @@
 CREATE TABLE IF NOT EXISTS svm.sync_status (
   collection_key        text PRIMARY KEY,
   last_event_at         timestamptz,
-  last_event_source     text,
+  last_event_source     text
+    CONSTRAINT sync_status_source_check CHECK (last_event_source IN ('dune-warehouse','helius-webhook','helius-backfill')),
   last_reconcile_at     timestamptz,
-  last_reconcile_result text,
+  last_reconcile_result text
+    CONSTRAINT sync_status_result_check CHECK (last_reconcile_result IN ('passed','failed','skipped-no-das')),
   updated_at            timestamptz NOT NULL DEFAULT now()
 );

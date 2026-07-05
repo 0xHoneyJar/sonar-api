@@ -1,0 +1,208 @@
+{
+  "consensus_summary": {
+    "high_consensus_count": 7,
+    "disputed_count": 3,
+    "low_value_count": 0,
+    "blocker_count": 5,
+    "model_agreement_percent": 76,
+    "models": 3,
+    "tertiary_items": 0,
+    "confidence": "full"
+  },
+  "high_consensus": [
+    {
+      "id": "IMP-001",
+      "description": "Critical correctness issue. Using second-precision block_time as an exclusive cursor can silently lose terminal-window events, and switching to block_slot is low-cost and aligns with Solana ordering semantics. This should be integrated before any loader run.",
+      "gpt_score": 960,
+      "opus_score": 880,
+      "tertiary_score": null,
+      "delta": 80,
+      "average_score": 920,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-002",
+      "description": "Critical because primary-key convergence depends on deterministic ordinal derivation. The proposed window function is cheap to specify and test, and without it the core warehouse/webhook equivalence claim remains underdefined.",
+      "gpt_score": 940,
+      "opus_score": 865,
+      "tertiary_score": null,
+      "delta": 75,
+      "average_score": 902.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-003",
+      "description": "High-value invariant check with low implementation cost. Pairwise disjointness prevents silent first-match misrouting, which would be hard to detect after ingestion. Some collections may intentionally overlap in rare cases, but that should require an explicit exception rather than silent behavior.",
+      "gpt_score": 880,
+      "opus_score": 875,
+      "tertiary_score": null,
+      "delta": 5,
+      "average_score": 877.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-004",
+      "description": "Strong database-level guard for a small schema addition. A CHECK constraint prevents low-level metadata drift and catches writer bugs early. Value is slightly lower than event-loss findings because it affects freshness/status metadata rather than event identity itself.",
+      "gpt_score": 830,
+      "opus_score": 850,
+      "tertiary_score": null,
+      "delta": 20,
+      "average_score": 840,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-005",
+      "description": "Valuable operational hardening. Retry taxonomy and backoff parameters prevent wasted Dune credits and make failures diagnosable. It is not quite critical if an existing pattern is faithfully reused, but the SDD should make the intended behavior explicit enough to implement and test.",
+      "gpt_score": 780,
+      "opus_score": 755,
+      "tertiary_score": null,
+      "delta": 25,
+      "average_score": 767.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-006",
+      "description": "Valuable because mid-pagination recovery affects cost, reliability, and operator expectations for large collections. The exact checkpointing strategy may add some implementation complexity, but the behavior should at least be declared before production batch runs.",
+      "gpt_score": 760,
+      "opus_score": 740,
+      "tertiary_score": null,
+      "delta": 20,
+      "average_score": 750,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-009",
+      "description": "High-value specification cleanup. Ambiguity in duneQueryIds directly affects loader configuration, tests, and whether queries are shared or per-collection. Cheap to resolve and likely to prevent implementation divergence.",
+      "gpt_score": 790,
+      "opus_score": 785,
+      "tertiary_score": null,
+      "delta": 5,
+      "average_score": 787.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    }
+  ],
+  "disputed": [
+    {
+      "id": "IMP-011",
+      "description": "Critical-adjacent boundary hardening. Dune rows are untrusted input, and validation requirements must be explicit for security, data quality, and testability. The implementation cost is moderate but justified because malformed rows can corrupt identity and ordering assumptions.",
+      "gpt_score": 820,
+      "opus_score": 0,
+      "tertiary_score": null,
+      "delta": 820,
+      "average_score": 820,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "DISPUTED"
+    },
+    {
+      "id": "IMP-012",
+      "description": "Nice-to-have to valuable depending on expected webhook volume. A concrete refresh cadence helps avoid spikes and stale routing, but the issue is secondary if existing refresh behavior already has sane defaults. Integrate if touching the routing section, but it is not a release blocker by itself.",
+      "gpt_score": 590,
+      "opus_score": 0,
+      "tertiary_score": null,
+      "delta": 590,
+      "average_score": 590,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "DISPUTED"
+    },
+    {
+      "id": "IMP-013",
+      "description": "Valuable observability requirement. Unrouted events are expected edge cases, but silent drops make member-set failures indistinguishable from normal gaps. A metered log or counter is low-cost and improves operational diagnosis.",
+      "gpt_score": 710,
+      "opus_score": 0,
+      "tertiary_score": null,
+      "delta": 710,
+      "average_score": 710,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "DISPUTED"
+    }
+  ],
+  "low_value": [],
+  "blockers": [
+    {
+      "id": "SKP-004",
+      "concern": "Dune credit exhaustion mid-load has no documented recovery path. The SDD logs executionCostCredits per run but specifies no budget cap, no stop condition when a daily or monthly credit limit is hit, and no per-window checkpoint that allows resuming from the last completed window rather than restarting from the cursor.",
+      "severity": "HIGH",
+      "severity_score": 720,
+      "why_matters": "A large batch-1 collection (mad_lads ~10k mints, multi-year history) could consume an unexpected credit volume across many 30-day windows. A load that stops mid-window leaves the cursor pointing to the last successfully written block_time, but the operator has no visibility into how much history is missing without re-querying Dune at additional credit cost.",
+      "location": "§2.1 dune-client.ts; §2.3 warehouse-loader.ts cursor/window logic; §5 rollout cost logging",
+      "recommendation": "Add a --max-credits budget flag; abort cleanly with sync_status: 'credit-limit' when the running tally exceeds the cap. Write sync_status and the window cursor at the end of EACH successfully completed window (not only at loader exit) so restarts resume from the last completed window rather than re-scanning from the beginning.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-003",
+      "concern": "Mint set disjointness is asserted but not enforced. The multi-collection webhook uses 'first match' routing across per-collection member sets declared 'disjoint by construction', but y00ts and DeGods shared mints during the Dust Labs migration period. If any mint appears in two registry entries, live events are silently routed to the wrong collection with no error surfaced.",
+      "severity": "HIGH",
+      "severity_score": 780,
+      "why_matters": "Silent misdirection of live events corrupts both affected collections' event streams in real time — webhook ingestion has no reconcile gate to catch this. The error is invisible until a consumer notices stale or wrong data, at which point svm.collection_event may have months of misrouted rows. Both y00ts and degods appear in the batch-1 registry (§2.8), making this a day-one risk.",
+      "location": "§2.5 multi-collection webhook; §2.8 registry additions (y00ts, degods, daa_higher_self)",
+      "recommendation": "At webhook startup, build all member sets and assert pairwise disjointness; log a BLOCKER-level error and refuse to start (not just warn) if any mint appears in more than one collection's member set. Add a registry lint step to CI that catches cross-collection overlaps before any deploy.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "PK ordinal convergence silently depends on Dune row ordering matching the Helius parser's per-mint occurrence rule. The warehouse-events SQL has no ORDER BY clause specified in the SDD; if Dune returns rows in any order other than (tx_id, outer_instruction_index, inner_instruction_index), the computed instructionIndex diverges from the webhook path, producing duplicate events or silent overwrites in svm.collection_event.",
+      "severity": "CRITICAL",
+      "severity_score": 920,
+      "why_matters": "The entire content-addressed deduplication guarantee hinges on both supply lanes computing identical PKs for the same on-chain event. A silent ordering discrepancy produces two rows where one was expected, or one wrong row where two valid events existed — invisible without a correctness fixture that exercises the exact same multi-event tx through both paths on live data. The convergence fixture in §4 is fixture-only, so ordering assumptions are never validated against a real Dune result set.",
+      "location": "§2.3 warehouse-loader.ts — instructionIndex mapping; §2.2 warehouse-events.sql",
+      "recommendation": "Require warehouse-events.sql to ORDER BY tx_id, outer_instruction_index, inner_instruction_index ASC before row numbering; embed a ROW_NUMBER() OVER (PARTITION BY tx_id, token_mint_address ORDER BY outer_instruction_index, inner_instruction_index) directly in the SQL and validate in the loader that the SQL-assigned ordinal matches the computed ordinal. The §4 convergence fixture must exercise a multi-event tx (same tx appearing in both Dune and a Helius fixture) to catch ordering-dependent mismatches before merge.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-002",
+      "concern": "Reconcile on initial load is effectively a full Enhanced walk. §2.6 walks 'only mismatched mints' by comparing DAS snapshot owners to svm_collection_owner_derived — but for any collection loaded for the first time, the derived view returns no owners, so 100% of mints appear mismatched. With Helius credits pre-topup, this triggers a full unbounded Enhanced walk masked as an incremental reconcile.",
+      "severity": "CRITICAL",
+      "severity_score": 850,
+      "why_matters": "The PRD explicitly flags Helius credit exhaustion as a live risk (NFR-2). If the first post-load reconcile silently burns credits equivalent to a full walk for each of the 8 batch-1 collections, the topup budget is consumed before any steady-state incremental value is realized. There is no circuit breaker or mismatch-count cap in the spec. This is most dangerous at rollout step 4 ('post-topup: incremental reconcile measured via helius-meter') where the operator may not anticipate the burn.",
+      "location": "§2.6 incremental reconcile; §5 rollout steps 2 and 4",
+      "recommendation": "Add a --max-enhanced-mints cap (e.g., 500) to the reconcile CLI; record last_reconcile_result: 'capped' when the mismatch count exceeds the cap. Gate the first reconcile for any freshly-loaded collection behind an explicit --allow-full-walk flag to prevent accidental full burns. Document the expected mismatch count range (not just 'walk only mismatched mints') in the post-topup runbook.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "The multi-collection webhook routing assumes member sets are disjoint by construction but does not define enforcement, detection, or failure behavior for duplicate mints across collections.",
+      "severity": "HIGH",
+      "severity_score": 720,
+      "why_matters": "If a mint appears in multiple registry member sets, first-match routing can silently attribute live events to the wrong collection, corrupting freshness status and collection ownership/event views.",
+      "location": "2.5 Multi-collection webhook",
+      "recommendation": "Add a registry/member-load validation step that detects duplicate mints across collections, fails closed or quarantines ambiguous mints, and exposes duplicate counts in health output.",
+      "source": "tertiary_skeptic"
+    }
+  ],
+  "degraded": false,
+  "degraded_model": null,
+  "confidence": "full",
+  "phase": "sdd",
+  "document": "grimoires/loa/sdd.md",
+  "domain": " product area sonar api",
+  "tertiary_model_used": "gemini-headless",
+  "tertiary_status": "active",
+  "execution": {
+    "mode": "autonomous",
+    "mode_reason": "CLI flag --autonomous",
+    "run_id": "fl-svm-loader-sdd"
+  },
+  "timestamp": "2026-07-05T05:21:21Z",
+  "metrics": {
+    "total_latency_ms": 298000,
+    "cost_cents": 0,
+    "cost_usd": 0
+  }
+}
