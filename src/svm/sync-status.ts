@@ -14,7 +14,7 @@
 const HASURA = (process.env.SVM_HASURA_ENDPOINT ?? "").replace(/\/$/, "");
 const SECRET = process.env.HASURA_GRAPHQL_ADMIN_SECRET ?? "";
 
-export type SyncEventSource = "dune-warehouse" | "helius-webhook" | "helius-backfill";
+export type SyncEventSource = "dune-warehouse" | "helius-webhook" | "helius-backfill" | "sqd-stream";
 export type ReconcileResult = "passed" | "failed" | "skipped-no-das";
 
 export interface SyncStatusPatch {
