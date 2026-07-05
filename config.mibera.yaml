@@ -293,8 +293,6 @@ chains:
         address:
           - 0x120756ccc6f0cefb43a753e1f2534377c2694bb4 # MiberaMaker333
         start_block: 33657372 # MiberaMaker333 deployment
-
-  # ── Optimism (10) — MiberaSets, MiberaZora1155, MirrorObservability, TrackedErc721 (lore).
       # Community onboarding — Base batch 1 (top-10 ramp, #121; deploy blocks verified via eth_getCode binary search 2026-07-05)
       - name: TrackedErc721
         address:
@@ -307,6 +305,8 @@ chains:
           - 0x95bc4c2e01c2e2d9e537e7a9fe58187e88dd8019 # nodes_by_hunter (deploy 33916538)
           - 0x20fd75eccd7bb9c4eb9e3bb4c09c6b382e15d63e # veecon_2024_tickets (deploy 14459222)
         start_block: 2883449 # earliest deploy in the batch (based_onchain_punks)
+
+  # ── Optimism (10) — MiberaSets, MiberaZora1155, MirrorObservability, TrackedErc721 (lore).
   - id: 10
     start_block: 107558369 # MirrorObservability deployment (earliest for Mibera articles)
     contracts:

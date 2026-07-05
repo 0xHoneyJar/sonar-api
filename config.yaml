@@ -670,14 +670,6 @@ chains:
           - 0x154a563ab6c037bd0f041ac91600ffa9fe2f5fa0 # puru_boarding_passes
           - 0x85A72EEe14dcaA1CCC5616DF39AcdE212280DcCB # puru_introducing_kizuna
         start_block: 13803165 # Apiculture Szn 0 deployment (earliest of the 4)
-      # Seaport on Base — DEFERRED until downstream repos add chainId filters
-      # See: grimoires/loa/NOTES.md for required downstream changes
-      # - name: Seaport
-      #   address:
-      #     - "0x0000000000000068F116a894984e2DB1123eB395" # Seaport v1.6
-      #   start_block: 20521993 # puru_boarding_passes deployment
-
-  # Berachain Mainnet (DO NOT CHANGE THIS ID)
       # Community onboarding — Base batch 1 (top-10 ramp, #121; deploy blocks verified via eth_getCode binary search 2026-07-05)
       - name: TrackedErc721
         address:
@@ -690,6 +682,14 @@ chains:
           - 0x95bc4c2e01c2e2d9e537e7a9fe58187e88dd8019 # nodes_by_hunter (deploy 33916538)
           - 0x20fd75eccd7bb9c4eb9e3bb4c09c6b382e15d63e # veecon_2024_tickets (deploy 14459222)
         start_block: 2883449 # earliest deploy in the batch (based_onchain_punks)
+      # Seaport on Base — DEFERRED until downstream repos add chainId filters
+      # See: grimoires/loa/NOTES.md for required downstream changes
+      # - name: Seaport
+      #   address:
+      #     - "0x0000000000000068F116a894984e2DB1123eB395" # Seaport v1.6
+      #   start_block: 20521993 # puru_boarding_passes deployment
+
+  # Berachain Mainnet (DO NOT CHANGE THIS ID)
   - id: 80094
     start_block: 8221 # BgtToken deployment — earliest contract on Berachain
     # multi-upstream proxy alongside the free Berachain cluster (publicnode/official/
