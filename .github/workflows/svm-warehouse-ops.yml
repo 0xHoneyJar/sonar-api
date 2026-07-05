@@ -1,0 +1,68 @@
+# svm-warehouse-ops — operator-dispatched production steps for the warehouse lane
+# (rollout runbook steps 1-3, runnable through the secret-bearing CI harness).
+# Every step is idempotent: migration is IF NOT EXISTS; Hasura track tolerates already-tracked;
+# loader writes are insert-if-absent on a content-addressed PK.
+name: SVM warehouse ops
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: "migrate | ingest"
+        required: true
+        type: choice
+        options: [migrate, ingest]
+      collection:
+        description: "collection key for ingest (or 'batch1' for all 8)"
+        required: false
+        default: "pythians"
+      window_days:
+        description: "backfill window size (90 = 3x fewer Dune executions for old collections)"
+        required: false
+        default: "90"
+
+jobs:
+  ops:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SVM_HASURA_ENDPOINT: https://belt-hasura-selfhost-production.up.railway.app
+      HASURA_GRAPHQL_ADMIN_SECRET: ${{ secrets.SVM_HASURA_ADMIN_SECRET }}
+      DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
+      DUNE_EVENTS_QUERY_ID: ${{ secrets.DUNE_EVENTS_QUERY_ID }}
+      DUNE_CREDIT_BUDGET: "1500"   # month guard (FL SKP-004) — re-runs resume from cursor
+      SVM_WAREHOUSE_WINDOW_DAYS: ${{ inputs.window_days }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+
+      - name: migrate (Hasura run_sql + pg_track_table + select perm)
+        if: inputs.step == 'migrate'
+        run: |
+          set -euo pipefail
+          SQL=$(python3 -c "import json;print(json.dumps(open('migrations/svm/002_sync_status.sql').read()))")
+          curl -sf -X POST "$SVM_HASURA_ENDPOINT/v2/query" \
+            -H "x-hasura-admin-secret: $HASURA_GRAPHQL_ADMIN_SECRET" -H 'Content-Type: application/json' \
+            -d "{\"type\":\"run_sql\",\"args\":{\"source\":\"default\",\"sql\":$SQL}}" && echo "migration applied"
+          curl -s -X POST "$SVM_HASURA_ENDPOINT/v1/metadata" \
+            -H "x-hasura-admin-secret: $HASURA_GRAPHQL_ADMIN_SECRET" -H 'Content-Type: application/json' \
+            -d '{"type":"pg_track_table","args":{"source":"default","table":{"schema":"svm","name":"sync_status"}}}' \
+            | grep -qE '"message":"success"|already tracked' && echo "tracked"
+          curl -s -X POST "$SVM_HASURA_ENDPOINT/v1/metadata" \
+            -H "x-hasura-admin-secret: $HASURA_GRAPHQL_ADMIN_SECRET" -H 'Content-Type: application/json' \
+            -d '{"type":"pg_create_select_permission","args":{"source":"default","table":{"schema":"svm","name":"sync_status"},"role":"public","permission":{"columns":"*","filter":{}}}}' \
+            | grep -qE '"message":"success"|already exists' && echo "public select granted"
+
+      - name: ingest
+        if: inputs.step == 'ingest'
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.collection }}" = "batch1" ]; then
+            KEYS="mad_lads claynosaurz smb_gen2 degods daa_higher_self famous_fox y00ts galactic_geckos"
+          else
+            KEYS="${{ inputs.collection }}"
+          fi
+          for k in $KEYS; do
+            echo "── ingest $k ──"
+            npx --yes tsx src/svm/warehouse-loader.ts --collection "$k"
+          done

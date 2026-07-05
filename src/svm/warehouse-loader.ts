@@ -30,7 +30,7 @@ export const WAREHOUSE_QUERY_IDS = {
   events: Number(process.env.DUNE_EVENTS_QUERY_ID ?? 0),
 };
 
-const WINDOW_DAYS = 30;
+const WINDOW_DAYS = Number(process.env.SVM_WAREHOUSE_WINDOW_DAYS ?? 30) || 30; // 90 for old-collection backfills = 3x fewer Dune executions
 // FL SKP-004: optional per-run Dune credit budget. The loop stops CLEANLY between windows when
 // cumulative credits exceed it; the DB cursor makes a re-run resume from the last ingested event,
 // so an aborted load loses nothing (idempotent PK + windowed commits).
