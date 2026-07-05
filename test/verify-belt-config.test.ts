@@ -23,18 +23,18 @@ describe("verify-belt-config", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("covers all 15 belt contracts across 4 chains (multi-chain footprint)", () => {
+  it("covers all 16 belt contracts across 4 chains (multi-chain footprint)", () => {
     const names = new Set(BELT_CONTRACTS.map((c) => c.name));
     const chains = new Set(BELT_CONTRACTS.map((c) => c.chainId));
-    expect(names.size).toBe(15);
-    expect(BELT_CONTRACTS.length).toBe(17);
+    expect(names.size).toBe(15); // 15 distinct names — TrackedErc721 appears on 4 chains
+    expect(BELT_CONTRACTS.length).toBe(18); // +TrackedErc721@8453 (#124 Base batch — count missed in that PR's targeted test run)
     expect([...chains].sort((a, b) => a - b)).toEqual([1, 10, 8453, 80094]);
-    // TrackedErc721 is referenced on Ethereum (Azuki), Optimism (lore), and Berachain (fractures).
+    // TrackedErc721 is referenced on Ethereum (Azuki), Optimism (lore), Base (#124 batch-1), and Berachain (fractures).
     expect(
       BELT_CONTRACTS.filter((c) => c.name === "TrackedErc721")
         .map((c) => c.chainId)
         .sort((a, b) => a - b),
-    ).toEqual([1, 10, 80094]);
+    ).toEqual([1, 10, 8453, 80094]);
     expect(BELT_CHAIN_ID).toBe(80094); // back-compat export
   });
 
