@@ -10,7 +10,7 @@ on:
         description: "migrate | ingest"
         required: true
         type: choice
-        options: [migrate, ingest]
+        options: [migrate, ingest, snapshot]
       collection:
         description: "collection key for ingest (or 'batch1' for all 8)"
         required: false
@@ -81,3 +81,24 @@ jobs:
               npx --yes tsx src/svm/warehouse-loader.ts --collection "$k"
             fi
           done
+
+      - name: snapshot
+        if: inputs.step == 'snapshot'
+        env:
+          COLLECTION_INPUT: ${{ inputs.collection }}
+          HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+          SVM_HASURA_ENDPOINT: https://belt-hasura-selfhost-production.up.railway.app
+          HASURA_GRAPHQL_ADMIN_SECRET: ${{ secrets.SVM_HASURA_ADMIN_SECRET }}
+        run: |
+          set -euo pipefail
+          case "$COLLECTION_INPUT" in (*[!a-z0-9_]*) echo "invalid collection key"; exit 2;; esac
+          if [ "$COLLECTION_INPUT" = "batch1" ]; then
+            KEYS="smb_gen2 degods famous_fox mad_lads y00ts daa_higher_self claynosaurz galactic_geckos"
+          else
+            KEYS="$COLLECTION_INPUT"
+          fi
+          for k in $KEYS; do
+            echo "── snapshot $k ──"
+            npx --yes tsx src/svm/pythians-collection-indexer.ts --collection "$k"
+          done
+
