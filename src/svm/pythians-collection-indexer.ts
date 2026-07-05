@@ -162,13 +162,19 @@ async function main(): Promise<void> {
   installMeterExitLog("ownership-snapshot"); // KF-018/#122: credit-burn ledger line, crash paths included
   if (!SECRET) throw new Error("HASURA_GRAPHQL_ADMIN_SECRET required");
   if (!HASURA) throw new Error("SVM_HASURA_ENDPOINT required (no prod default — set it explicitly)");
-  const src: NftCollectionSource = new DasNftCollectionSource(RPC, PYTHIANS_COLLECTION);
+  // --collection <key> genericizes the snapshot pipe (registry-resolved; default pythians —
+  // exports above stay for back-compat importers). Snapshot-first onboarding: ~50cr/collection.
+  const ci = process.argv.indexOf("--collection");
+  const cfg = ci >= 0 ? (await import("./collection-registry.js")).resolveCollection(process.argv[ci + 1] ?? "") : null;
+  const collectionMint = cfg?.collectionMint ?? PYTHIANS_COLLECTION;
+  const collectionKey = cfg?.collectionKey ?? COLLECTION_KEY;
+  const src: NftCollectionSource = new DasNftCollectionSource(RPC, collectionMint);
   const h = await src.health();
   console.log(`source health: ${h.ok ? "ok" : "DEGRADED"} (${h.detail}) · rpc=${RPC.replace(/\?.*/, "")}`);
   if (!h.ok) throw new Error(`DAS source unhealthy (need a Helius/DAS-capable SOLANA_RPC_URL): ${h.detail}`);
-  console.log(`snapshotting ${COLLECTION_KEY} collection ownership (${PYTHIANS_COLLECTION})…`);
-  const { upserted, removed, slot } = await indexSnapshot(src, COLLECTION_KEY);
-  console.log(`✅ DONE — ${COLLECTION_KEY}: ${upserted} NFTs upserted, ${removed} stale removed @ slot ${slot}`);
+  console.log(`snapshotting ${collectionKey} collection ownership (${collectionMint})…`);
+  const { upserted, removed, slot } = await indexSnapshot(src, collectionKey);
+  console.log(`✅ DONE — ${collectionKey}: ${upserted} NFTs upserted, ${removed} stale removed @ slot ${slot}`);
 }
 
 // run only when invoked directly (so indexSnapshot/toRows stay importable/testable). Compare resolved
