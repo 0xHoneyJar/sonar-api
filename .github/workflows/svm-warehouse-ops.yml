@@ -19,6 +19,10 @@ on:
         description: "backfill window size (90 = 3x fewer Dune executions for old collections)"
         required: false
         default: "90"
+      from_time:
+        description: "ISO start bound (budget scoping — recent-window ingests; empty = cursor/genesis)"
+        required: false
+        default: ""
 
 jobs:
   ops:
@@ -59,6 +63,7 @@ jobs:
           # BB HIGH (PR #127): inputs reach the shell ONLY via env — never expression
           # interpolation inside run blocks (injection → secret exfiltration for repo-writers).
           COLLECTION_INPUT: ${{ inputs.collection }}
+          FROM_INPUT: ${{ inputs.from_time }}
         run: |
           set -euo pipefail
           case "$COLLECTION_INPUT" in (*[!a-z0-9_]*) echo "invalid collection key"; exit 2;; esac
@@ -67,7 +72,12 @@ jobs:
           else
             KEYS="$COLLECTION_INPUT"
           fi
+          case "$FROM_INPUT" in (*[!0-9TZ:.-]*) echo "invalid from_time"; exit 2;; esac
           for k in $KEYS; do
             echo "── ingest $k ──"
-            npx --yes tsx src/svm/warehouse-loader.ts --collection "$k"
+            if [ -n "$FROM_INPUT" ]; then
+              npx --yes tsx src/svm/warehouse-loader.ts --collection "$k" --from "$FROM_INPUT"
+            else
+              npx --yes tsx src/svm/warehouse-loader.ts --collection "$k"
+            fi
           done
