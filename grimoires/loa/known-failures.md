@@ -80,6 +80,7 @@ actually tried, not just what someone *said* was tried.
 | [KF-014](#kf-014-bridgebuilder-pass-2-enrichment-unavailable-on-claude-headless-cli-subscription) | DEGRADED-ACCEPTED 2026-05-22 (Pass-1 convergence findings still post; only the educational enrichment layer is lost) | `/bridgebuilder` two-pass review on `claude-headless` | 3 |
 | [KF-015](#kf-015-envio-belt-indexer-node-js-heap-oom-on-multi-chain-belt-default-2gb-heap-vs-large-container) | **RESOLVED-VIA-CONFIG 2026-05-22** (`NODE_OPTIONS=--max-old-space-size=12288` — 6-chain belt OOM'd Node's ~2GB default heap in a 24GB container; green-only; RECURRED 2026-06-19 on managed-Envio Cloud @3.2.1 — heap/RAM lever there is TBD) | belt-indexer 6-chain consolidated cold-sync OOM | 2 |
 | [KF-016](#kf-016-envio-321-blocks-chain-indexing-on-hasura-trackdatabase-retry) | **RESOLVED-VIA-CONFIG 2026-06-21** (set `HASURA_GRAPHQL_ENDPOINT` to a reachable Hasura — `envio@3.2.1` blocks chain-indexing on the `Hasura.trackDatabase`→`createSelectPermission` retry loop when no Hasura is reachable; `block_height` stuck at 0, `latest_processed_block` -1. The local-upload spike slipped past it; the GitHub-sourced re-home did not — give the indexer a Hasura at deploy time) | self-host envio@3.2.1 deploy, indexer seeds schema but never indexes | 1 |
+| [KF-018](#kf-018-helius-plan-quota-exhaustion-silently-kills-the-svm-freshness-backstop) | **HEALING** (2026-07-05: first green run 28731559821 — incremental design + fresh key; 593 events recovered; awaiting 2 more green cycles (issue #122 — Helius `429 max usage reached` fails every `svm-event-backfill.yml` run since 2026-06-30; no `svm_collection_event` rows since the 06-25 initial backfill; webhook delivery also suspect on exhausted credits) | SVM lane freshness (reconcile cron + Helius webhook) | 1 |
 
 ---
 
@@ -992,3 +993,29 @@ On `getCode` failure, update the row to defer it: add a retry counter or set `re
 ### Reading guide
 
 This is a liveness bug, not a correctness bug — the MV data is unaffected. The address-type classification feature (`sonar-63`) just stops making progress when RPC errors are persistent. **Diagnostic signature**: `address_type` rows stuck in `type = 'pending'` with old `createdAt`, `recheckAfter = NULL`, no progression over multiple indexer cycles. Do NOT confuse with KF-012 (RPC empty-200 on eth_getLogs — different handler path). The fix requires a schema change to `address_type` (retry counter or deferred status) plus handler logic update — must go through `/plan` + sprint gate.
+
+---
+
+## KF-018: Helius plan-quota exhaustion silently kills the SVM freshness backstop
+
+**Status**: RESOLVED-STRUCTURAL 2026-07-05 (pythians healed via incremental reconcile — 593 events, run 28731559821; batch-1 landed via snapshot-first onboarding — 64,913 NFTs / 9 collections on the public gateway, run 28755084271, ~800cr; svm_sync_status live; reconcile cadence green. The lane's failure mode is now: metered, freshness-visible, gate-protected.)
+**Feature**: SVM lane — `svm_collection_event` freshness (`.github/workflows/svm-event-backfill.yml` reconcile cron + `svm-webhook` Railway service)
+**Symptom**: The 6-hour reconcile cron fails every run with `getAssetsByGroup: HTTP 429 {"code":-32429,"message":"max usage reached"}` (Helius monthly-credit exhaustion, NOT transient rate limiting) at `src/svm/nft-collection-source.ts:103`. 20/20 failures since the cron first fired 2026-06-30T00:25Z — zero successes ever. Meanwhile the newest `svm_collection_event` row is 2026-06-25T21:24Z (the initial-backfill day), so no webhook-sourced events have landed either; Helius pauses webhook delivery on exhausted credits, so the realtime tail is likely down too. The failure mode is total silence — downstream consumers (score-api, #121) cannot distinguish "collection went quiet" from "lane down".
+**First observed**: 2026-07-04 (while answering #121's pythians staleness data point)
+**Recurrence count**: 1
+**Current workaround**: None. Treat `svm_collection_event` freshness after 2026-06-25 as unreliable until #122 closes.
+**Upstream issue**: #122
+
+| Date | Attempt | Result | Evidence |
+|------|---------|--------|----------|
+| 2026-07-04 | Diagnosed via run-history sweep + live gateway query; filed #122 | Not yet fixed — needs Helius plan bump/key rotation, then manual cron dispatch | `gh run list --workflow svm-event-backfill.yml` → 0/20 successes since 2026-06-30; live query newest event 2026-06-25T21:24:42Z |
+| 2026-07-05 | Structural fix landed (PRs #123–#128: incremental reconcile + warehouse lane + meter + sync_status) + fresh free-tier key | **PYTHIANS HEALED** — first green run 28731559821: 37/3682 drifted walked, 593 events recovered, 30,841cr (steady state ~40cr/run) | run log `[helius-meter]` line; #122 comment 2026-07-05 |
+| 2026-07-05 | Batch-1 warehouse ingestion (8 new collections) | BLOCKED on Dune datapoint meter (HTTP 402, egress rows×cols — a SECOND billing axis the cost model missed; executions were guarded, egress was not) | run 28732265332; resets with Dune billing cycle |
+
+### Suggested fix (not yet applied)
+
+Bump/rotate the Helius plan or API key (workflow secret `HELIUS_API_KEY` + `svm-webhook` Railway env), manually dispatch the cron, confirm the §4.5 reconcile gate passes. The content-addressed PK (`{tx_signature}:{nft_mint}:{instruction_index}`) means the backfill self-heals the gap idempotently. Then land the dead-man's-switch already listed as a follow-up in `grimoires/loa/runbooks/svm-contract-drift.md` — a cron whose failure mode is 5 days of silence is exactly the class it names.
+
+### Reading guide
+
+**Diagnostic signature**: `svm_collection_event` max `block_time` frozen for days + red `svm-event-backfill` Actions runs with `-32429 max usage reached`. This is PLAN QUOTA (monthly credits), not per-second rate limiting — retrying, backoff, or the DB-fallback member set will NOT fix it; only more credits do. Do NOT confuse with the webhook's hardened 429 path (`collection-event-webhook.ts:42-49` keeps the receiver alive but can't conjure deliveries Helius isn't sending). Note the EVM belt is completely unaffected — check `chain_metadata` lag before assuming a whole-indexer outage.

@@ -700,3 +700,64 @@ Triggered after **PR #101 merged to `main`** (`87705e43`, branch `feat/envio-clo
 **GAP-A (code-truth anomaly, honest-green):** `config.yaml` declares `handler: src/EventHandlers.ts` for all 41 contracts but **that file is absent from HEAD** (last touched by #75 managed-Cloud port). Only `src/belts/mibera/EventHandlers.mibera.ts` exists. → operator confirm live `BELT_CONFIG` + whether the ref is stale before claiming the 6-chain green belt is live-shippable from HEAD.
 
 **Artifacts written:** `drift-report.md` (regenerated), correction banners on `prd.md`+`sdd.md`, `reality/architecture-overview.md` (corrected runtime topology). **Flag-don't-fix:** CI workflows, `package.json` deps, and `ponder-runtime/` deletion left untouched (CI/release-automation outside micro-fix latitude) — listed as recommended `/implement` actions. **Open re-port Q:** whether #69 per-token ownership + fuller outbox/DLQ NATS publisher (Ponder-only) survived the revert onto the Envio surface.
+## STANDING CLOSURE PROTOCOL — #122 / KF-018 (operator order 2026-07-05)
+Trigger: `svm-warehouse-ops.yml` batch-1 ingest run concludes SUCCESS.
+BUDGET FACTS (operator screenshot 2026-07-05): Dune free plan = 2,500 credits/mo TOTAL (egress
+datapoints bill into the SAME pool); cycle resets **16 Jul 2026**; 1.58 credits remain this cycle.
+REVISED SCOPE (full histories do NOT fit 2,500/mo — Mad Lads alone is millions of egress rows):
+after the Jul-16 reset run batch-1 with a bounded start, RECENT WINDOW ONLY:
+`gh workflow run svm-warehouse-ops.yml -f step=ingest -f collection=batch1 -f window_days=90`
+after first setting per-run bound via loader `--from 2026-01-01` semantics — i.e. dispatch per
+collection: `-f step=ingest -f collection=<key>` ONLY after adding `from` input plumbing, OR run
+loader locally with `--from 2026-01-01T00:00:00Z`. Watch credits vs the DUNE_CREDIT_BUDGET=1500 guard.
+Deep pre-2026 history = COMPOSITE PLAN (researched 2026-07-05): BigQuery public
+`crypto_solana_mainnet_us` covers genesis→~2025-03-31 (dataset STOPPED UPDATING per Google forums —
+verify MAX(block_timestamp) at spike) = bulk of the majors' historical volume. Dune covers the
+Apr-2025→now seam (bounded slice, fits a free cycle). SPIKE (needs operator GCP sandbox, 1TB/mo
+free, no card): dry-run the mint-filtered token_transfers extraction → EXACT bytes quote BEFORE any
+spend → free if <1TB, else ~$6.25/TB one-time. Per the metered-provider-spike-protocol (memory):
+no new accounts without a dry-run-grade quote first. Score-api scoring starts fine on recent window + live tail.
+On trigger, execute IN ORDER:
+1. Verify: gateway `svm_collection_event` counts >0 for all 8 batch-1 keys + `svm_sync_status` rows present + last 3 `svm-event-backfill` runs green.
+2. KF-018 → Status: RESOLVED-STRUCTURAL (evidence: batch-1 run id + per-collection counts).
+3. Close #122 with closure evidence comment.
+4. Notify score-api on #121 (standing order): batch-1 keys live, sync_status freshness contract + lag-vs-quiet recipe, flip svm_sync_status to live in scripts/svm-contract.json via PR.
+## STANDING CONSTRAINT (operator, 2026-07-05): Dune = operator-approved spends ONLY
+No agent dispatches any Dune-billing run (medium/large engine executions, bulk egress) without an
+explicit per-run operator go-ahead naming the expected cost. Free-engine metadata probes exempt.
+Reason: probe-inference mistook engine-tier pass-through for available credits; trust is the budget.
+## T-1 SPIKE VERDICT (svm-sqd-substrate, 2026-07-05) — measured, architecture-changing
+Portal era-speed curve (1,500-mint filter, 1 req/era): 2021≈17k slots/req; 2022-23≈1.2-2k; 2024-26≈
+340-800. Genesis→head ≈ ~400k requests ≈ ~5 DAYS/collection. NAIVE BATCH WALK: NOT VIABLE (filter
+does not reduce scan cost — Portal scans global chain density sequentially; the model serves
+continuous indexers, not ad-hoc extraction). Filter body ceiling measured: ~345KB rejected, 187KB ok
+(MINT_CHUNK=1500). Continuation: client-driven lastBlock+1. Access: open, no auth, no throttles seen.
+PIVOT (the spike's real finding): deep history's cheapest CORRECT path is the EXISTING Helius
+Enhanced backfill lane — targeted per-mint walks, no global scan, production-proven on pythians.
+8 collections ≈ ~60k mints ≈ ~7.2M credits ≈ ONE $49 Dev month (or free-tier drip ~7 months).
+SQD lane RE-SCOPED to what it measured well at: live tail from head (tiny steps at tip = cheap,
+real-time, webhook-independent redundancy) — T-2/T-3 code (decode+client, 42 tests green) serves
+this role unchanged. Dune Jul-16 free cycle = optional recent-seam backup. OPERATOR DECISION
+PENDING: $49 one-month Helius vs free drip. T-4/T-5 (SQD batch ingest) CANCELLED as specced.
+## OSS SWEEP (Exa, 2026-07-05, pre-Helius-spend): solarchive.org = REAL GEM, probe-gated
+solarchive.org: free Parquet archive, ALL Solana txs incl. token balances, Oct-2020→(~2wk lag),
+no keys/limits, DuckDB-over-HTTP, community-run. UNKNOWN: mint-predicate pruning efficiency on
+700TB-scale parquet (could be TBs of column downloads). ACTION: shaped probe (1 month's file,
+measure bytes-fetched) = the onboarding experiment for collection #9 — could make future
+onboarding $0. Old Faithful: self-host only (GSFA index local) — filed as the own-the-substrate
+endgame. DECISION: paid $49 lands the 8 NOW via proven Helius walks; solarchive probes next.
+## Backfill lesson (2026-07-05): timeout-cancelled walk = ALL credits unpersisted (indexer upserts post-walk). Run 28735197963: ~400k credits lost at 60:00 cap. Fixed #132 (240m + 150ms pace). FOLLOW-UP: incremental upsert checkpointing in collection-event-indexer so cancellation is lossless.
+## Density lesson (2026-07-05): pythians-shaped calibration missed BLUE-CHIP TX DENSITY — SMB ≈30+ pages/mint ≈3,000cr/NFT (15M/collection unbounded). Walks now SINCE-bounded (#134); deep pre-2026 = warehouse track (solarchive probe). Spike protocol amended: shaped probe must match tx-density shape.
+## OPS ITEM (from #135, 2026-07-05): KITCHEN_UPSTREAM not wired on prod belt-gateway (probe: /v1/collections/* falls through to Hasura 404) + score-api needs a kitchen service token — both needed before zerker's tool drops --skip-sonar-verify. Interim gate (holders>0 AND chain-lag<threshold) given to them on the issue.
+
+## KF-001 RECURRENCE 2026-07-05: runner Node→Helius stalls (30s DAS aborts, 0.5s locally). Fix: ipv4first NODE_OPTIONS (#137).
+## SESSION CLOSE 2026-07-05 (the #121→#139 arc)
+SHIPPED: PRs #123-#139 (17, all BB-gated) — meter, Base-8 config, warehouse loader cycle, ops
+workflows, snapshot-first onboarding, contract flip. LIVE: 9 SVM collections (64,913 NFTs) on the
+public gateway + svm_sync_status (live type) + pythians event lane healed + green reconcile cadence.
+CLOSED: #122 (KF-018 RESOLVED-STRUCTURAL). NOTIFIED: score-api (#135) — holdings scoring can start.
+LEDGER: ~5.7M/10M Helius spent (incl. ~4.4M measured-lesson tuition); Dune resets Jul 16.
+OPEN (operator/next): belt restart → Base-8 activate + #120 close · kitchen route+token (#135 ops
+items) · multi-collection webhook Railway deploy · solarchive probe (history enrichment, $0) ·
+SQD live-tail PR (code ready on feat/svm-sqd-substrate) · checkpointing for interruptible walks ·
+rotate Helius/Dune/Exa keys (passed through chat).
