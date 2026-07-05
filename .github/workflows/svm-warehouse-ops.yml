@@ -55,12 +55,17 @@ jobs:
 
       - name: ingest
         if: inputs.step == 'ingest'
+        env:
+          # BB HIGH (PR #127): inputs reach the shell ONLY via env — never expression
+          # interpolation inside run blocks (injection → secret exfiltration for repo-writers).
+          COLLECTION_INPUT: ${{ inputs.collection }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.collection }}" = "batch1" ]; then
+          case "$COLLECTION_INPUT" in (*[!a-z0-9_]*) echo "invalid collection key"; exit 2;; esac
+          if [ "$COLLECTION_INPUT" = "batch1" ]; then
             KEYS="mad_lads claynosaurz smb_gen2 degods daa_higher_self famous_fox y00ts galactic_geckos"
           else
-            KEYS="${{ inputs.collection }}"
+            KEYS="$COLLECTION_INPUT"
           fi
           for k in $KEYS; do
             echo "── ingest $k ──"
