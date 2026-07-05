@@ -4,10 +4,10 @@ Operator-facing, copy-pasteable. Prereqs per step are explicit; nothing here req
 
 ## 0. One-time setup (Dune side)
 
-1. Save the two SQL files as Dune saved queries (operator's Dune account):
-   - `src/svm/sql/warehouse-members.sql` → note its query id
-   - `src/svm/sql/warehouse-events.sql` → note its query id
-2. Set env for loader runs: `DUNE_API_KEY=<key>` and `DUNE_EVENTS_QUERY_ID=<events query id>`.
+1. ✅ DONE 2026-07-05 (saved via Dune MCP on the operator account):
+   - `warehouse-members.sql` → query id **7887895**
+   - `warehouse-events.sql` → query id **7887896**
+2. Set env for loader runs: `DUNE_API_KEY=<key from dune.com settings>` and `DUNE_EVENTS_QUERY_ID=7887896`.
 
 ## 1. Apply migration + Hasura track (same motion as migration 001)
 
