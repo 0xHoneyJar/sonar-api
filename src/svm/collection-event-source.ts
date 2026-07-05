@@ -287,13 +287,27 @@ export class HeliusCollectionEventSource implements CollectionEventSource {
     }
   }
 
-  /** Walk one NFT's parsed tx history (newest→older via `before`), yielding only THIS mint's events. */
+  /** Walk one NFT's parsed tx history (newest→older via `before`), yielding only THIS mint's events.
+   * SVM_BACKFILL_SINCE (unix seconds) bounds the walk: pagination is newest-first, so once a page's
+   * oldest tx predates the bound we stop — blue-chip mints carry 1000s of marketplace txs (SMB
+   * measured ~30+ pages/mint, ~3,000cr/NFT: 15M credits for ONE collection unbounded; the 2026-07-05
+   * walk-train discovery). Recent-window onboarding + warehouse deep-history is the composite. */
   async *mintHistory(mint: string): AsyncIterable<CollectionEvent> {
     const onlyThis = (m: string) => m === mint;
+    const since = Number(process.env.SVM_BACKFILL_SINCE ?? 0) || 0;
     let before: string | undefined;
     for (let page = 0; page < MAX_PAGES_PER_MINT; page++) {
       const txs = await this.addressHistory(mint, before);
       if (txs.length === 0) break;
+      let reachedBound = false;
+      const inWindow = since > 0 ? txs.filter((t) => { const ts = Number(t.timestamp ?? 0); if (ts && ts < since) reachedBound = true; return !ts || ts >= since; }) : txs;
+      if (since > 0) {
+        for (const tx of inWindow) for (const ev of parseHeliusTx(tx, onlyThis)) yield ev;
+        if (reachedBound) break;
+        before = txs[txs.length - 1]?.signature;
+        if (txs.length < ADDRESS_HISTORY_LIMIT || !before) break;
+        continue;
+      }
       for (const tx of txs) {
         for (const ev of parseHeliusTx(tx, onlyThis)) yield ev;
       }
