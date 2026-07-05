@@ -87,6 +87,9 @@ jobs:
         env:
           COLLECTION_INPUT: ${{ inputs.collection }}
           HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+          # the snapshot pipe reads SOLANA_RPC_URL (defaults to the PUBLIC non-DAS endpoint —
+          # runs 28754856273/28754973814 probed DAS against it and hung to the 30s abort)
+          SOLANA_RPC_URL: https://mainnet.helius-rpc.com/?api-key=${{ secrets.HELIUS_API_KEY }}
           # KF-001 class: Node Happy-Eyeballs/IPv6 stalls on GH runners → DAS/Enhanced timeouts (run 28754856273 died on call #1; local = 0.5s)
           NODE_OPTIONS: "--dns-result-order=ipv4first"
           SVM_HASURA_ENDPOINT: https://belt-hasura-selfhost-production.up.railway.app
