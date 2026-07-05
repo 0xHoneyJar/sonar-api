@@ -670,6 +670,18 @@ chains:
           - 0x154a563ab6c037bd0f041ac91600ffa9fe2f5fa0 # puru_boarding_passes
           - 0x85A72EEe14dcaA1CCC5616DF39AcdE212280DcCB # puru_introducing_kizuna
         start_block: 13803165 # Apiculture Szn 0 deployment (earliest of the 4)
+      # Community onboarding — Base batch 1 (top-10 ramp, #121; deploy blocks verified via eth_getCode binary search 2026-07-05)
+      - name: TrackedErc721
+        address:
+          - 0xcb28749c24af4797808364d71d71539bc01e76d4 # based_punks (deploy 12774442)
+          - 0x3319197b0d0f8ccd1087f2d2e47a8fb7c0710171 # hypio (deploy 24834458)
+          - 0xee7d1b184be8185adc7052635329152a4d0cdefa # kemonokaki (deploy 16046941)
+          - 0x699727f9e01a822efdcf7333073f0461e5914b4e # warplets (deploy 37366750)
+          - 0x1260f90e0b1c482b38b88f26dee17c57615d670b # lil_bangers (deploy 33642811)
+          - 0x9e7a06c281355f60570e47a12650c89fe1d36ff3 # based_onchain_punks (deploy 2883449)
+          - 0x95bc4c2e01c2e2d9e537e7a9fe58187e88dd8019 # nodes_by_hunter (deploy 33916538)
+          - 0x20fd75eccd7bb9c4eb9e3bb4c09c6b382e15d63e # veecon_2024_tickets (deploy 14459222)
+        start_block: 2883449 # earliest deploy in the batch (based_onchain_punks)
       # Seaport on Base — DEFERRED until downstream repos add chainId filters
       # See: grimoires/loa/NOTES.md for required downstream changes
       # - name: Seaport
