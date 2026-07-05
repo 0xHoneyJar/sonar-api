@@ -21,6 +21,8 @@
  * downstream consumer can decide; resolving escrow PDAs back to the lister is a future enhancement.
  */
 
+import { classifyRpcMethod, meter } from "./helius-meter";
+
 /** One NFT in the collection + its current holder. */
 export interface CollectionMember {
   readonly nftMint: string; // base58 NFT mint (the entity key)
@@ -93,6 +95,7 @@ export class DasNftCollectionSource implements NftCollectionSource {
   ) {}
 
   private async rpc<T>(method: string, params: unknown): Promise<T> {
+    meter(classifyRpcMethod(method), method); // count the attempt even when it goes on to fail — KF-018 runs burn credits, then die
     const res = await fetch(this.rpcUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

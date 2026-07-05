@@ -18,6 +18,7 @@ import { upsertCollectionEvents, fetchMemberMintsFromDb } from "./collection-eve
 import { ensureKindConstraint } from "./ensure-kind-constraint";
 import { DasNftCollectionSource } from "./nft-collection-source";
 import { resolveCollection, DEFAULT_COLLECTION_KEY } from "./collection-registry";
+import { installMeterExitLog, meterSummary } from "./helius-meter";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const SECRET = process.env.HELIUS_WEBHOOK_SECRET ?? "";
@@ -134,7 +135,7 @@ export function decodeWebhookPayload(payload: unknown, isMember: (m: string) => 
 async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   if (req.method === "GET" && (req.url === "/health" || req.url === "/")) {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: true, members: members.size, membersLoadedAt, memberSource }));
+    res.end(JSON.stringify({ ok: true, members: members.size, membersLoadedAt, memberSource, helius_meter: meterSummary() }));
     return;
   }
   if (req.method !== "POST") {
@@ -172,6 +173,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 }
 
 async function main(): Promise<void> {
+  installMeterExitLog("webhook"); // summary line on shutdown/restart; live counts via /health helius_meter
   if (!SECRET) throw new Error("HELIUS_WEBHOOK_SECRET required");
   if (!API_KEY && !RPC) throw new Error("HELIUS_API_KEY or SOLANA_RPC_URL required");
   if (!process.env.SVM_HASURA_ENDPOINT) throw new Error("SVM_HASURA_ENDPOINT required");

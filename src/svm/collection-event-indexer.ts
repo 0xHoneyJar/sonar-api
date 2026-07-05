@@ -17,6 +17,7 @@
  */
 import { fileURLToPath } from "node:url";
 import { DasNftCollectionSource } from "./nft-collection-source";
+import { installMeterExitLog } from "./helius-meter";
 import { HeliusCollectionEventSource, type CollectionEvent } from "./collection-event-source";
 import { upsertCollectionEvents } from "./collection-event-writer";
 import { ensureKindConstraint } from "./ensure-kind-constraint";
@@ -71,6 +72,7 @@ export function deriveLatestOwners(events: readonly CollectionEvent[]): Map<stri
 }
 
 async function main(): Promise<void> {
+  installMeterExitLog("reconcile-cron"); // KF-018/#122: emit credit-burn ledger line even on crash paths
   const { dry, limit, force, collection } = parseArgs();
   const cfg = resolveCollection(collection); // generic: any registered SVM collection (SDD §4.4 / Sprint 4)
   if (!API_KEY) throw new Error("HELIUS_API_KEY required");
