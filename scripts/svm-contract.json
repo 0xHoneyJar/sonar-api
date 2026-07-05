@@ -151,8 +151,8 @@
    ]
   },
   "svm_sync_status": {
-   "status": "pending-exposure",
-   "status_was": "declared (svm-warehouse-loader sprint-1, 2026-07-05) — goes live at rollout step 1 (migration 002 + Hasura pg_track_table)",
+   "status": "live",
+   "status_was": "pending-exposure (svm-warehouse-loader sprint-1) → live (2026-07-05: migration 002 applied via ops workflow, Hasura-tracked, rows verified on public gateway incl. honest failed-reconcile records)",
    "consumer": "the Score API (#121 Q4/Q6 freshness ask) + any staleness monitor — the queryable answer to 'is this collection quiet or is the pipe down' (KF-018 closure)",
    "producer": "sonar src/svm/{warehouse-loader,collection-event-webhook,collection-event-indexer,sync-status}.ts — upsert via insert_svm_sync_status_one, on_conflict constraint sync_status_pkey (root field svm_sync_status / table svm.sync_status, migrations/svm/002_sync_status.sql)",
    "requiredFields": {
