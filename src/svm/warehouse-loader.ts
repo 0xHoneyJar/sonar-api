@@ -193,7 +193,9 @@ export async function runLoader(
     }
     const events = mapRows(valid);
     if (events.length > 0) {
-      latestIso = new Date(Math.max(...events.map((e) => e.blockTime)) * 1000).toISOString();
+      let maxBt = 0;
+      for (const e of events) if (e.blockTime > maxBt) maxBt = e.blockTime; // no spread — a mint-era window is 300k+ events and Math.max(...) blows the call stack (batch-1 run 28731990128)
+      latestIso = new Date(maxBt * 1000).toISOString();
       if (!opts.dry) {
         await deps.upsert(events, cfg.collectionKey, cfg.collectionMint, "dune-warehouse", { ifAbsentOnly: true }); // coarse source never clobbers classified rows (Codex P1)
         result.eventsUpserted += events.length;

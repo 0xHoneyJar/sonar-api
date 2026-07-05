@@ -142,3 +142,18 @@ describe("FL SKP-004 — credit budget", () => {
     delete process.env.DUNE_CREDIT_BUDGET;
   });
 });
+
+describe("large-window scale (run 28731990128 regression)", () => {
+  it("handles a 300k-event window without blowing the call stack", async () => {
+    WAREHOUSE_QUERY_IDS.events = 999;
+    const big = Array.from({ length: 300_000 }, (_, i) => row({ tx_id: TX.slice(0, 60) + String(i).padStart(28, "0"), block_slot: 400000000 + i }));
+    const d = {
+      dune: { runQuery: vi.fn().mockResolvedValue({ rows: big, executionCostCredits: 10 }) },
+      upsert: vi.fn().mockResolvedValue(big.length),
+      syncStatus: vi.fn().mockResolvedValue(true),
+      log: vi.fn(),
+    };
+    const r = await runLoader({ collectionKey: "mad_lads", from: "2026-06-01T00:00:00Z", to: "2026-06-20T00:00:00Z" }, d);
+    expect(r.eventsUpserted).toBe(300_000);
+  }, 30_000);
+});
