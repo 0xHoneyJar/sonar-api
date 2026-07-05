@@ -123,7 +123,10 @@ export class DuneClient {
       cost = page.executionCostCredits ?? cost;
       if (rows.length >= page.totalRowCount || page.rows.length === 0) break;
     }
-    log(`[dune] query ${queryId}: ${rows.length} rows · ${cost ?? "?"} credits`);
-    return { rows, executionCostCredits: cost };
+    // REST results metadata carries no credits field (verified 2026-07-05) — Dune bills a FLAT
+    // rate per execution by engine tier (medium 10 / large 20). Estimate honestly when absent.
+    const est = cost ?? 10;
+    log(`[dune] query ${queryId}: ${rows.length} rows · ${cost !== null ? `${cost} credits` : `≈${est} credits (medium-engine flat rate)`}`);
+    return { rows, executionCostCredits: est };
   }
 }

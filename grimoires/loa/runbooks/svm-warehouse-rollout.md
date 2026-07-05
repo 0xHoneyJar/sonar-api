@@ -4,10 +4,12 @@ Operator-facing, copy-pasteable. Prereqs per step are explicit; nothing here req
 
 ## 0. One-time setup (Dune side)
 
-1. ✅ DONE 2026-07-05 (saved via Dune MCP on the operator account):
-   - `warehouse-members.sql` → query id **7887895**
-   - `warehouse-events.sql` → query id **7887896**
-2. Set env for loader runs: `DUNE_API_KEY=<key from dune.com settings>` and `DUNE_EVENTS_QUERY_ID=7887896`.
+1. ✅ DONE 2026-07-05 — **executable events query id: 7887938** (created via REST under the operator's
+   API key after the MCP-created copies — 7887895/7887896 — returned 403 "archived or unsaved" to API
+   execution; account-context mismatch between the MCP OAuth session and the API key. 7887938 is the one.)
+2. ✅ E2E PROVEN 2026-07-05: `--collection pythians --from 2026-06-25T21:24:42Z --dry` via the real Dune
+   API → 109 rows → 109 events, 0 rejected. Set for runs: `DUNE_API_KEY` (GH secret, set) and
+   `DUNE_EVENTS_QUERY_ID=7887938`. Cost model: medium engine = 10 credits flat per execution.
 
 ## 1. Apply migration + Hasura track (same motion as migration 001)
 
