@@ -11,7 +11,15 @@ on:
   workflow_dispatch:
     inputs:
       limit:
-        description: "Optional: limit member NFTs (testing)"
+        description: "optional --limit N"
+        required: false
+        default: ""
+      collection:
+        description: "collection key (default pythians); requires registry entry"
+        required: false
+        default: ""
+      full:
+        description: "true = full walk (onboarding); default incremental"
         required: false
         default: ""
 
@@ -43,7 +51,13 @@ jobs:
           # Pass the input through env (NOT direct ${{ }} interpolation into the script) and digit-guard
           # it — never splice untrusted workflow input into a shell command.
           LIMIT_INPUT: ${{ github.event.inputs.limit }}
+          COLLECTION_INPUT: ${{ github.event.inputs.collection }}
+          FULL_INPUT: ${{ github.event.inputs.full }}
         run: |
           ARGS=""
           if printf '%s' "$LIMIT_INPUT" | grep -qE '^[0-9]+$'; then ARGS="--limit $LIMIT_INPUT"; fi
+          # onboarding inputs (env-passed, allowlisted — #127 posture)
+          case "$COLLECTION_INPUT" in (*[!a-z0-9_]*) echo "invalid collection"; exit 2;; esac
+          [ -n "$COLLECTION_INPUT" ] && ARGS="$ARGS --collection $COLLECTION_INPUT"
+          [ "$FULL_INPUT" = "true" ] && ARGS="$ARGS --full"
           npx --yes tsx src/svm/collection-event-indexer.ts $ARGS
