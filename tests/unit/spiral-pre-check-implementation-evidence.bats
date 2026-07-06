@@ -389,3 +389,26 @@ SPRINT
     [[ "$output" != *'*.test.ts'* ]]
     [[ "$output" != *"__loa_nonexistent__"* ]]
 }
+
+@test "parser excludes bare paths inside command backticks from Pattern 2 (#1175 P2)" {
+    # Codex r3526316469: Pattern 1's fragment guard drops the full backtick
+    # candidate, but Pattern 2 scanned RAW content and still emitted the inner
+    # path from a command backtick whose inner path is rooted at a Pattern-2
+    # prefix (src/tests/.claude/*/grimoires), e.g. `node src/generated.ts`.
+    cat > "$TEST_DIR/sprint.md" <<'SPRINT'
+## Sprint 1: Test
+
+### Deliverables
+Real deliverable: `src/lib/real.ts`.
+Build with `node src/generated.ts` and verify `cat tests/fixtures/input.json`.
+Run the hook via `bash .claude/scripts/tmp-helper.sh` before commit.
+SPRINT
+    run bash -c "source '$EVIDENCE_SH'; _parse_sprint_paths '$TEST_DIR/sprint.md' sprint-1"
+    [ "$status" -eq 0 ]
+    # the genuine backtick deliverable IS extracted (Pattern 1)
+    [[ "$output" == *"src/lib/real.ts"* ]]
+    # command-backtick inner paths must NOT leak via Pattern 2
+    [[ "$output" != *"src/generated.ts"* ]]
+    [[ "$output" != *"tests/fixtures/input.json"* ]]
+    [[ "$output" != *"tmp-helper.sh"* ]]
+}

@@ -670,6 +670,13 @@ _parse_sprint_paths() {
     # Known source file extensions worth gating on. Markdown/yaml/json are
     # included so doc/config deliverables (e.g. grammar spec) are covered.
     local ext_re='(svelte|ts|tsx|js|jsx|vue|py|rs|go|sh|bats|md|yaml|yml|json)'
+    # #1175 P2 (codex review r3526316469): the bare-path pass (Pattern 2) must
+    # not scan command/CLI backtick spans, or an inner path leaks (`node
+    # src/x.ts` -> src/x.ts) and fails IMPL_EVIDENCE_MISSING on command prose.
+    # Backticked deliverables are Pattern 1's job; strip every backtick-wrapped
+    # span so Pattern 2 sees only BARE prose paths.
+    local content_bare
+    content_bare="$(printf '%s' "$content" | sed 's/`[^`]*`//g')"
 
     {
         # Pattern 1: backtick-wrapped paths with at least one `/` before the
@@ -697,7 +704,7 @@ _parse_sprint_paths() {
         # filenames like foo.test.ts), `+` (SvelteKit route convention like
         # +page.svelte), `()` (SvelteKit route groups like `(rooms)`).
         # Trailing `-` sits last in the class so it's literal, not a range.
-        echo "$content" | grep -oE "(^|[^a-zA-Z0-9_/.-])(src|tests|\.claude/scripts|\.claude/hooks|grimoires)/[a-zA-Z0-9_/.+()-]+\.${ext_re}" \
+        echo "$content_bare" | grep -oE "(^|[^a-zA-Z0-9_/.-])(src|tests|\.claude/scripts|\.claude/hooks|grimoires)/[a-zA-Z0-9_/.+()-]+\.${ext_re}" \
             2>/dev/null | \
             sed -E 's/^[^a-zA-Z.]//'
     } | sort -u
