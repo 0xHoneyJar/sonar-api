@@ -42,3 +42,14 @@ PR #141 merged: order-independent net custody (owner-level cancellation), null-o
 doctrine on all decode paths (group-level gate), seenMints-on-ambiguous. Dissent 1→1→0,
 BB 2M+1L all FIXED same-PR. bd-k5fh + bd-zyli closed. Kaironic termination fired:
 remaining beads operator-gated (bd-3mvd fixture secret · bd-j0fj belt tsc cycle).
+
+## THIRD LAP LANDED (2026-07-05 ~22:16 local) — the big one
+PR #142: the first REAL §4.5 run exposed that the merged lane decoded ZERO events
+against the live Portal (buildQuery's empty transactions selector — fixtures always
+carried transactions, no test could see it). Fixed (transaction:true join), provisioned
+the real bounded fixture via the PUBLIC gateway (no secret; densest 60k-slot window,
+1767 events + 523 pre_range_mints), rebuilt gate semantics (pre-range seeding, floors,
+two-sided, overshoot filter, cap assertion). LIVE RESULT: matched 1767/1767,
+divergences 0, unexpected 0 — §4.5 PASS for real. SQD Gate: tripwire → enforcing.
+bd-0vso + bd-3mvd closed. New: bd-1cid (memberSet growth). Dissent 1→0; BB 5M: 3 fixed,
+1 beaded, 1 accepted-by-design.
