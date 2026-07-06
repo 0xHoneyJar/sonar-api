@@ -70,10 +70,26 @@ export interface SqdLoaderDeps {
   log: (m: string) => void;
 }
 
+/**
+ * Kill switch (T-7 / SDD §7.1): SQD_LIVE_TAIL_ENABLED=false halts the live-tail lane.
+ * Returns true when the lane should run. Defaults to true (enabled) when unset.
+ */
+export function isLiveTailEnabled(log?: (m: string) => void): boolean {
+  if (process.env.SQD_LIVE_TAIL_ENABLED === "false") {
+    (log ?? console.log)("[SQD] Live-tail disabled via SQD_LIVE_TAIL_ENABLED=false");
+    return false;
+  }
+  return true;
+}
+
 export async function runSqdLoader(
   opts: { collectionKey: string; fromSlot?: number; dry?: boolean },
   deps: SqdLoaderDeps,
 ): Promise<SqdLoaderResult> {
+  // Kill switch (SDD §7.1): bail early with empty result if disabled
+  if (!isLiveTailEnabled(deps.log)) {
+    return { requests: 0, blocks: 0, balanceRows: 0, stoppedAtCap: false, lastSlot: 0, eventsUpserted: 0, rejectedRows: 0, ambiguousGroups: 0, chunks: 0 };
+  }
   const cfg = resolveCollection(opts.collectionKey);
   const mints = await deps.members();
   if (mints.length === 0) throw new Error(`no members resolved for ${cfg.collectionKey} — refuse to walk nothing`);

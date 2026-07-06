@@ -78,21 +78,35 @@ export interface SqdDecodeResult {
   events: CollectionEvent[];
   rejectedRows: number; // failed field validation
   ambiguousGroups: number; // (tx,mint) groups that didn't decode — counted, never guessed
+  skippedMalformedCount: number; // malformed balance entries skipped this call
 }
+
+/** Logger interface — defaulted to console in production; injected in tests. */
+export interface SqdDecodeLogger {
+  warn: (m: string) => void;
+  error: (m: string) => void;
+}
+
+const MALFORMED_RATE_THRESHOLD = 0.10; // escalate to error if >10% entries skipped in a block
 
 /**
  * Decode a batch of streamed blocks. `seenMints` carries first-appearance state ACROSS windows —
  * the caller owns it (pass a set pre-seeded from existing DB mints when resuming mid-history,
  * else the first transfer after a resume would masquerade as a mint).
+ *
+ * T-8 input validation (SDD §6.3): each tokenBalance entry is validated; malformed entries are
+ * warned and skipped. Never throws on malformed input — never halts the stream.
  */
 export function decodeSqdBlocks(
   blocks: readonly SqdBlock[],
   memberSet: ReadonlySet<string>,
   seenMints: Set<string>,
+  log: SqdDecodeLogger = { warn: console.warn, error: console.error },
 ): SqdDecodeResult {
   const events: CollectionEvent[] = [];
   let rejectedRows = 0;
   let ambiguousGroups = 0;
+  let skippedMalformedCount = 0;
 
   for (const b of blocks) {
     const slot = Number(b.header?.number);
@@ -106,6 +120,9 @@ export function decodeSqdBlocks(
       if (Number.isInteger(i) && typeof sig === "string") sigByIndex.set(i, sig);
     }
 
+    const totalEntriesInBlock = b.tokenBalances?.length ?? 0;
+    let blockSkipped = 0;
+
     // group valid rows by (txIndex, mint)
     const groups = new Map<string, ValidBalRow[]>();
     for (const raw of b.tokenBalances ?? []) {
@@ -116,13 +133,23 @@ export function decodeSqdBlocks(
         const namedMember =
           (typeof raw.postMint === "string" && memberSet.has(raw.postMint)) ||
           (typeof raw.preMint === "string" && memberSet.has(raw.preMint));
-        if (namedMember) rejectedRows++;
+        if (namedMember) {
+          rejectedRows++;
+          blockSkipped++;
+          skippedMalformedCount++;
+          log.warn(`[SQD SKIP] malformed balance entry at block ${slot}`);
+        }
         continue;
       }
       const k = `${v.txIndex}:${v.mint}`;
       const g = groups.get(k) ?? [];
       g.push(v);
       groups.set(k, g);
+    }
+
+    // T-8: escalate if >10% of block entries were malformed (possible protocol change)
+    if (totalEntriesInBlock > 0 && blockSkipped / totalEntriesInBlock > MALFORMED_RATE_THRESHOLD) {
+      log.error(`[SQD MALFORMED] >${Math.round(MALFORMED_RATE_THRESHOLD * 100)}% entries skipped in block ${slot} (${blockSkipped}/${totalEntriesInBlock})`);
     }
 
     // per-(tx,mint) ordinal state within this block, keyed by `${sig}:${mint}`
@@ -190,5 +217,5 @@ export function decodeSqdBlocks(
       });
     }
   }
-  return { events, rejectedRows, ambiguousGroups };
+  return { events, rejectedRows, ambiguousGroups, skippedMalformedCount };
 }

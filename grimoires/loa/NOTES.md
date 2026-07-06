@@ -8,6 +8,39 @@ last_confirmed: 2026-07-01
 operator_signed: self_attested
 ---
 
+## 2026-07-06 — spiral-001 · svm-sqd-substrate · pre-condition findings
+
+**Branch:** `feat/spiral-spiral-20260706-4c5209-cycle-1` (from `feat/svm-sqd-substrate`)
+
+**Baseline test count:** 457 tests passing across 50 test files before any changes.
+
+**Conflict policy confirmed:** `upsertCollectionEvents` with `ifAbsentOnly: true` uses `INSERT_IF_ABSENT`
+(update_columns: []) = ON CONFLICT DO NOTHING. First-writer-wins semantics verified at mutation-string level.
+
+**BLOCKER — T-6 §4.5 gate (HALT):** The Pythians 30,006-event fixture is absent from the repository.
+Only `test/fixtures/` directory contains other fixtures; `pythians-events-30006.json` does not exist.
+Gate artifact written to `grimoires/loa/a2a/spiral-001/sqd-45-gate.json` (status: BLOCKED).
+Gate script at `scripts/run-sqd-45-gate.ts` exits code 2 when fixture is missing.
+Unit tests with synthetic data pass (sqd-45-gate.test.ts).
+
+**Files modified/created (spiral-001):**
+- `src/svm/sqd-client.ts` — T-1: SqdAuthRequiredError, ceiling guard, lastBlockReceivedAt, currentHeight()
+- `src/svm/sqd-liveness-monitor.ts` — T-5: stall/lag/gap detection, SqdLivenessError
+- `src/svm/sqd-collection-event-source.ts` — T-8: malformed entry warn/error, skippedMalformedCount
+- `src/svm/sqd-loader.ts` — T-7: isLiveTailEnabled() kill switch
+- `test/sqd-client.test.ts` — T-1: 9 new tests (auth guard, ceiling guard, lastBlockReceivedAt, currentHeight)
+- `test/sqd-liveness-monitor.test.ts` — T-5: stall/lag/gap/max-reconnect/CI-gate tests
+- `test/pk-convergence.test.ts` — T-3: FR-2 PK convergence SQD↔Helius
+- `test/insert-if-absent.test.ts` — T-4: INSERT_IF_ABSENT mutation selection verified
+- `test/sqd-kill-switch.test.ts` — T-7: isLiveTailEnabled + runSqdLoader bail
+- `test/sqd-malformed.test.ts` — T-8: per-entry warn, >10% escalation, non-member exclusion
+- `test/sqd-45-gate.test.ts` — T-6: synthetic reconciliation (gate BLOCKED, fixture absent)
+- `scripts/run-sqd-45-gate.ts` — T-6: gate script with fixture-absent HALT (exit 2)
+- `grimoires/loa/a2a/spiral-001/sqd-45-gate.json` — T-6: BLOCKED artifact
+- `grimoires/loa/runbooks/sqd-lane-rollout.md` — T-9: rollout runbook (§1-§6)
+
+---
+
 ## 2026-07-01 — Construct triage sprint COMPLETE (autonomous)
 
 **Scope:** Sonar-API issue/PR hygiene + kitchen completion + infra artifacts + Envio re-port backlog doc.
