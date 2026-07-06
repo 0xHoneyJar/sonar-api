@@ -50,7 +50,7 @@ export interface SqdStreamStats {
   lastSlot: number;
 }
 
-function buildQuery(mintChunk: readonly string[], fromBlock: number): string {
+export function buildQuery(mintChunk: readonly string[], fromBlock: number): string {
   return JSON.stringify({
     type: "solana",
     fromBlock,

@@ -81,6 +81,12 @@ describe("§4.5 gate integration (bounded range)", () => {
     if (computedHash !== fixture.sha256) {
       throw new Error(`[FIXTURE-TAMPERED] SHA256 mismatch: expected ${fixture.sha256}, got ${computedHash}`);
     }
+    // Structural consistency (BB #142): event_count is the match_rate denominator and
+    // is NOT covered by the hash (hash contract = event_ids only, shared with the
+    // DB-mode generator) — pin it to the hashed ids so it cannot drift independently.
+    if (fixture.event_count !== fixture.event_ids.length) {
+      throw new Error(`[FIXTURE-TAMPERED] event_count=${fixture.event_count} != event_ids.length=${fixture.event_ids.length}`);
+    }
 
     // ── Vacuous/degenerate-fixture guards (DISS-003 doctrine, bounded form) ──
     const span = fixture.slot_range.to - fixture.slot_range.from;
@@ -175,6 +181,8 @@ describe("§4.5 gate integration (bounded range)", () => {
     if (unexpected.length > 0) console.log(JSON.stringify({ unexpected_sample: unexpected.slice(0, 5) }));
 
     // ── Assertions ────────────────────────────────────────────────────────────
+    // Cap truncation would surface as opaque divergences (BB #142): make it loud first.
+    expect(stats.stoppedAtCap, `request cap hit at ${stats.requests} requests — range not fully streamed; divergences below would be truncation, not decode drift`).toBe(false);
     expect(match_rate, `match_rate=${match_rate} < 0.99`).toBeGreaterThanOrEqual(0.99);
     expect(divergences, `divergences=${divergences} > ${maxDivergences} (1% of ${denominator})`).toBeLessThanOrEqual(maxDivergences);
     expect(unexpected.length, `SQD decoded ${unexpected.length} in-range events absent from reference (sample logged)`).toBe(0);
