@@ -1937,3 +1937,18 @@ bridgebuilder:
     - test-coverage
     - operational-readiness
   persona_path: ".claude/data/bridgebuilder-persona.md"
+
+# =============================================================================
+# Spiral — enabled 2026-07-05 (operator /goal "keep spiraling" · seed-001)
+# Caps ratified in grimoires/loa/specs/spiral-seed-001-sqd-live-tail.md
+# =============================================================================
+spiral:
+  enabled: true
+  default_max_cycles: 3
+  budget_cents: 4500          # $45 = 3 cycles x $15 standard profile
+  wall_clock_seconds: 21600   # 6h — inside the operator's 6h9m goal window
+  flatline:
+    min_new_findings_per_cycle: 3
+    consecutive_low_cycles: 2
+  seed:
+    mode: degraded            # cycle-1 genome comes via --seed-context; cycle-2+ reads prior sidecar
