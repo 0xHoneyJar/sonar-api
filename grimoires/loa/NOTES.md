@@ -41,6 +41,31 @@ Unit tests with synthetic data pass (sqd-45-gate.test.ts).
 
 ---
 
+## 2026-07-06 — spiral-001 r2 · cycle-1 deliverables
+
+**Branch:** `feat/spiral-spiral-20260706-cc1e88-cycle-1`
+
+**T-3 §4.5 Gate Result (synthetic fixture, event_count=0):**
+```json
+{"fixture_count":0,"sqd_decoded_count":0,"matched":0,"divergences":0,"match_rate":1,"slot_range":{"from":0,"to":0},"status":"PASS"}
+```
+match_rate: 1.0 · divergences: 0 · status: PASS (vacuous — synthetic placeholder fixture; regenerate with live SQD_GATE_DB_URL for real pythians events)
+
+**Suite count:** 531 passing, 0 failures (`pnpm test`)
+
+**T-1 PK Convergence:** 0 divergences across SQD↔Warehouse (4 shapes: transfer, mint, burn, multi-hop) and SQD↔Helius (3 shapes: transfer, mint, burn)
+
+**Deliverables committed:**
+- `test/sqd-pk-convergence.test.ts` — T-1
+- `test/sqd-auth-failure.test.ts` — T-4
+- `test/sqd-45-gate-integration.test.ts` — T-3
+- `test/fixtures/generate-pythians-fixture.ts` — T-2 generator
+- `test/fixtures/pythians-gate-snapshot.json` — T-2 committed fixture (synthetic placeholder)
+- `.github/workflows/gate.yml` — T-3 CI
+- `package.json` — added `test:gate` script
+
+---
+
 ## 2026-07-01 — Construct triage sprint COMPLETE (autonomous)
 
 **Scope:** Sonar-API issue/PR hygiene + kitchen completion + infra artifacts + Envio re-port backlog doc.
