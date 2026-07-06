@@ -59,8 +59,16 @@ function buildQuery(mintChunk: readonly string[], fromBlock: number): string {
       block: { number: true, timestamp: true },
       transaction: { signatures: true, transactionIndex: true },
     },
-    tokenBalances: [{ postMint: mintChunk }, { preMint: mintChunk }],
-    transactions: [],
+    // `transaction: true` is the RELATION JOIN flag — it pulls the parent transaction
+    // (shaped by fields.transaction) for every matched balance row. The old shape
+    // (`transactions: []`, an EMPTY selector = select nothing) returned blocks with NO
+    // transactions, so the sig join failed and EVERY group decoded as ambiguous — the
+    // live-Portal zero-decode found by the first real §4.5 run (sprint-bug-190; test
+    // fixtures always included transactions, so the suite never caught it).
+    tokenBalances: [
+      { postMint: mintChunk, transaction: true },
+      { preMint: mintChunk, transaction: true },
+    ],
   });
 }
 
