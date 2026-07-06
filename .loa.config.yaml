@@ -40,6 +40,34 @@ advisor_strategy:
       anthropic: claude-sonnet-4-6
       openai: gpt-5.3-codex
       google: gemini-2.5-pro
+  # cycle-108 keys, populated cycle-116 D3 (bd-c116-d3-tiering). Additive
+  # no-op today: the role gate at cheval.py:1069 only fires when a caller
+  # passes --role AND omits --model, and no production dispatch site does
+  # (see grimoires/loa/runbooks/model-tiering-per-stage.md). Empty overrides
+  # keep every stage on its role default (all `advisor` above).
+  per_skill_overrides: {}
+  # NFR-Sec1 hard-pin: these skills MUST resolve to advisor tier regardless
+  # of any future per_skill_overrides edit. Loader enforces at load time
+  # (advisor_strategy.py §4b) + schema pins the enum. Values MUST be schema
+  # enum members (.claude/data/schemas/advisor-strategy.schema.json).
+  audited_review_skills:
+    - auditing-security
+    - bridgebuilder-review
+    - eval-running
+    - flatline-knowledge
+    - red-teaming
+    - reviewing-code
+    - rtfm-testing
+    - validating-construct-manifest
+  # cycle-116 D3: per-stage tier-routing opt-in. Nested map so future stages
+  # add a key without a schema churn. flatline_scorer=false => Flatline
+  # score-mode dispatch is byte-identical to pre-D3 (hardcoded --model pin
+  # in flatline-orchestrator.sh call_model). Flip true ONLY after the live
+  # A/B in the runbook clears; see model-tiering-per-stage.md. Cross-ref:
+  # workload_tier_map (informational calibration memory, not a dispatch
+  # consumer) records the same advisor/executor evidence per skill.
+  stage_routing:
+    flatline_scorer: false
 
 simstim:
   enabled: true
