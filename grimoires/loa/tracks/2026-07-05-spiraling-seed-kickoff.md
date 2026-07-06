@@ -36,3 +36,9 @@ PR #140 merged: SQD live-tail lane + durable coverage-safe cursor (migration 004
 §4.5 tripwire. Convergence: harness runs 1-3 + /bug sprint-bug-173 (dissent 2→1→0) +
 audit APPROVED (0 crit/high) + BB (1H fixed, 2M fixed/beaded, 4 PRAISE). main pushed
 w/ framework v1.180. Follow-ups: bd-3mvd (fixture), bd-k5fh/bd-zyli (decode), bd-j0fj (tsc).
+
+## HARVEST LAP LANDED (2026-07-05 ~21:41 local)
+PR #141 merged: order-independent net custody (owner-level cancellation), null-owner
+doctrine on all decode paths (group-level gate), seenMints-on-ambiguous. Dissent 1→1→0,
+BB 2M+1L all FIXED same-PR. bd-k5fh + bd-zyli closed. Kaironic termination fired:
+remaining beads operator-gated (bd-3mvd fixture secret · bd-j0fj belt tsc cycle).
