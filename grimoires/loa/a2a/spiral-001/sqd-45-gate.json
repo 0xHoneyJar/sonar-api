@@ -1,0 +1,18 @@
+{
+  "gate": "sqd-45",
+  "sprint": "svm-sqd-substrate",
+  "cycle": "spiral-001",
+  "status": "BLOCKED",
+  "run_at": "2026-07-06T00:00:00Z",
+  "blocker": {
+    "reason": "Pythians 30,006-event fixture is absent from the repository. Only pythians-program-distribution.json (program analysis) exists — not the event fixture required by §4.5.",
+    "fixture_path_expected": "test/fixtures/pythians-events-30006.json",
+    "observed": "File does not exist",
+    "kf_reference": null
+  },
+  "match_rate": null,
+  "divergence_count": null,
+  "pass_condition": "match_rate >= 0.99 AND divergence_count == 0",
+  "resolution": "Generate or provide the 30,006-event fixture from the Pythians collection event history. Re-run scripts/run-sqd-45-gate.ts once the fixture is in place.",
+  "gate_script": "scripts/run-sqd-45-gate.ts"
+}

@@ -1,0 +1,101 @@
+name: Activation Regression — SVM SQD Substrate
+
+# Regression guard for the SQD live-tail substrate (cycle svm-sqd-substrate).
+# Runs on every push/PR that touches the SVM loader or its tests.
+# Catches: DISS-001 cursor-skip regressions, kill-switch regressions, auth-error
+# surface regressions, and §4.5 gate regressions (30,006-event fixture).
+#
+# Distinct from ci.yml (framework template checks). This workflow runs
+# domain-specific SVM unit tests that are always meaningful on this consumer repo.
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/spiral-*"
+      - "feat/svm-*"
+    paths:
+      - "src/svm/**"
+      - "test/sqd-*.test.ts"
+      - ".github/workflows/activation-regression.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/svm/**"
+      - "test/sqd-*.test.ts"
+      - ".github/workflows/activation-regression.yml"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Reason for manual trigger"
+        required: false
+        default: "manual regression check"
+
+concurrency:
+  group: activation-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  svm-unit-tests:
+    name: SVM SQD Unit Tests (cursor · kill-switch · auth · §4.5)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check (SVM surface)
+        run: pnpm exec tsc --noEmit -p tsconfig.svm.json
+        # Type errors in sqd-loader.ts break the runtime contract — catch before tests run.
+        # Scoped to the SVM surface (tsconfig.svm.json): repo-wide tsc carries 513
+        # pre-existing belt-port errors (bd-j0fj) that are a separate repair cycle.
+
+      - name: Run SVM activation-regression tests
+        run: |
+          pnpm exec vitest run \
+            "src/svm/sqd-loader-cursor.test.ts" \
+            "src/svm/sqd-loader.test.ts" \
+            "test/sqd-cursor-diss001.test.ts" \
+            "test/sqd-kill-switch.test.ts" \
+            "test/sqd-auth-failure.test.ts" \
+            "test/sqd-45-gate.test.ts" \
+            "test/sqd-pk-convergence.test.ts" \
+            --reporter=verbose
+        # --reporter=verbose surfaces individual test names so CI logs are grep-able
+
+      - name: Verify deliverable files exist and are non-empty
+        run: |
+          MISSING=0
+          for f in \
+            "src/svm/sqd-loader-cursor.test.ts" \
+            "src/svm/sqd-loader.test.ts" \
+            ".github/workflows/activation-regression.yml"; do
+            if [ ! -s "$f" ]; then
+              echo "MISSING or empty: $f"
+              MISSING=1
+            else
+              echo "OK: $f ($(wc -l < "$f") lines)"
+            fi
+          done
+          if [ "$MISSING" -eq 1 ]; then
+            echo "Evidence gate FAILED — produce all deliverable paths before review"
+            exit 1
+          fi
+          echo "Evidence gate PASSED"
