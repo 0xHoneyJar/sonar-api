@@ -46,22 +46,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: 22
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Type-check (SVM surface)
-        run: npx tsc --noEmit
-        # Type errors in sqd-loader.ts break the runtime contract — catch before tests run
+        run: pnpm exec tsc --noEmit -p tsconfig.svm.json
+        # Type errors in sqd-loader.ts break the runtime contract — catch before tests run.
+        # Scoped to the SVM surface (tsconfig.svm.json): repo-wide tsc carries 513
+        # pre-existing belt-port errors (bd-j0fj) that are a separate repair cycle.
 
       - name: Run SVM activation-regression tests
         run: |
-          npx vitest run \
+          pnpm exec vitest run \
             "src/svm/sqd-loader-cursor.test.ts" \
             "src/svm/sqd-loader.test.ts" \
             "test/sqd-cursor-diss001.test.ts" \

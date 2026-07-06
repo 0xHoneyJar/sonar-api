@@ -217,3 +217,105 @@ describe("DISS-001 — cursor-skip regression", () => {
     expect(logs.some((l) => l.includes("INVARIANT VIOLATION"))).toBe(true);
   });
 });
+
+/**
+ * DISS-001-residual (bug 20260706-da7f05, sprint-bug-173) — early-cap cursor skip.
+ *
+ * Residual defect: safeSlot = min(completedChunkSlots) only covers chunks that RAN.
+ * If the request cap fires in chunk 0 of a multi-chunk run, chunk 1 never runs and is
+ * absent from completedChunkSlots — safeSlot advances to chunk 0's slot, permanently
+ * skipping chunk 1's events in [from, safeSlot] on resume.
+ *
+ * Fix: when stoppedAtCap fires before ALL chunks ran, hold result.lastSlot at the
+ * pre-run cursor `from` (no advance) and log the hold-back.
+ */
+describe("DISS-001-residual — early-cap must not advance cursor past never-run chunks", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const FROM_SLOT = 1_000;
+  const CHUNK_0_CAP_SLOT = 5_000;
+
+  /** Cap fires in chunk 0; chunk 1 never runs. */
+  function makeEarlyCapClient(): SqdClient {
+    const streamMock = vi.fn(async function* (
+      _mints: readonly string[],
+      _from: number,
+      _to: number,
+      stats: { requests: number; blocks: number; balanceRows: number; stoppedAtCap: boolean; lastSlot: number },
+    ) {
+      // chunk 0: advances, then fires cap — loop breaks before chunk 1
+      stats.requests++;
+      stats.blocks++;
+      stats.lastSlot = CHUNK_0_CAP_SLOT;
+      stats.stoppedAtCap = true;
+      yield [makeBlock(CHUNK_0_CAP_SLOT)];
+    });
+    return {
+      head: vi.fn().mockResolvedValue(500_000),
+      currentHeight: vi.fn().mockResolvedValue(500_000),
+      stream: streamMock,
+      lastBlockReceivedAt: 0,
+    } as unknown as SqdClient;
+  }
+
+  it("holds lastSlot at pre-run `from` when cap fires before all chunks ran (pre-fix: red)", async () => {
+    const client = makeEarlyCapClient();
+    const logs: string[] = [];
+    const deps: SqdLoaderDeps = {
+      client,
+      members: vi.fn().mockResolvedValue(MINTS), // 2 chunks
+      cursorSlot: vi.fn().mockResolvedValue(FROM_SLOT),
+      knownMints: vi.fn().mockResolvedValue([]),
+      upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
+      syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
+      log: (m) => logs.push(m),
+    };
+
+    const result = await runSqdLoader({ collectionKey: "pythians" }, deps);
+
+    expect(result.stoppedAtCap).toBe(true);
+    // chunk 1 never ran — exactly one stream call
+    expect(client.stream as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1);
+    // THE assertion: cursor must NOT advance past the pre-run cursor
+    expect(result.lastSlot).toBe(FROM_SLOT);
+    // and the hold-back must be loud
+    expect(logs.some((l) => /holding cursor|held.*cursor|no advance/i.test(l))).toBe(true);
+  });
+
+  it("full run through all chunks still advances to min(completedChunkSlots) (no regression)", async () => {
+    // both chunks run to completion, no cap → min path unchanged
+    let call = 0;
+    const streamMock = vi.fn(async function* (
+      _mints: readonly string[],
+      _from: number,
+      _to: number,
+      stats: { requests: number; blocks: number; balanceRows: number; stoppedAtCap: boolean; lastSlot: number },
+    ) {
+      call++;
+      stats.requests++;
+      stats.blocks++;
+      stats.lastSlot = call === 1 ? 3_000 : 4_000;
+      yield [makeBlock(stats.lastSlot)];
+    });
+    const client = {
+      head: vi.fn().mockResolvedValue(500_000),
+      currentHeight: vi.fn().mockResolvedValue(500_000),
+      stream: streamMock,
+      lastBlockReceivedAt: 0,
+    } as unknown as SqdClient;
+
+    const deps: SqdLoaderDeps = {
+      client,
+      members: vi.fn().mockResolvedValue(MINTS),
+      cursorSlot: vi.fn().mockResolvedValue(FROM_SLOT),
+      knownMints: vi.fn().mockResolvedValue([]),
+      upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
+      syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
+      log: () => {},
+    };
+
+    const result = await runSqdLoader({ collectionKey: "pythians" }, deps);
+    expect(result.stoppedAtCap).toBe(false);
+    expect(result.lastSlot).toBe(3_000); // min(3000, 4000)
+  });
+});

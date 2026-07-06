@@ -41,6 +41,13 @@ function computeFixtureHash(eventIds: string[]): string {
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
+/**
+ * §4.5 gate floor (DISS-003): the pythians reference reconciliation is 30,006 events.
+ * Any fixture below this floor cannot represent the real snapshot — the gate must
+ * refuse to run against it rather than pass vacuously.
+ */
+const GATE_MIN_EVENTS = 30_000;
+
 describe("§4.5 gate integration", () => {
   it("passes match_rate ≥ 0.99 against the committed pythians fixture", async (ctx) => {
     // ── Load fixture ──────────────────────────────────────────────────────────
@@ -58,6 +65,22 @@ describe("§4.5 gate integration", () => {
     const computedHash = computeFixtureHash(fixture.event_ids);
     if (computedHash !== fixture.sha256) {
       throw new Error(`[FIXTURE-TAMPERED] SHA256 mismatch: expected ${fixture.sha256}, got ${computedHash}`);
+    }
+
+    // ── Vacuous-fixture guard (DISS-003, sprint-bug-173) ─────────────────────
+    // A zero-event (or suspiciously small) fixture makes the reconciliation below
+    // pass by definition — a fake-green §4.5 gate. The gate is only meaningful
+    // against the real pythians snapshot (30,006 events per §4.5). In CI this
+    // hard-fails; locally it skips with an explicit BLOCKED marker, never PASS.
+    if (fixture.event_count < GATE_MIN_EVENTS) {
+      const msg =
+        `[GATE-BLOCKED] pythians fixture has event_count=${fixture.event_count} < ${GATE_MIN_EVENTS} — ` +
+        `§4.5 requires the real 30,006-event snapshot. ` +
+        `Regenerate via scripts/generate-pythians-fixture.ts against SQD_GATE_DB_URL.`;
+      if (process.env.CI) throw new Error(msg);
+      console.warn(msg);
+      ctx.skip();
+      return;
     }
 
     // ── Pre-seed seenMints from fixture event IDs ────────────────────────────
@@ -103,8 +126,10 @@ describe("§4.5 gate integration", () => {
     for (const id of refIdSet) {
       if (sqdDecodedIds.has(id)) matched++;
     }
+    // denominator > 0 guaranteed by the GATE_MIN_EVENTS guard above — the old
+    // `denominator === 0 ? 1.0` vacuous branch was the DISS-003 fake-green path.
     const denominator = fixture.event_count;
-    const match_rate = denominator === 0 ? 1.0 : matched / denominator;
+    const match_rate = matched / denominator;
     const divergences = denominator - matched;
 
     // ── Emit structured JSON result ───────────────────────────────────────────

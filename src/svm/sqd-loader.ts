@@ -109,6 +109,7 @@ export async function runSqdLoader(
   // have reached. Using stats.lastSlot (shared MAX) would let a chunk that advanced
   // further inflate the cursor past what earlier chunks covered.
   const completedChunkSlots: number[] = [];
+  let chunksRun = 0;
 
   deps.log(`[sqd-loader] ${cfg.collectionKey}: ${mints.length} members, ${chunks.length} chunk(s), slots ${from.toLocaleString()}→${head.toLocaleString()}${opts.dry ? " [DRY]" : ""}`);
   for (const [ci, chunk] of chunks.entries()) {
@@ -130,26 +131,39 @@ export async function runSqdLoader(
     // yielded nothing made no slot progress and must not contribute a stale/zero slot to
     // the min() — that would hold the cursor back incorrectly.
     if (chunkYielded) completedChunkSlots.push(stats.lastSlot);
+    chunksRun = ci + 1;
     deps.log(`[sqd-loader] chunk ${ci + 1}/${chunks.length} done · ${stats.requests} reqs · ${result.eventsUpserted} events`);
     if (stats.stoppedAtCap) break;
   }
 
+  // DISS-001-residual (sprint-bug-173): if the cap fired before ALL chunks ran,
+  // min(completedChunkSlots) only covers the chunks that ran — never-run chunks have
+  // processed nothing past `from`, so ANY advance would permanently skip their slots.
+  // Hold the cursor at the pre-run `from` (no advance) and say so loudly.
+  const cappedBeforeAllChunks = stats.stoppedAtCap && chunksRun < chunks.length;
+
   // Invariant: at least one chunk must have completed to derive a safe cursor.
   // If nothing ran (stream yielded nothing for any chunk), abort rather than silently
-  // returning slot 0 or the pre-run cursor — both would be wrong.
-  if (completedChunkSlots.length === 0) {
+  // returning slot 0 or the pre-run cursor — both would be wrong. A capped-early run
+  // is exempt: holding at `from` is the correct (non-fabricated) cursor there.
+  if (completedChunkSlots.length === 0 && !cappedBeforeAllChunks) {
     const msg = "[sqd-loader] INVARIANT VIOLATION: no chunks completed — cannot derive safe cursor";
     deps.log(msg);
     throw new Error(msg);
   }
 
-  // safeSlot = min across all chunks that ran. This is the highest slot every completed
-  // chunk has covered; resuming from safeSlot+1 on the next run is safe for all chunks.
-  const safeSlot = Math.min(...completedChunkSlots);
-
   Object.assign(result, stats);
-  // Override lastSlot with safeSlot (DISS-001 fix — do not use the shared MAX).
-  result.lastSlot = safeSlot;
+  if (cappedBeforeAllChunks) {
+    deps.log(
+      `[sqd-loader] CAP fired after ${chunksRun}/${chunks.length} chunks — holding cursor at ${from.toLocaleString()} (no advance; DISS-001-residual)`,
+    );
+    result.lastSlot = from;
+  } else {
+    // safeSlot = min across all chunks that ran. This is the highest slot every completed
+    // chunk has covered; resuming from safeSlot+1 on the next run is safe for all chunks.
+    // Override lastSlot with safeSlot (DISS-001 fix — do not use the shared MAX).
+    result.lastSlot = Math.min(...completedChunkSlots);
+  }
   if (!opts.dry && latestBlockTime > 0) {
     await deps.syncStatus({ collectionKey: cfg.collectionKey, lastEventAt: new Date(latestBlockTime * 1000).toISOString(), lastEventSource: "sqd-stream" });
   }
