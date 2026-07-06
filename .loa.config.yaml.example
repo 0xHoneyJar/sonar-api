@@ -1937,7 +1937,9 @@ run_bridge:
 
   # Default parameters
   defaults:
-    # Maximum bridge iterations (1-5)
+    # Maximum bridge iterations (1-5). Default 3 is empirical: code PRs
+    # (what /run-bridge iterates on) plateau at 2 iters (cycles 102-114
+    # record) — override here or with --depth N. See run-bridge-reference.md.
     depth: 3
     # Review after each sprint vs full plan
     per_sprint: false
