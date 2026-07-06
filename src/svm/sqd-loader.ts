@@ -104,10 +104,17 @@ export async function runSqdLoader(
   const result: SqdLoaderResult = { ...stats, eventsUpserted: 0, rejectedRows: 0, ambiguousGroups: 0, chunks: chunks.length };
   const memberSet = new Set(mints);
   let latestBlockTime = 0;
+  // DISS-001 fix: track the lastSlot snapshot after each chunk completes so we can
+  // derive safeSlot = min(completedChunkSlots) — the highest slot all completed chunks
+  // have reached. Using stats.lastSlot (shared MAX) would let a chunk that advanced
+  // further inflate the cursor past what earlier chunks covered.
+  const completedChunkSlots: number[] = [];
 
   deps.log(`[sqd-loader] ${cfg.collectionKey}: ${mints.length} members, ${chunks.length} chunk(s), slots ${from.toLocaleString()}→${head.toLocaleString()}${opts.dry ? " [DRY]" : ""}`);
   for (const [ci, chunk] of chunks.entries()) {
+    let chunkYielded = false;
     for await (const blocks of deps.client.stream(chunk, from, head, stats, deps.log)) {
+      chunkYielded = true;
       const { events, rejectedRows, ambiguousGroups } = decodeSqdBlocks(blocks, memberSet, seen);
       result.rejectedRows += rejectedRows;
       result.ambiguousGroups += ambiguousGroups;
@@ -119,11 +126,30 @@ export async function runSqdLoader(
         }
       }
     }
+    // Only record a slot snapshot when the stream actually yielded blocks. A chunk that
+    // yielded nothing made no slot progress and must not contribute a stale/zero slot to
+    // the min() — that would hold the cursor back incorrectly.
+    if (chunkYielded) completedChunkSlots.push(stats.lastSlot);
     deps.log(`[sqd-loader] chunk ${ci + 1}/${chunks.length} done · ${stats.requests} reqs · ${result.eventsUpserted} events`);
     if (stats.stoppedAtCap) break;
   }
 
+  // Invariant: at least one chunk must have completed to derive a safe cursor.
+  // If nothing ran (stream yielded nothing for any chunk), abort rather than silently
+  // returning slot 0 or the pre-run cursor — both would be wrong.
+  if (completedChunkSlots.length === 0) {
+    const msg = "[sqd-loader] INVARIANT VIOLATION: no chunks completed — cannot derive safe cursor";
+    deps.log(msg);
+    throw new Error(msg);
+  }
+
+  // safeSlot = min across all chunks that ran. This is the highest slot every completed
+  // chunk has covered; resuming from safeSlot+1 on the next run is safe for all chunks.
+  const safeSlot = Math.min(...completedChunkSlots);
+
   Object.assign(result, stats);
+  // Override lastSlot with safeSlot (DISS-001 fix — do not use the shared MAX).
+  result.lastSlot = safeSlot;
   if (!opts.dry && latestBlockTime > 0) {
     await deps.syncStatus({ collectionKey: cfg.collectionKey, lastEventAt: new Date(latestBlockTime * 1000).toISOString(), lastEventSource: "sqd-stream" });
   }
