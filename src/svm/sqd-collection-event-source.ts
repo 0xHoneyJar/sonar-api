@@ -168,15 +168,22 @@ export function decodeSqdBlocks(
       let kind: "mint" | "transfer" | "burn";
       let from: string | null;
       let to: string | null;
+      // Shared ambiguous exit (BB #141 LOW): mark the mint SEEN (bd-zyli — its next
+      // appearance must not fake a first-appearance mint) and count the group.
+      const markAmbiguous = (): void => {
+        seenMints.add(mint);
+        ambiguousGroups++;
+      };
+      // Null-owner doctrine (dissent iter-1/2 + BB #141 MEDIUMs): a null owner row
+      // carries no custody information. It may not form an event endpoint, and in a
+      // multi-row group it may BE the true counterparty — so its mere presence makes
+      // net-custody attribution unknowable. Ambiguity over guessing, on every path.
+      const hasNullOwnerRow = losing.some((r) => r.preOwner === null) || gaining.some((r) => r.postOwner === null);
+      if (hasNullOwnerRow) {
+        markAmbiguous();
+        continue;
+      }
       if (losing.length === 1 && gaining.length === 1) {
-        // Dissent iter-2: a transfer needs BOTH endpoints — null owner rows carry no
-        // custody information on the 1:1 path either; emitting from/to:null here would
-        // fabricate an unsourced transfer.
-        if (losing[0].preOwner === null || gaining[0].postOwner === null) {
-          seenMints.add(mint);
-          ambiguousGroups++;
-          continue;
-        }
         kind = "transfer";
         from = losing[0].preOwner;
         to = gaining[0].postOwner;
@@ -184,8 +191,7 @@ export function decodeSqdBlocks(
         if (seenMints.has(mint)) {
           // token appeared without a losing counterpart mid-history: custody arrival we can't
           // source (e.g. cross-program escrow release outside balance rows) → ambiguous
-          // (mint already in seenMints — no add needed on this path)
-          ambiguousGroups++;
+          markAmbiguous();
           continue;
         }
         kind = "mint";
@@ -201,11 +207,10 @@ export function decodeSqdBlocks(
         // (bd-k5fh: Portal row order within a group is not contractually stable, so any
         // positional pick could decode the same transfer differently across fetches).
         // No unique net pair → honestly ambiguous, never an arbitrary pick.
-        // Null owners cannot form a transfer endpoint (dissent iter-1): a row with a
-        // null pre/postOwner contributes NO custody information — exclude before
-        // cancellation so a null never survives as the "unique" net loser/gainer.
-        const lostOwners = new Set(losing.map((r) => r.preOwner).filter((o): o is string => o !== null));
-        const gainedOwners = new Set(gaining.map((r) => r.postOwner).filter((o): o is string => o !== null));
+        // (No null filtering needed here — the hasNullOwnerRow gate above already
+        // rejected any group where a null row could be the true counterparty.)
+        const lostOwners = new Set(losing.map((r) => r.preOwner as string));
+        const gainedOwners = new Set(gaining.map((r) => r.postOwner as string));
         const netLosers = [...lostOwners].filter((o) => !gainedOwners.has(o));
         const netGainers = [...gainedOwners].filter((o) => !lostOwners.has(o));
         if (netLosers.length === 1 && netGainers.length === 1) {
@@ -213,9 +218,7 @@ export function decodeSqdBlocks(
           from = netLosers[0];
           to = netGainers[0];
         } else {
-          // bd-zyli: the mint is still SEEN — its next appearance must not fake a first-appearance mint
-          seenMints.add(mint);
-          ambiguousGroups++;
+          markAmbiguous();
           continue;
         }
       }

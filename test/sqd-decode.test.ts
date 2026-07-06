@@ -165,4 +165,27 @@ describe("sprint-bug-189 — order-independent net custody + seenMints on ambigu
     expect(events).toHaveLength(0);
     expect(ambiguousGroups).toBe(1);
   });
+
+  it("burn with null preOwner → ambiguous, never from:null burn (BB #141 MEDIUM)", () => {
+    const nullLose = { ...losing, preOwner: null };
+    const { events, ambiguousGroups } = decodeSqdBlocks([block([nullLose])], MEMBERS, new Set([MINT]));
+    expect(events).toHaveLength(0);
+    expect(ambiguousGroups).toBe(1);
+  });
+
+  it("mint with null postOwner → ambiguous, never to:null mint (BB #141 MEDIUM)", () => {
+    const nullGain = { ...gaining, postOwner: null };
+    const { events, ambiguousGroups } = decodeSqdBlocks([block([nullGain])], MEMBERS, new Set());
+    expect(events).toHaveLength(0);
+    expect(ambiguousGroups).toBe(1);
+  });
+
+  it("multi-hop with a null row that could be the true counterparty → ambiguous, no filtered-away guess (BB #141 MEDIUM)", () => {
+    // [null loser, ALICE loser, BOB gainer]: pre-fix filtering emitted ALICE→BOB,
+    // but the null row might be the real sender — attribution is unknowable.
+    const nullLose = { ...losing, account: ACC2, preOwner: null, postOwner: null };
+    const { events, ambiguousGroups } = decodeSqdBlocks([block([nullLose, losing, gaining])], MEMBERS, new Set([MINT]));
+    expect(events).toHaveLength(0);
+    expect(ambiguousGroups).toBe(1);
+  });
 });
