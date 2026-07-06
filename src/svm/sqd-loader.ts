@@ -37,6 +37,17 @@ async function hasura<T>(query: string, variables: Record<string, unknown>): Pro
 
 async function fetchCursorSlot(collectionKey: string): Promise<number | null> {
   if (!HASURA || !SECRET) return null;
+  // Durable cursor first (sprint-bug-173 DISS-001): MAX(slot) of ingested rows is NOT
+  // coverage-safe — a capped run upserts chunk-0 events at high slots while later chunks
+  // never ran, so resuming from MAX permanently skips their range. The loader persists
+  // its coverage-safe cursor to svm.sync_status.sqd_cursor_slot (migration 004); MAX is
+  // only the legacy fallback for collections that predate the column.
+  const c = await hasura<{ svm_sync_status: Array<{ sqd_cursor_slot: number | null }> }>(
+    `query CU($k: String!) { svm_sync_status(where: {collection_key: {_eq: $k}}) { sqd_cursor_slot } }`,
+    { k: collectionKey },
+  ).catch(() => null);
+  const durable = c?.svm_sync_status?.[0]?.sqd_cursor_slot;
+  if (durable !== null && durable !== undefined) return durable;
   const d = await hasura<{ svm_collection_event: Array<{ slot: number }> }>(
     `query C($k: String!) { svm_collection_event(where: {collection_key: {_eq: $k}, source: {_eq: "sqd-stream"}}, order_by: {slot: desc}, limit: 1) { slot } }`,
     { k: collectionKey },
@@ -110,6 +121,7 @@ export async function runSqdLoader(
   // further inflate the cursor past what earlier chunks covered.
   const completedChunkSlots: number[] = [];
   let chunksRun = 0;
+  let capChunkYielded = true;
 
   deps.log(`[sqd-loader] ${cfg.collectionKey}: ${mints.length} members, ${chunks.length} chunk(s), slots ${from.toLocaleString()}→${head.toLocaleString()}${opts.dry ? " [DRY]" : ""}`);
   for (const [ci, chunk] of chunks.entries()) {
@@ -133,14 +145,21 @@ export async function runSqdLoader(
     if (chunkYielded) completedChunkSlots.push(stats.lastSlot);
     chunksRun = ci + 1;
     deps.log(`[sqd-loader] chunk ${ci + 1}/${chunks.length} done · ${stats.requests} reqs · ${result.eventsUpserted} events`);
-    if (stats.stoppedAtCap) break;
+    if (stats.stoppedAtCap) {
+      // Review iter-1 DISS-002: the breaking chunk only counts as covered if it YIELDED.
+      // A cap that fires before the chunk's first yield means zero coverage for it.
+      capChunkYielded = chunkYielded;
+      break;
+    }
   }
 
-  // DISS-001-residual (sprint-bug-173): if the cap fired before ALL chunks ran,
-  // min(completedChunkSlots) only covers the chunks that ran — never-run chunks have
-  // processed nothing past `from`, so ANY advance would permanently skip their slots.
-  // Hold the cursor at the pre-run `from` (no advance) and say so loudly.
-  const cappedBeforeAllChunks = stats.stoppedAtCap && chunksRun < chunks.length;
+  // DISS-001-residual (sprint-bug-173): if the cap fired before ALL chunks produced
+  // coverage, min(completedChunkSlots) only covers the chunks that yielded — uncovered
+  // chunks have processed nothing past `from`, so ANY advance would permanently skip
+  // their slots. Hold the cursor at the pre-run `from` (no advance) and say so loudly.
+  // Covers both holes: cap before a later chunk ran (chunksRun < length) AND cap on the
+  // final chunk before its first yield (capChunkYielded === false).
+  const cappedBeforeAllChunks = stats.stoppedAtCap && (chunksRun < chunks.length || !capChunkYielded);
 
   // Invariant: at least one chunk must have completed to derive a safe cursor.
   // If nothing ran (stream yielded nothing for any chunk), abort rather than silently
@@ -164,8 +183,17 @@ export async function runSqdLoader(
     // Override lastSlot with safeSlot (DISS-001 fix — do not use the shared MAX).
     result.lastSlot = Math.min(...completedChunkSlots);
   }
-  if (!opts.dry && latestBlockTime > 0) {
-    await deps.syncStatus({ collectionKey: cfg.collectionKey, lastEventAt: new Date(latestBlockTime * 1000).toISOString(), lastEventSource: "sqd-stream" });
+  if (!opts.dry) {
+    // Persist the coverage-safe cursor EVERY non-dry run (DISS-001 root fix): the durable
+    // cursor is the resume authority; without this write, fetchCursorSlot falls back to
+    // MAX(slot) of upserted rows, which re-opens the capped-run skip. Freshness fields
+    // only when events actually landed (lastEventAt must not fabricate recency).
+    const patch: Parameters<typeof deps.syncStatus>[0] = { collectionKey: cfg.collectionKey, sqdCursorSlot: result.lastSlot };
+    if (latestBlockTime > 0) {
+      patch.lastEventAt = new Date(latestBlockTime * 1000).toISOString();
+      patch.lastEventSource = "sqd-stream";
+    }
+    await deps.syncStatus(patch);
   }
   deps.log(
     `[sqd-loader] DONE ${cfg.collectionKey}: ${result.eventsUpserted} events · ${result.rejectedRows} rejected rows · ${result.ambiguousGroups} ambiguous groups · ${stats.requests} requests${stats.stoppedAtCap ? " (CAP)" : ""}`,

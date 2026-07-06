@@ -319,3 +319,135 @@ describe("DISS-001-residual — early-cap must not advance cursor past never-run
     expect(result.lastSlot).toBe(3_000); // min(3000, 4000)
   });
 });
+
+/**
+ * Review iter-1 (sprint-bug-173) — the two dissent blockers, verified end-to-end.
+ *
+ * DISS-002: cap firing on the FINAL chunk before its first yield left chunksRun ==
+ * chunks.length, so the loader advanced to min over EARLIER chunks — skipping the
+ * final chunk's entire range.
+ *
+ * DISS-001: result.lastSlot was not the production resume authority — fetchCursorSlot
+ * read MAX(slot) of upserted rows. The durable cursor (sync_status.sqd_cursor_slot,
+ * migration 004) is now written every non-dry run and preferred on resume. The
+ * two-consecutive-runs test reproduces the production wiring shape: cursorSlot reads
+ * what syncStatus wrote (durable), falling back to MAX(upserted slots) (legacy).
+ */
+describe("review iter-1 — final-chunk cap-without-yield + durable-cursor resume", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const FROM_SLOT = 1_000;
+
+  it("holds cursor when cap fires on the FINAL chunk before its first yield (pre-fix: red)", async () => {
+    let call = 0;
+    const streamMock = vi.fn(async function* (
+      _mints: readonly string[],
+      _from: number,
+      _to: number,
+      stats: { requests: number; blocks: number; balanceRows: number; stoppedAtCap: boolean; lastSlot: number },
+    ) {
+      call++;
+      if (call === 1) {
+        // chunk 0: completes normally with coverage to 5000
+        stats.requests++;
+        stats.blocks++;
+        stats.lastSlot = 5_000;
+        yield [makeBlock(5_000)];
+      } else {
+        // chunk 1 (FINAL): cap already exhausted — fires before ANY yield
+        stats.stoppedAtCap = true;
+        // yields nothing
+      }
+    });
+    const client = {
+      head: vi.fn().mockResolvedValue(500_000),
+      currentHeight: vi.fn().mockResolvedValue(500_000),
+      stream: streamMock,
+      lastBlockReceivedAt: 0,
+    } as unknown as SqdClient;
+
+    const deps: SqdLoaderDeps = {
+      client,
+      members: vi.fn().mockResolvedValue(MINTS), // 2 chunks
+      cursorSlot: vi.fn().mockResolvedValue(FROM_SLOT),
+      knownMints: vi.fn().mockResolvedValue([]),
+      upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
+      syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
+      log: () => {},
+    };
+
+    const result = await runSqdLoader({ collectionKey: "pythians" }, deps);
+    expect(result.stoppedAtCap).toBe(true);
+    expect(client.stream as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(2);
+    // Final chunk produced ZERO coverage — cursor must hold, not advance to 5000
+    expect(result.lastSlot).toBe(FROM_SLOT);
+  });
+
+  it("two consecutive runs: run 2 resumes from run 1's HELD durable cursor, not MAX(upserted slot)", async () => {
+    // Production-shaped persistence: syncStatus writes the durable cursor; cursorSlot
+    // prefers it, falling back to MAX(slot) of upserted rows (the legacy path that
+    // caused DISS-001).
+    let durableCursor: number | null = null;
+    const upsertedSlots: number[] = [];
+    const cursorSlotProd = async () =>
+      durableCursor ?? (upsertedSlots.length ? Math.max(...upsertedSlots) : null);
+    const syncStatusProd = vi.fn(async (patch: { sqdCursorSlot?: number }) => {
+      if (patch.sqdCursorSlot !== undefined) durableCursor = patch.sqdCursorSlot;
+      return true;
+    });
+    const upsertProd = vi.fn(async (events: Array<{ slot: number }>) => {
+      for (const e of events) upsertedSlots.push(e.slot);
+    });
+
+    const fromSeen: number[] = [];
+    let call = 0;
+    const streamMock = vi.fn(async function* (
+      _mints: readonly string[],
+      from: number,
+      _to: number,
+      stats: { requests: number; blocks: number; balanceRows: number; stoppedAtCap: boolean; lastSlot: number },
+    ) {
+      call++;
+      fromSeen.push(from);
+      if (call === 1) {
+        // RUN 1, chunk 0: upserts events at high slots, then cap fires → chunk 1 never runs
+        stats.requests++;
+        stats.blocks++;
+        stats.lastSlot = 5_000;
+        stats.stoppedAtCap = true;
+        yield [makeBlock(5_000)];
+      }
+      // RUN 2 streams: yield nothing (we only care about the resume `from`)
+      if (call === 2) stats.stoppedAtCap = true; // keep run 2 short: cap immediately, no yield
+    });
+    const client = {
+      head: vi.fn().mockResolvedValue(500_000),
+      currentHeight: vi.fn().mockResolvedValue(500_000),
+      stream: streamMock,
+      lastBlockReceivedAt: 0,
+    } as unknown as SqdLoaderDeps["client"];
+
+    const makeDeps = (): SqdLoaderDeps => ({
+      client,
+      members: vi.fn().mockResolvedValue(MINTS), // 2 chunks
+      cursorSlot: cursorSlotProd,
+      knownMints: vi.fn().mockResolvedValue([]),
+      upsert: upsertProd as unknown as SqdLoaderDeps["upsert"],
+      syncStatus: syncStatusProd as unknown as SqdLoaderDeps["syncStatus"],
+      log: () => {},
+    });
+
+    // RUN 1: starts at 0 (no cursor anywhere), caps early in chunk 0
+    const run1 = await runSqdLoader({ collectionKey: "pythians" }, makeDeps());
+    expect(run1.lastSlot).toBe(0); // held at pre-run from (0)
+    expect(durableCursor).toBe(0); // durable cursor persisted despite cap
+    // Seed the poison MAX directly: in production, run 1's chunk-0 events sit in the DB
+    // at slot 5000 (synthetic blocks here decode to zero events, so emulate those rows).
+    // Pre-fix, cursorSlotProd falls back to MAX(upserted)=5000 → the DISS-001 skip.
+    upsertedSlots.push(5_000);
+
+    // RUN 2: must resume from the durable cursor (0), NOT MAX(upserted)=5000
+    await runSqdLoader({ collectionKey: "pythians" }, makeDeps());
+    expect(fromSeen[1]).toBe(0); // ← THE DISS-001 assertion (pre-fix this was 5000)
+  });
+});
