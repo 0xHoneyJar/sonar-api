@@ -1,0 +1,14 @@
+name: SQD Gate
+on:
+  push:
+    branches: ['feat/**', 'main']
+  pull_request:
+    branches: ['main']
+jobs:
+  sqd-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install
+      - run: pnpm test:gate
