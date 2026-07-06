@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src/svm/**/*.ts", "test/sqd-*.ts", "test/fixtures/*.ts", "test/fixtures/*.json"]
+}

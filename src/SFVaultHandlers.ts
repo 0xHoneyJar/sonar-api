@@ -11,9 +11,6 @@ import {
   handleSFVaultWithdraw,
   handleSFVaultStrategyUpdated,
   handleSFStrategyMultiRewardsUpdated,
-  handleSFMultiRewardsStaked,
-  handleSFMultiRewardsWithdrawn,
-  handleSFMultiRewardsRewardPaid,
 } from "./handlers/sf-vaults";
 
 // Export all SF vault handlers
@@ -21,6 +18,5 @@ export { handleSFVaultDeposit };
 export { handleSFVaultWithdraw };
 export { handleSFVaultStrategyUpdated };
 export { handleSFStrategyMultiRewardsUpdated };
-export { handleSFMultiRewardsStaked };
-export { handleSFMultiRewardsWithdrawn };
-export { handleSFMultiRewardsRewardPaid };
+// handleSFMultiRewards{Staked,Withdrawn,RewardPaid} removed — sf-vaults.ts stopped
+// exporting them in the 3.2.1 belt port (#75); the dead imports broke repo-wide tsc (bd-j0fj)

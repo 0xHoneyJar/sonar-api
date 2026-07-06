@@ -14,7 +14,7 @@
 const HASURA = (process.env.SVM_HASURA_ENDPOINT ?? "").replace(/\/$/, "");
 const SECRET = process.env.HASURA_GRAPHQL_ADMIN_SECRET ?? "";
 
-export type SyncEventSource = "dune-warehouse" | "helius-webhook" | "helius-backfill";
+export type SyncEventSource = "dune-warehouse" | "helius-webhook" | "helius-backfill" | "sqd-stream";
 export type ReconcileResult = "passed" | "failed" | "skipped-no-das";
 
 export interface SyncStatusPatch {
@@ -23,6 +23,8 @@ export interface SyncStatusPatch {
   lastEventSource?: SyncEventSource;
   lastReconcileAt?: string;
   lastReconcileResult?: ReconcileResult;
+  /** Durable SQD resume cursor (coverage-safe; NOT MAX(slot) — see migration 004) */
+  sqdCursorSlot?: number;
 }
 
 const UPSERT = `
@@ -49,6 +51,7 @@ export async function writeSyncStatus(patch: SyncStatusPatch, deps?: { fetchImpl
   if (patch.lastEventSource !== undefined) { object.last_event_source = patch.lastEventSource; columns.push("last_event_source"); }
   if (patch.lastReconcileAt !== undefined) { object.last_reconcile_at = patch.lastReconcileAt; columns.push("last_reconcile_at"); }
   if (patch.lastReconcileResult !== undefined) { object.last_reconcile_result = patch.lastReconcileResult; columns.push("last_reconcile_result"); }
+  if (patch.sqdCursorSlot !== undefined) { object.sqd_cursor_slot = patch.sqdCursorSlot; columns.push("sqd_cursor_slot"); }
   try {
     const res = await f(`${HASURA}/v1/graphql`, {
       method: "POST",

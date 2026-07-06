@@ -2,10 +2,10 @@
 hivemind:
   schema_version: "1.0"
   artifact_type: technical-rfc
-  product_area: "sonar-api — SVM warehouse-loader lane"
+  product_area: "sonar-api — SVM SQD block-stream substrate"
   workstream: delivery
   priority: high
-  jtbd: {category: functional, description: "design the warehouse→collection_event supply lane + multi-collection live tail + incremental reconcile that the svm-warehouse-loader PRD requires"}
+  jtbd: {category: functional, description: "design SqdCollectionEventSource: Portal stream consumption, balance-diff decode, chunked mint filtering, and convergence with the existing writer/gate — per the svm-sqd-substrate PRD"}
   learning_status: directionally-correct
   source: team-internal
 trust_tier: operator-authored
@@ -16,79 +16,93 @@ last_confirmed: 2026-07-05
 operator_signed: self_attested
 ---
 
-# SDD — SVM Warehouse Loader (cycle: svm-warehouse-loader, r1 2026-07-05)
+# SDD — SVM SQD Substrate (cycle: svm-sqd-substrate, r1 2026-07-05)
 
-Traces: PRD r1 §6 FR-1..FR-6. Grounding: file:line refs verified against `origin/main` @ d108626.
+Traces: PRD r1 FR-1..FR-5. Grounding: `origin/main` @ 046fb23; live Portal probes 2026-07-05.
 
 ## 1. Architecture
 
-Two supply lanes converge on one content-addressed table (unchanged): warehouse loader fills the past, webhook fills the present, incremental reconcile verifies. New: `svm.sync_status` makes per-collection freshness first-class. The seam doctrine holds — `CollectionEventSource` stays the interface `[src/svm/collection-event-source.ts:51-56]`; the loader is a NEW implementation of the backfill role, not a rewrite of the seam.
+The two-lane ADR holds; this cycle gives the batch lane a second, free substrate. All three supply
+implementations (Dune, SQD, Helius Enhanced) feed ONE writer under the SAME invariants:
 
 ```
-Dune API (history) ─► WarehouseCollectionEventSource ─► CollectionEvent[] ─► upsertCollectionEvents ─► svm.collection_event
-Helius webhook (live) ─► multi-collection router ────► (unchanged decode) ─────────────────┘              │
-DAS snapshot (verify) ─► incremental reconcile ─► Enhanced walk (drifted mints only) ───────┘         svm.sync_status
+DAS getAssetsByGroup ──► member mints (all 8 collections; metadata-era-agnostic)
+        │
+        ▼ chunks of ≤500 mints
+SQD Portal stream ──► SqdCollectionEventSource ──► CollectionEvent[] ──► upsertCollectionEvents(ifAbsentOnly)
+ (slot windows,          (balance-diff decode)                                 │
+  resumable cursor)                                                     svm.collection_event + sync_status('sqd-stream')
+                                                                               │
+                                                              §4.5 reconcile gate (DAS recompute = trust root)
 ```
 
 ## 2. Components
 
-### 2.1 `src/svm/dune-client.ts` (new, ~120 loc)
-Minimal Dune API client (no SDK dep — fetch only, mirrors repo's raw-fetch idiom `[src/svm/nft-collection-source.ts:95-108]`): `executeQuery(queryId, params)`, `pollResult(executionId)`, `fetchRows(executionId, {limit, offset})` with pagination. Auth header `X-Dune-API-Key: env DUNE_API_KEY`. Logs `executionCostCredits` per run (NFR-1). Retry/backoff mirroring `addressHistory`'s pattern `[src/svm/collection-event-source.ts:310-330]`.
+### 2.1 `src/svm/sqd-client.ts` (~140 loc)
+Portal stream consumer, raw fetch (repo idiom). `POST {PORTAL_BASE}/datasets/solana-mainnet/finalized-stream`
+with `{type:"solana", fromBlock, toBlock, fields:{tokenBalance:{account,preMint,postMint,preOwner,postOwner,
+preAmount,postAmount,transactionIndex,transactionIndex:true}, block:{number,timestamp}, transaction:{signatures:true}},
+tokenBalances:[{postMint:[...chunk]},{preMint:[...chunk]}]}` `[MEASURED: filter shape verified; response =
+newline-delimited JSON block objects]`. Both pre+post mint filters so burns (post disappears) and mints
+(pre absent) are both captured. Handles: slot windowing (`SQD_WINDOW_SLOTS`, default 500k ≈ ~2.7 days),
+resumable via last-processed-slot cursor from `svm.collection_event` (source='sqd-stream'), 429/5xx
+retry with cap, request counting via helius-meter's pattern (new `sqd` meter kind, weight 0 — count
+requests, price nothing; the meter is the politeness ledger). Env: `SQD_PORTAL_BASE` (default
+portal.sqd.dev), `SQD_API_KEY` optional header.
+**Open item for T-1**: exact per-request response pagination semantics (does one request return the
+full slot range or a bounded chunk with a continuation? probe measured single-block scale only) —
+T-1 resolves; client written continuation-tolerant (consume until stream end, note `lastBlock`).
 
-### 2.2 Canonical extraction queries (created once, parameterized, committed as SQL in `src/svm/sql/`)
-- `warehouse-members.sql`: members via `tokens_solana.nft where collection_mint = {{collection_mint}}`.
-- `warehouse-events.sql`: `tokens_solana.transfers t join members m` with `{{from_time}}`/`{{to_time}}` bounds (partition pruning — measured 0.22cr bounded vs 18.6cr unbounded), returning `action, block_slot, block_time, tx_id, outer_instruction_index, inner_instruction_index, token_mint_address, from_owner, to_owner, outer_executing_account`.
-Saved once as Dune saved-queries (ids in registry config), executed with params per run.
+### 2.2 `src/svm/sqd-collection-event-source.ts` (~200 loc, the decode)
+Pure decode from token-balance diffs grouped by (tx, mint) — unit-testable, no network:
+- **transfer**: within one tx+mint, an account with pre=1→post=0 AND another with pre=0→post=1 →
+  `{from: preOwner(losing), to: postOwner(gaining)}`.
+- **mint**: gaining account with NO losing counterpart AND no prior sqd-seen balance for the mint
+  (first appearance) → from=null. (Cross-check: candy-guard-era mints show pre-account absent.)
+- **burn**: losing account with no gaining counterpart → to=null.
+- **ambiguous** (multi-leg same-tx custody hops, escrow shuffles): decode the NET owner change per
+  the 001-view custody semantics; if net is unresolvable → reject + count (never guess; the fixture
+  adjudicates how often this happens — G1 target bounds it).
+- `instructionIndex`: per-(tx,mint) occurrence ordinal in (slot, txIndex) order — SAME rule as
+  parseHeliusTx/warehouse mapRows [CODE:src/svm/warehouse-loader.ts mapRows]; PK convergence test pinned.
+- kinds emitted: mint/transfer/burn ONLY (PRD OUT: marketplace kinds).
 
-### 2.3 `src/svm/warehouse-loader.ts` (new, the FR-1 entrypoint)
-CLI: `tsx src/svm/warehouse-loader.ts --collection <key> [--from <iso>] [--dry]`. Flow: registry resolve → cursor read (max block_time in `svm.collection_event` for key, via existing Hasura admin path `[src/svm/collection-event-writer.ts]`) → windowed extraction (30-day windows to bound result sizes) → map rows → kind mapping (2.4) → `upsertCollectionEvents` batches → sync_status write → reconcile gate (2.6) — **gate runs BEFORE the sync_status "verified" mark, and a failed gate marks `last_reconcile_result: failed`, never blocks the already-idempotent upserts** (events are facts; verification is a status).
-Mapping: `instructionIndex` = per-(tx,mint) ordinal computed identically to the parser's per-mint occurrence rule `[src/svm/collection-event-source.ts:124-126]` — NOT the raw instruction index (PK convergence with webhook/Enhanced rows depends on this).
+### 2.3 CLI `src/svm/sqd-loader.ts` (~80 loc)
+`--collection <key> [--from-slot N] [--dry]`: registry resolve → DAS members (existing source) →
+chunk → windows → decode → upsert(ifAbsentOnly) → sync_status(`sqd-stream`) → optional §4.5 verify
+(same degraded-declared rule). Budget analog: `SQD_MAX_REQUESTS` per run (default 20k) — the
+grant-not-right guard; STOP cleanly between windows like DUNE_CREDIT_BUDGET.
 
-### 2.4 Kind mapping (FR-2, decision T-2)
-Default ship: `action` → mint/transfer/burn 1:1. Marketplace kinds behind the EXISTING flag pattern (`SVM_EMIT_MARKETPLACE_KINDS` precedent `[collection-event-source.ts:113]`): option (a) program-ID classify from `outer_executing_account` against a curated marketplace program map (M2/Tensor/etc.) — T-2 measures (a) against the pythians fixture; if precision <99% on sale detection, fall back to (c) transfers-only + reclassify later via the #85 re-backfill pattern. Option (b) selective-Enhanced stays post-topup. **T-2 MEASURED (2026-07-05)**: program distribution committed at test/fixtures/svm-warehouse/pythians-program-distribution.json — ME-v2/MMM + Tensor/TComp custody legs cleanly separable from token-metadata plain transfers; Candy Guard mints = 3,683 = member count (cross-confirmation). DECISION: (c) for batch-1 (coarse, never wrong); (a)'s precision measurement vs Helius labels = runbook step 5.3, pre-flag-flip.
+### 2.4 Integration deltas
+- `sync-status.ts`: `SyncEventSource` += `"sqd-stream"`; migration 003 widens the CHECK constraint
+  (idempotent ALTER … DROP/ADD constraint).
+- `collection-event-writer.ts`: `EventSource` += `"sqd-stream"` (one union member).
+- `svm-warehouse-ops.yml`: `sqd-ingest` step (inputs: collection, from_slot; env-passed + charset
+  allowlist per #127/#129 injection posture; no vendor secrets needed).
 
-### 2.5 Multi-collection webhook (FR-3)
-`collection-event-webhook.ts`: `cfg` singleton → `Map<collectionKey, {members, loadedAt, source}>` built from ALL registry entries (`COLLECTIONS` keys). Delivery routing: decoded event's mint looked up across per-collection member sets (first match; sets are disjoint by construction). `/health` emits per-collection `{members, loadedAt, source}` + existing meter block. Refresh: staggered per-collection (existing dedupe pattern `[collection-event-webhook.ts:76-85]` per key). `COLLECTION` env retained as optional single-tenant override (back-compat, deploy safety).
+## 3. Security & Cost
+- No secrets required (Portal open; optional SQD_API_KEY env-only if registered). Rows are UNTRUSTED:
+  field-validate (base58, slot ints, amount strings) before decode; reject-don't-coerce.
+- Politeness: sequential windows, no fan-out, request meter, SQD_MAX_REQUESTS cap; T-1 abort
+  criterion (PRD risk row) is the terms tripwire.
 
-### 2.6 Incremental reconcile (FR-4)
-`collection-event-indexer.ts`: new default path — DAS snapshot → derive current owner per mint from `svm.collection_event` (the `svm_collection_owner_derived` view logic `[migrations/svm/001_collection_owner_derived.sql]`) → walk ONLY mismatched mints via Enhanced. `--full` flag preserves today's behavior. While Helius is dark: `--verify-off` records `last_reconcile_result: 'skipped-no-das'` (NFR-2's declared-not-silent rule).
+## 4. Test Strategy (fixtures only, zero network in CI)
+- `test/sqd-decode.test.ts`: transfer/mint/burn/ambiguous-reject cases from constructed balance-diff
+  rows; PK-convergence (same tx via SQD rows and parseHeliusTx fixture → identical eventId).
+- `test/sqd-client.test.ts`: windowing, chunking (501 mints → 2 chunks), cursor resume, request cap
+  stop, retry, key-header only-when-set (mocked fetch).
+- `test/fixtures/svm-sqd/`: pythians slice — REAL Portal response rows captured in T-1 (committed),
+  adjudicated against the Helius-classified 30,006-event fixture for G1 recall measurement.
+- Suite + tsc regression gates per repo standard.
 
-### 2.7 `svm.sync_status` (FR-5)
-DDL migration `migrations/svm/002_sync_status.sql`: `(collection_key text primary key, last_event_at timestamptz, last_event_source text, last_reconcile_at timestamptz, last_reconcile_result text, updated_at timestamptz)`. Hasura-tracked + public-select like `svm_collection_event` (same `pg_track_table` motion, pending-exposure→live lifecycle per `scripts/svm-contract.json`). Writers: loader, webhook (on upsert batch), reconcile. This is #121 Q4/Q6's promised consumer-visible freshness signal.
-
-### 2.8 Registry additions (FR-6)
-8 entries in `COLLECTIONS` `[src/svm/collection-registry.ts:28-35]` from the verified candidates doc (mad_lads, claynosaurz, smb_gen2, degods, daa_higher_self, famous_fox, y00ts, galactic_geckos). Query ids are GLOBAL env config (`DUNE_EVENTS_QUERY_ID`), not per-entry — one parameterized query serves every collection (FL IMP-009 cleanup).
-
-## 3. Security
-- `DUNE_API_KEY` env-only, never argv/logs (NFR-4); joins GH workflow secrets for any scheduled loader runs.
-- Dune rows are UNTRUSTED input: schema-validate each row (zod-lite manual checks matching repo style) before mapping; reject rows with malformed addresses/timestamps rather than coercing.
-- No new public write surface; Hasura writes stay admin-secret-gated as today.
-
-## 4. Test Strategy (all fixture-based, NFR-3)
-- `test/dune-client.test.ts` — pagination, retry, cost-log surface (mocked fetch).
-- `test/warehouse-loader.test.ts` — row→CollectionEvent mapping incl. per-(tx,mint) ordinal convergence with `parseHeliusTx` fixtures (SAME tx through both paths → SAME PK), cursor windows, malformed-row rejection.
-- `test/kind-mapping.test.ts` — T-2's fixture adjudication: program-ID map vs pythians Helius-classified sample (committed fixture slice, not 30k rows).
-- `test/collection-event-webhook.test.ts` — extend existing 4 to multi-collection routing + single-tenant override.
-- `test/sync-status.test.ts` — writer upsert semantics.
-- Live-Helius checks: explicitly OUT of CI; post-topup runbook tasks (T-9).
-
-## 5. Rollout
-1. Merge → migration 002 applied + Hasura track (operator, same motion as 001).
-2. Loader: pythians gap-heal first (`--from 2026-06-25`) → G1 parity check vs the 108-event Dune ground truth → then batch-1 collections one by one, cost logged.
-3. Webhook deploy: pythians-only via override env first, then registry mode.
-4. Post-topup (operator): Helius webhook re-verified live, incremental reconcile measured via helius-meter, #122 closed.
-
-
-## 6. Flatline SDD review — dispositions (run fl-svm-loader-sdd, 2026-07-05, 3 voices, 76% agreement)
-
-| Finding | Disposition |
-|---|---|
-| SKP-004 credit exhaustion mid-load | FIXED: `DUNE_CREDIT_BUDGET` cap, clean between-window stop; DB cursor makes re-runs resume losslessly |
-| SKP-003/SKP-001 disjointness unenforced | FIXED: `auditMemberOverlap` on refresh (loud) + `member_overlaps` on /health; routing stays deterministic by registry order |
-| SKP-001 ordinal depends on Dune ordering | ALREADY SAFE: SQL has ORDER BY AND `mapRows` re-sorts before ordinal assignment (defense in depth; test feeds shuffled rows) |
-| SKP-002 first-load incremental = full walk | FIXED: incremental refuses at <50% derived-owner coverage → directs to warehouse-load or explicit --full |
-| IMP-001 cursor second-precision loss | ALREADY SAFE: window lower bound is INCLUSIVE (`>=`) and PK idempotency absorbs the overlap second |
-| IMP-004 sync_status CHECK constraints | FIXED in migration 002 (source + result enums) |
-| IMP-005/006 dune retry/pagination recovery | PARTIAL: retry taxonomy exists (429/5xx, Retry-After, cap); a dropped mid-pagination fetch retries in-place; execution re-run is the coarse fallback — accepted for batch-1 volumes |
-| IMP-009 duneQueryIds ambiguity | FIXED: §2.8 amended — global env id, not per-entry |
-| 3 disputed items | recorded in a2a/sprint-svm-loader-1/flatline-sdd.json; none actionable without live measurement |
+## 5. Rollout (maps to sprint tasks)
+1. **T-1 SPIKE (gate for everything)**: register etiquette key; stream pythians (3,682 mints, full
+   history) with request meter on; measure rows/request, requests total, wall-clock, any throttle;
+   capture fixture slice; ABORT→operator if gating appears. Deliverable: measured table in NOTES +
+   fixture files. (Runs via ops-workflow dry mode — no DB writes needed for the spike.)
+2. T-2 decode + tests (pure, parallel-safe with T-1 fixture arrival).
+3. T-3 client + CLI + integration deltas + migration 003.
+4. T-4 G1 adjudication: pythians full ingest (dry→live), recall vs fixture, §4.5 gate.
+5. T-5 batch: remaining 7 collections via ops dispatches; sync_status rows; per-run meter lines.
+6. T-6 closure rides the EXISTING NOTES protocol (KF-018/#122/#121) — batch-1 landing via SQD
+   satisfies the same trigger; Dune path becomes optional (Jul-16 free cycle = bonus seam-fill only).

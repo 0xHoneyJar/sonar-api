@@ -34,7 +34,7 @@ const INSERT_IF_ABSENT = `mutation UpIfAbsent($objects: [svm_collection_event_in
   ) { affected_rows }
 }`;
 
-export type EventSource = "helius-backfill" | "helius-webhook" | "dune-warehouse";
+export type EventSource = "helius-backfill" | "helius-webhook" | "dune-warehouse" | "sqd-stream";
 
 export interface CollectionEventRow {
   id: string; // '{tx_signature}:{nft_mint}:{instruction_index}'

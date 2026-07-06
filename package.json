@@ -11,6 +11,7 @@
     "start": "envio start",
     "test": "vitest run",
     "test:hasura": "vitest run test/hasura-contract",
+    "test:gate": "vitest run test/sqd-45-gate-integration.test.ts",
     "pulse": "bash scripts/sonar-pulse.sh",
     "self": "tsx src/self/cli/sonar-self.ts emit",
     "self:check": "tsx src/self/cli/sonar-self.ts check --mode offline",

@@ -10,7 +10,7 @@ on:
         description: "migrate | ingest"
         required: true
         type: choice
-        options: [migrate, ingest, snapshot]
+        options: [migrate, ingest, sqd-ingest]
       collection:
         description: "collection key for ingest (or 'batch1' for all 8)"
         required: false
@@ -82,28 +82,32 @@ jobs:
             fi
           done
 
-      - name: snapshot
-        if: inputs.step == 'snapshot'
+      - name: sqd-ingest
+        if: inputs.step == 'sqd-ingest'
         env:
+          # inputs via env only (#127 injection posture); no vendor secrets required — Portal is
+          # open (SQD_API_KEY optional etiquette key if repo secret exists)
           COLLECTION_INPUT: ${{ inputs.collection }}
+          FROM_SLOT_INPUT: ${{ inputs.from_time }}
           HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
-          # the snapshot pipe reads SOLANA_RPC_URL (defaults to the PUBLIC non-DAS endpoint —
-          # runs 28754856273/28754973814 probed DAS against it and hung to the 30s abort)
-          SOLANA_RPC_URL: https://mainnet.helius-rpc.com/?api-key=${{ secrets.HELIUS_API_KEY }}
-          # KF-001 class: Node Happy-Eyeballs/IPv6 stalls on GH runners → DAS/Enhanced timeouts (run 28754856273 died on call #1; local = 0.5s)
-          NODE_OPTIONS: "--dns-result-order=ipv4first"
           SVM_HASURA_ENDPOINT: https://belt-hasura-selfhost-production.up.railway.app
           HASURA_GRAPHQL_ADMIN_SECRET: ${{ secrets.SVM_HASURA_ADMIN_SECRET }}
+          SQD_API_KEY: ${{ secrets.SQD_API_KEY }}
         run: |
           set -euo pipefail
           case "$COLLECTION_INPUT" in (*[!a-z0-9_]*) echo "invalid collection key"; exit 2;; esac
+          case "$FROM_SLOT_INPUT" in (*[!0-9]*) [ -n "$FROM_SLOT_INPUT" ] && { echo "from_time must be a SLOT NUMBER for sqd-ingest"; exit 2; };; esac
           if [ "$COLLECTION_INPUT" = "batch1" ]; then
-            KEYS="smb_gen2 degods famous_fox mad_lads y00ts daa_higher_self claynosaurz galactic_geckos"
+            KEYS="mad_lads claynosaurz smb_gen2 degods daa_higher_self famous_fox y00ts galactic_geckos"
           else
             KEYS="$COLLECTION_INPUT"
           fi
           for k in $KEYS; do
-            echo "── snapshot $k ──"
-            npx --yes tsx src/svm/pythians-collection-indexer.ts --collection "$k"
+            echo "── sqd-ingest $k ──"
+            if [ -n "$FROM_SLOT_INPUT" ]; then
+              npx --yes tsx src/svm/sqd-loader.ts --collection "$k" --from-slot "$FROM_SLOT_INPUT"
+            else
+              npx --yes tsx src/svm/sqd-loader.ts --collection "$k"
+            fi
           done
 
