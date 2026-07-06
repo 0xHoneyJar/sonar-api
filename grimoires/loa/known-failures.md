@@ -1011,3 +1011,19 @@ This is a liveness bug, not a correctness bug — the MV data is unaffected. The
 |------|---------|--------|----------|
 | 2026-07-05 | Edit tool repair of conflicted hook | BLOCKED by zone-write-guard | this session, v1.157→v1.180 merge |
 | 2026-07-05 | Operator `!` + LOA_ACTOR=update-loa checkout --theirs | SUCCESS | commit 487c6d68 |
+
+## KF-020 — reaching for metered READS when self-hosting the INDEXER was the answer (the SVM cost saga)
+
+- **Status**: DOCTRINE-CORRECTION 2026-07-06 (operator: "if I knew this from the beginning I would've just approached it this way")
+- **Symptom**: a data-sourcing need ("get NFT event/ownership history for Solana collections") gets attacked as a **metered-read** problem — pricing/topping-up hosted providers (Helius credits, Dune egress, hosted Subsquid/Envio) — burning a week of tuition (4 provider quota-outs, the ~4.4M-credit walk-train, the whole snapshot-first pivot, the metered-provider-spike-protocol) before anyone asks whether the **indexer** can be self-hosted.
+- **Recurrence count**: 1 (but the operator notes this is how the constraint has felt for the whole product's history — treat as structural)
+- **Root cause**: the reflex treats hosted-indexer cost (Subsquid/Envio Cloud fees) as the cost of the DATA. It is not — it is the cost of HOSTING. The data lakes (SQD Portal from block 0, Envio HyperSync) are open and free. So "we can't afford hosted Subsquid/Envio anymore" resolves to "self-host the same indexer" (a cheap box + genesis sync-time = full deep history), NOT "switch to metered per-read providers." **We already self-host this pattern**: the belt-indexer is Envio Hyperindex on Railway (recall: `sonar-is-pure-index`). The SVM work reached for metered Solana reads instead of extending it.
+- **The fix (do THIS first, before any metered spend)**: consult `[[self-host-indexer-first]]` — provider order is (1) self-hosted full-sync indexer against a free data lake = deep-history FLOOR, (2) metered hosted reads = point-in-time/live-tail FALLBACK only, (3) managed/hosted indexer only when self-host ops > fee. The `[[metered-provider-spike-protocol]]` gate now opens with RUNG 0 = self-host-first; the price-sheet axes only apply once self-hosting is proven infeasible.
+- **Concrete open path**: SVM deep history = a self-hosted Subsquid squid / Envio on solana-mainnet from block 0 → `svm.collection_event`. The mint-filtered SQD live-tail (#140-#142) is the forward-feed shape and is NOT the backfill tool (its ~400k-request wall was specific to per-mint windowed scanning).
+
+### Attempts
+
+| Date | Attempt | Result | Evidence |
+|------|---------|--------|----------|
+| 2026-07 | metered reads for Solana history (Helius DAS credits, Dune egress) | quota-outs + ~100x cost misses; snapshot-first only bought point-in-time ownership | KF-018, metered-provider-spike-protocol |
+| 2026-07-06 | recognize self-hosted-indexer-first (belt-indexer already proves the pattern) | DOCTRINE — not yet built for SVM; the correct deep-history path | this entry |
