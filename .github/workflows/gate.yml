@@ -4,11 +4,20 @@ on:
     branches: ['feat/**', 'main']
   pull_request:
     branches: ['main']
+permissions:
+  contents: read
 jobs:
   sqd-gate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # DELIBERATE TRIPWIRE (audit MEDIUM, bd-3mvd): test:gate hard-fails in CI until the
+      # real 30,006-event pythians fixture is provisioned — the §4.5 gate refuses to
+      # fake-pass against the committed zero-event stub. Keep NON-required until then.
       - run: pnpm test:gate

@@ -103,7 +103,7 @@ function makeDeps(): { deps: SqdLoaderDeps; upsertMock: ReturnType<typeof vi.fn>
     cursorSlot: vi.fn().mockResolvedValue(0),
     knownMints: vi.fn().mockResolvedValue([]),
     upsert: upsertMock as unknown as SqdLoaderDeps["upsert"],
-    syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
+    syncStatus: vi.fn().mockResolvedValue(true) as unknown as SqdLoaderDeps["syncStatus"],
     log: () => {},
   };
   return { deps, upsertMock };
@@ -196,7 +196,7 @@ describe("runSqdLoader — chunk accounting", () => {
       cursorSlot: vi.fn().mockResolvedValue(0),
       knownMints: vi.fn().mockResolvedValue([]),
       upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
-      syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
+      syncStatus: vi.fn().mockResolvedValue(true) as unknown as SqdLoaderDeps["syncStatus"],
       log: () => {},
     };
 

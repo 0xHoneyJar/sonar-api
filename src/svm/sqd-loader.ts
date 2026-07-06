@@ -197,8 +197,11 @@ export async function runSqdLoader(
     // writeSyncStatus is fail-soft (returns false, never throws), and a silently
     // dropped cursor makes the next run fall back to the poison MAX(slot). One
     // retry, then fail the run loudly (upserts are insert-if-absent → rerun-safe).
-    let cursorWritten = (await deps.syncStatus(patch)) !== false;
-    if (!cursorWritten) cursorWritten = (await deps.syncStatus(patch)) !== false;
+    // Strict === true (BB HIGH on #140): writeSyncStatus returns Promise<boolean>;
+    // anything else (void from a future signature drift, undefined from a stale mock)
+    // must count as FAILURE, not silently dead-code the guard.
+    let cursorWritten = (await deps.syncStatus(patch)) === true;
+    if (!cursorWritten) cursorWritten = (await deps.syncStatus(patch)) === true;
     if (!cursorWritten) {
       const msg = `[sqd-loader] CURSOR WRITE FAILED for ${cfg.collectionKey} (2 attempts) — refusing to report success: resume would fall back to MAX(slot) and skip capped ranges`;
       deps.log(msg);

@@ -94,7 +94,7 @@ describe("DISS-001 — cursor-skip regression (src/svm colocated)", () => {
       cursorSlot: vi.fn().mockResolvedValue(0),
       knownMints: vi.fn().mockResolvedValue([]),
       upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
-      syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
+      syncStatus: vi.fn().mockResolvedValue(true) as unknown as SqdLoaderDeps["syncStatus"],
       log: () => {},
     };
 
@@ -117,7 +117,7 @@ describe("DISS-001 — cursor-skip regression (src/svm colocated)", () => {
       cursorSlot: vi.fn().mockResolvedValue(0),
       knownMints: vi.fn().mockResolvedValue([]),
       upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
-      syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
+      syncStatus: vi.fn().mockResolvedValue(true) as unknown as SqdLoaderDeps["syncStatus"],
       log: () => {},
     };
 
@@ -155,7 +155,7 @@ describe("DISS-001 — cursor-skip regression (src/svm colocated)", () => {
       cursorSlot: vi.fn().mockResolvedValue(0),
       knownMints: vi.fn().mockResolvedValue([]),
       upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
-      syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
+      syncStatus: vi.fn().mockResolvedValue(true) as unknown as SqdLoaderDeps["syncStatus"],
       log: () => {},
     };
 
@@ -165,7 +165,7 @@ describe("DISS-001 — cursor-skip regression (src/svm colocated)", () => {
 
   it("dry-run: no cursor write occurs regardless of safeSlot value", async () => {
     const client = makeMultiChunkCapClient(CHUNK_0_LAST_SLOT, CHUNK_1_LAST_SLOT);
-    const syncStatusMock = vi.fn().mockResolvedValue(undefined);
+    const syncStatusMock = vi.fn().mockResolvedValue(true);
     const upsertMock = vi.fn().mockResolvedValue(undefined);
 
     const deps: SqdLoaderDeps = {
@@ -205,7 +205,7 @@ describe("DISS-001 — cursor-skip regression (src/svm colocated)", () => {
       cursorSlot: vi.fn().mockResolvedValue(0),
       knownMints: vi.fn().mockResolvedValue([]),
       upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
-      syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
+      syncStatus: vi.fn().mockResolvedValue(true) as unknown as SqdLoaderDeps["syncStatus"],
       log: (m) => logs.push(m),
     };
 
