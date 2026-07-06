@@ -61,6 +61,13 @@ _LIB_CONTENT_PATH="$SCRIPT_DIR/lib-content.sh"
 # duplicate loading. See: Bridgebuilder Review Finding #1 (PR #235)
 source "$_LIB_CONTENT_PATH" 2>/dev/null || true
 
+# cycle-117 item D (#1177): shared DEGRADED/FAILED trajectory + page helper.
+# Same defensive `|| true` soft-source as the libs above — sourcing must not
+# fail under eval-based test sourcing or on a downstream repo mid-update.
+_DEGRADED_VERDICT_LIB_PATH="$SCRIPT_DIR/lib/degraded-verdict-lib.sh"
+# shellcheck source=lib/degraded-verdict-lib.sh
+source "$_DEGRADED_VERDICT_LIB_PATH" 2>/dev/null || true
+
 # Token budgets (with 80% safety margin per D-009)
 DEFAULT_PRIMARY_TOKEN_BUDGET=24000    # 80% of 30k
 DEFAULT_SECONDARY_TOKEN_BUDGET=12000  # 80% of 15k
@@ -1195,6 +1202,10 @@ write_output() {
   local result_json="$1"
   local sprint_id="$2"
   local type="$3"
+  # cycle-117 item D (#1177): exit code of the last-attempted model in the
+  # fallback chain (0 when the winning attempt succeeded). Optional —
+  # callers that don't have one (none currently) get the "-" no-op default.
+  local api_exit_code="${4:--}"
 
   local output_dir="$PROJECT_ROOT/grimoires/loa/a2a/${sprint_id}"
   mkdir -p "$output_dir"
@@ -1245,6 +1256,48 @@ write_output() {
     done
     echo "$trajectory_entry" >> "$trajectory_file"
     rmdir "$lock_dir"
+  fi
+
+  # cycle-117 item D (#1177): uniform DEGRADED/FAILED trajectory record +
+  # page. Preferred signal: result_json.verdict_quality.status (the
+  # multi-voice aggregator's canonical classification, SDD §3.2.2).
+  # Fallback (no envelope — legacy/pre-T2.3 cheval emits, or the STATE-1
+  # api_failure short-circuit in process_findings which never reaches the
+  # aggregator): metadata.status == "api_failure" counts as DEGRADED for
+  # THIS signal regardless of type (review or audit) — deliberately
+  # broader than the pre-existing metadata.degraded field (audit-only,
+  # left untouched below), since a review-type API outage is exactly the
+  # crate 4-day-outage scenario this signal exists to catch.
+  local _c117d_band="" _c117d_reason="unknown" _c117d_mec="$api_exit_code"
+  local -a _c117d_legs=()
+  local _c117d_vq_status
+  _c117d_vq_status=$(echo "$result_json" | jq -r '.verdict_quality.status // empty' 2>/dev/null) || _c117d_vq_status=""
+  if [[ -n "$_c117d_vq_status" ]]; then
+    _c117d_band="$_c117d_vq_status"
+    _c117d_reason=$(echo "$result_json" | jq -r '.verdict_quality.voices_dropped[0].reason // "unknown"' 2>/dev/null) || _c117d_reason="unknown"
+    local _c117d_vq_mec
+    _c117d_vq_mec=$(echo "$result_json" | jq -r '.verdict_quality.voices_dropped[0].exit_code // empty' 2>/dev/null) || _c117d_vq_mec=""
+    [[ -n "$_c117d_vq_mec" ]] && _c117d_mec="$_c117d_vq_mec"
+    while IFS= read -r _c117d_leg; do
+      [[ -n "$_c117d_leg" ]] && _c117d_legs+=("$_c117d_leg")
+    done < <(echo "$result_json" | jq -r '.verdict_quality.voices_dropped[]?.voice // empty' 2>/dev/null)
+  else
+    local _c117d_meta_status
+    _c117d_meta_status=$(echo "$result_json" | jq -r '.metadata.status // empty' 2>/dev/null) || _c117d_meta_status=""
+    if [[ "$_c117d_meta_status" == "api_failure" ]]; then
+      _c117d_band="DEGRADED"
+      _c117d_reason=$(echo "$result_json" | jq -r '.metadata.error // "unknown"' 2>/dev/null) || _c117d_reason="unknown"
+      local _c117d_meta_model
+      _c117d_meta_model=$(echo "$result_json" | jq -r '.metadata.model // empty' 2>/dev/null) || _c117d_meta_model=""
+      [[ -n "$_c117d_meta_model" ]] && _c117d_legs+=("$_c117d_meta_model")
+    fi
+  fi
+
+  if [[ "$_c117d_band" == "DEGRADED" || "$_c117d_band" == "FAILED" ]] \
+     && declare -F degraded_verdict_maybe_emit >/dev/null 2>&1; then
+    degraded_verdict_maybe_emit "adversarial-review:${type}" "$_c117d_band" \
+      "$_c117d_reason" "$sprint_id" "$_c117d_mec" \
+      ${_c117d_legs[@]+"${_c117d_legs[@]}"}
   fi
 }
 
@@ -1537,7 +1590,7 @@ main() {
   result=$(_apply_hallucination_filter "$result" "$diff_file")
 
   # Write output
-  write_output "$result" "$sprint_id" "$type"
+  write_output "$result" "$sprint_id" "$type" "$api_exit"
 
   # Output to stdout
   echo "$result"
