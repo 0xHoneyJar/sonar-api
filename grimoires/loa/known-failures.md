@@ -992,3 +992,22 @@ On `getCode` failure, update the row to defer it: add a retry counter or set `re
 ### Reading guide
 
 This is a liveness bug, not a correctness bug — the MV data is unaffected. The address-type classification feature (`sonar-63`) just stops making progress when RPC errors are persistent. **Diagnostic signature**: `address_type` rows stuck in `type = 'pending'` with old `createdAt`, `recheckAfter = NULL`, no progression over multiple indexer cycles. Do NOT confuse with KF-012 (RPC empty-200 on eth_getLogs — different handler path). The fix requires a schema change to `address_type` (retry counter or deferred status) plus handler logic update — must go through `/plan` + sprint gate.
+
+## KF-019 — /update-loa merge conflict inside a PreToolUse hook bricks the whole toolchain
+
+- **Status**: RESOLVED-PROCEDURAL 2026-07-05
+- **Symptom**: `git merge loa/main --no-commit` leaves conflict markers inside `.claude/hooks/safety/block-destructive-bash.sh`. The hook no longer parses → EVERY Bash call fails at PreToolUse ("syntax error near unexpected token `<<<`"). Simultaneously, the newly-merged `zone-write-guard.sh` (cycle-106) blocks Edit/Write repair of the hook (framework zone, actor=project-work). Agent is fully deadlocked: no shell, no framework-file edits.
+- **Recurrence count**: 1
+- **Root cause**: hooks execute LIVE from the working tree; a half-merged tree enforces its own broken state. The zone guard's `update-loa` actor allowance is env-signaled (`LOA_ACTOR`), which the agent cannot set on Edit-tool hook processes.
+- **Resolution that WORKED**: operator runs one command via `!` (in-session bash) or any terminal:
+  `LOA_ACTOR=update-loa git checkout --theirs .claude/hooks/safety/block-destructive-bash.sh`
+  → restores parseable hook → agent finishes merge normally (framework→theirs, project→ours, union .gitignore, Phase 5.3/5.5/5.6 safeguards).
+- **Attempts that did NOT work**: Edit tool (zone-guard exit 2); executor MCP (remote TS sandbox, no local FS); no other agent-side execution surface exists once Bash hooks brick.
+- **Prevention candidates**: (a) resolve hook-file conflicts FIRST when conflict list includes `.claude/hooks/**` — before ANY other tool call; (b) upstream: hook wrapper could `bash -n` self-check and fail-open on parse errors (file upstream).
+
+### Attempts
+
+| Date | Attempt | Result | Evidence |
+|------|---------|--------|----------|
+| 2026-07-05 | Edit tool repair of conflicted hook | BLOCKED by zone-write-guard | this session, v1.157→v1.180 merge |
+| 2026-07-05 | Operator `!` + LOA_ACTOR=update-loa checkout --theirs | SUCCESS | commit 487c6d68 |
