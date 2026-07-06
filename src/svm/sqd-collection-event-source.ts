@@ -193,8 +193,11 @@ export function decodeSqdBlocks(
         // (bd-k5fh: Portal row order within a group is not contractually stable, so any
         // positional pick could decode the same transfer differently across fetches).
         // No unique net pair → honestly ambiguous, never an arbitrary pick.
-        const lostOwners = new Set(losing.map((r) => r.preOwner));
-        const gainedOwners = new Set(gaining.map((r) => r.postOwner));
+        // Null owners cannot form a transfer endpoint (dissent iter-1): a row with a
+        // null pre/postOwner contributes NO custody information — exclude before
+        // cancellation so a null never survives as the "unique" net loser/gainer.
+        const lostOwners = new Set(losing.map((r) => r.preOwner).filter((o): o is string => o !== null));
+        const gainedOwners = new Set(gaining.map((r) => r.postOwner).filter((o): o is string => o !== null));
         const netLosers = [...lostOwners].filter((o) => !gainedOwners.has(o));
         const netGainers = [...gainedOwners].filter((o) => !lostOwners.has(o));
         if (netLosers.length === 1 && netGainers.length === 1) {

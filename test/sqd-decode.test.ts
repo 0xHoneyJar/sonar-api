@@ -142,4 +142,13 @@ describe("sprint-bug-189 — order-independent net custody + seenMints on ambigu
     expect(events.filter((e) => e.kind === "mint")).toHaveLength(0);
     expect(ambiguousGroups).toBe(2);
   });
+
+  it("null-owner rows contribute no custody endpoint — never a transfer with from:null (dissent iter-1)", () => {
+    // one losing row with preOwner null + one real gainer + a second gainer (forces multi-hop branch)
+    const nullLose = { ...losing, preOwner: null };
+    const gain2 = { ...gaining, account: ACC1, preOwner: ALICE, postOwner: ALICE };
+    const { events, ambiguousGroups } = decodeSqdBlocks([block([nullLose, gaining, gain2])], MEMBERS, new Set([MINT]));
+    expect(events.filter((e) => e.kind === "transfer" && e.from === null)).toHaveLength(0);
+    expect(ambiguousGroups).toBe(1);
+  });
 });
