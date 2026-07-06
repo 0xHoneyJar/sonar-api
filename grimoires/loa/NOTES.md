@@ -764,3 +764,30 @@ Triggered after **PR #101 merged to `main`** (`87705e43`, branch `feat/envio-clo
 - DONE: Flatline enabled + SDD review integrated (5 blockers dispositioned, suite 433/0, PR #125 updated). Dune queries saved (7887895/7887896). #120 diagnosed (no live azuki subscription — likely stale deployed image; sequence posted on issue).
 - WAITING ON OPERATOR: Helius top-up ($49 Dev) → runbook step 5 · DUNE_API_KEY as env/secret · PR reviews (#123 #124 #125) · belt image check + full --restart (covers #120 + #124) · migration 002 + Hasura track.
 - OPTIONAL NEXT SESSION: flatline PRD + sprint docs (SDD done); T-2 precision measurement post-topup.
+
+## SESSION 2026-07-05 (evening) — /goal "keep spiraling" (6h9m window)
+
+**Arc**: /update-loa v1.157→v1.180 (KF-019 recorded: hook-file merge conflict bricks
+toolchain; operator one-liner escape) → spiral-001 launch from designed seed →
+PR #140 (SQD live-tail lane + durable coverage-safe cursor, migration 004) →
+PR #141 (order-independent net custody + null-owner doctrine) →
+PR #142 (sig-join production fix + real bounded §4.5 fixture — LIVE PASS 1767/1767/0/0).
+
+**The night's biggest find**: the merged lane would have decoded ZERO events in
+production — buildQuery's empty transactions selector; every fixture carried
+transactions so 117 green tests never saw it. Class: tested-against-fixtures-not-
+reality. Doctrine: a lane isn't landed until one end-to-end run touches the live
+substrate — schedule it as the lane's own acceptance.
+
+**CI on main**: SQD Gate = genuinely enforcing (~2.5min, two-sided bounded reconcile,
+first green run 28769509249); activation-regression green (pnpm).
+
+**Consumer**: score-api notified on #121 (lane shape + sqd_cursor_slot; live tail
+dispatch awaits their ping — kill-switch-gated).
+
+**Open (operator)**: promote SQD Gate to required check?; belt bd-umw P0s (hands-on);
+bd-j0fj (513 repo-wide tsc, belt-port drift — own cycle); bd-1cid (memberSet growth,
+future condition); key rotation from last session still pending.
+
+**Spend**: model voices ran on subscription-auth headless adapters (MODELINV cost 0);
+Helius untouched tonight; no Dune. SQD Portal remains free/open.
