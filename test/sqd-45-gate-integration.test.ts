@@ -1,14 +1,20 @@
 /**
- * T-3: §4.5 Gate Integration Test — loads the committed pythians fixture, verifies SHA256,
- * pre-seeds seenMints, streams SQD blocks for the fixture's slot_range, decodes events,
- * computes match_rate, and asserts ≥ 0.99 with ≤ 300 divergences.
+ * T-3: §4.5 Gate Integration Test — bounded-range reconciliation (sprint-bug-190).
  *
- * Skip condition: fixture is absent AND SQD_GATE_DB_URL is unset.
- * With the committed synthetic fixture (event_count=0, slot_range={from:0,to:0}):
- *   - SHA256 verified against "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
- *   - No SQD streaming (from >= to → empty range)
- *   - match_rate = 1.0 (vacuous: 0 reference events, 0 divergences)
- *   - Result: PASS
+ * Loads the committed pythians fixture (BOUNDED slot range from the densest event
+ * window — full history is 128M slots ≈ 160k-380k Portal requests, infeasible per-PR),
+ * verifies SHA256, pre-seeds seenMints from `pre_range_mints` (mints seen BEFORE the
+ * range start — seeding from in-range mints would make every in-range mint-kind event
+ * a guaranteed false divergence), streams SQD blocks for the fixture's slot_range,
+ * decodes, and reconciles.
+ *
+ * §4.5 semantics here are RANGE-COMPLETE decode reconciliation: every reference-lane
+ * event in [from, to] must be reproduced by the SQD lane's decode over that range.
+ * This is NOT an ownership-completeness claim (KF-018 doctrine: never derive
+ * ownership completeness from windowed events).
+ *
+ * Vacuous-pass doctrine (DISS-003, sprint-bug-173) preserved: below-floor or
+ * over-span fixtures hard-fail in CI and skip-as-BLOCKED locally — never PASS.
  *
  * Run: pnpm test:gate
  */
@@ -29,11 +35,13 @@ interface GateFixture {
   event_count: number;
   slot_range: { from: number; to: number };
   created_at: string;
+  source_mode?: string;
+  pre_range_mints?: string[];
   sha256: string;
   event_ids: string[];
 }
 
-/** SHA256 canonicalization (MUST match generate-pythians-fixture.ts):
+/** SHA256 canonicalization (MUST match both generators):
  *   Sort event_ids lexicographically → JSON.stringify(sorted) → SHA256(UTF-8). */
 function computeFixtureHash(eventIds: string[]): string {
   const sorted = [...eventIds].sort();
@@ -42,21 +50,28 @@ function computeFixtureHash(eventIds: string[]): string {
 }
 
 /**
- * §4.5 gate floor (DISS-003): the pythians reference reconciliation is 30,006 events.
- * Any fixture below this floor cannot represent the real snapshot — the gate must
- * refuse to run against it rather than pass vacuously.
+ * Bounded-gate floors (sprint-bug-190, evolving DISS-003):
+ * - GATE_MIN_EVENTS: a fixture below this cannot be a meaningful reconciliation set —
+ *   the committed densest-window fixture carries 1,767 events; anything under 1,500 is
+ *   either the old zero-event stub or a degenerate regeneration. Hard-block.
+ * - GATE_MAX_SPAN_SLOTS: CI feasibility ceiling (~200 Portal requests at measured
+ *   2024-26 density). A fixture wider than this cannot finish in per-PR CI — block it
+ *   loudly instead of timing out ambiguously.
  */
-const GATE_MIN_EVENTS = 30_000;
+const GATE_MIN_EVENTS = 1_500;
+const GATE_MAX_SPAN_SLOTS = 100_000;
+/** Streaming ~60k slots ≈ 120 Portal requests — allow up to 5 minutes. */
+const GATE_TIMEOUT_MS = 300_000;
 
-describe("§4.5 gate integration", () => {
-  it("passes match_rate ≥ 0.99 against the committed pythians fixture", async (ctx) => {
+describe("§4.5 gate integration (bounded range)", () => {
+  it("reconciles SQD decode against the committed pythians reference window", { timeout: GATE_TIMEOUT_MS }, async (ctx) => {
     // ── Load fixture ──────────────────────────────────────────────────────────
     if (!existsSync(FIXTURE_PATH)) {
       if (!process.env.SQD_GATE_DB_URL) {
         ctx.skip();
         return;
       }
-      throw new Error("[FIXTURE-MISSING] pythians-gate-snapshot.json absent and SQD_GATE_DB_URL set — run generate-pythians-fixture.ts first");
+      throw new Error("[FIXTURE-MISSING] pythians-gate-snapshot.json absent — run test/fixtures/generate-pythians-fixture-gateway.ts");
     }
 
     const fixture: GateFixture = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
@@ -66,86 +81,110 @@ describe("§4.5 gate integration", () => {
     if (computedHash !== fixture.sha256) {
       throw new Error(`[FIXTURE-TAMPERED] SHA256 mismatch: expected ${fixture.sha256}, got ${computedHash}`);
     }
+    // Structural consistency (BB #142): event_count is the match_rate denominator and
+    // is NOT covered by the hash (hash contract = event_ids only, shared with the
+    // DB-mode generator) — pin it to the hashed ids so it cannot drift independently.
+    if (fixture.event_count !== fixture.event_ids.length) {
+      throw new Error(`[FIXTURE-TAMPERED] event_count=${fixture.event_count} != event_ids.length=${fixture.event_ids.length}`);
+    }
 
-    // ── Vacuous-fixture guard (DISS-003, sprint-bug-173) ─────────────────────
-    // A zero-event (or suspiciously small) fixture makes the reconciliation below
-    // pass by definition — a fake-green §4.5 gate. The gate is only meaningful
-    // against the real pythians snapshot (30,006 events per §4.5). In CI this
-    // hard-fails; locally it skips with an explicit BLOCKED marker, never PASS.
+    // ── Vacuous/degenerate-fixture guards (DISS-003 doctrine, bounded form) ──
+    const span = fixture.slot_range.to - fixture.slot_range.from;
+    let blocked: string | null = null;
     if (fixture.event_count < GATE_MIN_EVENTS) {
-      const msg =
-        `[GATE-BLOCKED] pythians fixture has event_count=${fixture.event_count} < ${GATE_MIN_EVENTS} — ` +
-        `§4.5 requires the real 30,006-event snapshot. ` +
-        `Regenerate via scripts/generate-pythians-fixture.ts against SQD_GATE_DB_URL.`;
+      blocked = `event_count=${fixture.event_count} < ${GATE_MIN_EVENTS} — degenerate or stub fixture`;
+    } else if (span > GATE_MAX_SPAN_SLOTS) {
+      blocked = `slot span ${span} > ${GATE_MAX_SPAN_SLOTS} — infeasible for per-PR CI streaming`;
+    } else if (!Array.isArray(fixture.pre_range_mints)) {
+      blocked = `fixture lacks pre_range_mints — bounded reconciliation requires the pre-range seenMints seed`;
+    }
+    if (blocked) {
+      const msg = `[GATE-BLOCKED] ${blocked}. Regenerate via test/fixtures/generate-pythians-fixture-gateway.ts (densest window).`;
       if (process.env.CI) throw new Error(msg);
       console.warn(msg);
       ctx.skip();
       return;
     }
 
-    // ── Pre-seed seenMints from fixture event IDs ────────────────────────────
-    // Mirrors production runSqdLoader initialization: pre-seeded from ALL sources
-    // so post-resume first-appearances don't masquerade as mints.
-    const seenMints = new Set<string>();
-    for (const id of fixture.event_ids) {
-      const mint = id.split(":")[1];
-      if (mint) seenMints.add(mint);
-    }
+    // ── Pre-seed seenMints from PRE-RANGE mints only (sprint-bug-190 fix) ─────
+    // Mirrors production resume: seenMints = mints known BEFORE the stream start.
+    // Mints first appearing IN range must be free to decode as mint-kind — seeding
+    // them here was the latent bug that guaranteed divergences on real fixtures.
+    const seenMints = new Set<string>(fixture.pre_range_mints);
 
     // ── Stream SQD blocks for fixture.slot_range ─────────────────────────────
     const refIdSet = new Set(fixture.event_ids);
     const sqdDecodedIds = new Set<string>();
-    let sqd_decoded_count = 0;
 
     const { from, to } = fixture.slot_range;
-    if (from < to) {
-      // Real fixture: stream blocks and decode
-      const cfg = resolveCollection(fixture.collection_key);
-      const client = new SqdClient(undefined, 5000);
-      const stats = { requests: 0, blocks: 0, balanceRows: 0, stoppedAtCap: false, lastSlot: from };
-      const memberSet = new Set<string>(); // populated from any event_id mints in the fixture
+    const cfg = resolveCollection(fixture.collection_key);
+    void cfg; // registry resolution validates the collection key exists
+    const client = new SqdClient(undefined, 5000);
+    const stats = { requests: 0, blocks: 0, balanceRows: 0, stoppedAtCap: false, lastSlot: from };
 
-      // Reconstruct member set from fixture event IDs (all mints that appear in events)
-      for (const id of fixture.event_ids) {
-        const mint = id.split(":")[1];
-        if (mint) memberSet.add(mint);
-      }
-
-      for await (const blocks of client.stream(Array.from(memberSet), from, to, stats)) {
-        const { events } = decodeSqdBlocks(blocks, memberSet, seenMints);
-        for (const e of events) {
-          sqdDecodedIds.add(eventId(e));
-        }
-      }
-      sqd_decoded_count = sqdDecodedIds.size;
+    // Member set = every mint that appears in the reference window (the stream filter);
+    // pre-range mints are included so cross-window transfers of older tokens decode too.
+    const memberSet = new Set<string>(fixture.pre_range_mints);
+    for (const id of fixture.event_ids) {
+      const mint = id.split(":")[1];
+      if (mint) memberSet.add(mint);
     }
-    // from >= to: empty slot range → no streaming, no decoded events
 
-    // ── Compute reconciliation metrics ────────────────────────────────────────
+    let overshoot = 0; // decoded events past `to` — the client's final page overshoots the bound
+    for await (const blocks of client.stream(Array.from(memberSet), from, to, stats)) {
+      const { events } = decodeSqdBlocks(blocks, memberSet, seenMints);
+      for (const e of events) {
+        // Range-filter BEFORE comparison: the stream's last page can overshoot `to`
+        // (observed live: an event 106 slots past the bound). Out-of-range events are
+        // not part of the reference window — neither matches nor divergences.
+        if (e.slot < from || e.slot > to) {
+          overshoot++;
+          continue;
+        }
+        sqdDecodedIds.add(eventId(e));
+      }
+    }
+    const sqd_decoded_count = sqdDecodedIds.size;
+
+    // ── Compute reconciliation metrics (TWO-SIDED, dissent iter-1) ────────────
     let matched = 0;
     for (const id of refIdSet) {
       if (sqdDecodedIds.has(id)) matched++;
     }
-    // denominator > 0 guaranteed by the GATE_MIN_EVENTS guard above — the old
-    // `denominator === 0 ? 1.0` vacuous branch was the DISS-003 fake-green path.
+    // Unexpected: SQD-decoded IN-RANGE events absent from the reference set. A
+    // reconciliation gate must fail on surplus too — a decoder inventing events is
+    // as broken as one missing them.
+    const unexpected = [...sqdDecodedIds].filter((id) => !refIdSet.has(id));
+    // denominator > 0 guaranteed by GATE_MIN_EVENTS — the vacuous branch stays dead.
     const denominator = fixture.event_count;
     const match_rate = matched / denominator;
-    const divergences = denominator - matched;
+    const divergences = Math.max(0, denominator - matched);
+    // Bounded threshold: 1% of the reference set (the old absolute 300 was calibrated
+    // to a 30k-event history set — it would be 17% of a bounded window, far too loose).
+    const maxDivergences = Math.ceil(0.01 * denominator);
 
     // ── Emit structured JSON result ───────────────────────────────────────────
     const result = {
       fixture_count: fixture.event_count,
       sqd_decoded_count,
       matched,
-      divergences: Math.max(0, divergences),
+      divergences,
+      unexpected_count: unexpected.length,
+      overshoot_excluded: overshoot,
       match_rate,
+      max_divergences: maxDivergences,
       slot_range: fixture.slot_range,
-      status: match_rate >= 0.99 && Math.max(0, divergences) <= 300 ? "PASS" : "FAIL",
+      requests: stats.requests,
+      status: match_rate >= 0.99 && divergences <= maxDivergences && unexpected.length === 0 ? "PASS" : "FAIL",
     };
     console.log(JSON.stringify(result));
+    if (unexpected.length > 0) console.log(JSON.stringify({ unexpected_sample: unexpected.slice(0, 5) }));
 
     // ── Assertions ────────────────────────────────────────────────────────────
+    // Cap truncation would surface as opaque divergences (BB #142): make it loud first.
+    expect(stats.stoppedAtCap, `request cap hit at ${stats.requests} requests — range not fully streamed; divergences below would be truncation, not decode drift`).toBe(false);
     expect(match_rate, `match_rate=${match_rate} < 0.99`).toBeGreaterThanOrEqual(0.99);
-    expect(Math.max(0, divergences), `divergences=${divergences} > 300`).toBeLessThanOrEqual(300);
+    expect(divergences, `divergences=${divergences} > ${maxDivergences} (1% of ${denominator})`).toBeLessThanOrEqual(maxDivergences);
+    expect(unexpected.length, `SQD decoded ${unexpected.length} in-range events absent from reference (sample logged)`).toBe(0);
   });
 });

@@ -199,3 +199,25 @@ describe("SqdClient.currentHeight", () => {
     await expect(c.currentHeight()).rejects.toBeInstanceOf(SqdAuthRequiredError);
   });
 });
+
+/**
+ * sprint-bug-190 regression guard (BB #142 MEDIUM): the sig-join bug shipped because
+ * buildQuery requested transactions via an EMPTY selector — blocks carried no
+ * transactions, the PK join failed, and the live lane decoded ZERO events. Fixtures
+ * always included transactions, so only this hermetic shape-test guards the regression.
+ */
+import { buildQuery } from "../src/svm/sqd-client";
+import { describe as describe190, expect as expect190, it as it190 } from "vitest";
+
+describe190("buildQuery — transaction join shape (sprint-bug-190)", () => {
+  it190("both balance-row selectors carry the transaction:true relation join", () => {
+    const q = JSON.parse(buildQuery(["MintA", "MintB"], 123));
+    expect190(q.tokenBalances).toHaveLength(2);
+    for (const sel of q.tokenBalances) expect190(sel.transaction).toBe(true);
+  });
+  it190("no empty transactions selector (the select-nothing bug shape)", () => {
+    const q = JSON.parse(buildQuery(["MintA"], 1));
+    expect190("transactions" in q).toBe(false);
+    expect190(q.fields.transaction).toMatchObject({ signatures: true, transactionIndex: true });
+  });
+});
