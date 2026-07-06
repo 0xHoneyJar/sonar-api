@@ -124,19 +124,31 @@ describe("§4.5 gate integration (bounded range)", () => {
       if (mint) memberSet.add(mint);
     }
 
+    let overshoot = 0; // decoded events past `to` — the client's final page overshoots the bound
     for await (const blocks of client.stream(Array.from(memberSet), from, to, stats)) {
       const { events } = decodeSqdBlocks(blocks, memberSet, seenMints);
       for (const e of events) {
+        // Range-filter BEFORE comparison: the stream's last page can overshoot `to`
+        // (observed live: an event 106 slots past the bound). Out-of-range events are
+        // not part of the reference window — neither matches nor divergences.
+        if (e.slot < from || e.slot > to) {
+          overshoot++;
+          continue;
+        }
         sqdDecodedIds.add(eventId(e));
       }
     }
     const sqd_decoded_count = sqdDecodedIds.size;
 
-    // ── Compute reconciliation metrics ────────────────────────────────────────
+    // ── Compute reconciliation metrics (TWO-SIDED, dissent iter-1) ────────────
     let matched = 0;
     for (const id of refIdSet) {
       if (sqdDecodedIds.has(id)) matched++;
     }
+    // Unexpected: SQD-decoded IN-RANGE events absent from the reference set. A
+    // reconciliation gate must fail on surplus too — a decoder inventing events is
+    // as broken as one missing them.
+    const unexpected = [...sqdDecodedIds].filter((id) => !refIdSet.has(id));
     // denominator > 0 guaranteed by GATE_MIN_EVENTS — the vacuous branch stays dead.
     const denominator = fixture.event_count;
     const match_rate = matched / denominator;
@@ -151,16 +163,20 @@ describe("§4.5 gate integration (bounded range)", () => {
       sqd_decoded_count,
       matched,
       divergences,
+      unexpected_count: unexpected.length,
+      overshoot_excluded: overshoot,
       match_rate,
       max_divergences: maxDivergences,
       slot_range: fixture.slot_range,
       requests: stats.requests,
-      status: match_rate >= 0.99 && divergences <= maxDivergences ? "PASS" : "FAIL",
+      status: match_rate >= 0.99 && divergences <= maxDivergences && unexpected.length === 0 ? "PASS" : "FAIL",
     };
     console.log(JSON.stringify(result));
+    if (unexpected.length > 0) console.log(JSON.stringify({ unexpected_sample: unexpected.slice(0, 5) }));
 
     // ── Assertions ────────────────────────────────────────────────────────────
     expect(match_rate, `match_rate=${match_rate} < 0.99`).toBeGreaterThanOrEqual(0.99);
     expect(divergences, `divergences=${divergences} > ${maxDivergences} (1% of ${denominator})`).toBeLessThanOrEqual(maxDivergences);
+    expect(unexpected.length, `SQD decoded ${unexpected.length} in-range events absent from reference (sample logged)`).toBe(0);
   });
 });
