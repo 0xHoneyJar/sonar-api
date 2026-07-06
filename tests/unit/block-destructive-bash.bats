@@ -350,6 +350,123 @@ hook_invoke() {
     [[ "$output" =~ "FR-2" ]]
 }
 
+# -----------------------------------------------------------------------------
+# FR-2-REDIR (bd-c117-e-redirect-1pq8, issue #1177 item E): redirection
+# tokens in the rm segment must not be classified as rm operands.
+# -----------------------------------------------------------------------------
+
+@test "FR-2-REDIR: rm -rf ./build 2>/dev/null allowed (issue #1177 repro)" {
+    run hook_invoke "rm -rf ./build 2>/dev/null"
+    [ "$status" -eq 0 ]
+}
+
+@test "FR-2-REDIR: rm -rf dist/ >log 2>&1 allowed" {
+    run hook_invoke "rm -rf dist/ >log 2>&1"
+    [ "$status" -eq 0 ]
+}
+
+@test "FR-2-REDIR: rm -rf ./build 2> /dev/null (space-separated operator+target) allowed" {
+    run hook_invoke "rm -rf ./build 2> /dev/null"
+    [ "$status" -eq 0 ]
+}
+
+@test "FR-2-REDIR adversarial: rm -rf ./build 2> /dev/null dist/ (multi-operand, mid-redirect) allowed" {
+    run hook_invoke "rm -rf ./build 2> /dev/null dist/"
+    [ "$status" -eq 0 ]
+}
+
+@test "FR-2-REDIR negative: rm -rf \$HOME 2>/dev/null still blocks" {
+    run hook_invoke 'rm -rf $HOME 2>/dev/null'
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-BLOCK" ]]
+}
+
+@test "FR-2-REDIR negative: rm -rf / >/dev/null 2>&1 still blocks" {
+    run hook_invoke "rm -rf / >/dev/null 2>&1"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-BLOCK" ]]
+}
+
+@test "FR-2-REDIR negative: rm -rf ~/ &>/dev/null still blocks" {
+    run hook_invoke "rm -rf ~/ &>/dev/null"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-BLOCK" ]]
+}
+
+@test "FR-2-REDIR negative: rm -rf * 2>/dev/null (glob + redirect) still blocks" {
+    run hook_invoke "rm -rf * 2>/dev/null"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-BLOCK" ]]
+}
+
+@test "FR-2-REDIR negative: rm -rf ../foo stays ambiguous (no redirect present)" {
+    run hook_invoke "rm -rf ../foo"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-AMBIGUOUS" ]]
+}
+
+@test "FR-2-REDIR adversarial: quoted operand containing '>' is not mistaken for a redirect" {
+    run hook_invoke 'rm -rf "2>weird"'
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-AMBIGUOUS" ]]
+}
+
+@test "FR-2-REDIR adversarial: literal digit-named file '2' still classifies (not swallowed as fd)" {
+    run hook_invoke "rm -rf 2"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-AMBIGUOUS" ]]
+}
+
+# --- redirect BEFORE the operand: the &-scrub must not hide a catastrophic
+# --- operand that FOLLOWS the redirect (item-E blocker safety requirement).
+
+@test "FR-2-REDIR negative: rm -rf 2>&1 \$HOME (fd-dup BEFORE operand) still blocks" {
+    run hook_invoke 'rm -rf 2>&1 $HOME'
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-BLOCK" ]]
+}
+
+@test "FR-2-REDIR negative: rm -rf 2>/dev/null / (redirect BEFORE root) still blocks" {
+    run hook_invoke "rm -rf 2>/dev/null /"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-BLOCK" ]]
+}
+
+@test "FR-2-REDIR negative: rm -rf >/dev/null ~ (bare redirect BEFORE tilde) still blocks" {
+    run hook_invoke "rm -rf >/dev/null ~"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-BLOCK" ]]
+}
+
+@test "FR-2-REDIR negative: rm -rf &>/dev/null * (&-redirect BEFORE glob) still blocks" {
+    run hook_invoke "rm -rf &>/dev/null *"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-BLOCK" ]]
+}
+
+@test "FR-2-REDIR negative: x && rm -rf / (&& separator detection intact) still blocks" {
+    run hook_invoke "x && rm -rf /"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-BLOCK" ]]
+}
+
+# --- the safety/benign PAIR the review flagged as indistinguishable under the
+# --- old &-truncation: the scrub removes 2>&1 BEFORE extraction, so a trailing
+# --- catastrophic operand is no longer lost. Benign (no trailing operand) must
+# --- ALLOW; the same shape with /etc appended must BLOCK.
+
+@test "FR-2-REDIR negative: rm -rf dist/ >log 2>&1 /etc (operand after fd-dup) still blocks" {
+    run hook_invoke "rm -rf dist/ >log 2>&1 /etc"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-BLOCK" ]]
+}
+
+@test "FR-2-REDIR negative: rm -rf node_modules/ 2>&1 / (operand after fd-dup) still blocks" {
+    run hook_invoke "rm -rf node_modules/ 2>&1 /"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-BLOCK" ]]
+}
+
 # =============================================================================
 # Group D — fail-open tests (FR-3 / NFR-3)
 # =============================================================================

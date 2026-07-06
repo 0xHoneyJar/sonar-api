@@ -636,6 +636,15 @@ fi
 # - The ALLOW list now EXCLUDES `./`, `./*`, `./.git`, `./.ssh`, `./.env`
 #   (SKP-002 round-3 closure) — these were dangerous shapes that v1.0
 #   incorrectly hit the `^\./` allow-prefix.
+# - FR-2-REDIR (bd-c117-e, #1177): before segment extraction a scrub removes
+#   shell `&`-redirect operators (`2>&1`/`>&2` fd-dups, `&>file`/`&>>file`)
+#   from a LOCAL copy of the command, and a per-arg pre-pass below strips the
+#   remaining non-`&` redirects (`2>/dev/null`, `>log`, spaced `2> /dev/null`)
+#   so none are misclassified as rm operands. The scrub runs FIRST precisely
+#   so an `&` cannot truncate rm_segments and hide a catastrophic operand that
+#   FOLLOWS the redirect (`rm -rf 2>&1 /` — the `/` would otherwise be lost).
+#   `&&` command separators survive the scrub (fd-dup needs `>` before the `&`,
+#   `&>` needs `>` after), so multi-statement detection stays intact.
 #
 # pass-2: gate + per-arg classification tests converted to [[ =~ ]]. The
 # per-arg tests match DIRECTLY (no line loop): $unquoted derives from
@@ -648,8 +657,20 @@ fi
 if [[ "$command" == *"rm"* && "$command" == *"-"* ]] \
    && _match '(^|/|;|&&|\||[[:space:]]|\(|'"'"'|")[[:space:]]*(sudo[[:space:]]+)?rm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r|--recursive[[:space:]]+--force|--force[[:space:]]+--recursive|-[a-zA-Z]*r[a-zA-Z]*[[:space:]]+-[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*[[:space:]]+-[a-zA-Z]*r)'; then
 
+  # FR-2-REDIR (bd-c117-e-redirect-1pq8, #1177 item E): scrub shell
+  # `&`-redirect operators from a LOCAL copy of the command BEFORE segment
+  # extraction. (a) `[0-9]*>&[0-9]*` — N>&M fd-dups (`2>&1`, `>&2`, `>&`);
+  # (b) `&>>?[^space]*` — `&>file` / `&>>file` operator+attached target.
+  # These are pure shell syntax, never rm operands. Scrubbing first stops the
+  # rm_segments `[^;&|)]*` class (below) from truncating a segment at the
+  # first bare `&` and thereby dropping a catastrophic operand that FOLLOWS an
+  # `&`-redirect (e.g. `rm -rf 2>&1 /`). `&&` separators survive both patterns
+  # ((a) needs `>` before the `&`, (b) needs `>` after). $command is left
+  # intact so emit_block's audit row records the operator's real text.
+  _fr2_cmd=$(printf '%s' "$command" | sed -E -e 's/[0-9]*>&[0-9]*/ /g' -e 's/&>>?[^[:space:]]*/ /g')
+
   # Collect ALL rm invocation segments (one per line).
-  rm_segments=$(echo "$command" | grep -oE '(^|;|&&|\|\||\||[[:space:]]|\(|'\''|")[[:space:]]*(sudo[[:space:]]+)?(/[^[:space:]]*/)?rm[[:space:]][^;&|)]*')
+  rm_segments=$(echo "$_fr2_cmd" | grep -oE '(^|;|&&|\|\||\||[[:space:]]|\(|'\''|")[[:space:]]*(sudo[[:space:]]+)?(/[^[:space:]]*/)?rm[[:space:]][^;&|)]*')
 
   # pass-2: per-arg EREs in variables (regex-in-variable is the safe [[ =~ ]]
   # form — inline |/(/$ are conditional-command parse hazards). Bytes are
@@ -658,6 +679,18 @@ if [[ "$command" == *"rm"* && "$command" == *"-"* ]] \
   _re_block_list='^(/|\$HOME|\$\{HOME\}|~|~/|/etc|/usr|/var|/home|\*|\.)$|^(/etc/|/usr/|/var/|/home/|~/|\$HOME/$|\$\{HOME\}/$)'
   _re_allow_exclude='^\./($|\*|\.|\.git$|\.git/|\.ssh$|\.ssh/|\.env)'
   _re_allow_list='^(\./[^/*.][^*]*|node_modules$|node_modules/|dist$|dist/|build$|build/|target$|target/|\.next$|\.next/|/tmp/.+|out$|out/|coverage$|coverage/)'
+
+  # FR-2-REDIR (bd-c117-e-redirect-1pq8, issue #1177 item E): syntactic
+  # redirect-token EREs for the rm_args strip loop below. Matched against
+  # the RAW token (before quote-stripping), so a genuinely-quoted operand
+  # like "2>weird" — which starts with a literal quote char, not a
+  # digit/operator — never matches and falls through unchanged to the
+  # existing ambiguous path. `&`-forms (`&>`, `&>>`, `N>&M`) need no branch
+  # here: the scrub above already removed them from the extraction input, so
+  # only non-`&` redirects (`2>/dev/null`, `>log`, spaced `2> /dev/null`)
+  # can reach this array.
+  _re_redir_bare='^([0-9]*(>>|>|<<<|<<|<))$'
+  _re_redir_attached='^([0-9]*(>>|>|<<<|<<|<))[^[:space:]]+$'
 
   any_block=0
   any_ambiguous=0
@@ -668,6 +701,36 @@ if [[ "$command" == *"rm"* && "$command" == *"-"* ]] \
     rm_args_raw="${rm_segment#*rm}"
     # shellcheck disable=SC2086,SC2206 — intentional word-split on rm args
     read -r -a rm_args <<<"$rm_args_raw"
+
+    # FR-2-REDIR: strip shell-redirect tokens before per-arg classification.
+    # A bare operator (empty tail, e.g. "2>", ">", "<<") consumes ITSELF
+    # plus the NEXT array element (the separate-word target of "2> /dev/null");
+    # an attached operator (non-empty tail glued on, e.g. "2>/dev/null",
+    # ">log", "2>&1") consumes only itself. A token that does not start
+    # with an optional fd-digit run immediately followed by an operator
+    # char is untouched — a real operand named "2" (no operator) or a
+    # filename with '>' NOT at the token start (e.g. "./build>x", one
+    # token because read -a doesn't split on it) is never mistaken for a
+    # redirect and falls through to the existing block/allow/ambiguous
+    # ladder unchanged.
+    rm_args_filtered=()
+    _skip_next=0
+    for ((_i = 0; _i < ${#rm_args[@]}; _i++)); do
+      _tok="${rm_args[_i]}"
+      if [[ $_skip_next -eq 1 ]]; then
+        _skip_next=0
+        continue
+      fi
+      if [[ "$_tok" =~ $_re_redir_bare ]]; then
+        _skip_next=1
+        continue
+      fi
+      if [[ "$_tok" =~ $_re_redir_attached ]]; then
+        continue
+      fi
+      rm_args_filtered+=("$_tok")
+    done
+    rm_args=(${rm_args_filtered[@]+"${rm_args_filtered[@]}"})
 
     for arg in "${rm_args[@]}"; do
       # Skip flag tokens.
