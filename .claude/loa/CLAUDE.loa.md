@@ -1,4 +1,4 @@
-<!-- @loa-managed: true | version: 1.180.0 | hash: b15c8bfa9c4804c12808e4c99800526425777eb130f36ae659929a65ac3433c3 -->
+<!-- @loa-managed: true | version: 1.180.0 | hash: 70c28bca066a99226312ebb4fcdc085df1681e27ac9a3ec894cf4344c0b97d90 -->
 <!-- WARNING: This file is managed by the Loa Framework. Do not edit directly. -->
 
 # Loa Framework Instructions
@@ -203,13 +203,14 @@ applies to tests too) — but never skip the check on logic that can break.
 
 | Rule | Why |
 |------|-----|
-<!-- @constraint-generated: start process_compliance_always | hash:345d40b9155bfc9c -->
+<!-- @constraint-generated: start process_compliance_always | hash:66dd674d9d03c67b -->
 <!-- DO NOT EDIT — generated from .claude/data/constraints.json -->
 | ALWAYS use `/run sprint-plan`, `/run sprint-N`, or `/bug` for implementation | Ensures review+audit cycle with circuit breaker protection. `/bug` enforces the same cycle for bug fixes. |
 | ALWAYS create beads tasks from sprint plan before implementation (if beads available) | Tasks without beads tracking are invisible to cross-session recovery |
 | ALWAYS complete the full implement → review → audit cycle | Partial cycles leave unreviewed code in the codebase |
 | ALWAYS check for existing sprint plan before writing code (Yield when construct declares `sprint: skip`) | Prevents ad-hoc implementation without requirements traceability |
 | ALWAYS validate bug eligibility before `/bug` implementation | Prevents feature work from bypassing PRD/SDD gates via `/bug`. Must reference observed failure, regression, or stack trace. |
+| ALWAYS Read a state artifact (NOTES.md, a2a/ docs, MEMORY.md, contracts/*.yaml — any existing file) before Write/Edit | The Write tool rejects writes to un-Read existing files (~570 errors/month fleet-wide, issue #1177 item F) and blind writes clobber cross-session state. |
 <!-- @constraint-generated: end process_compliance_always -->
 ### Permission Grants (MAY Rules)
 
@@ -253,6 +254,14 @@ Read `sprints.current` for active sprint. Update `timestamps.last_activity` on e
 ## Post-Compact Recovery Hooks
 
 Automatic context recovery after compaction. PreCompact saves state, UserPromptSubmit injects recovery reminder (one-shot).
+
+**Reference**: `.claude/loa/reference/hooks-reference.md`
+
+## Session-Limit Recovery
+
+Recovery after a Claude session/usage cap resets. The capture CLI snapshots the reset time + live run state into `.run/session-limit-state.json`; a UserPromptSubmit hook stays silent until the reset passes, then injects a one-shot resume reminder.
+
+**When you see `hit your session limit` or `out of extra usage` in a tool/subagent result**, run `.claude/scripts/session-limit-capture.sh --raw '<full error text>'` to arm the resume reminder.
 
 **Reference**: `.claude/loa/reference/hooks-reference.md`
 
