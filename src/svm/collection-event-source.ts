@@ -287,13 +287,27 @@ export class HeliusCollectionEventSource implements CollectionEventSource {
     }
   }
 
-  /** Walk one NFT's parsed tx history (newest→older via `before`), yielding only THIS mint's events. */
+  /** Walk one NFT's parsed tx history (newest→older via `before`), yielding only THIS mint's events.
+   * SVM_BACKFILL_SINCE (unix seconds) bounds the walk: pagination is newest-first, so once a page's
+   * oldest tx predates the bound we stop — blue-chip mints carry 1000s of marketplace txs (SMB
+   * measured ~30+ pages/mint, ~3,000cr/NFT: 15M credits for ONE collection unbounded; the 2026-07-05
+   * walk-train discovery). Recent-window onboarding + warehouse deep-history is the composite. */
   async *mintHistory(mint: string): AsyncIterable<CollectionEvent> {
     const onlyThis = (m: string) => m === mint;
+    const since = Number(process.env.SVM_BACKFILL_SINCE ?? 0) || 0;
     let before: string | undefined;
     for (let page = 0; page < MAX_PAGES_PER_MINT; page++) {
       const txs = await this.addressHistory(mint, before);
       if (txs.length === 0) break;
+      let reachedBound = false;
+      const inWindow = since > 0 ? txs.filter((t) => { const ts = Number(t.timestamp ?? 0); if (ts && ts < since) reachedBound = true; return !ts || ts >= since; }) : txs;
+      if (since > 0) {
+        for (const tx of inWindow) for (const ev of parseHeliusTx(tx, onlyThis)) yield ev;
+        if (reachedBound) break;
+        before = txs[txs.length - 1]?.signature;
+        if (txs.length < ADDRESS_HISTORY_LIMIT || !before) break;
+        continue;
+      }
       for (const tx of txs) {
         for (const ev of parseHeliusTx(tx, onlyThis)) yield ev;
       }
@@ -311,7 +325,15 @@ export class HeliusCollectionEventSource implements CollectionEventSource {
     for (let attempt = 0; ; attempt++) {
       if (this.paceMs > 0) await sleep(this.paceMs); // spacing → stay under the rate limit
       meter("enhanced", "address-history"); // per ATTEMPT (retries included) — Enhanced bills 100 credits/call, the lane's dominant burn
-      const res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      // Per-attempt timeout — run 28736768956 froze 4h on ONE hung socket (no AbortSignal),
+      // burning the walk unpersisted. Timeout = transient: fall through to retry, 30s max per hang.
+      let res: Response;
+      try {
+        res = await fetch(url.toString(), { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
+      } catch (e) {
+        if (attempt >= MAX_RETRIES) throw new Error(`helius address-history ${address}: ${(e as Error).name} after ${attempt} retries`);
+        continue;
+      }
       // 429 (rate limit) / 5xx are transient — back off and retry (respect Retry-After when present).
       if (res.status === 429 || res.status >= 500) {
         if (attempt >= MAX_RETRIES) {
@@ -349,7 +371,7 @@ export class HeliusCollectionEventSource implements CollectionEventSource {
       const url = new URL(`${this.parseBase}/v0/addresses/${this.collectionMint}/transactions`);
       url.searchParams.set("api-key", this.apiKey);
       url.searchParams.set("limit", "1");
-      const res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      const res = await fetch(url.toString(), { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
       if (!res.ok) return { ok: false, detail: `helius enhanced address-history unavailable: HTTP ${res.status}` };
       return { ok: true, detail: "das getAssetsByGroup + enhanced address-history reachable" };
     } catch (e) {

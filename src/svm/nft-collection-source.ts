@@ -100,6 +100,7 @@ export class DasNftCollectionSource implements NftCollectionSource {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: "sonar", method, params }),
+      signal: AbortSignal.timeout(30_000), // hung-socket guard (run 28736768956 lesson)
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");

@@ -11,7 +11,19 @@ on:
   workflow_dispatch:
     inputs:
       limit:
-        description: "Optional: limit member NFTs (testing)"
+        description: "optional --limit N"
+        required: false
+        default: ""
+      collection:
+        description: "collection key (default pythians); requires registry entry"
+        required: false
+        default: ""
+      full:
+        description: "true = full walk (onboarding); default incremental"
+        required: false
+        default: ""
+      since:
+        description: "unix seconds — bound walks to txs newer than this (recent-window onboarding)"
         required: false
         default: ""
 
@@ -26,7 +38,7 @@ jobs:
     # headroom under this cap (FAGAN F3). The runner collects-all → reconciles → writes-once BY DESIGN
     # (the §4.5 gate reconciles the full set before any write), so writes can't be made incremental
     # without weakening the gate. If a collection grows toward this cap, raise it / shard by collection.
-    timeout-minutes: 60
+    timeout-minutes: 240  # full onboarding walks (10k mints @ paid-plan pace ≈ 25-40min; 60 killed SMB at 4,992 mints — run 28735197963, ~400k credits burned unpersisted)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,15 +47,29 @@ jobs:
       - name: Backfill svm.collection_event (reconcile-gated)
         env:
           HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+          # KF-001 class: Node Happy-Eyeballs/IPv6 stalls on GH runners → DAS/Enhanced timeouts (run 28754856273 died on call #1; local = 0.5s)
+          NODE_OPTIONS: "--dns-result-order=ipv4first"
           SVM_HASURA_ENDPOINT: https://belt-hasura-selfhost-production.up.railway.app
           HASURA_GRAPHQL_ADMIN_SECRET: ${{ secrets.SVM_HASURA_ADMIN_SECRET }}
           # #85: emit marketplace list/delist kinds. Safe — the runner calls ensureKindConstraint() at
           # startup (widen-before-write), so the CHECK is always ready before any list/delist upsert.
           SVM_EMIT_MARKETPLACE_KINDS: "true"
+          # Dev plan = 50 RPS (paid 2026-07-05); default pacing was tuned for the free tier's 10 RPS.
+          # 150ms ≈ 6.7 RPS — 5x faster walks, still far under plan limit even with webhook traffic.
+          SVM_BACKFILL_PACE_MS: "150"
           # Pass the input through env (NOT direct ${{ }} interpolation into the script) and digit-guard
           # it — never splice untrusted workflow input into a shell command.
           LIMIT_INPUT: ${{ github.event.inputs.limit }}
+          COLLECTION_INPUT: ${{ github.event.inputs.collection }}
+          FULL_INPUT: ${{ github.event.inputs.full }}
+          SINCE_INPUT: ${{ github.event.inputs.since }}
         run: |
           ARGS=""
           if printf '%s' "$LIMIT_INPUT" | grep -qE '^[0-9]+$'; then ARGS="--limit $LIMIT_INPUT"; fi
+          # onboarding inputs (env-passed, allowlisted — #127 posture)
+          case "$COLLECTION_INPUT" in (*[!a-z0-9_]*) echo "invalid collection"; exit 2;; esac
+          [ -n "$COLLECTION_INPUT" ] && ARGS="$ARGS --collection $COLLECTION_INPUT"
+          [ "$FULL_INPUT" = "true" ] && ARGS="$ARGS --full"
+          case "$SINCE_INPUT" in (*[!0-9]*) [ -n "$SINCE_INPUT" ] && { echo "since must be unix seconds"; exit 2; };; esac
+          [ -n "$SINCE_INPUT" ] && export SVM_BACKFILL_SINCE="$SINCE_INPUT"
           npx --yes tsx src/svm/collection-event-indexer.ts $ARGS
