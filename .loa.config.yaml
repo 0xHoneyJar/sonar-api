@@ -1952,3 +1952,4 @@ spiral:
     consecutive_low_cycles: 2
   seed:
     mode: degraded            # cycle-1 genome comes via --seed-context; cycle-2+ reads prior sidecar
+  max_budget_per_cycle_usd: 25

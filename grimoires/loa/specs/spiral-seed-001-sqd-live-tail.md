@@ -1,43 +1,60 @@
-# SPIRAL SEED 001 — SQD live-tail (svm-sqd-substrate)
+# SPIRAL SEED 001 — SQD live-tail (svm-sqd-substrate) · r2 (cycle-1 tuition folded in)
 
 ## Task
 Land SqdCollectionEventSource as the $0 live-tail lane for svm.collection_event:
-finish branch feat/svm-sqd-substrate (decode mint/transfer/burn from token-balance
-diffs, 42 tests green), converge on the content-addressed PK
-{tx_signature}:{nft_mint}:{instruction_index}, pass the §4.5 reconcile-by-recompute
-gate against the pythians 30,006-event fixture, PR with bridgebuilder review.
+RESUME branch feat/spiral-spiral-20260706-4c5209-cycle-1 (cycle-1 banked: commits
+bb747b03 + bb427a82 — SqdAuthRequiredError, ceiling guard, liveness monitor, kill
+switch, 5 test files / ~900 test lines on top of the original 42-test baseline).
+Converge on the content-addressed PK {tx_signature}:{nft_mint}:{instruction_index},
+pass the §4.5 reconcile-by-recompute gate against the pythians 30,006-event fixture,
+open a PR. bridgebuilder-review runs ON the PR.
 
-## Prior outputs (cycle-0 corpus — verified 2026-07-05)
+## Prior outputs (verified 2026-07-05)
 - SQD Portal portal.sqd.dev solana-mainnet: open/unauthenticated, block 0 → real-time
-  (height 430,902,735 verified). Filter ceiling ~345KB → MINT_CHUNK=1500. Client-driven
-  continuation lastBlock+1. Batch history walks INFEASIBLE (sequential global-density
-  scan ~400k reqs) — live-tail role ONLY.
-- Branch feat/svm-sqd-substrate (pushed to origin): sqd-client.ts,
-  sqd-collection-event-source.ts, re-scoped PRD/SDD/sprint. Start there; do not re-derive.
-- Two-lane pattern ADR: grimoires/loa/context/2026-07-05-warehouse-supply-lane-adr.md.
-  Insert-if-absent merge policy (coarse never clobbers fine). DAS = trust root.
-- Snapshot-first onboarding landed (#136-#138): 9 Solana collections live, ~100cr each.
-  This spiral adds EVENT HISTORY FORWARD, not ownership (already served).
-- Meter precedent: src/svm/helius-meter.ts + DUNE_CREDIT_BUDGET — ship the guard with
-  the first integration line, never after.
+  (height 430,902,735). Filter ceiling ~345KB → MINT_CHUNK=1500. Continuation lastBlock+1.
+  Batch history walks INFEASIBLE — live-tail role ONLY.
+- Cycle-1 (cycle-299234b776) died at IMPL_EVIDENCE_MISSING circuit breaker: its sprint
+  plan listed grimoires/loa/a2a/spiral-001/bb-review-*.json as an implementation
+  deliverable — a category error (see Constraints). The CODE it banked is good.
+- Two-lane ADR: grimoires/loa/context/2026-07-05-warehouse-supply-lane-adr.md.
+  Insert-if-absent merge (coarse never clobbers). DAS = trust root.
+- Snapshot-first onboarding done (#136-#138): 9 collections live. This lane adds EVENT
+  HISTORY FORWARD, not ownership.
+- Meter precedent: src/svm/helius-meter.ts — guard ships with first integration line.
 
 ## Consumer (anti deployed-but-unconsumed)
-score-api (#121/#135) reads svm.collection_event via Hasura. A lane that lands events
-no one queries is failure — the PR must demonstrate the consumer-shape query.
+score-api (#121/#135) reads svm.collection_event via Hasura. The PR must demonstrate
+the consumer-shape query.
 
 ## Constraints (hard)
-- BB (bridgebuilder-review) gate before ANY merge — operator standing order.
-- Dune = operator-approved spends ONLY. No new metered accounts/keys
-  (metered-provider-spike-protocol: price-sheet axes + shaped probe + budget guard first).
+- bridgebuilder-review is a PR-STAGE gate. NEVER list bb-review artifacts
+  (grimoires/loa/a2a/**/bb-review-*.json) as sprint evidence/deliverable paths —
+  implementation cannot produce them (cycle-1 circuit-breaker tuition, 2026-07-05).
+  Sprint evidence paths = code + tests + docs the implementer itself writes.
+- Sprint plans MUST carry acceptance-criteria checkboxes (cycle-1 PRE-CHECK WARN).
+- No Dune calls (operator-approved spends only). No new metered providers/keys.
 - §4.5 completeness gate applies per-lane; NEVER combine with windowed ingestion.
-- Prefer cheap-and-loud failure shapes (snapshot precedent: 10cr instant confession)
-  over cheap-success-expensive-failure shapes (walk trains: 4h/2M-credit silences).
+- Prefer cheap-and-loud failure shapes over silent long-running ones.
+
+## Known BLOCKING defect (fix FIRST — run-2 adversarial review DISS-001)
+src/svm/sqd-loader.ts runSqdLoader: collection-wide cursor + independent mint chunks
+= permanent slot skips when a run stops at the request cap mid-chunks. Fix: only
+advance the durable collection cursor after ALL chunks complete through that slot
+(slot-window outermost), or track per-chunk resume progress. This violates the
+coarse-never-clobbers doctrine — it is the walk-train lesson in cursor form.
 
 ## Stopping conditions
-- Chronos: max 3 cycles, $45 total (budget 15/cycle, standard profile).
-- Kaironic: findings/PR-delta plateau across a cycle → terminate; do not pad cycles.
-- HALT if SQD portal turns authenticated/paid mid-run — re-quote before continuing.
+- Chronos: remaining budget $25 of the operator's $45 cap (runs 1+2 spent ~$20).
+- Kaironic: findings/PR-delta plateau → terminate; do not pad cycles.
+- HALT if SQD portal turns authenticated/paid (SqdAuthRequiredError exists for this).
 
 ## Cut from scope
-No deep-history backfill (solarchive probe is a separate, operator-gated track).
-No Base/EVM work. No webhook-lane changes. No new providers. No Dune calls.
+No deep-history backfill. No Base/EVM work. No webhook-lane changes. No new providers.
+
+## COMPLETION RECORD (2026-07-05 · appended post-landing)
+Task LANDED as PR #140 (merged 04:22Z). Route: 3 harness runs (evidence-gate death →
+banked impl → review-budget death) + /bug convergence cycle (sprint-bug-173, dissent
+2→1→0) + audit APPROVED + BB dispositions. The §4.5 gate is deliberately BLOCKED until
+the real fixture lands (bd-3mvd). Open follow-ups: bd-k5fh, bd-zyli (decode), bd-j0fj
+(repo tsc). Cycle-1 harvest lesson: bb-review artifacts are PR-stage, never sprint
+evidence paths; per-cycle budget must cover the review gate (spiral.max_budget_per_cycle_usd).

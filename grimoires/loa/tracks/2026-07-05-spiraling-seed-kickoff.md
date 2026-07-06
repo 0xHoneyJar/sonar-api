@@ -30,3 +30,9 @@
 - Cycle 1 = `cycle-299234b776`, branch `feat/spiral-spiral-20260706-4c5209-cycle-1`, full profile.
 - Genome delivery: task-pointer (primary, verified — PRD cites spiral-seed-001 + measured corpus) + watcher-injected `seed-context.md` (2607B, landed post-dispatch) + `spiral-001-recall-digest.md` (the /recall leg).
 - Gates so far: FLATLINE_PRD PASS (6H/3B integrated, 149s) · FLATLINE_SDD PASS (6H/5B, 157s).
+
+## LANDED (2026-07-05 ~21:22 local)
+PR #140 merged: SQD live-tail lane + durable coverage-safe cursor (migration 004) +
+§4.5 tripwire. Convergence: harness runs 1-3 + /bug sprint-bug-173 (dissent 2→1→0) +
+audit APPROVED (0 crit/high) + BB (1H fixed, 2M fixed/beaded, 4 PRAISE). main pushed
+w/ framework v1.180. Follow-ups: bd-3mvd (fixture), bd-k5fh/bd-zyli (decode), bd-j0fj (tsc).
