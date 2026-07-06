@@ -90,11 +90,58 @@ When neither env nor config is set, cheval logs
 | `claude-headless` | `claude` (Claude Code CLI) | `npm i -g @anthropic-ai/claude-code` | OAuth via `claude` once |
 | `codex-headless` | `codex` (OpenAI Codex CLI) | `npm i -g @openai/codex-cli` | OAuth via `codex` once |
 | `gemini-headless` | `gemini` (Google Gemini CLI) | `npm i -g @google/gemini-cli` | OAuth via `gemini` once |
+| `grok-build` / `grok-fast` | `grok` (xAI Grok Build CLI) | per xAI install docs | OIDC via `grok login` once |
+| `cursor-headless` / `cursor-fast` | `cursor-agent` (Cursor Agent CLI) | per Cursor install docs | login via `cursor-agent login` once |
 
 Each CLI maintains its own credential store in the user's home directory.
 cheval does not pass API keys to CLIs; it `spawn`s the binary and reads
 its stdout. CLI auth is the operator's responsibility, separate from
 HTTP API keys.
+
+### One port, a stack — xAI (the router-of-routers)
+
+`grok-build` and `grok-fast` are NOT separate providers — they are two models
+on **one** company-port. The `xai` provider (`type: grok-headless`) is the first
+multi-model headless port: a single adapter serving the whole xAI model stack
+(`grok-build` is the reasoning default, `grok-composer-2.5-fast` is the fast
+tier) via `--model <id>` per call. `grok models` lists what the live
+subscription serves. Cheval routes by the intelligence tier it needs and lands
+on the right `(company-port, model)`; xAI routes to the model on its end.
+
+Setup once, both models then available:
+
+```bash
+grok login        # OIDC against auth.x.ai (a Grok subscription)
+grok models       # confirm: "You are logged in" + grok-build, grok-composer-2.5-fast
+```
+
+xAI is a brand-new COMPANY in the roster (distinct training lineage from
+Anthropic / OpenAI / Google), so in a flatline / FAGAN council it fails
+differently — a fourth genuinely-independent voice. It is chain-terminal: an
+`xai` voice NEVER falls back across companies (within-company chains only;
+ADR-002).
+
+### One port, a stack — Cursor Composer
+
+`cursor-headless` and `cursor-fast` are likewise two models on **one**
+company-port. The `cursor` provider (`type: cursor-headless`) pins Cursor's OWN
+distinct-corpus models — the Composer line (`composer-2.5` is the current
+Composer, `composer-2.5-fast` the fast variant) — via `--model <id>` per call.
+`cursor-agent models` lists the full served stack, but it cross-serves
+Claude / GPT / Gemini / Grok / Kimi too; cheval declares ONLY Composer here (the
+cross-served models are reached through their own company-ports). So a Cursor
+voice is a genuinely distinct lineage (Composer = Moonshot-Kimi base + agentic
+RL), not a re-skin of a roster company already present.
+
+Setup once, both Composer models then available:
+
+```bash
+cursor-agent login    # Cursor account (a paid Cursor subscription)
+cursor-agent models   # confirm login + composer-2.5, composer-2.5-fast
+```
+
+Like xAI, Cursor's Composer is chain-terminal: a `cursor` voice NEVER falls back
+across companies (within-company chains only; ADR-002).
 
 When a chain entry's CLI binary is missing, cheval skips the entry with
 `error_class: ROUTING_MISS` and continues walking the chain. The
@@ -115,6 +162,11 @@ adapter-by-feature breakdown. The short version:
   `error_class: CAPABILITY_MISS`.
 - `gemini-headless` does **not** support structured-output JSON mode;
   same capability-gate skip path.
+- `grok-build` / `grok-fast` run as pure inference (`--permission-mode dontAsk`,
+  `--no-subagents`, `--max-turns 1`, isolated empty cwd, prompt via
+  `--prompt-file`). Tools are not forwarded; capabilities are `[chat, code]`
+  (no `tools`, no `structured_json`) — a tool-requesting call skips with
+  `error_class: CAPABILITY_MISS`.
 
 The capability gate runs BEFORE adapter dispatch, so a misrouted entry
 walks the chain without spending a provider call.

@@ -154,3 +154,203 @@ EOF
     [[ "$(echo "$output" | wc -l)" == "1" ]]
     [[ "$output" =~ ^sprint-bug-[0-9]+$ ]]
 }
+
+# =============================================================================
+# Issue #942 — cycle-claimed global sprint ids in ledger cycles[].sprints /
+# bugfix_cycles[].sprints must be consulted. Observed live 2026-06-10:
+# global_sprint_counter=177 while cycle-114 claimed ids 177/178/179, so the
+# helper emitted sprint-bug-178 — colliding with cycle-114's sprint-178.
+# =============================================================================
+
+@test "issue#942: cycle-claimed object-shape ids beat a stale counter (live 177-vs-179 shape)" {
+    cat > "$PROJECT_ROOT/grimoires/loa/ledger.json" <<'EOF'
+{
+  "global_sprint_counter": 177,
+  "cycles": [
+    {
+      "cycle_id": "cycle-114-harness-modernization",
+      "sprints": [
+        {"id": "sprint-177", "global_id": 177},
+        {"id": "sprint-178", "global_id": 178},
+        {"id": "sprint-179", "global_id": 179}
+      ]
+    }
+  ],
+  "bugfix_cycles": []
+}
+EOF
+    cd "$PROJECT_ROOT" && git init --quiet
+    run bash "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "sprint-bug-180" ]]
+}
+
+@test "issue#942: string-shape sprint claims in cycles[].sprints are consulted" {
+    cat > "$PROJECT_ROOT/grimoires/loa/ledger.json" <<'EOF'
+{
+  "global_sprint_counter": 50,
+  "cycles": [
+    {"cycle_id": "cycle-x", "sprints": ["sprint-184", "sprint-bug-185"]}
+  ],
+  "bugfix_cycles": []
+}
+EOF
+    cd "$PROJECT_ROOT" && git init --quiet
+    run bash "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "sprint-bug-186" ]]
+}
+
+@test "issue#942: bugfix_cycles[].sprints claims are consulted too" {
+    cat > "$PROJECT_ROOT/grimoires/loa/ledger.json" <<'EOF'
+{
+  "global_sprint_counter": 50,
+  "cycles": [],
+  "bugfix_cycles": [
+    {"cycle_id": "cycle-bug-x", "sprints": [{"id": "sprint-bug-240", "global_id": 240}]}
+  ]
+}
+EOF
+    cd "$PROJECT_ROOT" && git init --quiet
+    run bash "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "sprint-bug-241" ]]
+}
+
+@test "issue#942: malformed cycles/bugfix_cycles keys degrade gracefully to other sources" {
+    cat > "$PROJECT_ROOT/grimoires/loa/ledger.json" <<'EOF'
+{
+  "global_sprint_counter": 50,
+  "cycles": "not-an-array",
+  "bugfix_cycles": [
+    {"cycle_id": "ok", "sprints": [42, "weird-entry", {"id": "no-global-id"}]},
+    {"cycle_id": "no-sprints-key"}
+  ]
+}
+EOF
+    cd "$PROJECT_ROOT" && git init --quiet
+    run bash "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "sprint-bug-51" ]]
+}
+
+@test "issue#942: origin/main ledger's cycle claims are consulted (not just its counter)" {
+    cd "$PROJECT_ROOT" && git init --quiet
+    git config user.email "test@example.com"
+    git config user.name "Test"
+
+    local upstream="$BATS_TEST_TMPDIR/upstream-claims"
+    mkdir -p "$upstream/grimoires/loa"
+    cat > "$upstream/grimoires/loa/ledger.json" <<'EOF'
+{
+  "global_sprint_counter": 300,
+  "cycles": [
+    {"cycle_id": "cycle-y", "sprints": [{"id": "sprint-310", "global_id": 310}]}
+  ],
+  "bugfix_cycles": []
+}
+EOF
+    (
+        cd "$upstream" && git init --quiet
+        git add -A
+        git -c user.email=t@t -c user.name=t commit -q -m init
+        git checkout -b main 2>/dev/null || true
+    )
+    cd "$PROJECT_ROOT"
+    git remote add origin "$upstream" 2>/dev/null || true
+    git fetch --quiet origin main 2>/dev/null || skip "could not set up upstream fetch"
+
+    _write_ledger 50
+    run bash "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "sprint-bug-311" ]]
+}
+
+# =============================================================================
+# Issue #1064 — the bug-*/sprint.md disk-scan missed the sprint-bug-N/ directory
+# layout (used by #1053/#1056/#1059+). When the counter lagged a claimed id, the
+# helper re-emitted an already-used sprint-bug-N (observed: sprint-bug-217 this
+# session). Extraction must be exact-anchored so the malformed live dir
+# sprint-bug-622-623 is rejected, not mis-parsed as 623.
+# =============================================================================
+
+@test "issue#1064: sprint-bug-N/ directory layout is consulted when counter lags" {
+    _write_ledger 200
+    mkdir -p "$PROJECT_ROOT/grimoires/loa/a2a/sprint-bug-230"
+    cd "$PROJECT_ROOT" && git init --quiet
+    run bash "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "sprint-bug-231" ]]
+}
+
+@test "issue#1064: malformed sprint-bug-622-623 dir is not mis-parsed (anchored)" {
+    _write_ledger 200
+    mkdir -p "$PROJECT_ROOT/grimoires/loa/a2a/sprint-bug-230"
+    mkdir -p "$PROJECT_ROOT/grimoires/loa/a2a/sprint-bug-622-623"
+    cd "$PROJECT_ROOT" && git init --quiet
+    run bash "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    # 622-623 rejected (else would parse 623 -> 624); max real id is 230 -> 231
+    [[ "$output" == "sprint-bug-231" ]]
+}
+
+# =============================================================================
+# R8 (OKF cycle Sprint 7) — POSITION AUTHORITY: a sprint-bug-N mentioned in the
+# markdown BODY (prose / AC text) is CONTENT, not position. The disk-scan must
+# read only the sprint's own authoritative `**Sprint**: sprint-bug-N` declaration.
+# Live bug: bug-20260615-i1064 declared sprint-bug-222 but its AC prose cited
+# `sprint-bug-622-623`, so the old body-wide grep harvested 622 → emitted
+# sprint-bug-623 when the true next was 227.
+# =============================================================================
+
+@test "R8: a stray sprint-bug-N in body PROSE is NOT harvested (only **Sprint**: counts)" {
+    _write_ledger 226
+    local dir="$PROJECT_ROOT/grimoires/loa/a2a/bug-prose-poison"
+    mkdir -p "$dir"
+    cat > "$dir/sprint.md" <<'EOF'
+# Sprint Plan: Bug Fix — disk-scan poison repro
+
+**Sprint**: sprint-bug-50
+**Type**: bugfix
+
+## Acceptance
+- A malformed dir `grimoires/loa/a2a/sprint-bug-622-623` is NOT parsed as 623.
+- Context carried over from the earlier sprint-bug-9999 investigation.
+EOF
+    cd "$PROJECT_ROOT" && git init --quiet
+    run bash "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    # ledger 226 wins; the prose mentions (622, 9999) are content, not ids → 227
+    [[ "$output" == "sprint-bug-227" ]]
+}
+
+@test "R8: the **Sprint ID**: declaration form is also honored (deviant-format coverage)" {
+    _write_ledger 10
+    local dir="$PROJECT_ROOT/grimoires/loa/a2a/bug-sprintid-form"
+    mkdir -p "$dir"
+    cat > "$dir/sprint.md" <<'EOF'
+# Micro-Sprint
+**Sprint ID**: sprint-bug-70
+EOF
+    cd "$PROJECT_ROOT" && git init --quiet
+    run bash "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "sprint-bug-71" ]]
+}
+
+@test "R8: the **Sprint**: declaration is still honored as the disk safety-net (ledger behind)" {
+    _write_ledger 10
+    local dir="$PROJECT_ROOT/grimoires/loa/a2a/bug-declared-high"
+    mkdir -p "$dir"
+    cat > "$dir/sprint.md" <<'EOF'
+# Sprint Plan
+**Sprint**: sprint-bug-80
+
+This sprint references sprint-bug-3 and sprint-bug-7 in prose.
+EOF
+    cd "$PROJECT_ROOT" && git init --quiet
+    run bash "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    # declared id 80 (> ledger 10) is the safety-net source; prose 3/7 ignored → 81
+    [[ "$output" == "sprint-bug-81" ]]
+}

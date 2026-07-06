@@ -34,6 +34,7 @@ from loa_cheval.providers.claude_headless_adapter import (
 )
 from loa_cheval.types import (
     CompletionRequest,
+    AuthRevokedError,
     ConfigError,
     ModelConfig,
     ProviderConfig,
@@ -314,7 +315,7 @@ class TestPromptFlattening:
 class TestJsonParsing:
     def test_parses_result_and_usage(self):
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _ok_proc(SAMPLE_OK_JSON)
             result = adapter.complete(_make_request())
         assert result.content == "pong"
@@ -328,7 +329,7 @@ class TestJsonParsing:
 
     def test_cache_tokens_propagate_to_metadata(self):
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _ok_proc(SAMPLE_OK_JSON)
             result = adapter.complete(_make_request())
         assert result.metadata.get("cache_creation_input_tokens") == 14179
@@ -339,7 +340,7 @@ class TestJsonParsing:
     def test_missing_usage_yields_estimated_source(self):
         no_usage = json.dumps({"type": "result", "is_error": False, "result": "ok", "session_id": "x"})
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _ok_proc(no_usage)
             result = adapter.complete(_make_request())
         assert result.content == "ok"
@@ -357,7 +358,7 @@ class TestJsonParsing:
             }
         )
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _ok_proc(with_denials)
             result = adapter.complete(_make_request())
         assert result.metadata.get("permission_denials")
@@ -376,7 +377,7 @@ class TestJsonParsing:
             }
         )
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _ok_proc(with_actual)
             # Request opus, but server actually used sonnet — adapter should report sonnet.
             result = adapter.complete(_make_request(model="claude-opus-4-7"))
@@ -392,29 +393,58 @@ class TestErrorClassification:
     def test_not_logged_in_raises_config_error(self):
         adapter = ClaudeHeadlessAdapter(_make_config())
         # Claude Code returns exit 0 even on auth failure but is_error=true in JSON.
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _ok_proc(NOT_LOGGED_IN_JSON)
             with pytest.raises(ConfigError) as exc_info:
                 adapter.complete(_make_request())
             assert "claude /login" in str(exc_info.value)
 
+    def test_runtime_token_revocation_raises_auth_revoked(self):
+        # KF-017/#1071: server-invalidated token → WALKABLE (AuthRevokedError).
+        adapter = ClaudeHeadlessAdapter(_make_config())
+        revoked_json = json.dumps({
+            "type": "result", "subtype": "success", "is_error": True,
+            "api_error_status": 401,
+            "result": "401 Unauthorized: your authentication token has been invalidated",
+            "session_id": "x", "usage": {"input_tokens": 0, "output_tokens": 0},
+        })
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
+            mock_run.return_value = _ok_proc(revoked_json)
+            with pytest.raises(AuthRevokedError) as exc_info:
+                adapter.complete(_make_request())
+            assert exc_info.value.code == "AUTH_REVOKED"
+
+    def test_ambiguous_unauthorized_with_static_marker_still_config_error(self):
+        # #1095 safety: "unauthorized" + a never-logged-in marker → ConfigError.
+        adapter = ClaudeHeadlessAdapter(_make_config())
+        static_json = json.dumps({
+            "type": "result", "subtype": "success", "is_error": True,
+            "api_error_status": None,
+            "result": "unauthorized — not logged in. Please run /login",
+            "session_id": "x", "usage": {"input_tokens": 0, "output_tokens": 0},
+        })
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
+            mock_run.return_value = _ok_proc(static_json)
+            with pytest.raises(ConfigError):
+                adapter.complete(_make_request())
+
     def test_overloaded_raises_rate_limit(self):
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _ok_proc(OVERLOADED_JSON)
             with pytest.raises(RateLimitError):
                 adapter.complete(_make_request())
 
     def test_stderr_429_raises_rate_limit(self):
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _fail_proc(1, stderr="HTTP 429 Too Many Requests")
             with pytest.raises(RateLimitError):
                 adapter.complete(_make_request())
 
     def test_generic_failure_raises_provider_unavailable(self):
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _fail_proc(2, stderr="some unexpected error")
             with pytest.raises(ProviderUnavailableError) as exc_info:
                 adapter.complete(_make_request())
@@ -422,7 +452,7 @@ class TestErrorClassification:
 
     def test_timeout_raises_provider_unavailable(self):
         adapter = ClaudeHeadlessAdapter(_make_config(read_timeout=5.0))
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.side_effect = subprocess.TimeoutExpired(cmd=["claude"], timeout=5)
             with pytest.raises(ProviderUnavailableError) as exc_info:
                 adapter.complete(_make_request())
@@ -430,7 +460,7 @@ class TestErrorClassification:
 
     def test_claude_not_on_path_raises_config_error(self):
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.side_effect = FileNotFoundError("claude: command not found")
             with pytest.raises(ConfigError) as exc_info:
                 adapter.complete(_make_request())
@@ -438,7 +468,7 @@ class TestErrorClassification:
 
     def test_unparseable_stdout_raises_provider_unavailable(self):
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _ok_proc("garbage not json")
             with pytest.raises(ProviderUnavailableError) as exc_info:
                 adapter.complete(_make_request())
@@ -496,7 +526,7 @@ class TestValidateAndHealth:
 class TestEndToEnd:
     def test_complete_round_trip(self):
         adapter = ClaudeHeadlessAdapter(_make_config(extra={"effort": "high"}))
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _ok_proc(SAMPLE_OK_JSON)
             result = adapter.complete(
                 _make_request(
@@ -553,7 +583,7 @@ class TestSubprocessEnvFilter:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-depleted-key")
         monkeypatch.delenv("LOA_HEADLESS_KEEP_API_KEY", raising=False)
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _ok_proc(SAMPLE_OK_JSON)
             adapter.complete(_make_request())
         kwargs = mock_run.call_args.kwargs
@@ -572,7 +602,7 @@ class TestSubprocessEnvFilter:
         monkeypatch.setenv("PATH", "/test/bin:/usr/bin")
         monkeypatch.setenv("HOME", "/test/home")
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _ok_proc(SAMPLE_OK_JSON)
             adapter.complete(_make_request())
         env = mock_run.call_args.kwargs.get("env", {})
@@ -584,7 +614,7 @@ class TestSubprocessEnvFilter:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
         monkeypatch.setenv("LOA_HEADLESS_KEEP_API_KEY", "1")
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _ok_proc(SAMPLE_OK_JSON)
             adapter.complete(_make_request())
         env = mock_run.call_args.kwargs.get("env", {})
@@ -598,7 +628,7 @@ class TestSubprocessEnvFilter:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("LOA_HEADLESS_KEEP_API_KEY", raising=False)
         adapter = ClaudeHeadlessAdapter(_make_config())
-        with patch("loa_cheval.providers.claude_headless_adapter.subprocess.run") as mock_run:
+        with patch("loa_cheval.providers.claude_headless_adapter.run_subprocess_pgkill") as mock_run:
             mock_run.return_value = _ok_proc(SAMPLE_OK_JSON)
             adapter.complete(_make_request())
         # env kwarg MUST be present (not None) even when no key needs stripping.

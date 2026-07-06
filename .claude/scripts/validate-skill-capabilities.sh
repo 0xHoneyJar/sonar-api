@@ -51,6 +51,15 @@ SKIP_SKILLS=("flatline-reviewer" "flatline-scorer" "flatline-skeptic" "gpt-revie
 # --- Cycle-108 T1.D: role/primary_role validation constants ---
 # Valid role enum (PRD §5 FR-3, SDD §4.1)
 VALID_ROLES=("planning" "review" "implementation")
+# cycle-114 FR-3: valid values for the optional `effort:` frontmatter key
+# (maps to the Anthropic output_config.effort control on Opus 4.5+/Sonnet 4.6).
+VALID_EFFORTS=("low" "medium" "high" "xhigh" "max")
+# cycle-114 FR-4: review skills that legitimately retain Write because they
+# author STATE-zone artifacts (reports, vision/lore). For these the C-PROC-001
+# "no application code" boundary is enforced by ZONES, not by removing Write.
+# Adding a new write-capable review skill is intentionally a one-line edit here
+# with reviewer visibility (mirrors WRITE_CAPABLE_AGENTS).
+REVIEW_WRITE_EXCEPTIONS=("red-teaming" "bridgebuilder-review" "spiraling" "autonomous-agent" "run-bridge" "run-mode")
 
 # Review-class keywords for heuristic linter (SDD §20.5 ATK-A13)
 # Skills declaring role: review|audit MUST have >=2 of these in body
@@ -286,6 +295,19 @@ log_warning() {
     results_json=$(echo "$results_json" | jq --arg s "$skill" --arg m "$msg" '. + [{"skill": $s, "level": "warning", "message": $m}]')
 }
 
+log_advisory() {
+    # # ICM-L2-INPUTS-LINT: advisory WARN, NEVER promoted to error (even under --strict).
+    # Used by the inputs rot-lint: a declared-but-absent input is a glass-box DRIFT
+    # signal, not a gate. There is deliberately no fail-closed declared-but-not-read
+    # rule (conditional-by-phase reads make undeclared-read flagging wrong-by-construction).
+    local skill="$1" msg="$2"
+    warnings=$((warnings + 1))
+    if [[ "$JSON_OUTPUT" == "false" ]]; then
+        echo -e "  ${YELLOW}WARN${NC}: $msg"
+    fi
+    results_json=$(echo "$results_json" | jq --arg s "$skill" --arg m "$msg" '. + [{"skill": $s, "level": "advisory", "message": $m}]')
+}
+
 log_pass() {
     local skill="$1"
     passed=$((passed + 1))
@@ -301,6 +323,35 @@ has_tool() {
     # Use word-boundary matching to prevent substring false positives
     # (e.g., "WriteConfig" should not match "Write")
     echo "$allowed" | grep -qiwF "$tool"
+}
+
+# # ICM-L2-INPUTS-LINT: ICM Layer-2 advisory inputs manifest rot-lint.
+# Reads the optional top-level `inputs:` frontmatter list (each entry: path[, why]).
+# For each DECLARED path, WARNs (advisory only) if it is absent on disk — a drift
+# signal that the skill's known-failures-first / context inputs have moved. It NEVER
+# flags an undeclared read and NEVER fails the build. Absence of a manifest is fine.
+validate_skill_inputs() {
+    local skill_name="$1" frontmatter="$2"
+    local inputs_raw n i p
+    inputs_raw=$(echo "$frontmatter" | yq eval '.inputs' - 2>/dev/null) || inputs_raw="null"
+    [[ "$inputs_raw" == "null" || -z "$inputs_raw" ]] && return 0
+    local itype; itype=$(echo "$frontmatter" | yq eval '.inputs | type' - 2>/dev/null) || itype=""
+    [[ "$itype" == "!!seq" ]] || { log_advisory "$skill_name" "inputs: is not a list (manifest ignored)"; return 0; }
+    n=$(echo "$frontmatter" | yq eval '.inputs | length' - 2>/dev/null) || n=0
+    [[ "$n" =~ ^[0-9]+$ ]] || return 0
+    for ((i=0; i<n; i++)); do
+        p=$(echo "$frontmatter" | yq eval ".inputs[$i].path // \"\"" - 2>/dev/null) || p=""
+        if [[ -z "$p" ]]; then
+            log_advisory "$skill_name" "inputs[$i] declares no 'path' (advisory manifest entry ignored)"
+            continue
+        fi
+        if [[ "$p" == *'*'* ]]; then
+            compgen -G "$PROJECT_ROOT/$p" >/dev/null 2>&1 || log_advisory "$skill_name" "declared input not found on disk (drift): $p"
+        else
+            [[ -e "$PROJECT_ROOT/$p" ]] || log_advisory "$skill_name" "declared input not found on disk (drift): $p"
+        fi
+    done
+    return 0
 }
 
 validate_skill() {
@@ -431,6 +482,50 @@ validate_skill() {
         fi
     fi
 
+    # --- cycle-114 FR-3: optional `effort:` validation ---
+    # effort is optional. When present it must be a valid level. A
+    # deep-reasoning (xhigh/max) effort paired with a lightweight cost-profile
+    # is a suspicious combination (cheap-tier skill asking for the deepest
+    # reasoning) → WARN, not ERROR.
+    local effort
+    effort=$(echo "$frontmatter" | yq eval '.effort // ""' - 2>/dev/null) || effort=""
+    if [[ -n "$effort" ]]; then
+        local effort_valid=false
+        local e
+        for e in "${VALID_EFFORTS[@]}"; do
+            [[ "$effort" == "$e" ]] && effort_valid=true && break
+        done
+        if [[ "$effort_valid" == "false" ]]; then
+            log_error "$skill_name" "Invalid effort '$effort' (must be one of: ${VALID_EFFORTS[*]}) — cycle-114 FR-3"
+            has_error=true
+        elif [[ "$cp" == "lightweight" && ( "$effort" == "xhigh" || "$effort" == "max" ) ]]; then
+            log_warning "$skill_name" "cost-profile: lightweight but effort: $effort (deep reasoning on a cheap-tier skill — correlation mismatch)" || has_error=true
+        fi
+    fi
+
+    # --- cycle-114 FR-4: review skills must mechanically disallow Write ---
+    # A role:review skill that can write_files but neither disallows Write nor
+    # is a documented write-exception leaves C-PROC-001 ("no application code
+    # outside /implement") enforced only by prose. Surface that gap as a WARN.
+    local fr4_role
+    fr4_role=$(echo "$frontmatter" | yq eval '.role // ""' - 2>/dev/null) || fr4_role=""
+    if [[ "$fr4_role" == "review" ]]; then
+        local fr4_wf
+        fr4_wf=$(echo "$frontmatter" | yq eval '.capabilities.write_files // "null"' - 2>/dev/null) || fr4_wf="null"
+        if [[ "$fr4_wf" == "true" ]]; then
+            local disallowed
+            disallowed=$(echo "$frontmatter" | yq eval '(.disallowed-tools // []) | join(",")' - 2>/dev/null) || disallowed=""
+            local is_exception=false
+            local x
+            for x in "${REVIEW_WRITE_EXCEPTIONS[@]}"; do
+                [[ "$skill_name" == "$x" ]] && is_exception=true && break
+            done
+            if [[ "$is_exception" == "false" ]] && ! has_tool "$disallowed" "Write"; then
+                log_warning "$skill_name" "role: review with capabilities.write_files: true but Write not in disallowed-tools and not a documented write-exception — C-PROC-001 is enforced only by prose (cycle-114 FR-4)" || has_error=true
+            fi
+        fi
+    fi
+
     # --- Agent type vs write-capability invariant (Issue #553) ---
     # When agent: is set to a restricted type (e.g. Plan, Explore) but the skill
     # declares write capability via capabilities.write_files: true OR allowed-tools
@@ -465,6 +560,9 @@ validate_skill() {
             has_error=true
         fi
     fi
+
+    # # ICM-L2-INPUTS-LINT: advisory inputs manifest drift check (never fails the build)
+    validate_skill_inputs "$skill_name" "$frontmatter"
 
     if [[ "$has_error" == "false" ]]; then
         log_pass "$skill_name"

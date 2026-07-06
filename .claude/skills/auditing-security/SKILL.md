@@ -2,7 +2,14 @@
 name: audit
 description: Security and quality audit of application codebase
 role: review
+effort: high  # cycle-114 FR-3: deep-reasoning skill — override baseline /effort
 allowed-tools: Read, Grep, Glob, WebFetch, WebSearch
+# cycle-114 FR-4: pure-review skill (write_files: false) — harness removes the
+# write tools while active, mechanically enforcing C-PROC-001.
+disallowed-tools:
+  - Write
+  - Edit
+  - NotebookEdit
 capabilities:
   schema_version: 1
   read_files: true
@@ -29,6 +36,12 @@ zones:
   app:
     paths: [src, lib, app]
     permission: read
+inputs:
+  # ICM Layer-2 advisory manifest (glass-box). Advisory only — missing path WARNs.
+  - path: grimoires/loa/known-failures.md
+    why: Context-Intake Discipline — read first
+  - path: .claude/rules/zone-system.md
+    why: System-Zone boundary the audit enforces
 ---
 
 <input_guardrails>

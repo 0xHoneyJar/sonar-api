@@ -20,6 +20,10 @@ class CompletionRequest:
     tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[str] = None  # "auto" | "required" | "none"
     metadata: Optional[Dict[str, Any]] = None  # agent, trace_id, sprint_id (not sent to provider)
+    # cycle-114 FR-2: reasoning-depth control. Serialized as output_config.effort
+    # by adapters that support it (Anthropic Opus 4.5+/Sonnet 4.6). NEVER mapped
+    # to thinking.budget_tokens — Opus 4.7/4.8 reject that with HTTP 400.
+    effort: Optional[str] = None  # "low" | "medium" | "high" | "xhigh" | "max"
 
 
 @dataclass
@@ -47,6 +51,10 @@ class Usage:
     input_tokens: int
     output_tokens: int
     reasoning_tokens: int = 0
+    # cycle-114 FR-12: prompt-cache token telemetry (surfacing only). Names mirror
+    # Anthropic's API + claude_headless_adapter. Default 0 when absent (NFR-2).
+    cache_read_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
     source: str = "actual"  # "actual" | "estimated"
 
 
@@ -304,6 +312,30 @@ class ConfigError(ChevalError):
 
     def __init__(self, message: str):
         super().__init__("INVALID_CONFIG", message, retryable=False)
+
+
+class AuthRevokedError(ChevalError):
+    """Runtime auth-credential revocation on a CLI/subscription leg (KF-017/#1071).
+
+    Distinct from ConfigError (INVALID_CONFIG / static misconfig). A token that
+    WAS valid and is now server-side-invalidated ("401 Unauthorized: token
+    invalidated", expired session) makes THIS leg unusable but says nothing
+    about the operator's other legs. retryable=True, code AUTH_REVOKED so the
+    cheval chain-walk loop walks to the next entry (e.g. a valid HTTP leg)
+    rather than hard-aborting. NOT a ProviderUnavailableError subclass: it must
+    reach cheval.py via retry.py's `except ChevalError: raise`, like
+    EmptyContentError. STATIC misconfig still raises ConfigError (hard-abort) so
+    operator config errors are never silently masked.
+    """
+
+    def __init__(self, provider: str, message: str):
+        super().__init__(
+            "AUTH_REVOKED",
+            f"auth credential revoked for {provider}: {message}",
+            retryable=True,
+            context={"provider": provider},
+        )
+        self.provider = provider
 
 
 class InvalidInputError(ChevalError):
