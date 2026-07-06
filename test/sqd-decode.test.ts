@@ -87,3 +87,59 @@ describe("validateBalRow — untrusted input", () => {
     expect(v!.preOwner).toBeNull();
   });
 });
+
+/**
+ * sprint-bug-189 (bd-k5fh + bd-zyli, BB findings on #140).
+ *
+ * bd-k5fh: multi-hop net custody picked losing[0]/gaining[last] BY ROW ORDER — Portal
+ * row order within a (txIndex,mint) group is not contractually stable, so the same
+ * on-chain transfer could decode to different from/to across fetches. Fix: owner-level
+ * cancellation (owners that lost minus owners that gained) — intermediaries cancel,
+ * order-independent; anything without a unique net pair is honestly ambiguous.
+ *
+ * bd-zyli: ambiguous groups skipped seenMints.add(mint), so the mint's NEXT appearance
+ * could masquerade as a first-appearance "mint" event in a later window.
+ */
+describe("sprint-bug-189 — order-independent net custody + seenMints on ambiguous", () => {
+  const mid = "SMBtHCCC6RYRutFEPb4gZqeBLUZbMNhRKaMKZZLHi7W";
+  const hop1lose = { ...losing };
+  const hop1gain = { ...gaining, account: ACC2, preOwner: mid, postOwner: mid };
+  const hop2lose = { ...losing, account: ACC2, preOwner: mid, postOwner: mid };
+  const hop2gain = { ...gaining, account: ACC1, preOwner: BOB, postOwner: BOB };
+
+  it("multi-hop decode is invariant under row order (pre-fix: red)", () => {
+    const orders = [
+      [hop1lose, hop1gain, hop2lose, hop2gain],
+      [hop2gain, hop2lose, hop1gain, hop1lose], // reversed
+      [hop2lose, hop1lose, hop2gain, hop1gain], // losers first, mid-loser leading
+    ];
+    for (const rows of orders) {
+      const { events, ambiguousGroups } = decodeSqdBlocks([block(rows)], MEMBERS, new Set([MINT]));
+      expect(ambiguousGroups).toBe(0);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ kind: "transfer", from: ALICE, to: BOB });
+    }
+  });
+
+  it("two net losers → honestly ambiguous (no arbitrary pick)", () => {
+    const CAROL = "7Y7yCFtvE4kogLDrrx8bZypqRvA9DkPXFqCK1D8mkE3S";
+    const lose2 = { ...losing, account: ACC2, preOwner: CAROL, postOwner: CAROL };
+    const { events, ambiguousGroups } = decodeSqdBlocks([block([losing, lose2, gaining])], MEMBERS, new Set([MINT]));
+    expect(events).toHaveLength(0);
+    expect(ambiguousGroups).toBe(1);
+  });
+
+  it("ambiguous group marks the mint SEEN — later gaining-only cannot fake a mint (pre-fix: red)", () => {
+    const CAROL = "7Y7yCFtvE4kogLDrrx8bZypqRvA9DkPXFqCK1D8mkE3S";
+    const lose2 = { ...losing, account: ACC2, preOwner: CAROL, postOwner: CAROL };
+    const ambiguousBlock = block([losing, lose2, gaining]); // 2 net losers → ambiguous
+    const laterGainingOnly = block([{ ...gaining, transactionIndex: 7 }], {
+      header: { number: 428886300, timestamp: 1782422999 },
+      transactions: [{ transactionIndex: 7, signatures: ["3rk9DhbDLQoLDrrx8bZypqRvA9DkPXFqCK1D8mkE3S7Y7yCFtvE4kogqwv55tJj9eFHTxxWEJ7NvKMHM4GnUdX2b"] }],
+    });
+    const { events, ambiguousGroups } = decodeSqdBlocks([ambiguousBlock, laterGainingOnly], MEMBERS, new Set());
+    // pre-fix: the later gaining-only decodes as kind:"mint" (fake first-appearance)
+    expect(events.filter((e) => e.kind === "mint")).toHaveLength(0);
+    expect(ambiguousGroups).toBe(2);
+  });
+});

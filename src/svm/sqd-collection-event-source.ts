@@ -176,6 +176,7 @@ export function decodeSqdBlocks(
         if (seenMints.has(mint)) {
           // token appeared without a losing counterpart mid-history: custody arrival we can't
           // source (e.g. cross-program escrow release outside balance rows) → ambiguous
+          // (mint already in seenMints — no add needed on this path)
           ambiguousGroups++;
           continue;
         }
@@ -187,14 +188,22 @@ export function decodeSqdBlocks(
         from = losing[0].preOwner;
         to = null;
       } else {
-        // multi-hop in one tx: try NET custody change (first loser → last gainer in row order)
-        const netFrom = losing[0]?.preOwner ?? null;
-        const netTo = gaining[gaining.length - 1]?.postOwner ?? null;
-        if (losing.length >= 1 && gaining.length >= 1 && netFrom && netTo) {
+        // multi-hop in one tx: NET custody = owners that lost minus owners that gained.
+        // Intermediaries (escrow hops) appear on both sides and cancel — order-INDEPENDENT
+        // (bd-k5fh: Portal row order within a group is not contractually stable, so any
+        // positional pick could decode the same transfer differently across fetches).
+        // No unique net pair → honestly ambiguous, never an arbitrary pick.
+        const lostOwners = new Set(losing.map((r) => r.preOwner));
+        const gainedOwners = new Set(gaining.map((r) => r.postOwner));
+        const netLosers = [...lostOwners].filter((o) => !gainedOwners.has(o));
+        const netGainers = [...gainedOwners].filter((o) => !lostOwners.has(o));
+        if (netLosers.length === 1 && netGainers.length === 1) {
           kind = "transfer";
-          from = netFrom;
-          to = netTo;
+          from = netLosers[0];
+          to = netGainers[0];
         } else {
+          // bd-zyli: the mint is still SEEN — its next appearance must not fake a first-appearance mint
+          seenMints.add(mint);
           ambiguousGroups++;
           continue;
         }
