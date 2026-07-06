@@ -21,3 +21,12 @@
 
 - Cycle-2+ SEED composes automatically (degraded mode reads prior sidecar) — if the designed-seed pattern proves out, distill a reusable seed-authoring template (AFTER harvest, not before).
 - Re-verify dated probes (portal height, filter ceiling) if launch is >7 days out.
+
+## Launch record (appended 2026-07-05 evening)
+
+- Operator go arrived as `/goal` ("6h9m timer = the seed, spiral continuously, /recall ingested").
+- Pre-launch: /update-loa v1.157.0 → v1.180.0 (KF-019 discovered + recorded mid-merge).
+- Launched: `spiral-orchestrator.sh --start --task <genome-pointer>` with SPIRAL_REAL_DISPATCH=1.
+- Cycle 1 = `cycle-299234b776`, branch `feat/spiral-spiral-20260706-4c5209-cycle-1`, full profile.
+- Genome delivery: task-pointer (primary, verified — PRD cites spiral-seed-001 + measured corpus) + watcher-injected `seed-context.md` (2607B, landed post-dispatch) + `spiral-001-recall-digest.md` (the /recall leg).
+- Gates so far: FLATLINE_PRD PASS (6H/3B integrated, 149s) · FLATLINE_SDD PASS (6H/5B, 157s).
