@@ -193,7 +193,17 @@ export async function runSqdLoader(
       patch.lastEventAt = new Date(latestBlockTime * 1000).toISOString();
       patch.lastEventSource = "sqd-stream";
     }
-    await deps.syncStatus(patch);
+    // Review iter-2 DISS-003: the cursor is a CORRECTNESS write, not telemetry —
+    // writeSyncStatus is fail-soft (returns false, never throws), and a silently
+    // dropped cursor makes the next run fall back to the poison MAX(slot). One
+    // retry, then fail the run loudly (upserts are insert-if-absent → rerun-safe).
+    let cursorWritten = (await deps.syncStatus(patch)) !== false;
+    if (!cursorWritten) cursorWritten = (await deps.syncStatus(patch)) !== false;
+    if (!cursorWritten) {
+      const msg = `[sqd-loader] CURSOR WRITE FAILED for ${cfg.collectionKey} (2 attempts) — refusing to report success: resume would fall back to MAX(slot) and skip capped ranges`;
+      deps.log(msg);
+      throw new Error(msg);
+    }
   }
   deps.log(
     `[sqd-loader] DONE ${cfg.collectionKey}: ${result.eventsUpserted} events · ${result.rejectedRows} rejected rows · ${result.ambiguousGroups} ambiguous groups · ${stats.requests} requests${stats.stoppedAtCap ? " (CAP)" : ""}`,

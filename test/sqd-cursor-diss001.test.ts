@@ -451,3 +451,54 @@ describe("review iter-1 — final-chunk cap-without-yield + durable-cursor resum
     expect(fromSeen[1]).toBe(0); // ← THE DISS-001 assertion (pre-fix this was 5000)
   });
 });
+
+/**
+ * Review iter-2 DISS-003: cursor persistence is a correctness write. writeSyncStatus is
+ * fail-soft (returns false, never throws); a silently dropped cursor write makes the
+ * next run resume from the poison MAX(slot). The loader must retry once, then fail LOUD.
+ */
+describe("review iter-2 — cursor write failure fails the run", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function makeOkClient(): SqdClient {
+    const streamMock = vi.fn(async function* (
+      _m: readonly string[], _f: number, _t: number,
+      stats: { requests: number; blocks: number; balanceRows: number; stoppedAtCap: boolean; lastSlot: number },
+    ) {
+      stats.requests++; stats.blocks++; stats.lastSlot = 700;
+      yield [makeBlock(700)];
+    });
+    return { head: vi.fn().mockResolvedValue(500_000), currentHeight: vi.fn().mockResolvedValue(500_000), stream: streamMock, lastBlockReceivedAt: 0 } as unknown as SqdClient;
+  }
+
+  it("throws when the durable cursor write returns false twice", async () => {
+    const syncStatus = vi.fn().mockResolvedValue(false);
+    const deps: SqdLoaderDeps = {
+      client: makeOkClient(),
+      members: vi.fn().mockResolvedValue([MINT_A]),
+      cursorSlot: vi.fn().mockResolvedValue(0),
+      knownMints: vi.fn().mockResolvedValue([]),
+      upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
+      syncStatus: syncStatus as unknown as SqdLoaderDeps["syncStatus"],
+      log: () => {},
+    };
+    await expect(runSqdLoader({ collectionKey: "pythians", fromSlot: 0 }, deps)).rejects.toThrow(/CURSOR WRITE FAILED/);
+    expect(syncStatus).toHaveBeenCalledTimes(2); // one retry
+  });
+
+  it("retry succeeding on attempt 2 completes the run", async () => {
+    const syncStatus = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const deps: SqdLoaderDeps = {
+      client: makeOkClient(),
+      members: vi.fn().mockResolvedValue([MINT_A]),
+      cursorSlot: vi.fn().mockResolvedValue(0),
+      knownMints: vi.fn().mockResolvedValue([]),
+      upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
+      syncStatus: syncStatus as unknown as SqdLoaderDeps["syncStatus"],
+      log: () => {},
+    };
+    const result = await runSqdLoader({ collectionKey: "pythians", fromSlot: 0 }, deps);
+    expect(result.lastSlot).toBe(700);
+    expect(syncStatus).toHaveBeenCalledTimes(2);
+  });
+});
