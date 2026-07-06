@@ -151,4 +151,18 @@ describe("sprint-bug-189 — order-independent net custody + seenMints on ambigu
     expect(events.filter((e) => e.kind === "transfer" && e.from === null)).toHaveLength(0);
     expect(ambiguousGroups).toBe(1);
   });
+
+  it("1:1 transfer with null preOwner endpoint → ambiguous, not from:null (dissent iter-2)", () => {
+    const nullLose = { ...losing, preOwner: null };
+    const { events, ambiguousGroups } = decodeSqdBlocks([block([nullLose, gaining])], MEMBERS, new Set([MINT]));
+    expect(events).toHaveLength(0);
+    expect(ambiguousGroups).toBe(1);
+  });
+
+  it("1:1 transfer with null postOwner endpoint → ambiguous, not to:null (dissent iter-2)", () => {
+    const nullGain = { ...gaining, postOwner: null };
+    const { events, ambiguousGroups } = decodeSqdBlocks([block([losing, nullGain])], MEMBERS, new Set([MINT]));
+    expect(events).toHaveLength(0);
+    expect(ambiguousGroups).toBe(1);
+  });
 });

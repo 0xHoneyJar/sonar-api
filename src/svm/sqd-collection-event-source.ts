@@ -169,6 +169,14 @@ export function decodeSqdBlocks(
       let from: string | null;
       let to: string | null;
       if (losing.length === 1 && gaining.length === 1) {
+        // Dissent iter-2: a transfer needs BOTH endpoints — null owner rows carry no
+        // custody information on the 1:1 path either; emitting from/to:null here would
+        // fabricate an unsourced transfer.
+        if (losing[0].preOwner === null || gaining[0].postOwner === null) {
+          seenMints.add(mint);
+          ambiguousGroups++;
+          continue;
+        }
         kind = "transfer";
         from = losing[0].preOwner;
         to = gaining[0].postOwner;
