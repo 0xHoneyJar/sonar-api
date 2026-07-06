@@ -36,6 +36,9 @@ concurrency:
   group: activation-regression-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   svm-unit-tests:
     name: SVM SQD Unit Tests (cursor · kill-switch · auth · §4.5)

@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["src/svm/**/*.ts", "test/sqd-*.ts", "test/fixtures/*.json", "scripts/generate-pythians-fixture.ts"]
+  "include": ["src/svm/**/*.ts", "test/sqd-*.ts", "test/fixtures/*.ts", "test/fixtures/*.json"]
 }
