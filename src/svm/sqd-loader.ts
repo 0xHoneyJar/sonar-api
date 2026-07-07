@@ -46,13 +46,17 @@ export async function fetchCursorSlot(collectionKey: string): Promise<number | n
     `query CU($k: String!) { svm_sync_status(where: {collection_key: {_eq: $k}}) { sqd_cursor_slot } }`,
     { k: collectionKey },
   ).catch(() => null);
+  // Hasura returns BIGINT columns as strings when HASURA_GRAPHQL_STRINGIFY_NUMERIC_TYPES
+  // is set (belt has it on), so both cursor sources arrive as strings — coerce to Number
+  // or the loader's from-slot is a string and partitionSlotRange throws "must be integers".
   const durable = c?.svm_sync_status?.[0]?.sqd_cursor_slot;
-  if (durable !== null && durable !== undefined) return durable;
+  if (durable !== null && durable !== undefined) return Number(durable);
   const d = await hasura<{ svm_collection_event: Array<{ slot: number }> }>(
     `query C($k: String!) { svm_collection_event(where: {collection_key: {_eq: $k}, source: {_eq: "sqd-stream"}}, order_by: {slot: desc}, limit: 1) { slot } }`,
     { k: collectionKey },
   );
-  return d.svm_collection_event?.[0]?.slot ?? null;
+  const maxSlot = d.svm_collection_event?.[0]?.slot;
+  return maxSlot !== null && maxSlot !== undefined ? Number(maxSlot) : null;
 }
 
 export async function fetchKnownMints(collectionKey: string): Promise<string[]> {
