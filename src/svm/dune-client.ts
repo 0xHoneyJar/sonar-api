@@ -41,11 +41,22 @@ export class DuneClient {
 
   private async request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
     for (let attempt = 0; ; attempt++) {
-      const res = await fetch(`${API_BASE}${path}`, {
-        method,
-        headers: { "X-Dune-API-Key": this.apiKey, "Content-Type": "application/json" },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
+      let res: Response;
+      try {
+        res = await fetch(`${API_BASE}${path}`, {
+          method,
+          headers: { "X-Dune-API-Key": this.apiKey, "Content-Type": "application/json" },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+      } catch (e) {
+        // Network-level throw (undici "fetch failed": ECONNRESET/socket reset/DNS) — NOT an HTTP
+        // status, so the status checks below never see it. Over a multi-window backfill a single
+        // transient blip must not kill the whole collection (it did: smb_gen2/y00ts FATAL'd here).
+        // Retry with the same backoff as 429/5xx.
+        if (attempt >= MAX_RETRIES) throw new Error(`dune ${path}: network fetch failed after ${attempt} retries: ${e instanceof Error ? e.message : String(e)}`);
+        await sleep(Math.min(2 ** attempt * 1000, RETRY_CAP_MS));
+        continue;
+      }
       if (res.status === 429 || res.status >= 500) {
         if (attempt >= MAX_RETRIES) {
           // NOTE: error message carries path only — never the key (it lives in a header, and
