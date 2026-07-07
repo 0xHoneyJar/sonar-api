@@ -63,16 +63,17 @@ _make_kf_fixture() {
   echo "$f"
 }
 
-@test "TEST-1: generated INDEX.md kf section lists all 20 ## KF- headings" {
+@test "TEST-1: generated INDEX.md kf section lists all 21 ## KF- headings" {
   run bash "$GEN" --json
   [ "$status" -eq 0 ]
   local heads gen
   heads=$(grep -cE '^## KF-[0-9]+:' "$KF")
   gen=$(echo "$output" | jq -r '.counts.kf')
-  [ "$heads" -eq 20 ]
+  [ "$heads" -eq 21 ]
   [ "$gen" -eq "$heads" ]
-  # spot-check that the previously-missing ids are present
-  for id in KF-009 KF-016 KF-017 KF-018 KF-019 KF-020; do
+  # spot-check that the previously-missing ids are present (KF-021 added by
+  # cycle-117 item G, bd-c117-g-update-loa-e638)
+  for id in KF-009 KF-016 KF-017 KF-018 KF-019 KF-020 KF-021; do
     echo "$output" | jq -e --arg i "$id" '.families.kf[] | select(.id==$i)' >/dev/null
   done
 }
@@ -115,8 +116,14 @@ _make_kf_fixture() {
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 
-  # (b) no config at all → treated as disabled → silent, exit 0
-  run env LOA_KF_SURFACE_TEST_MODE=1 LOA_KF_SURFACE_TEST_CONFIG="" bash "$HOOK"
+  # (b) no config file at all → real-config resolution defaults to disabled →
+  #     silent, exit 0. Run from a hermetic temp tree (no .loa.config.yaml) so
+  #     this does not depend on the repo's own (now-enabled) config; an empty
+  #     LOA_KF_SURFACE_TEST_CONFIG falls through to the real yq resolution.
+  local ndir; ndir="$(mktemp -d)"
+  mkdir -p "$ndir/.claude/hooks"
+  cp "$HOOK" "$ndir/.claude/hooks/loa-kf-surface.sh"
+  run env LOA_KF_SURFACE_TEST_MODE=1 LOA_KF_SURFACE_TEST_CONFIG="" bash "$ndir/.claude/hooks/loa-kf-surface.sh"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 
@@ -145,6 +152,23 @@ _make_kf_fixture() {
   run bash "$GEN" --json; [ "$status" -eq 0 ]
   local b; b="$(echo "$output" | jq -S '.families.kf')"
   [ "$a" = "$b" ]
+}
+
+@test "TEST-8: enabled healthy hook routes the table to STDOUT (SessionStart context), not stderr" {
+  # SessionStart injects a hook's STDOUT (exit 0) into context; stderr is
+  # transcript-only. The KF surface is useless out-of-context, so the healthy
+  # table MUST land on stdout.
+  local out err
+  out="$(env LOA_KF_SURFACE_TEST_MODE=1 LOA_KF_SURFACE_TEST_CONFIG="true" bash "$HOOK" 2>/dev/null)"
+  [ -n "$out" ]
+  [[ "$out" == *"KF-"* ]]
+  # stderr must now be empty on the healthy path (routing moved to stdout)
+  err="$(env LOA_KF_SURFACE_TEST_MODE=1 LOA_KF_SURFACE_TEST_CONFIG="true" bash "$HOOK" 2>&1 1>/dev/null)"
+  [ -z "$err" ]
+  # byte-deterministic across two runs (same stdout)
+  local out2
+  out2="$(env LOA_KF_SURFACE_TEST_MODE=1 LOA_KF_SURFACE_TEST_CONFIG="true" bash "$HOOK" 2>/dev/null)"
+  [ "$out" = "$out2" ]
 }
 
 @test "TEST-7: hook output is control-byte sanitized (untrusted body never interpreted)" {
