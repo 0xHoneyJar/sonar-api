@@ -35,7 +35,7 @@ canary runs on the *existing* `sqd-loader.ts` (Strategy A) — it never needed t
 | R1 | Envio HyperSync-Solana genesis coverage insufficient for the canary mints (GATE-1) | MED | high | **HIGH** | **RETIRED** — CYCLE 1 NO-GO: NXDOMAIN endpoint + rolling floor 391.79M > all canary eras. Envio eliminated; SQD is the lake. |
 | R2 | Envio decode parity — adapter can't reproduce the §4.5 reference (GATE-2) | MED | medium | MED | **MOOT/PROVEN** — SQD 1767/1767 live; no Envio lake to compare. bd-9jdy optional. |
 | R3 | resource fit — density-wall recurs, KF-015 OOM, or won't co-locate (GATE-3) | LOW-MED | medium | MED | **RETIRED** — CYCLE 3 measured: seq density wall real (5–10 d), Strategy B refuted, escape = parallel range-partition (validated + **BUILT**: src/svm/sqd-parallel-loader.ts, ~6–12 h/coll). RAM/storage non-binding. |
-| R4 | schema drift onto the existing PK (GATE-4) | LOW | low | LOW | CYCLE 4 |
+| R4 | schema drift onto the existing PK (GATE-4) | LOW | low | LOW | **RETIRED** — CYCLE 4 GATE-4 PASS (measured, scratch Railway PG): 0 collisions, idempotent, 0 clobbers. `source=sqd-stream`, cursor reuses `sqd_cursor_slot`. No new migration. |
 | R5 | Envio-vs-SQD **ops convenience** | HIGH | low | LOW | tie-breaker only |
 | — | Envio-vs-SQD **cost** | — | — | — | **ZERO — identical curves; measured elsewhere** |
 
