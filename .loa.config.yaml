@@ -1960,6 +1960,31 @@ bridgebuilder:
   persona_path: ".claude/data/bridgebuilder-persona.md"
 
 # =============================================================================
+# Advisor-strategy routing (cycle-108/116/120) — enabled 2026-07-07 (operator directive:
+# "Fable orchestrating; Sonnet/Haiku executing mechanical work"; pattern = loa#1191).
+# Advisor = Fable (orchestrate/judge PRD·SDD·sprint·review·audit); Executor = Sonnet-5
+# (mechanical implementation). NFR-Sec1: review/audit are HARD-PINNED to advisor by the
+# loader (advisor_strategy.py) — implementation:executor never demotes a verdict-bearing role.
+# claude-sonnet-5 is a resolvable bare alias (cycle-120 C-D2) so this avoids the "Unknown alias" trap.
+# =============================================================================
+advisor_strategy:
+  schema_version: 2
+  enabled: true
+  tier_resolution: static
+  defaults:
+    planning: advisor          # PRD/SDD/sprint framing → Fable (orchestrator)
+    review: advisor            # NFR-Sec1 hard-pin (loader-enforced)
+    audit: advisor             # NFR-Sec1 hard-pin (loader-enforced)
+    implementation: executor   # mechanical code/tests → Sonnet-5
+  tier_aliases:
+    advisor:
+      anthropic: claude-fable-5
+    executor:
+      anthropic: claude-sonnet-5
+  per_skill_overrides: {}
+  audited_review_skills: []
+
+# =============================================================================
 # Spiral — enabled 2026-07-05 (operator /goal "keep spiraling" · seed-001)
 # Caps ratified in grimoires/loa/specs/spiral-seed-001-sqd-live-tail.md
 # =============================================================================
