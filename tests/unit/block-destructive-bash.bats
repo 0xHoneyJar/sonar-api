@@ -550,6 +550,36 @@ hook_invoke() {
     [[ "$output" =~ "FR-2" ]]
 }
 
+# cycle-119 lead-review catch: find accepts MULTIPLE start paths. A first-
+# root-only capture allowed `find ./build /etc -exec rm -rf {} +` (the /etc
+# start point was invisible to classification). Eligibility now requires
+# EXACTLY ONE root via token-walk; these pin the multi-root attack shapes.
+
+@test "C15 multi-root MUST-BLOCK: find ./build /etc -exec rm -rf {} + (second root dangerous)" {
+    run hook_invoke "find ./build /etc -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+}
+
+@test "C15 multi-root MUST-BLOCK: find ./build ~/other -exec rm -rf {} + (tilde second root)" {
+    run hook_invoke "find ./build ~/other -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+}
+
+@test "C15 multi-root MUST-BLOCK: find ./build \$X -exec rm -rf {} + (dollar second root)" {
+    run hook_invoke 'find ./build $X -exec rm -rf {} +'
+    [ "$status" -eq 2 ]
+}
+
+@test "C15 single-root with primaries+args still allowed: find ./build -name '*.o' -exec rm -rf {} +" {
+    run hook_invoke "find ./build -name '*.o' -exec rm -rf {} +"
+    [ "$status" -eq 0 ]
+}
+
+@test "C15 zero-root MUST-BLOCK: find -name '*.o' -exec rm -rf {} + (GNU default-dot root, ineligible)" {
+    run hook_invoke "find -name '*.o' -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+}
+
 # =============================================================================
 # Group D — fail-open tests (FR-3 / NFR-3)
 # =============================================================================

@@ -767,13 +767,17 @@ if [[ "$command" == *"rm"* && "$command" == *"-"* ]] \
   # C15/cycle-119: matches the text immediately preceding an rm segment
   # (bounded to the SAME statement, via the identical boundary-alternation
   # style used by every other pattern in this file) when it is a
-  # `find ROOT ... -exec` prefix. `$`-anchored: nothing may sit between
+  # `find <span> -exec` prefix. `$`-anchored: nothing may sit between
   # `-exec` and this rm invocation (sudo / an absolute /path/to/rm are
   # consumed by the rm_segment extraction itself, not this prefix). Group 3
-  # is the FIND ROOT. Scope: the root token is `find`'s FIRST argument —
-  # `find -L root -exec ...` (flags before root) is not covered and keeps
-  # today's conservative behavior (documented gap, not a fixture requirement).
-  _re_find_exec_prefix='(^|/|;|&&|\||[[:space:]]|\(|'"'"'|")[[:space:]]*(sudo[[:space:]]+)?find[[:space:]]+([^;&|)[:space:]]+)[^;&|)]*-exec$'
+  # is the FULL span between `find` and `-exec`; a token-walk below extracts
+  # the start-point roots from it — find accepts MULTIPLE start paths, so a
+  # single-token regex capture would classify only the first root and
+  # silently allow `find ./build /etc -exec ...` (lead-review catch,
+  # cycle-119). Eligibility requires EXACTLY ONE root; zero roots (GNU
+  # default `.`, or flags-before-root like `find -L root`) and multi-root
+  # shapes stay conservative-blocked.
+  _re_find_exec_prefix='(^|/|;|&&|\||[[:space:]]|\(|'"'"'|")[[:space:]]*(sudo[[:space:]]+)?find[[:space:]]+([^;&|)]*)-exec$'
   # Left-to-right cursor over _fr2_cmd so repeated identical rm segments each
   # resolve against THEIR OWN preceding text, not the first occurrence's.
   _fr2_remaining="$_fr2_cmd"
@@ -804,7 +808,19 @@ if [[ "$command" == *"rm"* && "$command" == *"-"* ]] \
     _fr2_remaining="${_fr2_remaining#*"$rm_segment"}"
     _seg_find_root=""
     if [[ "$_seg_prefix" =~ $_re_find_exec_prefix ]]; then
-      _seg_find_root="${BASH_REMATCH[3]}"
+      # Token-walk the find span: start-point roots are the LEADING tokens up
+      # to the first primary/flag/paren token (-*, !, (, ), \-escaped).
+      # Exactly one root => eligible; zero or many => _seg_find_root stays
+      # empty and the segment falls to the untouched conservative ladder.
+      read -r -a _find_span_toks <<<"${BASH_REMATCH[3]}"
+      _find_root_count=0
+      for _ftok in ${_find_span_toks[@]+"${_find_span_toks[@]}"}; do
+        case "$_ftok" in
+          -*|'!'*|'('*|')'*|'\'*) break ;;
+          *) _find_root_count=$((_find_root_count + 1)); _seg_find_root="$_ftok" ;;
+        esac
+      done
+      [[ "$_find_root_count" -ne 1 ]] && _seg_find_root=""
     fi
 
     rm_args_raw="${rm_segment#*rm}"
