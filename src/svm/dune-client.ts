@@ -65,12 +65,17 @@ export class DuneClient {
     }
   }
 
-  /** Execute a saved query with parameters. Returns the execution handle. */
-  async executeQuery(queryId: number, params: DuneParams = {}, performance: "medium" | "large" = "medium"): Promise<DuneExecution> {
-    const d = await this.request<{ execution_id: string }>("POST", `/query/${queryId}/execute`, {
-      query_parameters: params,
-      performance,
-    });
+  /**
+   * Execute a saved query with parameters. Returns the execution handle.
+   * `performance` omitted → Dune's free "community" engine (required on the Free plan, which
+   * rejects "medium"/"large" with HTTP 400 "Invalid performance tier"). Pass "medium"/"large"
+   * only on a paid plan. Defaults to the free engine via env DUNE_PERFORMANCE (unset = community).
+   */
+  async executeQuery(queryId: number, params: DuneParams = {}, performance?: "medium" | "large"): Promise<DuneExecution> {
+    const tier = performance ?? (process.env.DUNE_PERFORMANCE as "medium" | "large" | undefined);
+    const body: Record<string, unknown> = { query_parameters: params };
+    if (tier) body.performance = tier; // absent => free community engine
+    const d = await this.request<{ execution_id: string }>("POST", `/query/${queryId}/execute`, body);
     return { executionId: d.execution_id };
   }
 
