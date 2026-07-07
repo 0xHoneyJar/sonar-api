@@ -124,7 +124,10 @@ If rollback trigger fires:
 
 ### Why not auto-swap
 
-Envio managed deployments don't have built-in alias swap. Until a stable consumer alias is wired up (Guardrail 5), env-var swap is the operator-controlled cutover. **Guardrail 5 is a precondition for safe blue-green at scale.** See [Decision Log D2](#decision-log-operator-pair-points).
+Envio managed deployments don't have built-in alias swap. **Guardrail 5 has since LANDED** as the
+Caddy `belt-gateway` (`$BELT_UPSTREAM`, sole-writer `scripts/promote.sh`) — the gated `caddy reload`
+swap replaces the manual env-var flip described here. **Guardrail 5 is a precondition for safe
+blue-green at scale**, and it is now met (SDD §7.4). See [Decision Log D2](#decision-log-operator-pair-points).
 
 ---
 
@@ -300,6 +303,13 @@ If both are empty after the deployment has caught up to head, the handler is not
 
 ## Guardrail 5 — Stable Consumer Alias
 
+> **STATUS: LANDED (2026-07-06, S1-T3).** The stable alias is the **Caddy `belt-gateway`** — it
+> exposes the immutable public URL and reverse-proxies `$BELT_UPSTREAM`, mutated ONLY by
+> `scripts/promote.sh` (sole writer, non-skippable `promotion-gate.js`). This IS Guardrail 5; the
+> "not yet wired / choose active.json vs CNAME vs Worker" language below is superseded. Authoritative
+> cutover procedure: **SDD §7.4** (`grimoires/loa/sdd.md`), Option B (graceful `caddy reload`) / C
+> (≥2 replicas). Split-brain (SKP-001) is retired by the sole-writer + fail-closed gate.
+
 **Rule**: Consumers should never hardcode `https://indexer.hyperindex.xyz/<DID>/...`. Use a stable alias the operator controls.
 
 ### Current state (2026-05-04)
@@ -338,7 +348,7 @@ Each consumer fetches this on boot (or every N minutes) and uses the resulting e
 These need explicit operator answers before they're closed:
 
 - [ ] **D1**: Should `914708e` be formally deprecated, kept as blue-green pair, or unified with `b5da47c`? *Until decided, `b5da47c` is authoritative production per the Authoritative Production Deployment note above.*
-- [ ] **D2 (HIGH PRIORITY — flatline-flagged)**: Implement Guardrail 5 (stable consumer alias). The `active.json` file approach is a low-effort starting point that mitigates split-brain risk before the next blue-green cycle. Choose: DNS+CNAME, Cloudflare Worker, or `active.json`.
+- [x] **D2 (LANDED 2026-07-06, S1-T3)**: Guardrail 5 (stable consumer alias) is implemented as the Caddy `belt-gateway` (`$BELT_UPSTREAM`, sole-writer `scripts/promote.sh` + non-skippable `promotion-gate.js`). The `active.json`/CNAME/Worker options are moot — the reverse-proxy alias is the chosen mechanism. Authoritative cutover: SDD §7.4.
 - [ ] **D3**: Wire alert channel for Guardrail 2 SLO breaches — Discord webhook / GitHub Action issue / Slack? **MUST** run from a managed environment (NOT a developer laptop — see Guardrail 2 alert wiring).
 - [ ] **D4 (RECOMMENDED — multiple optimization cycles converge here)**: Per-chain deployment split is the **structural fix** for the indexer's bottleneck. Cumulative evidence: V3 migration, HyperSync, per-source `start_block` tightening, and other config-side optimizations have all produced negligible UX improvements. The single deployment indexing 6 chains is the architecture that forces full reindex on every contract addition. Tradeoff: operational complexity (6 deployments instead of 1, multiple GraphQL endpoints to manage) vs blast-radius reduction (Berachain contract addition only triggers Berachain reindex). **This deserves its own kickoff cycle.**
 - [ ] **D5**: Should `CODEOWNERS` enforce zerker review on `config.yaml` and `schema.graphql`? Without enforcement the source-addition checklist will drift into convention rather than gate.
