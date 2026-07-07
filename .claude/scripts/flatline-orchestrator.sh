@@ -754,7 +754,12 @@ call_model() {
         if [[ "$mode" == "score" ]] && is_stage_routing_scorer_enabled; then
             args+=(--role implementation --skill flatline-scorer)
         else
-            args+=(--model "$model_override")
+            # cycle-119 C16 (model-economy D-6): --skill is a pre-existing
+            # cheval arg (cycle-108 T1.H) threaded into the MODELINV envelope
+            # as calling_primitive (cheval.py:1562,2126). Passing it here ends
+            # the 100%-(unattributed) state of the economy roll-up for every
+            # flatline dispatch. Additive: --model pin is unchanged.
+            args+=(--model "$model_override" --skill "flatline-${mode}")
         fi
         args+=(
             --output-format json
