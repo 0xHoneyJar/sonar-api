@@ -1978,7 +1978,11 @@ advisor_strategy:
     implementation: executor   # mechanical code/tests → Sonnet-5
   tier_aliases:
     advisor:
-      anthropic: claude-fable-5
+      # Intended advisor = claude-fable-5 (operator directive "Fable orchestrating"), but Fable 5
+      # hit its usage limit 2026-07-07 (workflow design agent errored: "reached your Fable 5 limit").
+      # Using Opus 4.8 as the advisor until Fable credits top up (/usage-credits), then switch back.
+      # NFR-Sec1 review/audit resolve to this tier — Opus 4.8 is a strong judge.
+      anthropic: claude-opus-4-8
     executor:
       anthropic: claude-sonnet-5
   per_skill_overrides: {}
