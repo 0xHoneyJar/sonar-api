@@ -2,13 +2,20 @@
 name: translate
 description: Translate technical documentation into executive-ready communications
 role: implementation
-allowed-tools: Read, Grep, Glob, Write
+# cycle-120 audit: Phase 5.5 runs validate-artifact.sh as a MUST gate, so the
+# skill needs scoped Bash to it — without this the gate prompts (or, per
+# skill-invariants.md, silently cannot fire). Scoped to the one script only.
+allowed-tools: Read, Grep, Glob, Write, Bash(.claude/scripts/validate-artifact.sh *)
 capabilities:
   schema_version: 1
   read_files: true
   search_code: true
   write_files: true
-  execute_commands: false
+  execute_commands:
+    allowed:
+      - command: ".claude/scripts/validate-artifact.sh"
+        args: ["*"]
+    deny_raw_shell: true
   web_access: false
   user_interaction: false
   agent_spawn: false

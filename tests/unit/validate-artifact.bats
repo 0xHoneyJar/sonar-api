@@ -452,3 +452,19 @@ EOF
     [ "$status" -eq 1 ]
     [[ "$output" == *"CITATION UNRESOLVED"* ]]
 }
+
+@test "validate-artifact translation: caps an over-2000-char line without hanging (cycle-120 R2)" {
+    # A single very long path-dense line used to make the incremental citation
+    # scan superlinear and hang the MUST gate. It must now be capped (WARN +
+    # skip) and complete in bounded time.
+    mkdir -p "${TEST_TMPDIR}/root/grimoires/loa"
+    printf 'line1\nline2\n' > "${TEST_TMPDIR}/root/grimoires/loa/drift-report.md"
+    {
+        printf '# T\n'
+        printf 'path/to/some/very/long/segment.md %.0s' $(seq 1 400)   # ~2600 chars, one line
+        printf '\nDrift confirmed (drift-report.md:L2).\n'
+    } > "${TEST_TMPDIR}/longline.md"
+    PROJECT_ROOT="${TEST_TMPDIR}/root" run timeout 10 "$SCRIPT" --type translation --file "${TEST_TMPDIR}/longline.md"
+    [ "$status" -ne 124 ]                       # not a timeout
+    [[ "$output" == *"exceeds 2000 chars"* ]]   # the cap fired with its WARN
+}

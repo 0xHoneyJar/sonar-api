@@ -274,6 +274,22 @@ EOF
     [ "$status" -eq 0 ]
 }
 
+@test "evidence: verify_verdict fails closed when verdict-derive.sh is unavailable (cycle-120 R2)" {
+    # A trailer is PRESENT but verdict-derive.sh is unavailable (test-only path
+    # override points at a nonexistent script): must fail closed
+    # (VERDICT_DERIVE_UNAVAILABLE), NOT silently degrade to the legacy prose
+    # heuristic (which would pass this APPROVED-with-high trailer).
+    _init_flight_recorder "$TEST_TMPDIR/cycle-test"
+    cat > "$TEST_TMPDIR/feedback.md" <<'EOF'
+All good
+<!-- LOA-VERDICT {"gate":"review","verdict":"APPROVED","counts":{"critical":0,"high":2,"medium":0,"low":0},"sprint_id":"sprint-1","ts":"2026-07-07T00:00:00Z"} -->
+EOF
+    LOA_VERDICT_DERIVE_SCRIPT="$TEST_TMPDIR/does-not-exist.sh" \
+        run _verify_review_verdict "REVIEW" "$TEST_TMPDIR/feedback.md"
+    [ "$status" -eq 1 ]
+    grep -q "FAIL:VERDICT_DERIVE_UNAVAILABLE" "$TEST_TMPDIR/cycle-test/flight-recorder.jsonl"
+}
+
 # =============================================================================
 # Cost Tracking
 # =============================================================================

@@ -198,7 +198,9 @@ _verify_review_verdict() {
     # for the audit gate and "REVIEW" for the review gate (spiral-harness.sh
     # :655/676) — anything not literally "AUDIT" maps to "review".
     local _verdict_derive_script
-    _verdict_derive_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/verdict-derive.sh"
+    # Path override is test-only (bats exercising the unavailable path); prod
+    # resolves it beside this library.
+    _verdict_derive_script="${LOA_VERDICT_DERIVE_SCRIPT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/verdict-derive.sh}"
     if grep -q '<!-- LOA-VERDICT ' "$feedback" 2>/dev/null; then
         # R2 review (cycle-120): a trailer is PRESENT, so the caller expects the
         # structured consistency check. If verdict-derive.sh is missing or lost
