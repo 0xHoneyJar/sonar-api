@@ -42,7 +42,9 @@ export const TRACKED_ERC721_COLLECTION_KEYS: Record<string, string> = {
   // NOTE: puru collections are ERC-1155 (party.app), handled by PuruApiculture1155 handler
 
   // ===== COMMUNITY — Azuki (promoted from kitchen E2E to a real community 2026-07-07; #382 key decision) =====
-  "0xed5af388653567af2f388e6224dcc93746104133": "azuki",
+  // Canonical Azuki contract (verified Etherscan). The #382 order fixture carried a corrupted
+  // address (0x…dcc93746104133) → 0 events; this is the real one.
+  "0xed5af388653567af2f388e6224dc7c4b3241c544": "azuki",
 
   // ===== BASE — COMMUNITY ONBOARDING BATCH 1 (top-10 ramp, #121) =====
   // 8 ERC-721s on Base (8453); the batch's 2 ERC-1155s (BasePaint, Parallel Planetfall)
