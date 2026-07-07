@@ -23,18 +23,24 @@ describe("verify-belt-config", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("covers all 16 belt contracts across 4 chains (multi-chain footprint)", () => {
+  it("covers all belt contracts across 4 chains (multi-chain footprint)", () => {
     const names = new Set(BELT_CONTRACTS.map((c) => c.name));
     const chains = new Set(BELT_CONTRACTS.map((c) => c.chainId));
-    expect(names.size).toBe(15); // 15 distinct names — TrackedErc721 appears on 4 chains
-    expect(BELT_CONTRACTS.length).toBe(18); // +TrackedErc721@8453 (#124 Base batch — count missed in that PR's targeted test run)
+    expect(names.size).toBe(16); // +EthTrackedErc721 (dedicated chain-1 Azuki, #120 fix)
+    expect(BELT_CONTRACTS.length).toBe(18); // 18 entries — chain-1 TrackedErc721 renamed to EthTrackedErc721
     expect([...chains].sort((a, b) => a - b)).toEqual([1, 10, 8453, 80094]);
-    // TrackedErc721 is referenced on Ethereum (Azuki), Optimism (lore), Base (#124 batch-1), and Berachain (fractures).
+    // Shared TrackedErc721 spans OP(lore) + Base(#124 batch) + Berachain(fractures); chain-1 Azuki is the
+    // dedicated EthTrackedErc721 (envio #120 single-address fetch gap).
     expect(
       BELT_CONTRACTS.filter((c) => c.name === "TrackedErc721")
         .map((c) => c.chainId)
         .sort((a, b) => a - b),
-    ).toEqual([1, 10, 8453, 80094]);
+    ).toEqual([10, 8453, 80094]);
+    expect(
+      BELT_CONTRACTS.filter((c) => c.name === "EthTrackedErc721").map(
+        (c) => c.chainId,
+      ),
+    ).toEqual([1]);
     expect(BELT_CHAIN_ID).toBe(80094); // back-compat export
   });
 
@@ -64,7 +70,10 @@ describe("verify-belt-config", () => {
   });
 
   it("fails when a start_block is wrong", () => {
-    const broken = beltText.replace("start_block: 3971122", "start_block: 9999999");
+    const broken = beltText.replace(
+      "start_block: 3971122",
+      "start_block: 9999999",
+    );
     expect(broken).not.toBe(beltText);
     const result = verifyBeltConfig({
       beltConfigText: broken,
@@ -133,7 +142,10 @@ describe("verify-belt-config", () => {
       const beltRef = extractChainContractRef(beltText, chainId, name);
       const monoRef = extractChainContractRef(monoText, chainId, name);
       expect(beltRef, `${name} ref on chain ${chainId} in belt`).not.toBeNull();
-      expect(monoRef, `${name} ref on chain ${chainId} in monolith`).not.toBeNull();
+      expect(
+        monoRef,
+        `${name} ref on chain ${chainId} in monolith`,
+      ).not.toBeNull();
       expect(beltRef).toEqual(monoRef);
     }
   });

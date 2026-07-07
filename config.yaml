@@ -125,6 +125,17 @@ contracts:
         field_selection:
           transaction_fields:
             - hash
+  # Dedicated ETH ERC721 tracker — envio #120 fix (sprint-bug-192): a single-address entry in the
+  # shared multi-chain TrackedErc721 is not fetched on chain 1 (Base multi-address works; Milady, a
+  # dedicated single-address contract on chain 1, works). A dedicated contract closes the gap. Same
+  # Transfer ABI + handler as TrackedErc721.
+  - name: EthTrackedErc721
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
   # General ERC721 mint tracking (mint events only)
   - name: GeneralMints
     handler: src/EventHandlers.ts
@@ -590,10 +601,10 @@ chains:
       - name: MiladyCollection
         address:
           - 0x5af0d9827e0c53e4799bb226655a1de152a425a5 # Milady Maker
-      # Community onboarding — Azuki (kitchen order 6ddc06f5)
-      - name: TrackedErc721
+      # Community — Azuki (real community; dedicated contract per envio #120 single-address fetch gap)
+      - name: EthTrackedErc721
         address:
-          - 0xed5af388653567af2f388e6224dcc93746104133 # azuki_kitchen_e2e
+          - 0xed5af388653567af2f388e6224dcc93746104133 # azuki
         start_block: 14162194 # Azuki collection deployment
 
   # Arbitrum

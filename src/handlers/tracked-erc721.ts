@@ -21,169 +21,197 @@ const ZERO = ZERO_ADDRESS.toLowerCase();
 // Mibera NFT contract address (lowercase)
 const MIBERA_CONTRACT = "0x6666397dfe9a8c469bf65dc744cb1c733416c420";
 
-indexer.onEvent(
-  { contract: "TrackedErc721", event: "Transfer" },
-  async ({ event, context }) => {
-    const contractAddress = event.srcAddress.toLowerCase();
-    const collectionKey =
-      TRACKED_ERC721_COLLECTION_KEYS[contractAddress] ?? contractAddress;
-    const from = event.params.from.toLowerCase();
-    const to = event.params.to.toLowerCase();
-    const tokenId = event.params.tokenId;
-    const chainId = event.chainId;
-    const txHash = event.transaction.hash;
-    const logIndex = Number(event.logIndex);
-    const timestamp = BigInt(event.block.timestamp);
-    const blockNumber = BigInt(event.block.number);
+/** Structural shape of the Transfer event shared by TrackedErc721 + EthTrackedErc721 (identical ABI).
+ *  Kept structural (not an envio per-contract event type) so ONE handler serves both registrations. */
+type TrackedErc721TransferEvent = {
+  srcAddress: string;
+  chainId: number;
+  logIndex: number | bigint;
+  params: { from: string; to: string; tokenId: bigint };
+  transaction: { hash: string };
+  block: { timestamp: number | bigint; number: number | bigint };
+};
 
-    // Preload: prime holder reads for from and to
-    if (from !== ZERO && to !== ZERO) {
-      const fromId = `${contractAddress}_${chainId}_${from}`;
-      const toId = `${contractAddress}_${chainId}_${to}`;
-      await Promise.all([
-        context.TrackedHolder.get(fromId),
-        context.TrackedHolder.get(toId),
-      ]);
-    }
+/**
+ * Shared Transfer handler. Registered below for the multi-chain `TrackedErc721` (OP/Base/Berachain)
+ * AND the dedicated `EthTrackedErc721` (chain 1, Azuki). The dedicated ETH contract exists because
+ * envio 3.2.1 does not fetch a single-address entry in the shared multi-chain contract on chain 1
+ * (#120 / sprint-bug-192) — a dedicated contract closes the gap (Milady, a dedicated single-address
+ * ETH contract, indexes fine). Exported so the mibera belt entry can mark it imported.
+ */
+export async function handleTrackedErc721Transfer(
+  event: TrackedErc721TransferEvent,
+  context: EvmOnEventContext,
+): Promise<void> {
+  const contractAddress = event.srcAddress.toLowerCase();
+  const collectionKey =
+    TRACKED_ERC721_COLLECTION_KEYS[contractAddress] ?? contractAddress;
+  const from = event.params.from.toLowerCase();
+  const to = event.params.to.toLowerCase();
+  const tokenId = event.params.tokenId;
+  const chainId = event.chainId;
+  const txHash = event.transaction.hash;
+  const logIndex = Number(event.logIndex);
+  const timestamp = BigInt(event.block.timestamp);
+  const blockNumber = BigInt(event.block.number);
 
-    // Skip writes during preload
-    if ((context as any).isPreload) return;
+  // Preload: prime holder reads for from and to
+  if (from !== ZERO && to !== ZERO) {
+    const fromId = `${contractAddress}_${chainId}_${from}`;
+    const toId = `${contractAddress}_${chainId}_${to}`;
+    await Promise.all([
+      context.TrackedHolder.get(fromId),
+      context.TrackedHolder.get(toId),
+    ]);
+  }
 
-    // If this is a mint (from zero address), also create a mint action
-    if (from === ZERO) {
-      const mintActionId = `${txHash}_${logIndex}`;
-      recordAction(context, {
-        id: mintActionId,
-        actionType: "mint",
-        actor: to,
-        primaryCollection: collectionKey.toLowerCase(),
-        timestamp,
-        chainId,
-        txHash,
-        logIndex,
-        numeric1: 1n,
-        context: {
-          tokenId: tokenId.toString(),
-          contract: contractAddress,
-        },
-      });
-    }
+  // Skip writes during preload
+  if ((context as any).isPreload) return;
 
-    // If this is a burn (to zero or dead address), create a burn action
-    if (isBurnAddress(to) && from !== ZERO) {
-      const burnActionId = `${txHash}_${logIndex}_burn`;
-      recordAction(context, {
-        id: burnActionId,
-        actionType: "burn",
-        actor: from,
-        primaryCollection: collectionKey.toLowerCase(),
-        timestamp,
-        chainId,
-        txHash,
-        logIndex,
-        numeric1: 1n,
-        context: {
-          tokenId: tokenId.toString(),
-          contract: contractAddress,
-          burnAddress: to,
-        },
-      });
-    }
-
-    // Track transfers for specific collections (non-mint, non-burn transfers)
-    if (
-      TRANSFER_TRACKED_COLLECTIONS.has(collectionKey) &&
-      from !== ZERO &&
-      !isBurnAddress(to)
-    ) {
-      const transferActionId = `${txHash}_${logIndex}_transfer`;
-      recordAction(context, {
-        id: transferActionId,
-        actionType: "transfer",
-        actor: to, // Recipient is the actor (they received the NFT)
-        primaryCollection: collectionKey.toLowerCase(),
-        timestamp,
-        chainId,
-        txHash,
-        logIndex,
-        numeric1: BigInt(tokenId.toString()),
-        context: {
-          tokenId: tokenId.toString(),
-          contract: contractAddress,
-          from,
-          to,
-          isSecondary: true,
-          viaMarketplace: isMarketplaceAddress(from) || isMarketplaceAddress(to),
-        },
-      });
-    }
-
-    // Check for Mibera staking transfers
-    const isMibera = contractAddress === MIBERA_CONTRACT;
-    const depositContractKey = STAKING_CONTRACT_KEYS[to];
-    const withdrawContractKey = STAKING_CONTRACT_KEYS[from];
-
-    // Handle Mibera staking deposit (user → staking contract)
-    if (isMibera && depositContractKey && from !== ZERO) {
-      await handleMiberaStakeDeposit({
-        context,
-        stakingContract: depositContractKey,
-        stakingContractAddress: to,
-        userAddress: from,
-        tokenId,
-        chainId,
-        txHash,
-        blockNumber,
-        timestamp,
-      });
-      // Don't adjust holder counts - user still owns the NFT (it's staked)
-      return;
-    }
-
-    // Handle Mibera staking withdrawal (staking contract → user)
-    if (isMibera && withdrawContractKey && to !== ZERO) {
-      await handleMiberaStakeWithdrawal({
-        context,
-        stakingContract: withdrawContractKey,
-        stakingContractAddress: from,
-        userAddress: to,
-        tokenId,
-        chainId,
-        txHash,
-        blockNumber,
-        timestamp,
-      });
-      // Don't adjust holder counts - they were never decremented on deposit
-      return;
-    }
-
-    // Normal transfer handling
-    await adjustHolder({
-      context,
-      contractAddress,
-      collectionKey,
+  // If this is a mint (from zero address), also create a mint action
+  if (from === ZERO) {
+    const mintActionId = `${txHash}_${logIndex}`;
+    recordAction(context, {
+      id: mintActionId,
+      actionType: "mint",
+      actor: to,
+      primaryCollection: collectionKey.toLowerCase(),
+      timestamp,
       chainId,
-      holderAddress: from,
-      delta: -1,
       txHash,
       logIndex,
-      timestamp,
-      direction: "out",
-    });
-
-    await adjustHolder({
-      context,
-      contractAddress,
-      collectionKey,
-      chainId,
-      holderAddress: to,
-      delta: 1,
-      txHash,
-      logIndex,
-      timestamp,
-      direction: "in",
+      numeric1: 1n,
+      context: {
+        tokenId: tokenId.toString(),
+        contract: contractAddress,
+      },
     });
   }
+
+  // If this is a burn (to zero or dead address), create a burn action
+  if (isBurnAddress(to) && from !== ZERO) {
+    const burnActionId = `${txHash}_${logIndex}_burn`;
+    recordAction(context, {
+      id: burnActionId,
+      actionType: "burn",
+      actor: from,
+      primaryCollection: collectionKey.toLowerCase(),
+      timestamp,
+      chainId,
+      txHash,
+      logIndex,
+      numeric1: 1n,
+      context: {
+        tokenId: tokenId.toString(),
+        contract: contractAddress,
+        burnAddress: to,
+      },
+    });
+  }
+
+  // Track transfers for specific collections (non-mint, non-burn transfers)
+  if (
+    TRANSFER_TRACKED_COLLECTIONS.has(collectionKey) &&
+    from !== ZERO &&
+    !isBurnAddress(to)
+  ) {
+    const transferActionId = `${txHash}_${logIndex}_transfer`;
+    recordAction(context, {
+      id: transferActionId,
+      actionType: "transfer",
+      actor: to, // Recipient is the actor (they received the NFT)
+      primaryCollection: collectionKey.toLowerCase(),
+      timestamp,
+      chainId,
+      txHash,
+      logIndex,
+      numeric1: BigInt(tokenId.toString()),
+      context: {
+        tokenId: tokenId.toString(),
+        contract: contractAddress,
+        from,
+        to,
+        isSecondary: true,
+        viaMarketplace: isMarketplaceAddress(from) || isMarketplaceAddress(to),
+      },
+    });
+  }
+
+  // Check for Mibera staking transfers
+  const isMibera = contractAddress === MIBERA_CONTRACT;
+  const depositContractKey = STAKING_CONTRACT_KEYS[to];
+  const withdrawContractKey = STAKING_CONTRACT_KEYS[from];
+
+  // Handle Mibera staking deposit (user → staking contract)
+  if (isMibera && depositContractKey && from !== ZERO) {
+    await handleMiberaStakeDeposit({
+      context,
+      stakingContract: depositContractKey,
+      stakingContractAddress: to,
+      userAddress: from,
+      tokenId,
+      chainId,
+      txHash,
+      blockNumber,
+      timestamp,
+    });
+    // Don't adjust holder counts - user still owns the NFT (it's staked)
+    return;
+  }
+
+  // Handle Mibera staking withdrawal (staking contract → user)
+  if (isMibera && withdrawContractKey && to !== ZERO) {
+    await handleMiberaStakeWithdrawal({
+      context,
+      stakingContract: withdrawContractKey,
+      stakingContractAddress: from,
+      userAddress: to,
+      tokenId,
+      chainId,
+      txHash,
+      blockNumber,
+      timestamp,
+    });
+    // Don't adjust holder counts - they were never decremented on deposit
+    return;
+  }
+
+  // Normal transfer handling
+  await adjustHolder({
+    context,
+    contractAddress,
+    collectionKey,
+    chainId,
+    holderAddress: from,
+    delta: -1,
+    txHash,
+    logIndex,
+    timestamp,
+    direction: "out",
+  });
+
+  await adjustHolder({
+    context,
+    contractAddress,
+    collectionKey,
+    chainId,
+    holderAddress: to,
+    delta: 1,
+    txHash,
+    logIndex,
+    timestamp,
+    direction: "in",
+  });
+}
+
+// Register the shared handler for the multi-chain contract + the dedicated ETH contract (#120 fix).
+indexer.onEvent(
+  { contract: "TrackedErc721", event: "Transfer" },
+  ({ event, context }) => handleTrackedErc721Transfer(event, context),
+);
+indexer.onEvent(
+  { contract: "EthTrackedErc721", event: "Transfer" },
+  ({ event, context }) => handleTrackedErc721Transfer(event, context),
 );
 
 interface AdjustHolderArgs {
@@ -350,7 +378,8 @@ async function handleMiberaStakeWithdrawal({
 }: MiberaStakeArgs) {
   // Update staked token record
   const stakedTokenId = `${stakingContract}_${tokenId}`;
-  const existingStakedToken = await context.MiberaStakedToken.get(stakedTokenId);
+  const existingStakedToken =
+    await context.MiberaStakedToken.get(stakedTokenId);
 
   if (existingStakedToken) {
     const updatedStakedToken: MiberaStakedTokenEntity = {
