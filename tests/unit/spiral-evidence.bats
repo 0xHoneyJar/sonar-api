@@ -221,6 +221,60 @@ teardown() {
 }
 
 # =============================================================================
+# C-D4 (cycle-120): structured-first verdict (LOA-VERDICT trailer)
+# =============================================================================
+
+@test "evidence: verify_verdict consumes structured APPROVED trailer" {
+    _init_flight_recorder "$TEST_TMPDIR/cycle-test"
+    cat > "$TEST_TMPDIR/feedback.md" <<'EOF'
+All good
+
+No issues found.
+<!-- LOA-VERDICT {"gate":"review","verdict":"APPROVED","counts":{"critical":0,"high":0,"medium":0,"low":0},"sprint_id":"sprint-1","ts":"2026-07-07T00:00:00Z"} -->
+EOF
+
+    run _verify_review_verdict "REVIEW" "$TEST_TMPDIR/feedback.md"
+    [ "$status" -eq 0 ]
+}
+
+@test "evidence: verify_verdict consumes structured CHANGES_REQUIRED trailer" {
+    _init_flight_recorder "$TEST_TMPDIR/cycle-test"
+    cat > "$TEST_TMPDIR/feedback.md" <<'EOF'
+## Changes Required
+
+- fix the thing
+<!-- LOA-VERDICT {"gate":"audit","verdict":"CHANGES_REQUIRED","counts":{"critical":0,"high":1,"medium":0,"low":0},"sprint_id":"sprint-1","ts":"2026-07-07T00:00:00Z"} -->
+EOF
+
+    run _verify_review_verdict "AUDIT" "$TEST_TMPDIR/feedback.md"
+    [ "$status" -eq 1 ]
+}
+
+@test "evidence: verify_verdict fails closed on inconsistent trailer" {
+    _init_flight_recorder "$TEST_TMPDIR/cycle-test"
+    cat > "$TEST_TMPDIR/feedback.md" <<'EOF'
+All good
+<!-- LOA-VERDICT {"gate":"review","verdict":"APPROVED","counts":{"critical":0,"high":1,"medium":0,"low":0},"sprint_id":"sprint-1","ts":"2026-07-07T00:00:00Z"} -->
+EOF
+
+    run _verify_review_verdict "REVIEW" "$TEST_TMPDIR/feedback.md"
+    [ "$status" -eq 1 ]
+    grep -q "FAIL:INCONSISTENT_VERDICT" "$TEST_TMPDIR/cycle-test/flight-recorder.jsonl"
+}
+
+@test "evidence: verify_verdict legacy prose logic byte-identical (no trailer)" {
+    _init_flight_recorder "$TEST_TMPDIR/cycle-test"
+    echo "CHANGES_REQUIRED: fix the bug." > "$TEST_TMPDIR/feedback.md"
+
+    run _verify_review_verdict "REVIEW" "$TEST_TMPDIR/feedback.md"
+    [ "$status" -eq 1 ]
+
+    echo "All good. Sprint approved." > "$TEST_TMPDIR/feedback2.md"
+    run _verify_review_verdict "REVIEW" "$TEST_TMPDIR/feedback2.md"
+    [ "$status" -eq 0 ]
+}
+
+# =============================================================================
 # Cost Tracking
 # =============================================================================
 
