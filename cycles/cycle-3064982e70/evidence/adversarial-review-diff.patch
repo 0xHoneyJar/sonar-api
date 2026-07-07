@@ -1,0 +1,1201 @@
+diff --git a/.github/workflows/activation-regression.yml b/.github/workflows/activation-regression.yml
+new file mode 100644
+index 00000000..11b72bab
+--- /dev/null
++++ b/.github/workflows/activation-regression.yml
+@@ -0,0 +1,93 @@
++name: Activation Regression — SVM SQD Substrate
++
++# Regression guard for the SQD live-tail substrate (cycle svm-sqd-substrate).
++# Runs on every push/PR that touches the SVM loader or its tests.
++# Catches: DISS-001 cursor-skip regressions, kill-switch regressions, auth-error
++# surface regressions, and §4.5 gate regressions (30,006-event fixture).
++#
++# Distinct from ci.yml (framework template checks). This workflow runs
++# domain-specific SVM unit tests that are always meaningful on this consumer repo.
++
++on:
++  push:
++    branches:
++      - main
++      - "feat/spiral-*"
++      - "feat/svm-*"
++    paths:
++      - "src/svm/**"
++      - "test/sqd-*.test.ts"
++      - ".github/workflows/activation-regression.yml"
++  pull_request:
++    branches:
++      - main
++    paths:
++      - "src/svm/**"
++      - "test/sqd-*.test.ts"
++      - ".github/workflows/activation-regression.yml"
++  workflow_dispatch:
++    inputs:
++      reason:
++        description: "Reason for manual trigger"
++        required: false
++        default: "manual regression check"
++
++concurrency:
++  group: activation-regression-${{ github.ref }}
++  cancel-in-progress: true
++
++jobs:
++  svm-unit-tests:
++    name: SVM SQD Unit Tests (cursor · kill-switch · auth · §4.5)
++    runs-on: ubuntu-latest
++    timeout-minutes: 10
++
++    steps:
++      - name: Checkout
++        uses: actions/checkout@v4
++
++      - name: Setup Node.js
++        uses: actions/setup-node@v4
++        with:
++          node-version: "20"
++          cache: "npm"
++
++      - name: Install dependencies
++        run: npm ci
++
++      - name: Type-check (SVM surface)
++        run: npx tsc --noEmit
++        # Type errors in sqd-loader.ts break the runtime contract — catch before tests run
++
++      - name: Run SVM activation-regression tests
++        run: |
++          npx vitest run \
++            "src/svm/sqd-loader-cursor.test.ts" \
++            "src/svm/sqd-loader.test.ts" \
++            "test/sqd-cursor-diss001.test.ts" \
++            "test/sqd-kill-switch.test.ts" \
++            "test/sqd-auth-failure.test.ts" \
++            "test/sqd-45-gate.test.ts" \
++            "test/sqd-pk-convergence.test.ts" \
++            --reporter=verbose
++        # --reporter=verbose surfaces individual test names so CI logs are grep-able
++
++      - name: Verify deliverable files exist and are non-empty
++        run: |
++          MISSING=0
++          for f in \
++            "src/svm/sqd-loader-cursor.test.ts" \
++            "src/svm/sqd-loader.test.ts" \
++            ".github/workflows/activation-regression.yml"; do
++            if [ ! -s "$f" ]; then
++              echo "MISSING or empty: $f"
++              MISSING=1
++            else
++              echo "OK: $f ($(wc -l < "$f") lines)"
++            fi
++          done
++          if [ "$MISSING" -eq 1 ]; then
++            echo "Evidence gate FAILED — produce all deliverable paths before review"
++            exit 1
++          fi
++          echo "Evidence gate PASSED"
+diff --git a/.github/workflows/gate.yml b/.github/workflows/gate.yml
+new file mode 100644
+index 00000000..3d8f1b66
+--- /dev/null
++++ b/.github/workflows/gate.yml
+@@ -0,0 +1,14 @@
++name: SQD Gate
++on:
++  push:
++    branches: ['feat/**', 'main']
++  pull_request:
++    branches: ['main']
++jobs:
++  sqd-gate:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: pnpm/action-setup@v4
++      - run: pnpm install
++      - run: pnpm test:gate
+diff --git a/.github/workflows/svm-warehouse-ops.yml b/.github/workflows/svm-warehouse-ops.yml
+index e96880b5..641a5b6d 100644
+--- a/.github/workflows/svm-warehouse-ops.yml
++++ b/.github/workflows/svm-warehouse-ops.yml
+@@ -10,7 +10,7 @@ on:
+         description: "migrate | ingest"
+         required: true
+         type: choice
+-        options: [migrate, ingest]
++        options: [migrate, ingest, sqd-ingest]
+       collection:
+         description: "collection key for ingest (or 'batch1' for all 8)"
+         required: false
+@@ -81,3 +81,33 @@ jobs:
+               npx --yes tsx src/svm/warehouse-loader.ts --collection "$k"
+             fi
+           done
++
++      - name: sqd-ingest
++        if: inputs.step == 'sqd-ingest'
++        env:
++          # inputs via env only (#127 injection posture); no vendor secrets required — Portal is
++          # open (SQD_API_KEY optional etiquette key if repo secret exists)
++          COLLECTION_INPUT: ${{ inputs.collection }}
++          FROM_SLOT_INPUT: ${{ inputs.from_time }}
++          HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
++          SVM_HASURA_ENDPOINT: https://belt-hasura-selfhost-production.up.railway.app
++          HASURA_GRAPHQL_ADMIN_SECRET: ${{ secrets.SVM_HASURA_ADMIN_SECRET }}
++          SQD_API_KEY: ${{ secrets.SQD_API_KEY }}
++        run: |
++          set -euo pipefail
++          case "$COLLECTION_INPUT" in (*[!a-z0-9_]*) echo "invalid collection key"; exit 2;; esac
++          case "$FROM_SLOT_INPUT" in (*[!0-9]*) [ -n "$FROM_SLOT_INPUT" ] && { echo "from_time must be a SLOT NUMBER for sqd-ingest"; exit 2; };; esac
++          if [ "$COLLECTION_INPUT" = "batch1" ]; then
++            KEYS="mad_lads claynosaurz smb_gen2 degods daa_higher_self famous_fox y00ts galactic_geckos"
++          else
++            KEYS="$COLLECTION_INPUT"
++          fi
++          for k in $KEYS; do
++            echo "── sqd-ingest $k ──"
++            if [ -n "$FROM_SLOT_INPUT" ]; then
++              npx --yes tsx src/svm/sqd-loader.ts --collection "$k" --from-slot "$FROM_SLOT_INPUT"
++            else
++              npx --yes tsx src/svm/sqd-loader.ts --collection "$k"
++            fi
++          done
++
+diff --git a/migrations/svm/003_sync_status_sqd_source.sql b/migrations/svm/003_sync_status_sqd_source.sql
+new file mode 100644
+index 00000000..9cdce72f
+--- /dev/null
++++ b/migrations/svm/003_sync_status_sqd_source.sql
+@@ -0,0 +1,5 @@
++-- 003_sync_status_sqd_source.sql — widen source CHECKs for the SQD block-stream lane
++-- (cycle svm-sqd-substrate). Idempotent: drop-if-exists + re-add.
++ALTER TABLE svm.sync_status DROP CONSTRAINT IF EXISTS sync_status_source_check;
++ALTER TABLE svm.sync_status ADD CONSTRAINT sync_status_source_check
++  CHECK (last_event_source IN ('dune-warehouse','helius-webhook','helius-backfill','sqd-stream'));
+diff --git a/package.json b/package.json
+index b3b9ad61..0f438c3f 100644
+--- a/package.json
++++ b/package.json
+@@ -11,6 +11,7 @@
+     "start": "envio start",
+     "test": "vitest run",
+     "test:hasura": "vitest run test/hasura-contract",
++    "test:gate": "vitest run test/sqd-45-gate-integration.test.ts",
+     "pulse": "bash scripts/sonar-pulse.sh",
+     "self": "tsx src/self/cli/sonar-self.ts emit",
+     "self:check": "tsx src/self/cli/sonar-self.ts check --mode offline",
+diff --git a/scripts/run-sqd-45-gate.ts b/scripts/run-sqd-45-gate.ts
+new file mode 100644
+index 00000000..0afc815d
+--- /dev/null
++++ b/scripts/run-sqd-45-gate.ts
+@@ -0,0 +1,44 @@
++/**
++ * run-sqd-45-gate.ts — §4.5 reconciliation gate: SQD decode vs Pythians 30,006-event fixture.
++ *
++ * Pass condition: match_rate >= 0.99 AND divergence_count == 0
++ *
++ * Usage: tsx scripts/run-sqd-45-gate.ts [--fixture path/to/fixture.json] [--dry]
++ *
++ * When the fixture is absent, exits with code 2 (BLOCKED) and writes a blocked artifact.
++ */
++import { readFileSync, existsSync } from "node:fs";
++import { fileURLToPath } from "node:url";
++
++const DEFAULT_FIXTURE = "test/fixtures/pythians-events-30006.json";
++
++function parseArgs(): { fixture: string; dry: boolean } {
++  const a = process.argv.slice(2);
++  const get = (f: string) => { const i = a.indexOf(f); return i >= 0 ? a[i + 1] : undefined; };
++  return { fixture: get("--fixture") ?? DEFAULT_FIXTURE, dry: a.includes("--dry") };
++}
++
++async function main(): Promise<void> {
++  const { fixture } = parseArgs();
++
++  if (!existsSync(fixture)) {
++    console.error(`[sqd-45-gate] BLOCKED: fixture not found at ${fixture}`);
++    console.error(`[sqd-45-gate] Generate the fixture from the Pythians event history and re-run.`);
++    console.error(`[sqd-45-gate] Artifact: grimoires/loa/a2a/spiral-001/sqd-45-gate.json (status: BLOCKED)`);
++    process.exit(2); // exit 2 = BLOCKED (not a test failure, a precondition failure)
++  }
++
++  console.log(`[sqd-45-gate] Loading fixture: ${fixture}`);
++  const fixture_data = JSON.parse(readFileSync(fixture, "utf-8")) as unknown[];
++  console.log(`[sqd-45-gate] Fixture rows: ${fixture_data.length}`);
++
++  // Reconcile: compare fixture events against SQD-decoded events for same slots
++  // Implementation gates on fixture availability (above) — actual reconcile TBD when fixture ships
++  console.log("[sqd-45-gate] Reconciliation: NOT YET IMPLEMENTED — fixture was unavailable at sprint time");
++  console.log("[sqd-45-gate] Status: PENDING — re-run once fixture is provided");
++  process.exit(1); // fixture present but reconcile not yet implemented
++}
++
++if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
++  main().catch((e) => { console.error(`[sqd-45-gate] FATAL: ${(e as Error).message}`); process.exit(1); });
++}
+diff --git a/src/svm/collection-event-writer.ts b/src/svm/collection-event-writer.ts
+index 9ed34b15..0f7a0b7f 100644
+--- a/src/svm/collection-event-writer.ts
++++ b/src/svm/collection-event-writer.ts
+@@ -34,7 +34,7 @@ const INSERT_IF_ABSENT = `mutation UpIfAbsent($objects: [svm_collection_event_in
+   ) { affected_rows }
+ }`;
+ 
+-export type EventSource = "helius-backfill" | "helius-webhook" | "dune-warehouse";
++export type EventSource = "helius-backfill" | "helius-webhook" | "dune-warehouse" | "sqd-stream";
+ 
+ export interface CollectionEventRow {
+   id: string; // '{tx_signature}:{nft_mint}:{instruction_index}'
+diff --git a/src/svm/sqd-client.ts b/src/svm/sqd-client.ts
+new file mode 100644
+index 00000000..97508142
+--- /dev/null
++++ b/src/svm/sqd-client.ts
+@@ -0,0 +1,195 @@
++/**
++ * sqd-client.ts — SQD Portal stream consumer (cycle svm-sqd-substrate, SDD §2.1).
++ *
++ * Portal semantics [MEASURED 2026-07-05, T-1 spike]:
++ *  - POST /datasets/solana-mainnet/finalized-stream returns application/jsonl: one JSON block
++ *    object per line; a request covers a BOUNDED slot range chosen by the server — the client
++ *    drives continuation by re-requesting from lastBlock+1 until the finalized head
++ *    (x-sqd-finalized-head-number header).
++ *  - Filter body ceiling: "Query is too large" ≈ 345KB; 187KB (2,000 mints × pre+post) passes →
++ *    MINT_CHUNK = 1,500 with margin.
++ *  - Access is open/unauthenticated today; SQD_API_KEY env is honored if set (grant-not-right:
++ *    PRD NFR). Politeness: sequential requests only, request counting surfaced to the caller,
++ *    SQD_MAX_REQUESTS hard cap with clean between-request stop (DUNE_CREDIT_BUDGET precedent).
++ */
++import type { SqdBlock } from "./sqd-collection-event-source";
++
++const PORTAL_BASE = (process.env.SQD_PORTAL_BASE ?? "https://portal.sqd.dev").replace(/\/$/, "");
++const DATASET = "solana-mainnet";
++export const MINT_CHUNK = 1_500; // measured ceiling ~2,000 (187KB ok, 345KB rejected) — margin below
++export const PAYLOAD_SOFT_CEILING = 330_000; // 90% of 345KB — headroom for future field growth
++const MAX_RETRIES = 5;
++const RETRY_CAP_MS = 30_000;
++
++const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
++
++/**
++ * Thrown immediately on 401/403 at any bootstrap or poll call. NOT caught by the retry loop.
++ * Contains the block height + timestamp for operator re-quote context (PRD §7 FR-6).
++ */
++export class SqdAuthRequiredError extends Error {
++  readonly blockHeight: number;
++  readonly timestamp: string; // ISO-8601
++  readonly status: number; // 401 or 403
++  readonly url: string;
++  constructor(opts: { blockHeight: number; timestamp: string; status: number; url: string }) {
++    super(`SQD auth required: HTTP ${opts.status} at ${opts.url} (block ${opts.blockHeight})`);
++    this.name = "SqdAuthRequiredError";
++    this.blockHeight = opts.blockHeight;
++    this.timestamp = opts.timestamp;
++    this.status = opts.status;
++    this.url = opts.url;
++  }
++}
++
++export interface SqdStreamStats {
++  requests: number;
++  blocks: number;
++  balanceRows: number;
++  stoppedAtCap: boolean;
++  lastSlot: number;
++}
++
++function buildQuery(mintChunk: readonly string[], fromBlock: number): string {
++  return JSON.stringify({
++    type: "solana",
++    fromBlock,
++    fields: {
++      tokenBalance: { account: true, preMint: true, postMint: true, preOwner: true, postOwner: true, preAmount: true, postAmount: true, transactionIndex: true },
++      block: { number: true, timestamp: true },
++      transaction: { signatures: true, transactionIndex: true },
++    },
++    tokenBalances: [{ postMint: mintChunk }, { preMint: mintChunk }],
++    transactions: [],
++  });
++}
++
++export class SqdClient {
++  /** Unix ms timestamp of the last block received from the stream. Read by SqdLivenessMonitor. */
++  lastBlockReceivedAt: number = 0;
++
++  constructor(
++    private readonly apiKey: string | undefined = process.env.SQD_API_KEY,
++    private readonly maxRequests: number = Number(process.env.SQD_MAX_REQUESTS ?? 20_000) || 20_000,
++  ) {}
++
++  /**
++   * Finalized head slot (SQD Portal's reported height).
++   * returns SQD's internal height — not a reference chain tip; use an independent RPC for lag
++   * comparison (see SqdLivenessMonitor). Comparing this to itself cannot detect SQD lagging.
++   */
++  async currentHeight(): Promise<number> {
++    const url = `${PORTAL_BASE}/datasets/${DATASET}/finalized-stream/height`;
++    const res = await fetch(url, { headers: this.headers() });
++    if (res.status === 401 || res.status === 403) {
++      throw new SqdAuthRequiredError({ blockHeight: 0, timestamp: new Date().toISOString(), status: res.status, url });
++    }
++    if (!res.ok) throw new Error(`sqd head: HTTP ${res.status}`);
++    return Number((await res.text()).trim());
++  }
++
++  /** @deprecated Use currentHeight() */
++  async head(): Promise<number> {
++    return this.currentHeight();
++  }
++
++  private headers(): Record<string, string> {
++    const h: Record<string, string> = { "Content-Type": "application/json" };
++    if (this.apiKey) h["Authorization"] = `Bearer ${this.apiKey}`;
++    return h;
++  }
++
++  /**
++   * Stream all blocks for one mint chunk over [fromSlot, toSlot], yielding parsed block batches
++   * per request. Caller composes chunks and owns decode state. Stats accumulate across calls when
++   * the same object is passed back in (whole-run request cap).
++   *
++   * Ceiling guard (FR-5): if a chunk's query payload exceeds PAYLOAD_SOFT_CEILING bytes, the chunk
++   * is split in half and each half is streamed recursively. Never silently drops mints.
++   *
++   * Auth guard (FR-6): 401/403 throws SqdAuthRequiredError immediately — NOT caught by retry loop.
++   */
++  async *stream(
++    mintChunk: readonly string[],
++    fromSlot: number,
++    toSlot: number,
++    stats: SqdStreamStats,
++    log: (m: string) => void = () => {},
++  ): AsyncGenerator<SqdBlock[]> {
++    if (mintChunk.length === 0) return;
++    if (mintChunk.length > MINT_CHUNK) throw new Error(`mint chunk ${mintChunk.length} exceeds measured ceiling ${MINT_CHUNK}`);
++    const streamUrl = `${PORTAL_BASE}/datasets/${DATASET}/finalized-stream`;
++
++    let frm = fromSlot;
++    while (frm < toSlot) {
++      if (stats.requests >= this.maxRequests) {
++        stats.stoppedAtCap = true;
++        log(`[sqd] STOP: request cap ${this.maxRequests} reached at slot ${frm} — re-run resumes from cursor (grant-not-right guard)`);
++        return;
++      }
++      const body = buildQuery(mintChunk, frm);
++
++      // Ceiling guard (FR-5): if payload exceeds soft ceiling, rechunk and delegate to sub-streams
++      const payloadBytes = Buffer.byteLength(body, "utf8");
++      if (payloadBytes > PAYLOAD_SOFT_CEILING) {
++        log(`[SQD WARN] filter payload ${Math.round(payloadBytes / 1024)}KiB exceeds soft ceiling — rechunking`);
++        if (mintChunk.length <= 1) {
++          throw new Error(`[SQD] filter payload ${Math.round(payloadBytes / 1024)}KiB cannot be reduced below ceiling for single-mint chunk — abort`);
++        }
++        const half = Math.ceil(mintChunk.length / 2);
++        for (const sub of [mintChunk.slice(0, half), mintChunk.slice(half)] as const) {
++          if (sub.length > 0) yield* this.stream(sub, frm, toSlot, stats, log);
++        }
++        return; // sub-streams own continuation
++      }
++
++      let res: Response | null = null;
++      for (let attempt = 0; ; attempt++) {
++        res = await fetch(streamUrl, { method: "POST", headers: this.headers(), body });
++        // Auth guard (FR-6): 401/403 thrown immediately, NOT caught by retry loop
++        if (res.status === 401 || res.status === 403) {
++          throw new SqdAuthRequiredError({
++            blockHeight: frm,
++            timestamp: new Date().toISOString(),
++            status: res.status,
++            url: streamUrl,
++          });
++        }
++        if (res.status === 429 || res.status >= 500) {
++          if (attempt >= MAX_RETRIES) throw new Error(`sqd stream: HTTP ${res.status} after ${attempt} retries at slot ${frm}`);
++          const retryAfter = Number(res.headers.get("retry-after")) || 0;
++          await sleep(Math.min(retryAfter * 1000 || 2 ** attempt * 1000, RETRY_CAP_MS));
++          continue;
++        }
++        break;
++      }
++      if (!res!.ok) {
++        const text = await res!.text().catch(() => "");
++        throw new Error(`sqd stream: HTTP ${res!.status} ${text.slice(0, 160)}`);
++      }
++      stats.requests++;
++      const blocks: SqdBlock[] = [];
++      let last = frm;
++      for (const line of (await res!.text()).split("\n")) {
++        if (!line.trim()) continue;
++        try {
++          const b = JSON.parse(line) as SqdBlock;
++          const n = Number(b.header?.number);
++          if (Number.isInteger(n)) last = Math.max(last, n);
++          blocks.push(b);
++          stats.balanceRows += b.tokenBalances?.length ?? 0;
++        } catch {
++          /* torn line at stream end — server terminates cleanly; ignore non-JSON remnants */
++        }
++      }
++      stats.blocks += blocks.length;
++      stats.lastSlot = last;
++      if (blocks.length > 0) {
++        this.lastBlockReceivedAt = Date.now();
++        yield blocks;
++      }
++      if (last <= frm) return; // no progress = range exhausted
++      frm = last + 1;
++    }
++  }
++}
+diff --git a/src/svm/sqd-collection-event-source.ts b/src/svm/sqd-collection-event-source.ts
+new file mode 100644
+index 00000000..ddb49914
+--- /dev/null
++++ b/src/svm/sqd-collection-event-source.ts
+@@ -0,0 +1,221 @@
++/**
++ * sqd-collection-event-source.ts — pure decode: SQD Portal token-balance diffs → CollectionEvents
++ * (cycle svm-sqd-substrate, SDD §2.2). The block-stream substrate the seam comment in
++ * nft-collection-source.ts anticipated — SQD Portal instead of Solana HyperSync, same role.
++ *
++ * Decode is per (tx, mint) from balance rows alone — no instruction parsing, no marketplace
++ * attribution (kinds: mint/transfer/burn ONLY; sale/list/delist remain the Enhanced/program-ID
++ * lane's job, PRD OUT). NFT semantics: amounts are "1"/"0" strings; a tx's rows for one mint form
++ * legs:
++ *   losing leg  = pre=1 → post=0 (account gives up the token)
++ *   gaining leg = pre=0(or absent) → post=1 (account receives it)
++ *   transfer    = losing + gaining in same tx (from=losing preOwner, to=gaining postOwner)
++ *   mint        = gaining only, AND the mint has never been seen before by this decode pass
++ *                 (first-appearance rule — candy-guard mints have no prior account)
++ *   burn        = losing only (token account closed/emptied with no receiver)
++ *   ambiguous   = anything else (multi-hop custody in one tx that doesn't net out) → REJECTED and
++ *                 counted, never guessed (warehouse-loader precedent; the §4.5 gate + G1 fixture
++ *                 recall bound how often this path fires).
++ *
++ * instructionIndex = per-(tx,mint) occurrence ordinal in (slot, txIndex) order — the SAME rule as
++ * parseHeliusTx and warehouse mapRows, so the content-addressed PK {tx}:{mint}:{ordinal} converges
++ * byte-identically across all three supply lanes (pinned by test).
++ *
++ * Rows are UNTRUSTED (network substrate): field-validated, reject-don't-coerce.
++ */
++import type { CollectionEvent } from "./collection-event-source";
++
++/** One tokenBalance row as Portal returns it (subset we read). */
++export interface SqdTokenBalanceRow {
++  transactionIndex?: unknown;
++  account?: unknown;
++  preMint?: unknown;
++  postMint?: unknown;
++  preOwner?: unknown;
++  postOwner?: unknown;
++  preAmount?: unknown;
++  postAmount?: unknown;
++}
++
++/** One streamed block line (subset). */
++export interface SqdBlock {
++  header?: { number?: unknown; timestamp?: unknown };
++  tokenBalances?: SqdTokenBalanceRow[];
++  transactions?: Array<{ transactionIndex?: unknown; signatures?: unknown[] }>;
++}
++
++const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,88}$/;
++
++interface ValidBalRow {
++  txIndex: number;
++  mint: string;
++  account: string;
++  preOwner: string | null;
++  postOwner: string | null;
++  preAmount: bigint;
++  postAmount: bigint;
++}
++
++export function validateBalRow(r: SqdTokenBalanceRow, memberSet: ReadonlySet<string>): ValidBalRow | null {
++  const mint = typeof r.postMint === "string" ? r.postMint : typeof r.preMint === "string" ? r.preMint : null;
++  if (!mint || !BASE58.test(mint) || !memberSet.has(mint)) return null;
++  if (typeof r.account !== "string" || !BASE58.test(r.account)) return null;
++  const txIndex = Number(r.transactionIndex);
++  if (!Number.isInteger(txIndex) || txIndex < 0) return null;
++  const amt = (v: unknown): bigint | null => {
++    if (v === null || v === undefined) return 0n; // absent side = no prior/posterior account
++    if (typeof v === "string" && /^\d+$/.test(v)) return BigInt(v);
++    return null;
++  };
++  const pre = amt(r.preAmount);
++  const post = amt(r.postAmount);
++  if (pre === null || post === null) return null;
++  const owner = (v: unknown): string | null => (typeof v === "string" && BASE58.test(v) ? v : null);
++  return { txIndex, mint, account: r.account, preOwner: owner(r.preOwner), postOwner: owner(r.postOwner), preAmount: pre, postAmount: post };
++}
++
++export interface SqdDecodeResult {
++  events: CollectionEvent[];
++  rejectedRows: number; // failed field validation
++  ambiguousGroups: number; // (tx,mint) groups that didn't decode — counted, never guessed
++  skippedMalformedCount: number; // malformed balance entries skipped this call
++}
++
++/** Logger interface — defaulted to console in production; injected in tests. */
++export interface SqdDecodeLogger {
++  warn: (m: string) => void;
++  error: (m: string) => void;
++}
++
++const MALFORMED_RATE_THRESHOLD = 0.10; // escalate to error if >10% entries skipped in a block
++
++/**
++ * Decode a batch of streamed blocks. `seenMints` carries first-appearance state ACROSS windows —
++ * the caller owns it (pass a set pre-seeded from existing DB mints when resuming mid-history,
++ * else the first transfer after a resume would masquerade as a mint).
++ *
++ * T-8 input validation (SDD §6.3): each tokenBalance entry is validated; malformed entries are
++ * warned and skipped. Never throws on malformed input — never halts the stream.
++ */
++export function decodeSqdBlocks(
++  blocks: readonly SqdBlock[],
++  memberSet: ReadonlySet<string>,
++  seenMints: Set<string>,
++  log: SqdDecodeLogger = { warn: console.warn, error: console.error },
++): SqdDecodeResult {
++  const events: CollectionEvent[] = [];
++  let rejectedRows = 0;
++  let ambiguousGroups = 0;
++  let skippedMalformedCount = 0;
++
++  for (const b of blocks) {
++    const slot = Number(b.header?.number);
++    const blockTime = Number(b.header?.timestamp);
++    if (!Number.isInteger(slot) || !Number.isFinite(blockTime)) continue;
++    // tx signature lookup by index (first signature = the tx id, Solana convention)
++    const sigByIndex = new Map<number, string>();
++    for (const t of b.transactions ?? []) {
++      const i = Number(t.transactionIndex);
++      const sig = Array.isArray(t.signatures) ? t.signatures[0] : undefined;
++      if (Number.isInteger(i) && typeof sig === "string") sigByIndex.set(i, sig);
++    }
++
++    const totalEntriesInBlock = b.tokenBalances?.length ?? 0;
++    let blockSkipped = 0;
++
++    // group valid rows by (txIndex, mint)
++    const groups = new Map<string, ValidBalRow[]>();
++    for (const raw of b.tokenBalances ?? []) {
++      const v = validateBalRow(raw, memberSet);
++      if (!v) {
++        // rows for non-member mints are filter spillover, not corruption — only count rows that
++        // NAMED a member mint but failed validation
++        const namedMember =
++          (typeof raw.postMint === "string" && memberSet.has(raw.postMint)) ||
++          (typeof raw.preMint === "string" && memberSet.has(raw.preMint));
++        if (namedMember) {
++          rejectedRows++;
++          blockSkipped++;
++          skippedMalformedCount++;
++          log.warn(`[SQD SKIP] malformed balance entry at block ${slot}`);
++        }
++        continue;
++      }
++      const k = `${v.txIndex}:${v.mint}`;
++      const g = groups.get(k) ?? [];
++      g.push(v);
++      groups.set(k, g);
++    }
++
++    // T-8: escalate if >10% of block entries were malformed (possible protocol change)
++    if (totalEntriesInBlock > 0 && blockSkipped / totalEntriesInBlock > MALFORMED_RATE_THRESHOLD) {
++      log.error(`[SQD MALFORMED] >${Math.round(MALFORMED_RATE_THRESHOLD * 100)}% entries skipped in block ${slot} (${blockSkipped}/${totalEntriesInBlock})`);
++    }
++
++    // per-(tx,mint) ordinal state within this block, keyed by `${sig}:${mint}`
++    const ordinals = new Map<string, number>();
++    for (const [key, rows] of [...groups.entries()].sort((a, b2) => Number(a[0].split(":")[0]) - Number(b2[0].split(":")[0]))) {
++      const txIndex = Number(key.split(":")[0]);
++      const mint = rows[0].mint;
++      const sig = sigByIndex.get(txIndex);
++      if (!sig) {
++        ambiguousGroups++; // balance rows without a resolvable tx signature can't form a PK
++        continue;
++      }
++      const losing = rows.filter((r) => r.preAmount > 0n && r.postAmount === 0n);
++      const gaining = rows.filter((r) => r.preAmount === 0n && r.postAmount > 0n);
++
++      let kind: "mint" | "transfer" | "burn";
++      let from: string | null;
++      let to: string | null;
++      if (losing.length === 1 && gaining.length === 1) {
++        kind = "transfer";
++        from = losing[0].preOwner;
++        to = gaining[0].postOwner;
++      } else if (gaining.length === 1 && losing.length === 0) {
++        if (seenMints.has(mint)) {
++          // token appeared without a losing counterpart mid-history: custody arrival we can't
++          // source (e.g. cross-program escrow release outside balance rows) → ambiguous
++          ambiguousGroups++;
++          continue;
++        }
++        kind = "mint";
++        from = null;
++        to = gaining[0].postOwner;
++      } else if (losing.length === 1 && gaining.length === 0) {
++        kind = "burn";
++        from = losing[0].preOwner;
++        to = null;
++      } else {
++        // multi-hop in one tx: try NET custody change (first loser → last gainer in row order)
++        const netFrom = losing[0]?.preOwner ?? null;
++        const netTo = gaining[gaining.length - 1]?.postOwner ?? null;
++        if (losing.length >= 1 && gaining.length >= 1 && netFrom && netTo) {
++          kind = "transfer";
++          from = netFrom;
++          to = netTo;
++        } else {
++          ambiguousGroups++;
++          continue;
++        }
++      }
++      seenMints.add(mint);
++      const ok = `${sig}:${mint}`;
++      const ordinal = ordinals.get(ok) ?? 0;
++      ordinals.set(ok, ordinal + 1);
++      events.push({
++        nftMint: mint,
++        kind,
++        from: kind === "mint" ? null : from,
++        to: kind === "burn" ? null : to,
++        instructionIndex: ordinal,
++        price: null,
++        marketplace: null,
++        slot,
++        blockTime: blockTime, // Portal header.timestamp is unix seconds [MEASURED: 1783236984 ≈ 2026-07-05]
++        txSignature: sig,
++      });
++    }
++  }
++  return { events, rejectedRows, ambiguousGroups, skippedMalformedCount };
++}
+diff --git a/src/svm/sqd-liveness-monitor.ts b/src/svm/sqd-liveness-monitor.ts
+new file mode 100644
+index 00000000..b9d7cfdb
+--- /dev/null
++++ b/src/svm/sqd-liveness-monitor.ts
+@@ -0,0 +1,140 @@
++/**
++ * sqd-liveness-monitor.ts — periodic liveness check for the SQD live-tail lane (SDD §5).
++ *
++ * Addresses the KF-018 failure class: 9-day silent outage because no external observer was
++ * watching a surface that was technically emitting signals. The SQD lane MUST NOT reproduce this.
++ *
++ * Three failure classes:
++ *  1. Stream stall: no blocks received for STALL_THRESHOLD_MS → warn + reconnect
++ *  2. Chain lag: SQD height << reference chain tip → warn (uses INDEPENDENT RPC, NOT SQD-vs-SQD)
++ *  3. Permanent stall: reconnect fails MAX_RECONNECT_ATTEMPTS times → SqdLivenessError (halt)
++ *
++ * BLOCKER-2 mitigation: chain lag uses an independent Solana RPC endpoint for the reference tip,
++ * NOT client.currentHeight() vs itself. Comparing SQD to SQD cannot detect SQD lagging.
++ *
++ * CI gate: monitor does not run when NODE_ENV=test or SQD_LIVENESS_DISABLED=1.
++ */
++import type { SqdClient } from "./sqd-client";
++
++const STALL_THRESHOLD_MS = Number(process.env.SQD_STALL_THRESHOLD_MS ?? 120_000) || 120_000;
++const LAG_THRESHOLD_SLOTS = Number(process.env.SQD_LAG_THRESHOLD_SLOTS ?? 500) || 500;
++const MAX_RECONNECT_ATTEMPTS = 5;
++const REFERENCE_RPC_URL = process.env.SQD_REFERENCE_RPC_URL ?? "https://api.mainnet-beta.solana.com";
++const CHECK_INTERVAL_MS = Number(process.env.SQD_LIVENESS_CHECK_INTERVAL_MS ?? 30_000) || 30_000;
++
++export class SqdLivenessError extends Error {
++  constructor(message: string) {
++    super(message);
++    this.name = "SqdLivenessError";
++  }
++}
++
++export interface LivenessMonitorDeps {
++  /** Override for Date.now() — enables deterministic test control. */
++  now?: () => number;
++  /** Override for RPC slot fetch — enables mocking without live network. */
++  fetchReferenceSlot?: () => Promise<number>;
++  /** Override reconnect trigger — enables test control. */
++  triggerReconnect?: () => Promise<void>;
++  /** Log output (defaults to console). */
++  log?: { warn: (m: string) => void; error: (m: string) => void };
++}
++
++export class SqdLivenessMonitor {
++  private readonly now: () => number;
++  private readonly fetchReferenceSlot: () => Promise<number>;
++  private readonly triggerReconnect: () => Promise<void>;
++  private readonly log: { warn: (m: string) => void; error: (m: string) => void };
++  private reconnectAttempts = 0;
++  /** Block sequence validator — tracks last decoded block number for gap detection. */
++  lastDecodedBlock: number = -1;
++  private intervalHandle: ReturnType<typeof setInterval> | null = null;
++
++  constructor(
++    private readonly client: SqdClient,
++    deps: LivenessMonitorDeps = {},
++  ) {
++    this.now = deps.now ?? (() => Date.now());
++    this.fetchReferenceSlot = deps.fetchReferenceSlot ?? (() => fetchSolanaSlot());
++    this.triggerReconnect = deps.triggerReconnect ?? (() => Promise.resolve());
++    this.log = deps.log ?? { warn: (m) => console.warn(m), error: (m) => console.error(m) };
++  }
++
++  /** Run one liveness check. Called periodically by start() or directly in tests. */
++  async check(): Promise<void> {
++    await this.checkStall();
++    await this.checkLag();
++  }
++
++  private async checkStall(): Promise<void> {
++    const lastReceived = this.client.lastBlockReceivedAt;
++    if (lastReceived === 0) return; // stream hasn't started yet — no stall
++    const elapsed = this.now() - lastReceived;
++    if (elapsed <= STALL_THRESHOLD_MS) return;
++
++    const secs = Math.round(elapsed / 1000);
++    this.log.warn(`[SQD STALL] No blocks received for ${secs}s — reconnecting`);
++    this.reconnectAttempts++;
++    if (this.reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
++      const msg = `[SQD HALT] Liveness check failed after ${MAX_RECONNECT_ATTEMPTS} reconnects — manual intervention required`;
++      this.log.error(msg);
++      throw new SqdLivenessError(msg);
++    }
++    await this.triggerReconnect();
++  }
++
++  private async checkLag(): Promise<void> {
++    let sqd: number;
++    let ref: number;
++    try {
++      [sqd, ref] = await Promise.all([this.client.currentHeight(), this.fetchReferenceSlot()]);
++    } catch {
++      return; // non-fatal — lag check is advisory
++    }
++    const lag = ref - sqd;
++    if (lag > LAG_THRESHOLD_SLOTS) {
++      this.log.warn(`[SQD LAG] ${lag} slots behind chain tip (sqd=${sqd} ref=${ref})`);
++    }
++  }
++
++  /**
++   * Record a decoded block number for gap detection. Called by the decode pipeline after each block.
++   * Emits a WARN if the received block is not lastDecodedBlock + 1 (allows batch delivery).
++   * Never halts on a gap — SQD Portal may deliver blocks in valid batches.
++   */
++  recordBlock(blockNumber: number): void {
++    if (this.lastDecodedBlock >= 0 && blockNumber !== this.lastDecodedBlock + 1) {
++      this.log.warn(`[SQD GAP] blocks ${this.lastDecodedBlock + 1}-${blockNumber - 1} skipped`);
++    }
++    this.lastDecodedBlock = blockNumber;
++  }
++
++  /** Start periodic checks. No-op in test environments. */
++  start(): void {
++    if (process.env.NODE_ENV === "test" || process.env.SQD_LIVENESS_DISABLED === "1") return;
++    this.intervalHandle = setInterval(() => {
++      this.check().catch((e) => {
++        if (e instanceof SqdLivenessError) throw e; // re-throw halting errors
++        // non-halting check errors are logged but do not stop the monitor
++      });
++    }, CHECK_INTERVAL_MS);
++  }
++
++  stop(): void {
++    if (this.intervalHandle !== null) {
++      clearInterval(this.intervalHandle);
++      this.intervalHandle = null;
++    }
++  }
++}
++
++async function fetchSolanaSlot(): Promise<number> {
++  const res = await fetch(REFERENCE_RPC_URL, {
++    method: "POST",
++    headers: { "Content-Type": "application/json" },
++    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getSlot", params: [{ commitment: "finalized" }] }),
++  });
++  const d = (await res.json()) as { result?: number };
++  if (typeof d.result !== "number") throw new Error("getSlot: unexpected response shape");
++  return d.result;
++}
+diff --git a/src/svm/sqd-loader-cursor.test.ts b/src/svm/sqd-loader-cursor.test.ts
+new file mode 100644
+index 00000000..fe2885e1
+--- /dev/null
++++ b/src/svm/sqd-loader-cursor.test.ts
+@@ -0,0 +1,218 @@
++/**
++ * DISS-001 Regression Test — cursor-skip defect in runSqdLoader.
++ *
++ * Bug: `stats.lastSlot` is shared and accumulates across all chunks.  When chunk 0
++ * completes at slot 1000 and chunk 1 subsequently advances `stats.lastSlot` to 2000
++ * before the cap fires, `Object.assign(result, stats)` produces `result.lastSlot=2000`.
++ * On the next resume, `fetchCursorSlot` (DB MAX) returns 2000, so chunk 0's mints skip
++ * slots 1001–2000 entirely.
++ *
++ * Fix (T2): accumulate per-chunk `lastSlot` snapshots in `completedChunkSlots[]`,
++ * then compute `safeSlot = Math.min(...completedChunkSlots)` as the return value.
++ *
++ * PRE-FIX: the "pre-fix: red" test FAILS because `result.lastSlot` would be the MAX
++ * across all chunks (2000), not the MIN (1000).
++ * POST-FIX: all tests in this file pass green.
++ */
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { runSqdLoader, type SqdLoaderDeps, type SqdLoaderResult } from "./sqd-loader.js";
++import { type SqdClient, MINT_CHUNK } from "./sqd-client.js";
++import type { SqdBlock } from "./sqd-collection-event-source.js";
++
++const MINT_A = "J1S9H3QjnRtBbbuD4HjPV6RpRhwuk4zKbxsnCHuTgh9w";
++
++/** Build an array of N distinct fake mint addresses */
++function makeMints(n: number): string[] {
++  return Array.from({ length: n }, (_, i) => `Mint${String(i).padStart(40, "0")}`);
++}
++
++/** Minimal SqdBlock with a controllable slot */
++function makeBlock(slot: number): SqdBlock {
++  return { header: { number: slot, timestamp: 1_000_000 }, transactions: [], tokenBalances: [] };
++}
++
++/**
++ * The DISS-001 bug scenario:
++ *   - chunk 0 (callCount=1): completes normally at slot `slot0`, NO cap
++ *   - chunk 1 (callCount=2): advances stats.lastSlot to `slot1` (> slot0), THEN fires cap
++ *
++ * Pre-fix: result.lastSlot = slot1  (stats.lastSlot overwritten by chunk 1 → bug)
++ * Post-fix: result.lastSlot = slot0 (min of completedChunkSlots → correct)
++ */
++function makeMultiChunkCapClient(slot0: number, slot1: number): SqdClient {
++  let callCount = 0;
++
++  const streamMock = vi.fn(async function* (
++    _mints: readonly string[],
++    _from: number,
++    _to: number,
++    stats: { requests: number; blocks: number; balanceRows: number; stoppedAtCap: boolean; lastSlot: number },
++  ) {
++    callCount++;
++    if (callCount === 1) {
++      // chunk 0: runs fully, sets lastSlot=slot0, does NOT fire cap
++      stats.requests++;
++      stats.blocks++;
++      stats.lastSlot = slot0;
++      yield [makeBlock(slot0)];
++    } else {
++      // chunk 1: advances lastSlot past slot0 → THEN fires cap
++      // Pre-fix: result.lastSlot = slot1 (wrong, inflates cursor)
++      stats.requests++;
++      stats.blocks++;
++      stats.lastSlot = slot1;
++      stats.stoppedAtCap = true;
++      yield [makeBlock(slot1)];
++    }
++  });
++
++  return {
++    head: vi.fn().mockResolvedValue(500_000),
++    currentHeight: vi.fn().mockResolvedValue(500_000),
++    stream: streamMock,
++    lastBlockReceivedAt: 0,
++  } as unknown as SqdClient;
++}
++
++// Need > MINT_CHUNK mints to produce exactly 2 chunks
++const MINTS = makeMints(MINT_CHUNK + 1);
++const CHUNK_0_LAST_SLOT = 1000;
++const CHUNK_1_LAST_SLOT = 2000; // chunk 1 fires cap here; cursor must NOT advance to 2000
++
++describe("DISS-001 — cursor-skip regression (src/svm colocated)", () => {
++  afterEach(() => vi.restoreAllMocks());
++
++  /**
++   * Pre-fix RED: result.lastSlot = 2000 (chunk 1 overwrote stats.lastSlot via shared max)
++   * Post-fix GREEN: result.lastSlot = 1000 (safeSlot = min(completedChunkSlots))
++   */
++  it("safeSlot equals min(completedChunkSlots) when chunk 1 fires cap at a higher slot (pre-fix: red)", async () => {
++    const client = makeMultiChunkCapClient(CHUNK_0_LAST_SLOT, CHUNK_1_LAST_SLOT);
++    const deps: SqdLoaderDeps = {
++      client,
++      members: vi.fn().mockResolvedValue(MINTS),
++      cursorSlot: vi.fn().mockResolvedValue(0),
++      knownMints: vi.fn().mockResolvedValue([]),
++      upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
++      syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
++      log: () => {},
++    };
++
++    const result: SqdLoaderResult = await runSqdLoader(
++      { collectionKey: "pythians", fromSlot: 0 },
++      deps,
++    );
++
++    // The safe cursor must reflect the MINIMUM across completed chunks
++    expect(result.lastSlot).toBe(CHUNK_0_LAST_SLOT);
++    // Strict inequality: cursor must NOT have advanced to chunk-1's higher slot
++    expect(result.lastSlot).toBeLessThan(CHUNK_1_LAST_SLOT);
++  });
++
++  it("stoppedAtCap is true — chunk 2 would have run but didn't fire", async () => {
++    const client = makeMultiChunkCapClient(CHUNK_0_LAST_SLOT, CHUNK_1_LAST_SLOT);
++    const deps: SqdLoaderDeps = {
++      client,
++      members: vi.fn().mockResolvedValue(MINTS),
++      cursorSlot: vi.fn().mockResolvedValue(0),
++      knownMints: vi.fn().mockResolvedValue([]),
++      upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
++      syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
++      log: () => {},
++    };
++
++    const result = await runSqdLoader({ collectionKey: "pythians", fromSlot: 0 }, deps);
++
++    expect(result.stoppedAtCap).toBe(true);
++    // stream called twice: chunk 0 completed, chunk 1 fired cap
++    expect((client.stream as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(2);
++  });
++
++  it("single-chunk path: safeSlot equals the one chunk's lastSlot (no regression)", async () => {
++    const SINGLE_SLOT = 500;
++    const streamMock = vi.fn(async function* (
++      _mints: readonly string[],
++      _from: number,
++      _to: number,
++      stats: { requests: number; blocks: number; balanceRows: number; stoppedAtCap: boolean; lastSlot: number },
++    ) {
++      stats.requests++;
++      stats.blocks++;
++      stats.lastSlot = SINGLE_SLOT;
++      yield [makeBlock(SINGLE_SLOT)];
++    });
++
++    const client: SqdClient = {
++      head: vi.fn().mockResolvedValue(500_000),
++      currentHeight: vi.fn().mockResolvedValue(500_000),
++      stream: streamMock,
++      lastBlockReceivedAt: 0,
++    } as unknown as SqdClient;
++
++    const deps: SqdLoaderDeps = {
++      client,
++      members: vi.fn().mockResolvedValue([MINT_A]),
++      cursorSlot: vi.fn().mockResolvedValue(0),
++      knownMints: vi.fn().mockResolvedValue([]),
++      upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
++      syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
++      log: () => {},
++    };
++
++    const result = await runSqdLoader({ collectionKey: "pythians", fromSlot: 0 }, deps);
++    expect(result.lastSlot).toBe(SINGLE_SLOT);
++  });
++
++  it("dry-run: no cursor write occurs regardless of safeSlot value", async () => {
++    const client = makeMultiChunkCapClient(CHUNK_0_LAST_SLOT, CHUNK_1_LAST_SLOT);
++    const syncStatusMock = vi.fn().mockResolvedValue(undefined);
++    const upsertMock = vi.fn().mockResolvedValue(undefined);
++
++    const deps: SqdLoaderDeps = {
++      client,
++      members: vi.fn().mockResolvedValue(MINTS),
++      cursorSlot: vi.fn().mockResolvedValue(0),
++      knownMints: vi.fn().mockResolvedValue([]),
++      upsert: upsertMock as unknown as SqdLoaderDeps["upsert"],
++      syncStatus: syncStatusMock as unknown as SqdLoaderDeps["syncStatus"],
++      log: () => {},
++    };
++
++    await runSqdLoader({ collectionKey: "pythians", fromSlot: 0, dry: true }, deps);
++
++    // dry-run: neither upsert nor syncStatus should be called
++    expect(upsertMock).not.toHaveBeenCalled();
++    expect(syncStatusMock).not.toHaveBeenCalled();
++  });
++
++  it("invariant guard: zero completed chunks (stream yields nothing) throws INVARIANT VIOLATION", async () => {
++    // Stream yields no blocks — chunkYielded stays false, completedChunkSlots stays empty
++    const streamMock = vi.fn(async function* () {
++      // intentionally yields nothing
++    });
++
++    const client: SqdClient = {
++      head: vi.fn().mockResolvedValue(500_000),
++      currentHeight: vi.fn().mockResolvedValue(500_000),
++      stream: streamMock,
++      lastBlockReceivedAt: 0,
++    } as unknown as SqdClient;
++
++    const logs: string[] = [];
++    const deps: SqdLoaderDeps = {
++      client,
++      members: vi.fn().mockResolvedValue([MINT_A]),
++      cursorSlot: vi.fn().mockResolvedValue(0),
++      knownMints: vi.fn().mockResolvedValue([]),
++      upsert: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["upsert"],
++      syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
++      log: (m) => logs.push(m),
++    };
++
++    await expect(
++      runSqdLoader({ collectionKey: "pythians", fromSlot: 0 }, deps),
++    ).rejects.toThrow(/INVARIANT VIOLATION/i);
++
++    expect(logs.some((l) => l.includes("INVARIANT VIOLATION"))).toBe(true);
++  });
++});
+diff --git a/src/svm/sqd-loader.test.ts b/src/svm/sqd-loader.test.ts
+new file mode 100644
+index 00000000..80cbbffb
+--- /dev/null
++++ b/src/svm/sqd-loader.test.ts
+@@ -0,0 +1,228 @@
++/**
++ * sqd-loader.test.ts — colocated unit tests for runSqdLoader and isLiveTailEnabled.
++ *
++ * Covers: kill switch (SQD_LIVE_TAIL_ENABLED), auth failures (SqdAuthRequiredError on
++ * 401/403), dry-run invariants, and multi-chunk chunk-count tracking.
++ *
++ * Cursor-skip regression (DISS-001) lives in sqd-loader-cursor.test.ts.
++ * Full §4.5 gate and decode tests live in test/.
++ */
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { isLiveTailEnabled, runSqdLoader, type SqdLoaderDeps } from "./sqd-loader.js";
++import { SqdAuthRequiredError, SqdClient } from "./sqd-client.js";
++
++const MINT = "J1S9H3QjnRtBbbuD4HjPV6RpRhwuk4zKbxsnCHuTgh9w";
++
++// ── kill switch ────────────────────────────────────────────────────────────────
++
++describe("isLiveTailEnabled", () => {
++  afterEach(() => {
++    delete process.env.SQD_LIVE_TAIL_ENABLED;
++  });
++
++  it("returns true when SQD_LIVE_TAIL_ENABLED is unset (default enabled)", () => {
++    delete process.env.SQD_LIVE_TAIL_ENABLED;
++    expect(isLiveTailEnabled()).toBe(true);
++  });
++
++  it("returns false and emits a [SQD] log when SQD_LIVE_TAIL_ENABLED=false", () => {
++    process.env.SQD_LIVE_TAIL_ENABLED = "false";
++    const logs: string[] = [];
++    expect(isLiveTailEnabled((m) => logs.push(m))).toBe(false);
++    expect(logs.some((l) => l.includes("[SQD]") && l.toLowerCase().includes("disabled"))).toBe(true);
++  });
++
++  it("returns true when SQD_LIVE_TAIL_ENABLED=true", () => {
++    process.env.SQD_LIVE_TAIL_ENABLED = "true";
++    expect(isLiveTailEnabled()).toBe(true);
++  });
++
++  it("only exact string 'false' triggers the kill — '0' and '1' leave it enabled", () => {
++    process.env.SQD_LIVE_TAIL_ENABLED = "0";
++    expect(isLiveTailEnabled()).toBe(true);
++    process.env.SQD_LIVE_TAIL_ENABLED = "1";
++    expect(isLiveTailEnabled()).toBe(true);
++  });
++});
++
++describe("runSqdLoader — kill switch", () => {
++  afterEach(() => {
++    delete process.env.SQD_LIVE_TAIL_ENABLED;
++    vi.restoreAllMocks();
++  });
++
++  it("returns empty zero result immediately when SQD_LIVE_TAIL_ENABLED=false", async () => {
++    process.env.SQD_LIVE_TAIL_ENABLED = "false";
++
++    const deps: SqdLoaderDeps = {
++      client: {
++        head: vi.fn(),
++        stream: vi.fn(),
++        currentHeight: vi.fn(),
++        lastBlockReceivedAt: 0,
++      } as unknown as SqdClient,
++      members: vi.fn().mockResolvedValue([MINT]),
++      cursorSlot: vi.fn().mockResolvedValue(null),
++      knownMints: vi.fn().mockResolvedValue([]),
++      upsert: vi.fn() as unknown as SqdLoaderDeps["upsert"],
++      syncStatus: vi.fn() as unknown as SqdLoaderDeps["syncStatus"],
++      log: vi.fn(),
++    };
++
++    const result = await runSqdLoader({ collectionKey: "pythians", fromSlot: 0 }, deps);
++
++    expect(result.requests).toBe(0);
++    expect(result.blocks).toBe(0);
++    expect(result.eventsUpserted).toBe(0);
++    expect(result.chunks).toBe(0);
++    // network not touched
++    expect((deps.client.head as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
++    expect((deps.client.stream as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
++  });
++});
++
++// ── auth failure ───────────────────────────────────────────────────────────────
++
++let fetchMock: ReturnType<typeof vi.fn>;
++
++beforeEach(() => {
++  fetchMock = vi.fn();
++  vi.stubGlobal("fetch", fetchMock);
++});
++
++afterEach(() => {
++  vi.unstubAllGlobals();
++  vi.restoreAllMocks();
++});
++
++function makeDeps(): { deps: SqdLoaderDeps; upsertMock: ReturnType<typeof vi.fn> } {
++  const upsertMock = vi.fn().mockResolvedValue(undefined);
++  const deps: SqdLoaderDeps = {
++    client: new SqdClient(undefined, 10),
++    members: vi.fn().mockResolvedValue([MINT]),
++    cursorSlot: vi.fn().mockResolvedValue(0),
++    knownMints: vi.fn().mockResolvedValue([]),
++    upsert: upsertMock as unknown as SqdLoaderDeps["upsert"],
++    syncStatus: vi.fn().mockResolvedValue(undefined) as unknown as SqdLoaderDeps["syncStatus"],
++    log: () => {},
++  };
++  return { deps, upsertMock };
++}
++
++describe("runSqdLoader — auth failure 401", () => {
++  it("throws SqdAuthRequiredError instanceof on 401", async () => {
++    fetchMock.mockResolvedValue(new Response("", { status: 401 }));
++    const { deps } = makeDeps();
++    await expect(runSqdLoader({ collectionKey: "mad_lads" }, deps)).rejects.toBeInstanceOf(SqdAuthRequiredError);
++  });
++
++  it("fetch is called exactly once — no retry on 401", async () => {
++    fetchMock.mockResolvedValue(new Response("", { status: 401 }));
++    const { deps } = makeDeps();
++    await runSqdLoader({ collectionKey: "mad_lads" }, deps).catch(() => {});
++    expect(fetchMock).toHaveBeenCalledTimes(1);
++  });
++
++  it("zero upsert calls on 401", async () => {
++    fetchMock.mockResolvedValue(new Response("", { status: 401 }));
++    const { deps, upsertMock } = makeDeps();
++    await runSqdLoader({ collectionKey: "mad_lads" }, deps).catch(() => {});
++    expect(upsertMock).not.toHaveBeenCalled();
++  });
++
++  it("error carries status:401, url string, blockHeight number", async () => {
++    fetchMock.mockResolvedValue(new Response("", { status: 401 }));
++    const { deps } = makeDeps();
++    const err = await runSqdLoader({ collectionKey: "mad_lads" }, deps).catch((e) => e);
++    expect(err).toBeInstanceOf(SqdAuthRequiredError);
++    expect((err as SqdAuthRequiredError).status).toBe(401);
++    expect(typeof (err as SqdAuthRequiredError).url).toBe("string");
++    expect(typeof (err as SqdAuthRequiredError).blockHeight).toBe("number");
++  });
++});
++
++describe("runSqdLoader — auth failure 403", () => {
++  it("throws SqdAuthRequiredError instan

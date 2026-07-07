@@ -1,0 +1,178 @@
+{
+  "consensus_summary": {
+    "high_consensus_count": 4,
+    "disputed_count": 1,
+    "low_value_count": 0,
+    "blocker_count": 8,
+    "model_agreement_percent": 90,
+    "models": 3,
+    "tertiary_items": 0,
+    "confidence": "full"
+  },
+  "high_consensus": [
+    {
+      "id": "IMP-001",
+      "description": "Critical correctness issue. Primary key convergence depends on identical instructionIndex computation, and ambiguity here can create silent structural divergence across lanes with low implementation cost to fix in the spec.",
+      "gpt_score": 930,
+      "opus_score": 820,
+      "tertiary_score": null,
+      "delta": 110,
+      "average_score": 875,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-002",
+      "description": "Critical gate-validity issue. If seenMints initialization differs between production and gate setup, match-rate failures can be artifacts rather than decode bugs. The spec needs an explicit rule before the acceptance threshold is meaningful.",
+      "gpt_score": 900,
+      "opus_score": 800,
+      "tertiary_score": null,
+      "delta": 100,
+      "average_score": 850,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-003",
+      "description": "High ROI delivery fix. A gate that is specified but not wired into a concrete CI workflow can be accidentally skipped forever. Naming the workflow and trigger conditions is cheap and directly protects the acceptance criteria.",
+      "gpt_score": 880,
+      "opus_score": 835,
+      "tertiary_score": null,
+      "delta": 45,
+      "average_score": 857.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-005",
+      "description": "Valuable determinism improvement. Hash canonicalization bugs are common and can cause false fixture integrity failures. A reference form or test vector is cheap, though the blast radius is narrower than the core decode and CI issues.",
+      "gpt_score": 760,
+      "opus_score": 845,
+      "tertiary_score": null,
+      "delta": 85,
+      "average_score": 802.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    }
+  ],
+  "disputed": [
+    {
+      "id": "IMP-010",
+      "description": "Nice-to-have. Predictable structured output placement helps CI parsing, but this only matters if logs are machine-parsed; many test runners can tolerate locating a JSON line anywhere. Benefit is real but modest.",
+      "gpt_score": 430,
+      "opus_score": 750,
+      "tertiary_score": null,
+      "delta": 320,
+      "average_score": 590,
+      "source": "gpt_scored",
+      "would_integrate": false,
+      "agreement": "DISPUTED"
+    }
+  ],
+  "low_value": [],
+  "blockers": [
+    {
+      "id": "SKP-002",
+      "concern": "Ambiguous SQD events silently deflate match_rate below real decoder quality. The pythians fixture is built from ALL sources (warehouse + Helius). If some events in the fixture are cross-program escrow releases or multi-hop transactions that SQD legitimately cannot classify (decoded as `ambiguous` and dropped per §3.2), they appear in the denominator but never in SQD output — driving match_rate down for events that are NOT decoder failures.",
+      "severity": "CRITICAL",
+      "severity_score": 870,
+      "why_matters": "If legitimate ambiguous events account for even 0.5% of the fixture, the 0.99 threshold becomes unreachable regardless of decoder quality. Conversely, if the 1% slack (300 events) is entirely consumed by known-ambiguous events, the threshold provides zero margin for real regressions. The gate either fails spuriously or provides no meaningful signal.",
+      "location": "§3.2 decodeSqdBlocks (branch 6), §6.3 Denominator, AC-2/AC-3",
+      "recommendation": "The fixture generator must classify each event by decode-ability at creation time. Events whose on-chain tx shape maps to `ambiguous` by design (no net-custody resolution possible) should be tagged in the fixture and excluded from the denominator. The gate then reports: total_fixture_events, ambiguous_excluded, effective_denominator, match_rate_over_classifiable_events.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "Frozen fixture never captures events after to_slot — gate silently becomes stale. Any SQD indexing failure that begins after the fixture snapshot window is invisible to the gate permanently. The gate PASS signal degrades in quality monotonically as time passes and new events accumulate beyond the snapshot.",
+      "severity": "CRITICAL",
+      "severity_score": 920,
+      "why_matters": "The §4.5 gate is the primary quality signal for the SQD lane. A gate that only proves historical coverage gives false confidence while a live regression goes undetected. Months after fixture creation, a 100% match_rate against a 30,006-event fixture is meaningless if the lane has been silently failing on all new events.",
+      "location": "§6.1 Sample Selection, §6.2 Frozen Fixture, NFR-7",
+      "recommendation": "Add a second gate tier: a live recency probe that streams the most recent N blocks (e.g., last 1,000 slots) on each gate run and asserts non-zero decoded output. This proves the lane is alive against current chain state, not just historically correct. The frozen fixture gate proves decoder correctness; the recency probe proves operational liveness.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-005",
+      "concern": "SQD Portal slot gap detection is absent. §6.1 streams 'ALL finalized SQD blocks in the slot range.' But if `portal.sqd.dev` has gaps — slots it considers finalized but returns no events for — the gate cannot distinguish 'no events in slot X' (correct) from 'portal skipped slot X' (data loss). A portal outage during the fixture window that caused silent slot omissions would produce a permanently depressed match_rate with no diagnostic signal.",
+      "severity": "HIGH",
+      "severity_score": 710,
+      "why_matters": "The gate's correctness depends on SQD returning a complete block sequence for the fixture slot range. If the portal has historical coverage gaps (a known characteristic of early Solana indexers), the gate's denominator and the SQD-decoded output are computed against different event sets, making match_rate meaningless as a convergence metric.",
+      "location": "§6.1 Sample Selection, §6.4 CI Enforcement Path",
+      "recommendation": "The structured gate output (§6.4) should include `slots_requested`, `slots_with_response`, and `slots_with_zero_events` to distinguish legitimate no-event slots from silently skipped slots. A gap_rate above a threshold (e.g., >5% of slots returning no response) should be a separate WARN or FAIL signal.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-003",
+      "concern": "The PK omits slot, block time, source, and log/instruction path, relying only on `{tx_signature}:{nft_mint}:{instruction_index}` where `instructionIndex` is an occurrence ordinal. The SDD asserts all lanes use the same rule, but does not prove the ordinal is stable across inner instructions, multi-leg transfers, partial decodes, or lane-specific filtering.",
+      "severity": "HIGH",
+      "severity_score": 730,
+      "why_matters": "If two lanes filter or group balance changes differently before assigning ordinals, byte-identical PK convergence can fail for valid events, or worse, two distinct events can collide under the same PK.",
+      "location": "§3.2 instructionIndex; §3.4 eventId; §5 FR-1",
+      "recommendation": "Specify the exact canonical ordering input for ordinal assignment, including inner instruction handling, token account ordering, duplicate mint appearances, and filtered ambiguous events. Add collision tests for multiple same-mint movements in one transaction.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-002",
+      "concern": "The fixture generation procedure selects reference IDs from all non-SQD sources, which may include Helius marketplace rows with `sale`, `list`, or `delist` kinds that SQD explicitly cannot decode. Those IDs may share transaction/mint/index shape inconsistently or represent events outside SQD's coarse balance-diff domain.",
+      "severity": "HIGH",
+      "severity_score": 760,
+      "why_matters": "The denominator may include events SQD is not designed to produce, making the 0.99 threshold either unfair, misleading, or dependent on accidental PK overlap. This can create false failures or mask real decoder gaps by mixing semantic classes.",
+      "location": "§4.2 kind semantics; §6.2 fixture generation; §6.3 denominator",
+      "recommendation": "Constrain the reference fixture to event kinds SQD is expected to emit, or explicitly document and justify why marketplace-only Helius events are included in the denominator. Add fixture counts by `kind` and `source` to the gate output.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "The §4.5 gate is described as offline-capable, but still appears to require live SQD Portal streaming at test time to produce SQD-decoded IDs. If CI has no SQD credentials, network access, or the portal changes behavior/rate limits, the committed reference fixture alone does not make the gate deterministic or CI-safe.",
+      "severity": "CRITICAL",
+      "severity_score": 870,
+      "why_matters": "A gate intended to prove release readiness can fail or skip for infrastructure reasons unrelated to decoder correctness, or worse, be omitted from CI because it cannot run reliably. This leaves the central ≥0.99 match-rate acceptance criterion unenforced.",
+      "location": "§6.2 Gate behavior at run time; §6.4 CI Enforcement Path; §10 NFR-3/NFR-5",
+      "recommendation": "Define exactly what runtime input the integration gate uses for SQD-decoded output. Either commit a frozen SQD block-response fixture for the same slot range, or explicitly require CI SQD access and make `pnpm test:gate` fail closed when unavailable.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-003",
+      "concern": "`instructionIndex` convergence algorithm is asserted but not specified in this document. §3.2 states 'This is the SAME rule used by `parseHeliusTx` and warehouse `mapRows`' — but this is a claim about existing code, not a design specification. The SDD defines no algorithm and adds no test that would catch a subtle divergence (e.g., one lane counting all instructions, another counting only SPL token transfer instructions within the tx).",
+      "severity": "HIGH",
+      "severity_score": 790,
+      "why_matters": "The `instructionIndex` is one of three components in the PK. Any divergence produces a different PK for the same on-chain event across lanes, causing both lanes to write separate rows for the same event (duplication) rather than the intended idempotency. The convergence test with 4 synthetic shapes may pass while real transactions with edge-case instruction layouts diverge.",
+      "location": "§3.2 instructionIndex, §3.4 eventId(), §5 FR-1 PK Convergence Design",
+      "recommendation": "Add a normative algorithm definition: 'instructionIndex is the zero-based count of prior occurrences of nftMint in the same transaction, ordered by the canonical instruction sequence as parsed by [specific parser].' Include at least one S-4 multi-instruction test case where the same mint appears at instruction positions 0 and 2 and verify all three lanes produce instructionIndex=0 for the first and instructionIndex=1 for the second.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-004",
+      "concern": "`pnpm test:gate` is a new CI target with no workflow integration specified. §6.4 claims BLOCKER-6 ('§4.5 gate permanently skippable in CI') is resolved by the committed fixture. But if no CI workflow file runs `pnpm test:gate`, the target is dev-local only. The document does not specify which workflow file, which job, or which trigger fires this target.",
+      "severity": "HIGH",
+      "severity_score": 750,
+      "why_matters": "A committed fixture file that no CI job reads provides zero enforcement. The gate remains permanently skippable from a CI perspective — it just moves from 'skips due to missing DB URL' to 'never runs at all.' The resolution of BLOCKER-6 is incomplete without a CI workflow change.",
+      "location": "§6.4 CI Enforcement Path, §11 Test File Index",
+      "recommendation": "Specify the exact CI workflow file and job that runs `pnpm test:gate`. The job must: (a) check out the fixture file from the repo, (b) run `pnpm test:gate`, (c) gate PR merge on exit code. This is a required deliverable of FR-4, not implementation detail.",
+      "source": "tertiary_skeptic"
+    }
+  ],
+  "degraded": false,
+  "degraded_model": null,
+  "confidence": "full",
+  "phase": "sdd",
+  "document": "grimoires/loa/sdd.md",
+  "domain": " fr 3 consumer shape",
+  "tertiary_model_used": "gemini-headless",
+  "tertiary_status": "active",
+  "execution": {
+    "mode": "interactive",
+    "mode_reason": "Default (no explicit mode specified)",
+    "run_id": null
+  },
+  "timestamp": "2026-07-06T02:12:55Z",
+  "metrics": {
+    "total_latency_ms": 217000,
+    "cost_cents": 0,
+    "cost_usd": 0
+  }
+}

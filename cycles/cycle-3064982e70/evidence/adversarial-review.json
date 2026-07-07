@@ -1,0 +1,82 @@
+{
+  "findings": [
+    {
+      "id": "DISS-001",
+      "severity": "ADVISORY",
+      "category": "data-loss",
+      "anchor": "src/svm/sqd-loader.ts:runSqdLoader",
+      "anchor_type": "function",
+      "scope": "diff",
+      "description": "The cursor safety fix only takes the minimum over chunks that yielded blocks. If the request cap fires in an early chunk before later chunks run, `completedChunkSlots` still contains that early chunk's partial high-water mark and `result.lastSlot` advances to it. Because resume reads the max `sqd-stream` event slot for the whole collection, all later chunks resume from that advanced slot despite never covering the earlier range.",
+      "failure_mode": "A capped run can ingest slots 0..N for chunk 0, write events at slot N, then stop before chunk 1. The next run starts chunk 1 at N, permanently skipping chunk 1 mints from 0..N.",
+      "suggested_fix": "Treat unvisited chunks as only covered through the starting cursor. If `stats.stoppedAtCap` occurs before every chunk has reached the candidate safe slot, keep `lastSlot` at the previous cursor, or persist per-chunk cursors and resume each chunk independently.",
+      "anchor_status": "out_of_scope",
+      "demotion_reason": "Demoted: anchor not in diff scope"
+    },
+    {
+      "id": "DISS-002",
+      "severity": "BLOCKING",
+      "category": "error-handling",
+      "anchor": ".github/workflows/activation-regression.yml:@@ -0,0 +1,93 @@",
+      "anchor_type": "hunk",
+      "scope": "diff",
+      "description": "The new activation regression workflow installs with `npm ci`, but this repo is pnpm-managed and has no `package-lock.json`. `npm ci` requires an npm lockfile and will fail before typecheck or regression tests run.",
+      "failure_mode": "Every push/PR matching this workflow fails at the install step with an npm usage error, so the regression guard is unusable.",
+      "suggested_fix": "Use pnpm consistently in this workflow: set up pnpm, set up Node with `cache: pnpm`, then run `pnpm install --frozen-lockfile` and `pnpm vitest ...` or `pnpm exec tsc --noEmit`.",
+      "anchor_status": "valid",
+      "anchor_stability": "hunk_header"
+    },
+    {
+      "id": "DISS-003",
+      "severity": "BLOCKING",
+      "category": "spec-violation",
+      "anchor": "package.json:@@ -11,6 +11,7 @@",
+      "anchor_type": "hunk",
+      "scope": "cross_file",
+      "trigger_anchor": "package.json:@@ -11,6 +11,7 @@",
+      "cross_file_justification": "The diff adds `test:gate`, which is what the new gate workflow executes; the referenced integration test/fixture determine whether the new gate enforces the §4.5 requirement.",
+      "description": "`test:gate` runs an integration test that passes vacuously against a zero-event fixture instead of the required 30,006-event reconciliation. With `event_count: 0` and `slot_range` 0..0, the test does no SQD streaming and computes `match_rate = 1.0` by definition.",
+      "failure_mode": "A broken decoder or SQD stream integration can still pass the required §4.5 gate because the CI gate reconciles zero reference events and reports PASS.",
+      "suggested_fix": "Make the gate fail or skip as blocked unless the real non-empty Pythians fixture is present and has the expected event count/hash. Do not allow `event_count === 0` to satisfy the release gate.",
+      "anchor_status": "valid",
+      "anchor_stability": "hunk_header"
+    }
+  ],
+  "metadata": {
+    "type": "review",
+    "model": "codex-headless",
+    "sprint_id": "cycle-3064982e70-review",
+    "timestamp": "2026-07-06T03:35:15Z",
+    "tokens_input": 175209,
+    "tokens_output": 3963,
+    "cost_usd": 0,
+    "latency_ms": 79326,
+    "status": "reviewed",
+    "degraded": false,
+    "rejected_count": 0,
+    "rejected_sidecar": "grimoires/loa/a2a/cycle-3064982e70-review/adversarial-rejected-review.jsonl",
+    "model_attempts": [
+      "codex-headless:reviewed"
+    ],
+    "final_model": "codex-headless",
+    "hallucination_filter": {
+      "applied": true,
+      "downgraded": 0
+    }
+  },
+  "verdict_quality": {
+    "consensus_outcome": "consensus",
+    "truncation_waiver_applied": false,
+    "voices_planned": 1,
+    "voices_succeeded": 1,
+    "voices_succeeded_ids": [
+      "codex-headless"
+    ],
+    "voices_dropped": [],
+    "chain_health": "ok",
+    "confidence_floor": "high",
+    "rationale": "multi-voice aggregate (1/1 succeeded); chain_health=ok",
+    "single_voice_call": true,
+    "status": "APPROVED"
+  }
+}

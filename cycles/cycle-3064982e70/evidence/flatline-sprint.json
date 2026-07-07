@@ -1,0 +1,126 @@
+{
+  "consensus_summary": {
+    "high_consensus_count": 3,
+    "disputed_count": 1,
+    "low_value_count": 0,
+    "blocker_count": 4,
+    "model_agreement_percent": 88,
+    "models": 3,
+    "tertiary_items": 0,
+    "confidence": "full"
+  },
+  "high_consensus": [
+    {
+      "id": "IMP-001",
+      "description": "High ROI and low implementation cost. The invariant guard is safety-critical, and placing its test ownership only in T2 creates a real chance the test is omitted. This should be integrated directly into T1's requirements table.",
+      "gpt_score": 910,
+      "opus_score": 780,
+      "tertiary_score": null,
+      "delta": 130,
+      "average_score": 845,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-002",
+      "description": "Valuable clarification because red-before-green requirements often decay into unenforced intent. A full CI pre-fix snapshot may be costly, but at minimum documenting the expected pre-fix failure mode is cheap and improves falsifiability.",
+      "gpt_score": 760,
+      "opus_score": 875,
+      "tertiary_score": null,
+      "delta": 115,
+      "average_score": 817.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-003",
+      "description": "Strong process risk reduction. If budget exhaustion is an explicit stopping condition, the sprint needs a triage rule so audit/review gates are not silently dropped. Low cost to add mandatory vs droppable ordering.",
+      "gpt_score": 820,
+      "opus_score": 845,
+      "tertiary_score": null,
+      "delta": 25,
+      "average_score": 832.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    }
+  ],
+  "disputed": [
+    {
+      "id": "IMP-009",
+      "description": "Valuable coverage ownership cleanup. Single-chunk behavior is part of the fix contract, and relying on an existing test or optional assertion leaves ambiguity. Lower priority than the invariant guard but cheap to make explicit.",
+      "gpt_score": 610,
+      "opus_score": 0,
+      "tertiary_score": null,
+      "delta": 610,
+      "average_score": 610,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "DISPUTED"
+    }
+  ],
+  "low_value": [],
+  "blockers": [
+    {
+      "id": "SKP-001",
+      "concern": "Budget exhaustion before T8 completion: ~$20 of $25 cap spent with T6 (CI), T7 (BB review), and T8 (review + audit) still outstanding. BB review alone can consume $2-5 depending on diff size. If T8 requires finding resolution loops, the sprint terminates mid-audit with no approved gate.",
+      "severity": "CRITICAL",
+      "severity_score": 880,
+      "why_matters": "Audit gate (T8) never exits APPROVED, sprint deliverable is incomplete, and the PR ships without the Loa quality gate — exactly the outcome the gate exists to prevent. No contingency is specified for budget exhaustion between T5 and T8.",
+      "location": "Stopping Conditions / T7 / T8",
+      "recommendation": "Reserve explicit budget headroom before opening PR: estimate T6+T7+T8 cost ceiling, confirm remaining budget exceeds it, or explicitly scope T7 (BB) as optional if budget is within $3 of cap. Add a pre-T5 checkpoint: if remaining budget < $4, skip T7 and proceed directly to T8 with a disclosure.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-003",
+      "concern": "Existing over-advanced cursors in the DB are not repaired by the fix. DISS-001 describes a bug where the cursor advanced past slots from incomplete chunks. If production cursors are already over-advanced (from pre-fix runs), the fix prevents future occurrences but leaves the DB in a state where `fetchCursorSlot` returns an over-advanced `from` value on next resume — causing the indexer to skip already-missed slots permanently.",
+      "severity": "HIGH",
+      "severity_score": 720,
+      "why_matters": "The fix is purely forward-looking. Any production slot gap created by a pre-fix run remains a permanent gap. If the score-api consumer (T5 GraphQL query) queries from the cursor forward, those slots are silently absent from query results with no error surfaced. This is the core data integrity problem DISS-001 was opened to fix.",
+      "location": "T2 Acceptance Criteria / PRD",
+      "recommendation": "Explicitly state whether cursor repair is in-scope or deferred. If deferred, document the known gap in the PR body (T5) and add a NOTES.md entry so the next run can address it. If repair is needed before the PR is mergeable, add a T2.5 task for a one-time cursor rewind migration.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "The proposed safe cursor derivation uses `Math.min(...completedChunkSlots)` even when the run stops after only a subset of chunks completed. If chunk 1 completes and chunk 2 never runs, the minimum over completed chunks is 1000, but there is no evidence that chunk 2 has fetched through slot 1000 unless the stream query bounds each chunk to the same requested slot range.",
+      "severity": "HIGH",
+      "severity_score": 760,
+      "why_matters": "The fix may prevent advancing to 2000, but it can still skip events if unprocessed chunks contain events below or at 1000 that were never fetched in this run. The plan assumes completed chunks alone are sufficient to define a globally safe cursor.",
+      "location": "T2 — Implement the DISS-001 Cursor Fix",
+      "recommendation": "Explicitly prove or enforce that every uncompleted chunk is safe through `safeSlot` before writing the cursor. If that cannot be guaranteed, only advance the durable cursor when all chunks complete, or persist per-chunk progress.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-002",
+      "concern": "`stoppedAtCap` simulability via `SqdLoaderDeps` is unconfirmed. T1 acceptance criteria requires `stoppedAtCap = true` after chunk 1 without interface changes, but the mechanism by which the test forces this condition is never stated. If `stoppedAtCap` is computed internally from a non-injectable parameter (e.g., hardcoded cap logic), T1 cannot reproduce the scenario without either interface changes or testing internal state — violating the stated constraint.",
+      "severity": "HIGH",
+      "severity_score": 760,
+      "why_matters": "If T1 cannot force `stoppedAtCap = true` via the existing `SqdLoaderDeps` interface, the regression test either (a) cannot be written as specified, (b) requires an undisclosed interface change that invalidates T1's constraint, or (c) tests a proxy condition that doesn't actually reproduce DISS-001. In any case, the falsification gate is broken.",
+      "location": "T1 Acceptance Criteria / T1 Test Requirements",
+      "recommendation": "Before T1 authoring, confirm explicitly how `stoppedAtCap` is controlled — which `SqdLoaderDeps` field or constructor parameter governs the cap threshold, and whether it is injectable. If not currently injectable, call this out as a prerequisite interface change that must be declared before T1 proceeds.",
+      "source": "tertiary_skeptic"
+    }
+  ],
+  "degraded": false,
+  "degraded_model": null,
+  "confidence": "full",
+  "phase": "sprint",
+  "document": "grimoires/loa/sprint.md",
+  "domain": " sprint overview the implementation",
+  "tertiary_model_used": "gemini-headless",
+  "tertiary_status": "active",
+  "execution": {
+    "mode": "interactive",
+    "mode_reason": "Default (no explicit mode specified)",
+    "run_id": null
+  },
+  "timestamp": "2026-07-06T03:12:42Z",
+  "metrics": {
+    "total_latency_ms": 181000,
+    "cost_cents": 0,
+    "cost_usd": 0
+  }
+}

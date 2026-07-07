@@ -1,0 +1,184 @@
+{
+  "consensus_summary": {
+    "high_consensus_count": 5,
+    "disputed_count": 3,
+    "low_value_count": 0,
+    "blocker_count": 5,
+    "model_agreement_percent": 70,
+    "models": 3,
+    "tertiary_items": 0,
+    "confidence": "full"
+  },
+  "high_consensus": [
+    {
+      "id": "IMP-001",
+      "description": "Critical gate-integrity fix. The described skip path directly undermines the CI guarantee, and the implementation cost is very low: assert fixture presence before any optional live-DB fallback or skip decision. This should be integrated unconditionally.",
+      "gpt_score": 930,
+      "opus_score": 780,
+      "tertiary_score": null,
+      "delta": 150,
+      "average_score": 855,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-002",
+      "description": "Critical ambiguity in a canonical ordering algorithm that multiple decoders must reproduce exactly. Leaving `balanceDiff order` undefined risks false convergence in controlled fixtures and real divergence in production data. Low documentation cost with high correctness value.",
+      "gpt_score": 910,
+      "opus_score": 875,
+      "tertiary_score": null,
+      "delta": 35,
+      "average_score": 892.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-003",
+      "description": "High-value clarification for load-bearing fixture seeding logic. The eventId parsing rule is simple to specify, and explicitly noting base58/pubkey colon safety removes an avoidable class of silent misclassification bugs. Slightly less critical than the gate bypass and ordering ambiguity, but still worth integrating.",
+      "gpt_score": 840,
+      "opus_score": 725,
+      "tertiary_score": null,
+      "delta": 115,
+      "average_score": 782.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-004",
+      "description": "Valuable operational precondition. A contaminated DB state could produce a misleading denominator and weaken the match-rate gate. The main limitation is that this is procedural rather than automatically enforceable, but documenting it is cheap and materially reduces future misuse.",
+      "gpt_score": 760,
+      "opus_score": 845,
+      "tertiary_score": null,
+      "delta": 85,
+      "average_score": 802.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-006",
+      "description": "Important failure-mode clarification. SHA256 mismatch should almost certainly be a hard tamper failure regardless of live DB availability, and leaving fallback behavior ambiguous could mask corruption. This is a low-cost spec tightening with strong gate-safety value.",
+      "gpt_score": 820,
+      "opus_score": 855,
+      "tertiary_score": null,
+      "delta": 35,
+      "average_score": 837.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    }
+  ],
+  "disputed": [
+    {
+      "id": "IMP-008",
+      "description": "T-5 requires a real Hasura query result as evidence but specifies only 'PR body' as the storage location. Evidence in a PR body description is ephemeral and becomes unreproducible after merge unless explicitly committed or linked. However, the finding's own confidence (0.78) reflects uncertainty about whether this is actually a gap or just underspecified. A committed sample file or a documented query artifact path would be the right fix. Moderate value, easy to implement.",
+      "gpt_score": 0,
+      "opus_score": 625,
+      "tertiary_score": null,
+      "delta": 625,
+      "average_score": 625,
+      "source": "opus_scored",
+      "would_integrate": true,
+      "agreement": "DISPUTED"
+    },
+    {
+      "id": "IMP-009",
+      "description": "Global acceptance criteria without an execution owner are aspirational, not enforceable. AC-7 (existing tests remain green) and AC-8 (no new provider/Dune code) can both regress silently if no task is responsible for verifying them. The fix is low cost: add explicit verification steps to an existing closing task or add a dedicated checklist item. Confidence 0.82 is well-calibrated — this is a process gap, not a logic error, but process gaps compound across sprints.",
+      "gpt_score": 0,
+      "opus_score": 715,
+      "tertiary_score": null,
+      "delta": 715,
+      "average_score": 715,
+      "source": "opus_scored",
+      "would_integrate": true,
+      "agreement": "DISPUTED"
+    },
+    {
+      "id": "IMP-010",
+      "description": "Legitimate but LOW-value finding. pnpm/action-setup with a node-version input or a .nvmrc file in the repo is the standard resolution, and most modern CI templates include it. Confidence 0.74 is the lowest in the batch. If the repo already has a .nvmrc or package.json engines field, the action handles this automatically. The risk of getting the wrong Node version is real but immediately obvious when crypto or fetch behavior differs. Would not integrate as a sprint-level finding — a single-line CI fix that surfaces itself quickly in practice does not warrant formal acceptance criteria.",
+      "gpt_score": 0,
+      "opus_score": 555,
+      "tertiary_score": null,
+      "delta": 555,
+      "average_score": 555,
+      "source": "opus_scored",
+      "would_integrate": false,
+      "agreement": "DISPUTED"
+    }
+  ],
+  "low_value": [],
+  "blockers": [
+    {
+      "id": "SKP-001",
+      "concern": "CI gate workflow streams live SQD Portal blocks but configures zero SQD credentials",
+      "severity": "CRITICAL",
+      "severity_score": 920,
+      "why_matters": "T-3's gate algorithm step 3 explicitly calls `SqdClient` to stream ALL blocks for `fixture.slot_range`. The `.github/workflows/gate.yml` spec installs deps and runs `pnpm test:gate` with no SQD Portal URL, no API key, no secret injection. The plan states 'no `SQD_GATE_DB_URL` secret required' but never states SQD Portal is public or unauthenticated. T-4 tests 401/403 auth errors, implying auth IS enforced. Result: gate CI job fails on every run with an auth error, not a fixture-driven result, making the gate permanently non-functional in CI.",
+      "location": "T-3 §CI wire-up, `.github/workflows/gate.yml` spec",
+      "recommendation": "Either (a) declare SQD Portal as publicly accessible and no-auth (document it explicitly), or (b) add `SQD_PORTAL_URL` and any required token to the CI secrets and inject them in the workflow, or (c) reframe the gate test as fixture-only with a mocked SqdClient (conflicts with 'integration test' framing but removes the credential dependency entirely). Decision must be explicit before T-3 implementation begins.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-003",
+      "concern": "Pre-seeding seenMints from fixture event IDs may not be equivalent to production's initialization from all prior collection events. Event IDs include txSignature:nftMint:instructionIndex, so extracting mints from only the frozen reference set may miss earlier or related mints needed to classify first appearances correctly.",
+      "severity": "HIGH",
+      "severity_score": 720,
+      "why_matters": "The gate can pass or fail based on fixture composition rather than production-equivalent state, producing misleading match_rate and divergence values.",
+      "location": "T-3: seenMints initialization",
+      "recommendation": "Define the exact production-equivalent seed set as part of the fixture, preferably a committed distinct_mints array generated from the same source query as production initialization, and have T-3 seed from that field.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-002",
+      "concern": "T-3 says the test should skip if fixture is absent and SQD_GATE_DB_URL is unset, but the CI section says fixture absence must fail, not skip. These are conflicting requirements.",
+      "severity": "HIGH",
+      "severity_score": 760,
+      "why_matters": "Implementers may encode the wrong behavior, allowing the gate to be silently skipped in CI or causing local behavior to diverge from CI behavior.",
+      "location": "T-3: SHA256 verification acceptance criteria vs CI wire-up",
+      "recommendation": "Separate local and CI behavior explicitly. For example: in CI, fixture absence is always fatal; locally, fixture absence may skip only when an explicit local-only condition is detected.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "The §4.5 gate is described as running in CI without a live DB, but the gate algorithm still requires streaming all SQD blocks through SqdClient. That likely needs network access, SQD credentials, or a live Portal endpoint despite saying no secret is required.",
+      "severity": "CRITICAL",
+      "severity_score": 900,
+      "why_matters": "CI may become permanently failing or environment-dependent, or teams may weaken the test by skipping it. This directly undermines AC-2/AC-3 and the claim that the fixture makes the gate unskippable.",
+      "location": "T-3: Gate algorithm and CI wire-up",
+      "recommendation": "Explicitly define how SqdClient runs in CI without secrets. Either commit a frozen SQD block fixture for the same slot range, provide a non-secret public SQD endpoint contract, or change CI to require a configured secret and fail loudly when absent.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-002",
+      "concern": "`instructionIndex` tie-breaking term 'balanceDiff order' is ambiguous across all three lane implementations",
+      "severity": "HIGH",
+      "severity_score": 740,
+      "why_matters": "The canonical `instructionIndex` algorithm specifies ordering by `(slot asc, txIndex asc, balanceDiff order)` but never defines 'balanceDiff order'. SQD balance diffs are an array in the block payload; `mapRows` reads from a relational warehouse schema; `parseHeliusTx` reconstructs from parsed instructions. If any implementation filters before indexing rather than indexing before filtering — or iterates in insertion order vs. the on-chain array order — the ordinal diverges silently. The convergence test is the only proof of correctness, so if all three implementations share the same ambiguous interpretation, the test passes with false confidence.",
+      "location": "T-1 §instructionIndex algorithm, SDD §5.2 shapes S-4",
+      "recommendation": "Define 'balanceDiff order' precisely: it should be the zero-based index of the balance-diff entry in the on-chain transaction's `preTokenBalances`/`postTokenBalances` array as delivered by SQD, with an explicit statement about how `mapRows` and `parseHeliusTx` reconstruct that index. Add a cross-reference to the SDD section that canonicalizes this. The S-4 assertion must test ordinal values explicitly (e.g., `instructionIndex === 0` for leg 1, `=== 1` for leg 2) not just equality between implementations.",
+      "source": "tertiary_skeptic"
+    }
+  ],
+  "degraded": false,
+  "degraded_model": null,
+  "confidence": "full",
+  "phase": "sprint",
+  "document": "grimoires/loa/sprint.md",
+  "domain": " summary cycle 1 banked",
+  "tertiary_model_used": "gemini-headless",
+  "tertiary_status": "active",
+  "execution": {
+    "mode": "interactive",
+    "mode_reason": "Default (no explicit mode specified)",
+    "run_id": null
+  },
+  "timestamp": "2026-07-06T02:24:57Z",
+  "metrics": {
+    "total_latency_ms": 213000,
+    "cost_cents": 0,
+    "cost_usd": 0
+  }
+}

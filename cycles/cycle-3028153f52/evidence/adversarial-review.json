@@ -1,0 +1,54 @@
+{
+  "findings": [
+    {
+      "id": "DISS-001",
+      "severity": "BLOCKING",
+      "category": "data-loss",
+      "anchor": "src/svm/sqd-loader.ts:runSqdLoader",
+      "anchor_type": "function",
+      "scope": "diff",
+      "description": "The SQD loader uses one collection-wide cursor slot while processing member mints in independent chunks. If a run stops at the request cap before all chunks finish, `fetchCursorSlot` will return the max slot written by an earlier chunk. The next run then starts every chunk from that high slot, permanently skipping historical slots for chunks that were never processed.",
+      "failure_mode": "Collections with more than one mint chunk can lose events for later chunks whenever `stats.stoppedAtCap` breaks the chunk loop. Those missing events will not be recovered by normal resume because the resume cursor advances based on any sqd-stream row for the collection, not per chunk/mint coverage.",
+      "suggested_fix": "Track resume progress per chunk/mint range, or only advance a durable collection cursor after all chunks have completed through that slot. Alternatively process slot windows outermost and all chunks within each window before moving the collection cursor forward.",
+      "anchor_status": "valid",
+      "anchor_stability": "symbol"
+    }
+  ],
+  "metadata": {
+    "type": "review",
+    "model": "codex-headless",
+    "sprint_id": "cycle-3028153f52-review",
+    "timestamp": "2026-07-06T02:48:06Z",
+    "tokens_input": 37710,
+    "tokens_output": 753,
+    "cost_usd": 0,
+    "latency_ms": 17961,
+    "status": "reviewed",
+    "degraded": false,
+    "rejected_count": 0,
+    "rejected_sidecar": "grimoires/loa/a2a/cycle-3028153f52-review/adversarial-rejected-review.jsonl",
+    "model_attempts": [
+      "codex-headless:reviewed"
+    ],
+    "final_model": "codex-headless",
+    "hallucination_filter": {
+      "applied": true,
+      "downgraded": 0
+    }
+  },
+  "verdict_quality": {
+    "consensus_outcome": "consensus",
+    "truncation_waiver_applied": false,
+    "voices_planned": 1,
+    "voices_succeeded": 1,
+    "voices_succeeded_ids": [
+      "codex-headless"
+    ],
+    "voices_dropped": [],
+    "chain_health": "ok",
+    "confidence_floor": "high",
+    "rationale": "multi-voice aggregate (1/1 succeeded); chain_health=ok",
+    "single_voice_call": true,
+    "status": "APPROVED"
+  }
+}

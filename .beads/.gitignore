@@ -1,0 +1,7 @@
+*.db
+*.db-wal
+*.db-shm
+.write.lock
+.sync.lock
+.write.lock.orphaned-*
+.br_history/

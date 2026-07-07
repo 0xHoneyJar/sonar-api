@@ -1,0 +1,21 @@
+{
+  "$schema_version": 1,
+  "cycle_id": "cycle-3028153f52",
+  "review_verdict": null,
+  "audit_verdict": null,
+  "findings": {
+    "blocker": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+  "artifacts": {
+    "reviewer_md": "cycles/cycle-3028153f52/reviewer.md",
+    "auditor_md": "cycles/cycle-3028153f52/auditor-sprint-feedback.md",
+    "pr_url": null
+  },
+  "flatline_signature": "sha256:89cac34ae3f0831aaa34b489a245b0db81e85855b5e265d9e39442edbd78fcb9",
+  "content_hash": null,
+  "elapsed_sec": 0,
+  "exit_status": "failed"
+}

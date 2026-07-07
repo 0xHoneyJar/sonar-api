@@ -1,0 +1,208 @@
+{
+  "consensus_summary": {
+    "high_consensus_count": 6,
+    "disputed_count": 4,
+    "low_value_count": 0,
+    "blocker_count": 5,
+    "model_agreement_percent": 66,
+    "models": 3,
+    "tertiary_items": 0,
+    "confidence": "full"
+  },
+  "high_consensus": [
+    {
+      "id": "IMP-001",
+      "description": "Critical. The merge-blocking correctness gate depends on an independently valid SQD-shaped input; if the input is mechanically derived from the Helius fixture without safeguards, the gate can become circular and fail to test the real decode path. Cost is low to moderate: document provenance and adjust fixtures or mitigations.",
+      "gpt_score": 940,
+      "opus_score": 870,
+      "tertiary_score": null,
+      "delta": 70,
+      "average_score": 905,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-002",
+      "description": "Critical. Contradictory counter semantics directly threaten pass/fail interpretation for the gate and can lead to false confidence even with schema-valid artifacts. The fix is mostly terminology and schema mapping, with high clarity benefit and low implementation cost.",
+      "gpt_score": 925,
+      "opus_score": 820,
+      "tertiary_score": null,
+      "delta": 105,
+      "average_score": 872.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-003",
+      "description": "Critical. Slot-contiguity assumptions are wrong for Solana and likely to create persistent false alerts. This undermines the monitoring purpose and operator trust. The design needs to align with actual SQD Portal guarantees or remove the check.",
+      "gpt_score": 900,
+      "opus_score": 880,
+      "tertiary_score": null,
+      "delta": 20,
+      "average_score": 890,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-004",
+      "description": "Critical. Treating quiet periods as stalls can create reconnect loops and alert fatigue in normal operation. The issue is highly plausible and affects runtime reliability; resolving it requires clarifying stream semantics and using a liveness signal that advances independently of matching events.",
+      "gpt_score": 880,
+      "opus_score": 740,
+      "tertiary_score": null,
+      "delta": 140,
+      "average_score": 810,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-006",
+      "description": "Critical. The post-merge audit safety net is currently based on checks that are misleading or impossible under first-writer-wins dedup. Replacing it with fresh decode comparison is necessary for the audit to provide real protection.",
+      "gpt_score": 930,
+      "opus_score": 720,
+      "tertiary_score": null,
+      "delta": 210,
+      "average_score": 825,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-007",
+      "description": "Valuable. Transfer pairing is likely a real source of decode divergence, especially with ATA creation and multiple balance entries. Tests may catch this, but specifying the intended algorithm reduces reverse-engineering and implementation drift. Slightly lower than critical because it is more algorithm-design detail than gate integrity.",
+      "gpt_score": 780,
+      "opus_score": 730,
+      "tertiary_score": null,
+      "delta": 50,
+      "average_score": 755,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    }
+  ],
+  "disputed": [
+    {
+      "id": "IMP-009",
+      "description": "Valuable. The seam interface is load-bearing, and a phantom method name can cause implementation drift. Enumerating and mapping interface methods is cheap and materially improves spec precision.",
+      "gpt_score": 735,
+      "opus_score": 0,
+      "tertiary_score": null,
+      "delta": 735,
+      "average_score": 735,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "DISPUTED"
+    },
+    {
+      "id": "IMP-010",
+      "description": "Valuable. Incident queries should be verified before they are needed. The risk is narrower than the gate and monitor issues, but confirming the column or changing the query is low-cost and improves runbook reliability.",
+      "gpt_score": 680,
+      "opus_score": 0,
+      "tertiary_score": null,
+      "delta": 680,
+      "average_score": 680,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "DISPUTED"
+    },
+    {
+      "id": "IMP-011",
+      "description": "Valuable. Extending credential grep coverage closes a plausible policy gap, especially for Helius coupling. It is low-cost, though somewhat secondary compared with correctness and liveness design issues.",
+      "gpt_score": 620,
+      "opus_score": 0,
+      "tertiary_score": null,
+      "delta": 620,
+      "average_score": 620,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "DISPUTED"
+    },
+    {
+      "id": "IMP-012",
+      "description": "Nice-to-have. The retry arithmetic inconsistency is real and easy to fix, but it is unlikely to affect core correctness unless it reflects broader ambiguity. Worth cleaning up, not a high-priority blocker.",
+      "gpt_score": 470,
+      "opus_score": 0,
+      "tertiary_score": null,
+      "delta": 470,
+      "average_score": 470,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "DISPUTED"
+    }
+  ],
+  "low_value": [],
+  "blockers": [
+    {
+      "id": "SKP-001",
+      "concern": "All liveness failures (stall, lag, gap, permanent halt) surface only as log lines — no external alerting channel (pager, Discord webhook, healthcheck endpoint, metrics with alarms) is specified anywhere in §5. KF-018 was a 9-day outage precisely because nobody was watching a surface that technically emitted signals.",
+      "severity": "CRITICAL",
+      "severity_score": 830,
+      "why_matters": "A 'loud' log.error in a Railway container nobody tails is functionally identical to silence. SqdLivenessError halting the lane after 5 reconnects produces a dead process whose only evidence is a log line — the exact failure class this design claims to retire in §9.3.",
+      "location": "§5 SqdLivenessMonitor, §11 disposition of FL-3/FL-8",
+      "recommendation": "Add a mandatory push-notification path for STALL/HALT events (Discord/Telegram webhook or Railway healthcheck that flips to unhealthy), and make 'operator is notified without reading logs' an explicit acceptance criterion before FL-3 can be marked RESOLVED.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-002",
+      "concern": "Chain-lag detection compares client.currentHeight() against 'a reference tip' whose source is never specified. If the reference tip also comes from SQD Portal, the check compares SQD to itself and cannot detect the portal lagging the chain — the primary lag scenario.",
+      "severity": "HIGH",
+      "severity_score": 740,
+      "why_matters": "Portal-wide lag (SQD indexing stalls while the chain advances) is undetectable without an independent height source, so the lane silently serves stale data while all liveness checks pass. An independent source (Solana RPC) may introduce a new dependency or credential, contradicting NFR-5 if unexamined.",
+      "location": "§5.1 Chain lag row, §5.2 check() pseudocode",
+      "recommendation": "Specify the reference tip source explicitly. If it is a public unauthenticated Solana RPC, document the endpoint, its rate limits, and its failure mode; assert it requires no credential to keep NFR-5 intact.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-003",
+      "concern": "The divergence recovery path (§7.2) is 'targeted DELETE + re-seed from Helius Enhanced', but Helius Enhanced is a webhook — a live-only push surface. No mechanism is designed for replaying historical transactions through it, and after the 7-day window the key is retired entirely, leaving NO re-seed source for divergence discovered on day 8+.",
+      "severity": "HIGH",
+      "severity_score": 760,
+      "why_matters": "The rollback story is load-bearing for the FL-7 disposition ('kill switch + recovery path'), but as written it references a capability (Helius historical replay) that does not exist in the described architecture. Content poison discovered after Helius retirement is permanent.",
+      "location": "§7.2, §9.3",
+      "recommendation": "Specify the actual re-seed mechanism (e.g., Helius parse-transaction REST API by signature list, or Dune history lane re-run over the affected slot range) and define what recovery looks like post-day-7 when the Helius key is gone.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-002",
+      "concern": "The first-writer-wins dual-write policy assumes content identity, but the production audit cannot compare same-event SQD and Helius rows because the losing lane is discarded by `ON CONFLICT DO NOTHING`.",
+      "severity": "HIGH",
+      "severity_score": 735,
+      "why_matters": "During the 7-day audit window, the database only preserves the first writer for each PK, so spot-checking SQD-sourced rows against Helius-sourced rows for the same transactions may be impossible without a separate shadow log. Divergence could remain invisible until Helius is retired.",
+      "location": "§4.3 Row lifecycle under concurrent lanes, §9.2 Content audit window, §9.4 Dedup behavior under dual-write",
+      "recommendation": "Add a shadow audit path that records loser-lane decode output, comparison artifacts, or sampled per-lane outputs outside the main table. Define the exact query or artifact used to compare SQD and Helius for identical PKs during the audit window.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "The §4.5 gate does not actually compare `slot` and `blockTime` even though the convergence guarantee requires them to match.",
+      "severity": "HIGH",
+      "severity_score": 760,
+      "why_matters": "A lane could pass the merge-blocking gate while writing correct PK/kind/from/to but wrong ordering or timestamp data, which can break score-api consumers that order by `block_time` and make historical reconstruction unreliable.",
+      "location": "§3.4 Match definition, §3.5 Tolerance definition, §3.6 Gate artifact schema",
+      "recommendation": "Include `slot` and `blockTime` in field parity, divergence records, and gate failure conditions. Add explicit tests where PK/kind/from/to match but `slot` or `blockTime` differs and assert the gate fails.",
+      "source": "tertiary_skeptic"
+    }
+  ],
+  "degraded": false,
+  "degraded_model": null,
+  "confidence": "full",
+  "phase": "sdd",
+  "document": "grimoires/loa/sdd.md",
+  "domain": " product area sonar api",
+  "tertiary_model_used": "gemini-headless",
+  "tertiary_status": "active",
+  "execution": {
+    "mode": "interactive",
+    "mode_reason": "Default (no explicit mode specified)",
+    "run_id": null
+  },
+  "timestamp": "2026-07-06T01:13:17Z",
+  "metrics": {
+    "total_latency_ms": 157000,
+    "cost_cents": 0,
+    "cost_usd": 0
+  }
+}

@@ -1,0 +1,194 @@
+{
+  "consensus_summary": {
+    "high_consensus_count": 6,
+    "disputed_count": 2,
+    "low_value_count": 0,
+    "blocker_count": 6,
+    "model_agreement_percent": 80,
+    "models": 3,
+    "tertiary_items": 0,
+    "confidence": "full"
+  },
+  "high_consensus": [
+    {
+      "id": "IMP-001",
+      "description": "Critical clarification. The denominator directly determines whether the core match-rate gate passes, and the ambiguity could reproduce the exact category of delivery failure the PRD is trying to prevent. Low implementation cost: define the denominator once and align AC-2/AC-3.",
+      "gpt_score": 940,
+      "opus_score": 870,
+      "tertiary_score": null,
+      "delta": 70,
+      "average_score": 905,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-002",
+      "description": "Strong requirement-level gap. A singular synthetic transaction can give false confidence because decoder divergence is likely instruction-shape specific. Defining minimum coverage is cheap and materially improves the evidence quality of FR-1.",
+      "gpt_score": 900,
+      "opus_score": 940,
+      "tertiary_score": null,
+      "delta": 40,
+      "average_score": 920,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-003",
+      "description": "Critical for reproducibility and anti-cherry-picking. A representative sample must be operationally defined for the gate to mean anything. The cost is modest, though choosing the exact sampling strategy may require some domain judgment.",
+      "gpt_score": 905,
+      "opus_score": 830,
+      "tertiary_score": null,
+      "delta": 75,
+      "average_score": 867.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-005",
+      "description": "Important acceptance gap. Auth failure behavior is distinct from the kill switch and can create retry loops or hidden degraded behavior. A focused test is low cost and validates a meaningful non-functional requirement.",
+      "gpt_score": 820,
+      "opus_score": 880,
+      "tertiary_score": null,
+      "delta": 60,
+      "average_score": 850,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-006",
+      "description": "Valuable process hardening. Naming test files directly reduces delivery ambiguity and matches the stated lesson from the previous circuit-breaker. It is not as semantically critical as the metric/sample definitions, but it is cheap and useful.",
+      "gpt_score": 760,
+      "opus_score": 760,
+      "tertiary_score": null,
+      "delta": 0,
+      "average_score": 760,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-008",
+      "description": "Good CI ergonomics with real triage value. Structured failure output will reduce debug time when the gate fails. It is not required for correctness, but the cost is low and it strengthens operational usefulness.",
+      "gpt_score": 735,
+      "opus_score": 810,
+      "tertiary_score": null,
+      "delta": 75,
+      "average_score": 772.5,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    }
+  ],
+  "disputed": [
+    {
+      "id": "IMP-009",
+      "description": "Plausible flake-prevention improvement. Snapshotting reference IDs at test-run time is sensible if concurrent warehouse writes are possible, though the risk depends on how stable the fixture table is during CI. Worth integrating if the DB can be live-mutating.",
+      "gpt_score": 665,
+      "opus_score": 0,
+      "tertiary_score": null,
+      "delta": 665,
+      "average_score": 665,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "DISPUTED"
+    },
+    {
+      "id": "IMP-010",
+      "description": "Valuable evidence-standard clarification. FR-3 currently mixes PR-body demonstration with runnable tests, which could cause audit ambiguity. Lower priority than the convergence gate issues, but cheap to clarify and likely worth adding.",
+      "gpt_score": 690,
+      "opus_score": 0,
+      "tertiary_score": null,
+      "delta": 690,
+      "average_score": 690,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "DISPUTED"
+    }
+  ],
+  "low_value": [],
+  "blockers": [
+    {
+      "id": "SKP-002",
+      "concern": "'A representative SQD block-stream sample' for the §4.5 gate is undefined. The PRD does not specify how many blocks, which slot range, or how the sample is selected. A cherry-picked sample that happens to decode cleanly would produce match_rate=1.0 while hiding systematic gaps.",
+      "severity": "CRITICAL",
+      "severity_score": 850,
+      "why_matters": "If the sample is too small or hand-selected, the gate is a tautology. The 30,006-event fixture measures completeness of coverage across a real collection's full history; a cherry-picked SQD sample cannot validate that.",
+      "location": "FR-2, AC-2, AC-3",
+      "recommendation": "Specify the sample as a deterministic, reproducible set: e.g., all SQD blocks for the pythians collection_key between slot X and slot Y (covering the same slot range as the Helius fixture). Commit the slot bounds as test constants. If the full history is too large, commit a content-addressed random subset with a fixed seed.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-003",
+      "concern": "PK convergence is underspecified across all three lanes: Goals mention SQD, Helius, and warehouse, but FR-1 only clearly requires SQD and warehouse, while AC-1 requires SQD and Helius.",
+      "severity": "HIGH",
+      "severity_score": 720,
+      "why_matters": "The implementation could satisfy one interpretation while missing another lane, leaving the central claim of three-lane PK identity unproven.",
+      "location": "Goals & Success Metrics, FR-1, AC-1, Assumption 4",
+      "recommendation": "Make FR-1 and AC-1 explicit: one test must compare SQD, Helius, and warehouse outputs for the same event, or separate acceptance criteria must cover each pairwise comparison.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-002",
+      "concern": "The PRD says the pythians fixture is derivable from the live DB, but acceptance requires a stable 30,006-event denominator and divergence count. Live DB data can mutate between runs.",
+      "severity": "HIGH",
+      "severity_score": 780,
+      "why_matters": "If warehouse backfills, corrections, deletes, or schema migrations change `svm.collection_event`, the denominator and expected IDs may change, making the gate non-reproducible and causing false regressions or false passes.",
+      "location": "Assumption 2, FR-2, AC-2, AC-3",
+      "recommendation": "Freeze the reference fixture as a committed artifact or require the gate to snapshot the reference IDs with a recorded DB revision, query timestamp, collection_key, and count assertion before computing match_rate.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-003",
+      "concern": "The `kind` field is required in the consumer-shape query (FR-3 lists it as a score-api field) but 'Marketplace kind attribution (sale/list/delist)' is explicitly out of scope. The PRD does not state what value `kind` carries in SQD-decoded events or whether the field is populated at all.",
+      "severity": "HIGH",
+      "severity_score": 730,
+      "why_matters": "If `kind` is null or wrong in the SQD-decoded rows, score-api queries filtering or grouping by `kind` will silently return incorrect results. The consumer-shape query in the PR body will mask this because it is documentation, not a functional test.",
+      "location": "FR-3, Out of scope section, AC-4",
+      "recommendation": "Explicitly state the `kind` value that `decodeSqdBlocks` produces (e.g., always null, always 'transfer', or derived from instruction discriminant). Add an assertion in the FR-1 convergence test that `kind` matches the warehouse lane's output for the same transaction. If kind cannot be derived by SQD without marketplace context, document that explicitly and ensure score-api handles nulls.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "The §4.5 gate depends on decoding a 'representative SQD block-stream sample' but does not define how that sample is selected, bounded, reproduced, or proven to cover the same events as the 30,006-event fixture.",
+      "severity": "CRITICAL",
+      "severity_score": 870,
+      "why_matters": "A match_rate >= 0.99 is only meaningful if the SQD sample is deterministic and aligned to the reference population. Otherwise the gate can pass or fail based on sampling bias, portal availability, block-window drift, or accidental omission rather than true PK convergence.",
+      "location": "FR-2, AC-2, AC-3, Assumption 2",
+      "recommendation": "Define the exact fixture generation contract: collection_key, block/slot range, source query, expected reference count, SQD input artifact path, regeneration command, and whether the gate compares against a frozen fixture or live DB state.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "The §4.5 gate test is skippable in CI: NFR-3 mandates `t.skip()` when `SQD_GATE_DB_URL` is absent, but this env var will be absent in virtually every CI environment. AC-2 (match_rate ≥ 0.99) is therefore a manual-only verification that can never be enforced automatically in the pipeline.",
+      "severity": "CRITICAL",
+      "severity_score": 920,
+      "why_matters": "The primary correctness gate for the entire lane becomes a human-trust artifact. A PR can pass CI with AC-2 unverified, the match_rate can be fabricated in the PR body, and no automated gate catches it. This is the exact failure mode the §4.5 pattern exists to prevent.",
+      "location": "FR-2, NFR-3, AC-2",
+      "recommendation": "Either (a) add a CI job that provisions a DB snapshot of the pythians fixture and runs the gate unconditionally, or (b) pre-derive the expected event-ID set as a committed fixture file (no live DB required), with a script that regenerates it. The skip path must be narrowed to explicitly offline dev runs, not all CI.",
+      "source": "tertiary_skeptic"
+    }
+  ],
+  "degraded": false,
+  "degraded_model": null,
+  "confidence": "full",
+  "phase": "prd",
+  "document": "grimoires/loa/prd.md",
+  "domain": " prd sqd live tail",
+  "tertiary_model_used": "gemini-headless",
+  "tertiary_status": "active",
+  "execution": {
+    "mode": "interactive",
+    "mode_reason": "Default (no explicit mode specified)",
+    "run_id": null
+  },
+  "timestamp": "2026-07-06T02:02:13Z",
+  "metrics": {
+    "total_latency_ms": 160000,
+    "cost_cents": 0,
+    "cost_usd": 0
+  }
+}

@@ -1,0 +1,159 @@
+{
+  "consensus_summary": {
+    "high_consensus_count": 6,
+    "disputed_count": 0,
+    "low_value_count": 0,
+    "blocker_count": 5,
+    "model_agreement_percent": 100,
+    "models": 3,
+    "tertiary_items": 0,
+    "confidence": "full"
+  },
+  "high_consensus": [
+    {
+      "id": "IMP-001",
+      "description": "Critical precondition gap. The raw corpus is load-bearing for the circularity mitigation, and verifying it at T-0 is low cost compared with discovering absence or shape mismatch after dependent tasks are built.",
+      "gpt_score": 930,
+      "opus_score": 820,
+      "tertiary_score": null,
+      "delta": 110,
+      "average_score": 875,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-002",
+      "description": "High ROI and operationally important. Default-true contradicts the runbook activation model and can create durable bad writes under first-writer-wins semantics. Default-false or explicit justification should be required before rollout.",
+      "gpt_score": 900,
+      "opus_score": 770,
+      "tertiary_score": null,
+      "delta": 130,
+      "average_score": 835,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-003",
+      "description": "Valuable because changing DO UPDATE to DO NOTHING is a semantic behavior change with possible cross-lane consequences. It may be correct, but it should not be hidden inside a verification gate without impact analysis and regression coverage.",
+      "gpt_score": 780,
+      "opus_score": 870,
+      "tertiary_score": null,
+      "delta": 90,
+      "average_score": 825,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-005",
+      "description": "Valuable operational hardening. Reference RPC failure should not be treated as SQD liveness failure, especially with a public default endpoint. The behavior and test are low-cost and prevent false alarms.",
+      "gpt_score": 790,
+      "opus_score": 840,
+      "tertiary_score": null,
+      "delta": 50,
+      "average_score": 815,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-006",
+      "description": "Important recovery-path gap. A runbook that only identifies pre-merge fixture divergences does not cover live post-merge failures, which is exactly when recovery matters. Needs a concrete query pattern for suspect live rows.",
+      "gpt_score": 810,
+      "opus_score": 800,
+      "tertiary_score": null,
+      "delta": 10,
+      "average_score": 805,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-009",
+      "description": "Valuable operational hygiene. New env vars that affect liveness, alerting, reference RPC, and live-tail activation should be documented together. Low implementation cost and reduces misconfiguration risk.",
+      "gpt_score": 720,
+      "opus_score": 780,
+      "tertiary_score": null,
+      "delta": 60,
+      "average_score": 750,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    }
+  ],
+  "disputed": [],
+  "low_value": [],
+  "blockers": [
+    {
+      "id": "SKP-002",
+      "concern": "T-0 check #2 authorizes patching upsertCollectionEvents from ON CONFLICT DO UPDATE to DO NOTHING as an inline 'blocking patch' with no impact analysis on existing Helius and Dune write paths that currently share this writer.",
+      "severity": "HIGH",
+      "severity_score": 750,
+      "why_matters": "If any existing lane relies on DO UPDATE semantics (e.g., Helius webhook re-delivery correcting a row, or Dune re-loads refreshing coarse rows), silently switching to DO NOTHING freezes stale data across ALL lanes — a behavior change to production write semantics smuggled in as a pre-condition fix, bypassing its own review scrutiny.",
+      "location": "T-0 check #2 / T-4",
+      "recommendation": "Before patching, grep all callers of upsertCollectionEvents and document which lanes depend on update semantics; if any do, the patch needs its own reviewed task with regression tests for those lanes, not an inline pre-condition edit.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "T-0 verifies only the Helius-classified 30,006-event fixture, but T-3 and T-6 both require RAW SqdBlock transaction data (tokenBalance diffs) as the SQD-path input. No pre-condition check verifies this raw corpus exists, matches the classified fixture's transaction set, or contains the tokenBalance detail needed for decode. If it is missing or incomplete, the FL-1 circularity mitigation collapses and the sprint halts mid-way at T-3 instead of at the T-0 gate designed to catch exactly this class of failure.",
+      "severity": "CRITICAL",
+      "severity_score": 810,
+      "why_matters": "The entire §4.5 gate's independence claim rests on raw-vs-classified comparison. Discovering the raw corpus is absent after T-1/T-2 are built wastes the sprint and pressures the team to bootstrap SQD input from Helius classification — the exact circularity FL-1 flagged.",
+      "location": "T-0 checks vs T-3/T-6 input requirements",
+      "recommendation": "Add a T-0 check #4: locate the raw pythians transaction corpus, verify its tx_signature set covers the classified fixture's transactions, and confirm tokenBalance diffs are present. HALT if absent, same as check #1.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-002",
+      "concern": "The plan says SQD decode must use raw block data, but it does not specify how raw fixture transactions are transformed into SqdBlock objects without leaking Helius-classified fields.",
+      "severity": "CRITICAL",
+      "severity_score": 840,
+      "why_matters": "This is the main circularity risk. If the SqdBlock mock is built from classified events instead of raw token-balance data, the convergence and §4.5 gate become self-confirming rather than independent validation.",
+      "location": "T-3, T-6",
+      "recommendation": "Define the exact raw fixture input shape and add a test or grep assertion that SqdBlock construction never reads classified fields such as kind/from/to from the target fixture.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "The sprint depends on a 30,006-event fixture but does not define its canonical path, schema validation mechanism, or provenance hash.",
+      "severity": "HIGH",
+      "severity_score": 720,
+      "why_matters": "A wrong, stale, partially regenerated, or Helius-derived fixture could make the §4.5 gate pass while testing against invalid ground truth. Row count alone is insufficient to prove fixture integrity.",
+      "location": "T-0, T-3, T-6",
+      "recommendation": "Add a canonical fixture path, checksum, schema validator, and provenance metadata check. Require the gate to fail if the checksum or schema does not match the approved fixture.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-008",
+      "concern": "The §4.5 pass threshold allows `match_rate >= 0.99`, meaning up to roughly 300 missing or false positive events could still pass if there are no field divergences.",
+      "severity": "HIGH",
+      "severity_score": 710,
+      "why_matters": "For a replacement live-tail lane, hundreds of event misses may be unacceptable, especially if misses cluster around specific transaction patterns. The sprint claims reconcile-by-recompute but permits material incompleteness.",
+      "location": "T-6 Match computation, Sprint acceptance gate",
+      "recommendation": "Require explicit operator approval for any non-100% match rate, include categorized miss analysis, and consider making `pk_misses == 0` and `false_positives == 0` mandatory for PR opening.",
+      "source": "tertiary_skeptic"
+    }
+  ],
+  "degraded": false,
+  "degraded_model": null,
+  "confidence": "full",
+  "phase": "sprint",
+  "document": "grimoires/loa/sprint.md",
+  "domain": " jtbd category functional description",
+  "tertiary_model_used": "gemini-headless",
+  "tertiary_status": "active",
+  "execution": {
+    "mode": "interactive",
+    "mode_reason": "Default (no explicit mode specified)",
+    "run_id": null
+  },
+  "timestamp": "2026-07-06T01:25:35Z",
+  "metrics": {
+    "total_latency_ms": 169000,
+    "cost_cents": 0,
+    "cost_usd": 0
+  }
+}

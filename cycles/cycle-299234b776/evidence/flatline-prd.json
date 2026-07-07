@@ -1,0 +1,152 @@
+{
+  "consensus_summary": {
+    "high_consensus_count": 6,
+    "disputed_count": 1,
+    "low_value_count": 0,
+    "blocker_count": 3,
+    "model_agreement_percent": 91,
+    "models": 3,
+    "tertiary_items": 0,
+    "confidence": "full"
+  },
+  "high_consensus": [
+    {
+      "id": "IMP-001",
+      "description": "Critical ambiguity in the central merge-blocking correctness gate. The cost is low documentation/spec alignment, and resolving it prevents incompatible implementations from passing different interpretations.",
+      "gpt_score": 950,
+      "opus_score": 870,
+      "tertiary_score": null,
+      "delta": 80,
+      "average_score": 910,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-002",
+      "description": "A gate with undefined tolerance is not mechanically falsifiable. This directly affects pass/fail semantics and should be clarified before implementation; cost is low and benefit is high.",
+      "gpt_score": 930,
+      "opus_score": 830,
+      "tertiary_score": null,
+      "delta": 100,
+      "average_score": 880,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-003",
+      "description": "Directly addresses the motivating silent outage failure class. Adding lag and stall detection is essential for operational correctness, with moderate implementation cost but very high risk reduction.",
+      "gpt_score": 910,
+      "opus_score": 790,
+      "tertiary_score": null,
+      "delta": 120,
+      "average_score": 850,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-004",
+      "description": "Bidirectional match-rate definition closes a real correctness gap where false positives could pollute permanent storage while still satisfying recall-only parity. Worth integrating into the gate semantics.",
+      "gpt_score": 860,
+      "opus_score": 860,
+      "tertiary_score": null,
+      "delta": 0,
+      "average_score": 860,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-005",
+      "description": "The post-merge lane policy affects cost, operational ownership, dedup behavior, and whether the old failure mode is actually retired. This is a product/ops decision more than code, but it should be specified.",
+      "gpt_score": 820,
+      "opus_score": 840,
+      "tertiary_score": null,
+      "delta": 20,
+      "average_score": 830,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-010",
+      "description": "A kill switch is prudent because the lane writes durable rows with limited rollback semantics. Implementation cost is modest and it materially reduces live-verification blast radius.",
+      "gpt_score": 770,
+      "opus_score": 720,
+      "tertiary_score": null,
+      "delta": 50,
+      "average_score": 745,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    }
+  ],
+  "disputed": [
+    {
+      "id": "IMP-012",
+      "description": "Defining BLOCKER semantics and tracking location for Bridgebuilder findings reduces merge-time ambiguity, but the BB workflow is framework-governed elsewhere and the practical risk is low — reviewers already treat unresolved BLOCKERs as blocking by convention. Marginal PRD value.",
+      "gpt_score": 0,
+      "opus_score": 480,
+      "tertiary_score": null,
+      "delta": 480,
+      "average_score": 480,
+      "source": "opus_scored",
+      "would_integrate": false,
+      "agreement": "DISPUTED"
+    }
+  ],
+  "low_value": [],
+  "blockers": [
+    {
+      "id": "SKP-002",
+      "concern": "Insert-if-absent (ON CONFLICT DO NOTHING) with two concurrent live lanes (SQD + the still-running Helius Enhanced path) makes row content first-writer-wins. If SQD decodes a non-PK field incorrectly (block_time, event kind, owner) but wins the race, the wrong row is kept and the correct Helius row is silently discarded — the merge policy assumes content convergence but only PK convergence is tested.",
+      "severity": "HIGH",
+      "severity_score": 730,
+      "why_matters": "FR-2 proves the `id` converges; nothing proves the full row payload converges. DO NOTHING semantics turn any non-PK decode divergence into permanent, undetectable data corruption in whichever rows SQD writes first. The `source` column also becomes race-nondeterministic, weakening US-1's debugging claim.",
+      "location": "§7 FR-2, FR-4 / §5 US-1 / §4 Assumption 10",
+      "recommendation": "Extend FR-2 to assert full-row equality (all consumer-visible columns), not just `id`. Alternatively define lane precedence or a divergence log when a conflicting insert is dropped.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "The new live-tail lane has no liveness, lag, or gap-detection requirement — the exact failure class that motivated this cycle (KF-018: 9-day SILENT outage) is unaddressed for SQD. Only auth failure (401/403) gets loud-failure treatment; a stalled stream, portal degradation, missed blocks after process restart, or a hung poll loop would be silent again.",
+      "severity": "CRITICAL",
+      "severity_score": 810,
+      "why_matters": "The PRD's core justification is eliminating a silent-outage failure class, but it only eliminates the *budget* trigger, not the *silence*. If SQD stalls for 9 days, nothing in FR-1..FR-8 or the NFRs detects it. The lane replaces the provider while preserving the observability gap that caused 108 missed events.",
+      "location": "§7 FR-6 / §8 NFR-2 / §2 Problem Statement item 1",
+      "recommendation": "Add an FR for lane liveness: persist last-processed block + timestamp (sync_status or equivalent), and define a staleness threshold with a loud surface (log/alert/doctor check). At minimum make sync_status wiring mandatory rather than 'wire if it fits' (§6 OUT list).",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "The §4.5 gate target allows ≥99% row match while also saying there must be 0 unreconciled divergences above tolerance, but the tolerance is not defined.",
+      "severity": "HIGH",
+      "severity_score": 720,
+      "why_matters": "A 1% divergence on a 30,006-event fixture permits roughly 300 mismatched or missing events, which is large enough to hide systematic decode bugs in transfers, burns, CPI paths, or ordinal assignment. The gate can pass while correctness remains materially unproven.",
+      "location": "Sections 3, 7 FR-3, 11 AC-4",
+      "recommendation": "Define exact tolerated divergence classes and require 100% match for in-scope standard SPL mint/transfer/burn events. If any divergence is allowed, require categorized, reviewed, and explicitly accepted exclusions with fixture row IDs.",
+      "source": "tertiary_skeptic"
+    }
+  ],
+  "degraded": false,
+  "degraded_model": null,
+  "confidence": "full",
+  "phase": "prd",
+  "document": "grimoires/loa/prd.md",
+  "domain": " artifact type product spec",
+  "tertiary_model_used": "gemini-headless",
+  "tertiary_status": "active",
+  "execution": {
+    "mode": "interactive",
+    "mode_reason": "Default (no explicit mode specified)",
+    "run_id": null
+  },
+  "timestamp": "2026-07-06T01:03:01Z",
+  "metrics": {
+    "total_latency_ms": 149000,
+    "cost_cents": 0,
+    "cost_usd": 0
+  }
+}

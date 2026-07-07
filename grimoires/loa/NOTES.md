@@ -791,3 +791,15 @@ future condition); key rotation from last session still pending.
 
 **Spend**: model voices ran on subscription-auth headless adapters (MODELINV cost 0);
 Helius untouched tonight; no Dune. SQD Portal remains free/open.
+
+## Decision Log — belt zero-downtime Sprint 1 (2026-07-06, /implement)
+
+- **[ACCEPTED-DEFERRED] S1-T5 apply-mode measurement**: `docs/belt-cutover-apply-mode.md` ships the
+  Option B/C runbook, the bd-c09.2 off-host-`:2019`-must-fail check, and a **Measured** table whose
+  first data row is `pending`. The row can ONLY be filled by a real `scripts/gate-a-proof.sh --apply`
+  on a live staging blue/green pair, which is not available in this autonomous run. The implementable
+  parts (harness `gate-a-proof.sh` + runbook) are complete; the *measurement* is deferred to the next
+  staging cutover. Retires PRD R-2 (two-belts-live unproven) only once the row is filled. This is the
+  sole non-`✓ Met` AC in Sprint 1.
+- **Zone note**: `grimoires/loa/runbooks/` is framework-managed (zone-write-guard blocked it), so the
+  S1-T5 runbook lives in the project `docs/` dir instead.
