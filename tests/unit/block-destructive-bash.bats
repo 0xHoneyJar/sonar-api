@@ -468,6 +468,172 @@ hook_invoke() {
 }
 
 # =============================================================================
+# Group C2 — C15/cycle-119 panel amendment: find ROOT ... -exec rm -rf {} +
+# classifies the FIND ROOT PATH (not the {} / + placeholder tokens) through
+# the SAME safe/dangerous/ambiguous ladder as any other rm operand.
+#
+# MUST-STILL-BLOCK fixtures (panel-mandated, added BEFORE the logic change —
+# these 4 already blocked pre-C15 via the old {}/+-as-ambiguous-operand path;
+# the panel requires proving that first, then confirming they still block
+# after root-path reclassification lands).
+# =============================================================================
+
+@test "C15 must-still-block: rm -rf \"\$UNSET/\" (unset-var-looking path)" {
+    run hook_invoke 'rm -rf "$UNSET/"'
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2" ]]
+}
+
+@test "C15 must-still-block: p='..'; rm -rf \"packages/\$p/dist\"" {
+    run hook_invoke "p='..'; rm -rf \"packages/\$p/dist\""
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2" ]]
+}
+
+@test "C15 must-still-block: find / -exec rm -rf {} + (dangerous root)" {
+    # Pre-C15 this blocks via FR-2-AMBIGUOUS (the {}/+ tokens misclassified as
+    # operands); post-C15 it blocks via FR-2-BLOCK (root "/" correctly
+    # classified as catastrophic). Either sub-code satisfies "must block".
+    run hook_invoke "find / -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2" ]]
+}
+
+@test "C15 must-still-block: find \$DIR -exec rm -rf {} + (dollar-expansion root — NEVER allow)" {
+    run hook_invoke 'find $DIR -exec rm -rf {} +'
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2" ]]
+}
+
+# -----------------------------------------------------------------------------
+# New behavior (C15b): an explicit safe relative root (no $-expansion, not on
+# the dangerous list) allows the find-exec segment — the {} / + tokens are no
+# longer misclassified as ambiguous path operands.
+# -----------------------------------------------------------------------------
+
+@test "C15 find-exec ALLOW: find ./build -exec rm -rf {} + (explicit safe relative root)" {
+    run hook_invoke "find ./build -exec rm -rf {} +"
+    [ "$status" -eq 0 ]
+}
+
+@test "C15 find-exec ALLOW: find ./node_modules -exec rm -rf {} + allowed" {
+    run hook_invoke "find ./node_modules -exec rm -rf {} +"
+    [ "$status" -eq 0 ]
+}
+
+@test "C15 find-exec negative: find ./build -a -name foo -exec rm -rf {} + still root-classified safe (allowed)" {
+    run hook_invoke "find ./build -a -name foo -exec rm -rf {} +"
+    [ "$status" -eq 0 ]
+}
+
+@test "C15 find-exec negative: find /etc -exec rm -rf {} + still blocks (dangerous root)" {
+    run hook_invoke "find /etc -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-BLOCK" ]]
+}
+
+@test "C15 find-exec negative: find ../escape -exec rm -rf {} + still ambiguous-blocks (dotdot root)" {
+    run hook_invoke "find ../escape -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2" ]]
+}
+
+@test "C15 find-exec negative: unrelated later segment keeps its own classification (no root leakage)" {
+    run hook_invoke "find ./build -exec rm -rf {} + ; rm -rf /etc"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-BLOCK" ]]
+}
+
+@test "C15 find-exec negative: rm -rf {} standalone (no find) stays ambiguous — unchanged" {
+    run hook_invoke "rm -rf {}"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2" ]]
+}
+
+# cycle-119 lead-review catch: find accepts MULTIPLE start paths. A first-
+# root-only capture allowed `find ./build /etc -exec rm -rf {} +` (the /etc
+# start point was invisible to classification). Eligibility now requires
+# EXACTLY ONE root via token-walk; these pin the multi-root attack shapes.
+
+@test "C15 multi-root MUST-BLOCK: find ./build /etc -exec rm -rf {} + (second root dangerous)" {
+    run hook_invoke "find ./build /etc -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+}
+
+@test "C15 multi-root MUST-BLOCK: find ./build ~/other -exec rm -rf {} + (tilde second root)" {
+    run hook_invoke "find ./build ~/other -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+}
+
+@test "C15 multi-root MUST-BLOCK: find ./build \$X -exec rm -rf {} + (dollar second root)" {
+    run hook_invoke 'find ./build $X -exec rm -rf {} +'
+    [ "$status" -eq 2 ]
+}
+
+@test "C15 single-root with primaries+args still allowed: find ./build -name '*.o' -exec rm -rf {} +" {
+    run hook_invoke "find ./build -name '*.o' -exec rm -rf {} +"
+    [ "$status" -eq 0 ]
+}
+
+@test "C15 zero-root MUST-BLOCK: find -name '*.o' -exec rm -rf {} + (GNU default-dot root, ineligible)" {
+    run hook_invoke "find -name '*.o' -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+}
+
+# R3 review catch (cycle-119): nested find — the inner find's root governs
+# the {} deletions, but the token-walk classifies only the outer root.
+# Any `find` token inside the span disqualifies eligibility.
+
+@test "C15 nested-find MUST-BLOCK: find ./build -exec find / ... -exec rm -rf {} +" {
+    run hook_invoke "find ./build -exec find / -name x -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+}
+
+@test "C15 nested-find MUST-BLOCK: inner \$HOME root" {
+    run hook_invoke 'find ./build -exec find $HOME -name x -exec rm -rf {} +'
+    [ "$status" -eq 2 ]
+}
+
+@test "C15 nested-find MUST-BLOCK: inner glob root" {
+    run hook_invoke 'find ./build -exec find "*" -name x -exec rm -rf {} +'
+    [ "$status" -eq 2 ]
+}
+
+@test "C15 nested-find MUST-BLOCK: inner /usr/bin/find path form" {
+    run hook_invoke "find ./build -exec /usr/bin/find / -name x -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+}
+
+@test "C15 nested-find control: reversed order still blocks (dangerous outer root)" {
+    run hook_invoke "find / -exec find ./build -name x -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+}
+
+# Audit catch (cycle-119): -L / -H / -follow make find traverse symlinks, so
+# a planted link inside an allow-listed root lets {} resolve OUTSIDE it.
+# These shapes were blocked pre-cycle-119 and must stay blocked.
+
+@test "C15 symlink-follow MUST-BLOCK: find ./build -L -exec rm -rf {} +" {
+    run hook_invoke "find ./build -L -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+}
+
+@test "C15 symlink-follow MUST-BLOCK: find ./build -H -exec rm -rf {} +" {
+    run hook_invoke "find ./build -H -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+}
+
+@test "C15 symlink-follow MUST-BLOCK: find ./build -follow -exec rm -rf {} +" {
+    run hook_invoke "find ./build -follow -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+}
+
+@test "C15 symlink-follow MUST-BLOCK: -follow between primaries" {
+    run hook_invoke "find ./build -name '*.o' -follow -exec rm -rf {} +"
+    [ "$status" -eq 2 ]
+}
+
+# =============================================================================
 # Group D — fail-open tests (FR-3 / NFR-3)
 # =============================================================================
 
