@@ -206,10 +206,30 @@ _bdb_sed_echo='s/(^|;|&&|\|\||\|)([[:space:]]*(sudo[[:space:]]+)?(echo|printf)[[
 # terminator swallow); _bdb_scrub then applies the POST-HOC content gate. The
 # quoted value is the LAST capture group (no group follows it). [^;&|]* keeps
 # the prefix within one segment; (^|[^[:alnum:]_]) is the anti-spoof boundary.
+# cycle-120 R1 fix (CRITICAL): the pre-flag prefix classes ALSO exclude quotes
+# (`[^;&|'"]*`). Without that, POSIX leftmost-longest lets the prefix walk PAST
+# the real flag+opening-quote and re-anchor on a decoy flag literal embedded in
+# the value (`git commit -m "-m " && rm -rf "/"`), so the value capture spans
+# from the string's real closing quote to the NEXT quote — swallowing a live
+# `&& rm -rf "` into a redacted "carrier value". Barring quotes from the prefix
+# means a flag can only be matched before any quote in the segment is opened.
 _bdb_qval_perm="('[^']*'|\"[^\"]*\")"
-_bdb_re_git="(^|[^[:alnum:]_])git[[:space:]][^;&|]*commit[^;&|]*(-m|--message)[[:space:]]+${_bdb_qval_perm}"
-_bdb_re_brbd="(^|[^[:alnum:]_])(br|bd)[[:space:]][^;&|]*(create|update)[^;&|]*(-d|--description)[[:space:]]+${_bdb_qval_perm}"
-_bdb_re_gh="(^|[^[:alnum:]_])gh[[:space:]][^;&|]*(issue|pr)[^;&|]*create[^;&|]*(--body|--title)[[:space:]]+${_bdb_qval_perm}"
+_bdb_re_git="(^|[^[:alnum:]_])git[[:space:]][^;&|'\"]*commit[^;&|'\"]*(-m|--message)[[:space:]]+${_bdb_qval_perm}"
+_bdb_re_brbd="(^|[^[:alnum:]_])(br|bd)[[:space:]][^;&|'\"]*(create|update)[^;&|'\"]*(-d|--description)[[:space:]]+${_bdb_qval_perm}"
+_bdb_re_gh="(^|[^[:alnum:]_])gh[[:space:]][^;&|'\"]*(issue|pr)[^;&|'\"]*create[^;&|'\"]*(--body|--title)[[:space:]]+${_bdb_qval_perm}"
+
+# Tail-run of contiguous message flags after the primary carrier match. A
+# single `git commit`/`gh create`/… can carry MULTIPLE `-m/--message`/`-d`/
+# `--body`… pairs (git concatenates multi-`-m` into paragraphs). The primary
+# regex, now that the prefix bars quotes (R1 fix), only anchors the FIRST pair;
+# this tail consumes further contiguous `flag <quoted-value>` pairs so all of a
+# genuine multi-flag message is redacted. It is anchored at the START of the
+# remaining text (`^[[:space:]]*flag …`), so it CANNOT cross a statement
+# separator: the moment the remainder begins with anything other than another
+# message flag (e.g. `&& rm -rf`), the tail stops and that text is left INTACT
+# for FR-2. This keeps multi-`-m` benign commits allowed WITHOUT reopening the
+# `&&`-crossing bypass.
+_bdb_re_tail="^[[:space:]]*(-m|--message|-d|--description|--body|--title)[[:space:]]+${_bdb_qval_perm}"
 
 # _bdb_scrub <carrier-ere> <input> — echo the input with every carrier value
 # that passes the content gate replaced by a single SPACE (never empty, never
@@ -231,6 +251,22 @@ _bdb_scrub() {
       po="${m%"$val"}"                  # matched text minus the trailing value
       out+="$pre$po "                   # value → single space
     fi
+    # Consume any contiguous trailing message-flag pairs (multi-`-m`), each
+    # content-gated the same way. Stops at the first non-flag token (separator
+    # or real content), so it never crosses a statement boundary.
+    while [[ "$rest" =~ $_bdb_re_tail ]]; do
+      m="${BASH_REMATCH[0]}"
+      vi=$(( ${#BASH_REMATCH[@]} - 1 ))
+      val="${BASH_REMATCH[$vi]}"
+      rest="${rest#"$m"}"
+      inner="${val:1:${#val}-2}"
+      if [[ "$inner" == *'$('* || "$inner" == *'`'* ]]; then
+        out+="$m"                       # command-sub value — leave INTACT
+      else
+        po="${m%"$val"}"
+        out+="$po "
+      fi
+    done
   done
   printf '%s' "$out$rest"
 }

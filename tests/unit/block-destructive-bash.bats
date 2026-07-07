@@ -1306,6 +1306,43 @@ hook_invoke() {
     [ "$status" -eq 2 ]
 }
 
+# --- cycle-120 R1 CRITICAL: decoy-flag re-anchor bypass (MUST BLOCK) ---------
+# A doubled flag literal inside the carrier value (`git commit -m "-m " && ...`)
+# used to let the pre-flag `[^;&|]*` prefix walk past the real opening quote and
+# re-anchor on the embedded `-m`, capturing `&& rm -rf "` as a redactable value.
+# Fixed by barring quotes from the prefix class (`[^;&|'"]*`). Reproduced live on
+# both HEAD and main before the fix; these pin it blocked go-forward.
+
+@test "C-D3 R1 BLOCK: decoy git -m re-anchor then rm -rf /" {
+    run hook_invoke 'git commit -m "-m " && rm -rf "/"'
+    [ "$status" -eq 2 ]
+}
+
+@test "C-D3 R1 BLOCK: decoy git --message re-anchor" {
+    run hook_invoke 'git commit --message "-m " && rm -rf "/home/nonexistent-p1"'
+    [ "$status" -eq 2 ]
+}
+
+@test "C-D3 R1 BLOCK: decoy br -d re-anchor" {
+    run hook_invoke 'br create -d "-d " && rm -rf "/home/nonexistent-p1"'
+    [ "$status" -eq 2 ]
+}
+
+@test "C-D3 R1 BLOCK: decoy bd -d re-anchor" {
+    run hook_invoke 'bd update -d "-d " && rm -rf "/home/nonexistent-p1"'
+    [ "$status" -eq 2 ]
+}
+
+@test "C-D3 R1 BLOCK: decoy gh --body re-anchor" {
+    run hook_invoke 'gh pr create --title "t" --body "--body " && rm -rf "/home/nonexistent-p1"'
+    [ "$status" -eq 2 ]
+}
+
+@test "C-D3 R1 BLOCK: decoy carrier + second rm compound (D3b net)" {
+    run hook_invoke 'git commit -m "-m " && rm -rf "/home/nonexistent-p1" && rm -rf /tmp/x'
+    [ "$status" -eq 2 ]
+}
+
 @test "C-D3b BLOCK: composite boundary-\$ carrier immediately followed by real && rm -rf" {
     # Pins that the FR-2 gate and the segment extractor never disagree toward
     # ALLOW: the git carrier value ends in a bare `$` (redacted), and the SAME
