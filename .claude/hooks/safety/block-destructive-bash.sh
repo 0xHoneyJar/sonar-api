@@ -715,6 +715,20 @@ fi
 #   FOLLOWS the redirect (`rm -rf 2>&1 /` — the `/` would otherwise be lost).
 #   `&&` command separators survive the scrub (fd-dup needs `>` before the `&`,
 #   `&>` needs `>` after), so multi-statement detection stays intact.
+# - C15/cycle-119 panel amendment: `find ROOT ... -exec rm -rf {} [+|\;]`
+#   shapes previously misclassified the {} / + PLACEHOLDER tokens (never real
+#   paths) as ambiguous rm operands, blocking even a fully safe root (e.g.
+#   `find ./build -exec rm -rf {} +`). When an rm segment's only non-flag
+#   operands are find-exec placeholders AND that segment is immediately
+#   preceded (same statement) by `find ROOT ... -exec`, the FIND ROOT is
+#   classified through this SAME ladder instead of the placeholders. A root
+#   containing `$` matches none of the ladder's branches (never a bypass —
+#   see _re_find_exec_prefix below), so it always falls to AMBIGUOUS, same as
+#   today: $-expansion roots are NEVER allowed. Backslash-semicolon
+#   (`-exec ... {} \;`) is not covered by the ALLOW path — the segment
+#   extraction below already stops at the bare `;` (pre-existing, unrelated
+#   to this change), so that shape keeps its prior conservative-block
+#   behavior unchanged.
 #
 # pass-2: gate + per-arg classification tests converted to [[ =~ ]]. The
 # per-arg tests match DIRECTLY (no line loop): $unquoted derives from
@@ -750,6 +764,20 @@ if [[ "$command" == *"rm"* && "$command" == *"-"* ]] \
   _re_allow_exclude='^\./($|\*|\.|\.git$|\.git/|\.ssh$|\.ssh/|\.env)'
   _re_allow_list='^(\./[^/*.][^*]*|node_modules$|node_modules/|dist$|dist/|build$|build/|target$|target/|\.next$|\.next/|/tmp/.+|out$|out/|coverage$|coverage/)'
 
+  # C15/cycle-119: matches the text immediately preceding an rm segment
+  # (bounded to the SAME statement, via the identical boundary-alternation
+  # style used by every other pattern in this file) when it is a
+  # `find ROOT ... -exec` prefix. `$`-anchored: nothing may sit between
+  # `-exec` and this rm invocation (sudo / an absolute /path/to/rm are
+  # consumed by the rm_segment extraction itself, not this prefix). Group 3
+  # is the FIND ROOT. Scope: the root token is `find`'s FIRST argument —
+  # `find -L root -exec ...` (flags before root) is not covered and keeps
+  # today's conservative behavior (documented gap, not a fixture requirement).
+  _re_find_exec_prefix='(^|/|;|&&|\||[[:space:]]|\(|'"'"'|")[[:space:]]*(sudo[[:space:]]+)?find[[:space:]]+([^;&|)[:space:]]+)[^;&|)]*-exec$'
+  # Left-to-right cursor over _fr2_cmd so repeated identical rm segments each
+  # resolve against THEIR OWN preceding text, not the first occurrence's.
+  _fr2_remaining="$_fr2_cmd"
+
   # FR-2-REDIR (bd-c117-e-redirect-1pq8, issue #1177 item E): syntactic
   # redirect-token EREs for the rm_args strip loop below. Matched against
   # the RAW token (before quote-stripping), so a genuinely-quoted operand
@@ -768,6 +796,17 @@ if [[ "$command" == *"rm"* && "$command" == *"-"* ]] \
 
   while IFS= read -r rm_segment; do
     [[ -z "$rm_segment" ]] && continue
+
+    # C15/cycle-119: isolate the text preceding THIS occurrence of rm_segment
+    # (cursor-advance so a later identical segment doesn't re-match the first
+    # occurrence's prefix), then test for a find-exec shape ending right here.
+    _seg_prefix="${_fr2_remaining%%"$rm_segment"*}"
+    _fr2_remaining="${_fr2_remaining#*"$rm_segment"}"
+    _seg_find_root=""
+    if [[ "$_seg_prefix" =~ $_re_find_exec_prefix ]]; then
+      _seg_find_root="${BASH_REMATCH[3]}"
+    fi
+
     rm_args_raw="${rm_segment#*rm}"
     # shellcheck disable=SC2086,SC2206 — intentional word-split on rm args
     read -r -a rm_args <<<"$rm_args_raw"
@@ -802,42 +841,79 @@ if [[ "$command" == *"rm"* && "$command" == *"-"* ]] \
     done
     rm_args=(${rm_args_filtered[@]+"${rm_args_filtered[@]}"})
 
-    for arg in "${rm_args[@]}"; do
-      # Skip flag tokens.
-      [[ "$arg" == -* ]] && continue
-      # Strip outer balanced quotes for pattern-matching (does NOT shell-parse).
-      unquoted="${arg#\'}"; unquoted="${unquoted%\'}"
+    # C15/cycle-119: this segment is find-exec-governed ONLY when a root was
+    # detected AND every non-flag operand of THIS rm invocation is a find-exec
+    # placeholder ({}, +, \;, ;) — i.e. the rm has no operand of its own.
+    # Any segment with a real operand (find-exec or not) keeps the untouched
+    # per-arg ladder below, so this can never suppress a genuine dangerous arg.
+    _seg_placeholder_only=0
+    if [[ -n "$_seg_find_root" ]]; then
+      _seg_placeholder_only=1
+      for arg in "${rm_args[@]}"; do
+        [[ "$arg" == -* ]] && continue
+        case "$arg" in
+          '{}'|'+'|'\;'|';') ;;
+          *) _seg_placeholder_only=0 ;;
+        esac
+      done
+    fi
+
+    if [[ $_seg_placeholder_only -eq 1 ]]; then
+      # Classify the FIND ROOT through the EXACT SAME ladder as any rm operand
+      # (never a bypass path — see _re_find_exec_prefix comment: a `$`-bearing
+      # root matches none of these branches and falls to AMBIGUOUS, same as
+      # every other unrecognized shape).
+      unquoted="${_seg_find_root#\'}"; unquoted="${unquoted%\'}"
       unquoted="${unquoted#\"}"; unquoted="${unquoted%\"}"
-      # ..-segment escape → conservative block.
       if [[ "$unquoted" =~ $_re_dotdot ]]; then
-        any_ambiguous=1; matched_arg="$arg"; continue
+        any_ambiguous=1; matched_arg="$_seg_find_root"
+      elif [[ "$unquoted" =~ $_re_block_list ]]; then
+        any_block=1; matched_arg="$_seg_find_root"
+      elif [[ "$unquoted" =~ $_re_allow_exclude ]]; then
+        any_ambiguous=1; matched_arg="$_seg_find_root"
+      elif [[ "$unquoted" =~ $_re_allow_list ]]; then
+        : # explicit safe relative root — allow this find-exec segment
+      else
+        any_ambiguous=1; matched_arg="$_seg_find_root"
       fi
-      # BLOCK list (catastrophic paths).
-      # cycle-114 FR-6: the home-root trailing-slash forms ($HOME/, ${HOME}/,
-      # ~/) are catastrophic-equivalent to bare $HOME/~ and must hit BLOCK, not
-      # the AMBIGUOUS fallback. A CHILD path (e.g. $HOME/projects, ~/subdir) is
-      # NOT matched here and correctly falls through to AMBIGUOUS. Mirrors the
-      # Claude Code 2.1.154 $HOME-trailing-slash fix.
-      if [[ "$unquoted" =~ $_re_block_list ]]; then
-        any_block=1; matched_arg="$arg"; break
-      fi
-      # ALLOW-EXCLUDE (was bypassing via `./` prefix).
-      if [[ "$unquoted" =~ $_re_allow_exclude ]]; then
-        any_ambiguous=1; matched_arg="$arg"; continue
-      fi
-      # ALLOW list (bounded subpaths).
-      if [[ "$unquoted" =~ $_re_allow_list ]]; then
-        continue
-      fi
-      # Ambiguous → conservative block.
-      any_ambiguous=1; matched_arg="$arg"
-    done
+    else
+      for arg in "${rm_args[@]}"; do
+        # Skip flag tokens.
+        [[ "$arg" == -* ]] && continue
+        # Strip outer balanced quotes for pattern-matching (does NOT shell-parse).
+        unquoted="${arg#\'}"; unquoted="${unquoted%\'}"
+        unquoted="${unquoted#\"}"; unquoted="${unquoted%\"}"
+        # ..-segment escape → conservative block.
+        if [[ "$unquoted" =~ $_re_dotdot ]]; then
+          any_ambiguous=1; matched_arg="$arg"; continue
+        fi
+        # BLOCK list (catastrophic paths).
+        # cycle-114 FR-6: the home-root trailing-slash forms ($HOME/, ${HOME}/,
+        # ~/) are catastrophic-equivalent to bare $HOME/~ and must hit BLOCK, not
+        # the AMBIGUOUS fallback. A CHILD path (e.g. $HOME/projects, ~/subdir) is
+        # NOT matched here and correctly falls through to AMBIGUOUS. Mirrors the
+        # Claude Code 2.1.154 $HOME-trailing-slash fix.
+        if [[ "$unquoted" =~ $_re_block_list ]]; then
+          any_block=1; matched_arg="$arg"; break
+        fi
+        # ALLOW-EXCLUDE (was bypassing via `./` prefix).
+        if [[ "$unquoted" =~ $_re_allow_exclude ]]; then
+          any_ambiguous=1; matched_arg="$arg"; continue
+        fi
+        # ALLOW list (bounded subpaths).
+        if [[ "$unquoted" =~ $_re_allow_list ]]; then
+          continue
+        fi
+        # Ambiguous → conservative block.
+        any_ambiguous=1; matched_arg="$arg"
+      done
+    fi
 
     [[ $any_block -eq 1 ]] && break
   done <<<"$rm_segments"
 
   if [[ $any_block -eq 1 ]]; then
-    emit_block "FR-2-BLOCK" "$matched_arg" "rm -rf on catastrophic path '$matched_arg' (system root / home / glob / current-dir). Refuse."
+    emit_block "FR-2-BLOCK" "$matched_arg" "rm -rf on catastrophic path '$matched_arg' (system root / home / glob / current-dir) refused. Use 'trash <path>' for a recoverable delete, or an explicit './<path>/' form scoped to a real subdirectory."
   elif [[ $any_ambiguous -eq 1 ]]; then
     emit_block "FR-2-AMBIGUOUS" "$matched_arg" "rm -rf on an unclear path '$matched_arg'. Use './path/' explicit form, 'trash', or remove targeted children."
   fi
