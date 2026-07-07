@@ -1953,3 +1953,28 @@ spiral:
   seed:
     mode: degraded            # cycle-1 genome comes via --seed-context; cycle-2+ reads prior sidecar
   max_budget_per_cycle_usd: 25
+
+# =============================================================================
+# Advisor-strategy routing (cycle-108/116/120) — enabled 2026-07-07 (operator directive:
+# "Fable orchestrating; Sonnet/Haiku executing mechanical work"; pattern = loa#1191).
+# Advisor = Fable (intended) → using Opus 4.8 because Fable 5 hit its usage limit 2026-07-07
+# (top up /usage-credits and switch advisor.anthropic back to claude-fable-5). Executor = Sonnet-5
+# (mechanical implementation). NFR-Sec1: review/audit HARD-PINNED to advisor (loader-enforced).
+# claude-sonnet-5 is a resolvable bare alias (cycle-120 C-D2), avoiding the "Unknown alias" trap.
+# =============================================================================
+advisor_strategy:
+  schema_version: 2
+  enabled: true
+  tier_resolution: static
+  defaults:
+    planning: advisor          # PRD/SDD/sprint framing → advisor (orchestrator)
+    review: advisor            # NFR-Sec1 hard-pin (loader-enforced)
+    audit: advisor             # NFR-Sec1 hard-pin (loader-enforced)
+    implementation: executor   # mechanical code/tests → Sonnet-5
+  tier_aliases:
+    advisor:
+      anthropic: claude-opus-4-8
+    executor:
+      anthropic: claude-sonnet-5
+  per_skill_overrides: {}
+  audited_review_skills: []
