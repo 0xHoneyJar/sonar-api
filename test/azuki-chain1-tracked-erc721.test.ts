@@ -15,7 +15,6 @@ import { TRACKED_ERC721_COLLECTION_KEYS } from "../src/handlers/tracked-erc721/c
 const AZUKI = {
   chainId: 1,
   contract: "0xed5af388653567af2f388e6224dcc93746104133",
-  startBlock: "14162194",
   collectionKey: "azuki",
   contractName: "EthTrackedErc721",
 } as const;
@@ -50,13 +49,17 @@ describe("chain-1 Azuki EthTrackedErc721 (#120 / sprint-bug-192; real community)
     expect(TRACKED_ERC721_COLLECTION_KEYS[AZUKI.contract]).toBe("azuki");
   });
 
-  it("sets an explicit start_block at Azuki deployment (not chain floor only)", () => {
+  it("inherits the chain-1 floor start_block — no per-contract start_block (mirrors Milady; envio #120)", () => {
     const ref = extractChainContractRef(
       monoText,
       AZUKI.chainId,
       AZUKI.contractName,
     );
-    expect(ref!.startBlock).toBe(AZUKI.startBlock);
+    // envio #120 refinement: a single-address contract with a per-contract start_block ABOVE
+    // the chain floor is not fetched on chain 1. Milady — the working dedicated single-address
+    // control — has none; Azuki now mirrors it exactly. Chain floor 13090020 < Azuki deploy
+    // 14162194, so no history is lost.
+    expect(ref!.startBlock).toBeNull();
   });
 
   it("gates EthTrackedErc721 on chain 1 in BELT_CONTRACTS; shared TrackedErc721 stays on OP/Base/Bera", () => {
