@@ -347,8 +347,10 @@ chains:
       - name: MiladyCollection
         address:
           - 0x5af0d9827e0c53e4799bb226655a1de152a425a5 # Milady Maker
-      # Community — Azuki (real community; dedicated contract per envio #120 single-address fetch gap)
+      # Community — Azuki (real community). Dedicated contract + NO per-contract start_block,
+      # mirroring Milady above — envio #120: a single-address contract with a start_block ABOVE
+      # the chain floor (13090020) is not fetched on chain 1. Azuki deploy 14162194 > floor, so
+      # inheriting the floor loses no history.
       - name: EthTrackedErc721
         address:
           - 0xed5af388653567af2f388e6224dcc93746104133 # azuki
-        start_block: 14162194 # Azuki collection deployment
