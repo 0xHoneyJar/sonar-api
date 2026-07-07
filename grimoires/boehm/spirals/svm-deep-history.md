@@ -7,14 +7,34 @@
 > it is what every NO-GO drops to.
 > **Inputs**: sdd.md · sprint.md · context/2026-07-06-boehm-economics-svm-indexer.md · GATE-1 record
 
+## Re-rank — 2026-07-06 (post-CYCLE-1 · BOEHM structuring-a-spiral)
+
+**CYCLE 1 fired: NO-GO for Envio HyperSync-Solana (bd-rdnj closed).** Two independent kills —
+(1) rolling retention floor ~slot 391,791,680 sits 89M–290M slots above every canary era; (2) the
+documented endpoint `solana.hypersync.xyz` is NXDOMAIN on both public resolvers (eth.hypersync.xyz
+resolves = zone healthy). Full evidence: `grimoires/loa/context/2026-07-06-lake-decision-record.md`.
+
+**Consequence — the comparison collapsed.** R1 is RETIRED and Envio is eliminated on coverage, so
+**SQD Portal is the lake, not a fallback.** The LakeAdapter seam's primary justification ("one
+harness, two lakes") evaporates; the `EnvioHyperSyncAdapter` is untestable and CUT. The resource
+canary runs on the *existing* `sqd-loader.ts` (Strategy A) — it never needed the seam.
+
+**New cycle order (highest remaining exposure first):**
+- ~~CYCLE 1 (R1 genesis)~~ ✅ DONE → NO-GO. Envio out.
+- ~~CYCLE 2 (R2 parity)~~ → PROVEN-ELSEWHERE. SQD decodes at 1767/1767 live (test/sqd-45-gate-integration.test.ts). Envio arm moot. bd-9jdy (generalize `runParityGate`) demoted to optional (SQD lane = regression floor only).
+- **CYCLE 3 (R3 resource / density-wall) → NOW THE ACTIVE HIGHEST-EXPOSURE CYCLE.** bd-5sqe, needs-a-box, SQD-only. The real remaining unknown: does full-genesis sync collapse the ~400k mint-filtered-windowed request count, and does it fit a box w/o KF-015 OOM + co-locate on the belt-indexer Railway box ($0-marginal)?
+- CYCLE 4 (R4 schema) → bd-lx00, after CYCLE 3.
+
+**Descopes (JOBS negative-allocation):** bd-mbtb `EnvioHyperSyncAdapter` CUT; bd-mbtb LakeAdapter+SqdPortalAdapter + bd-9jdy demoted to optional (future Envio re-eval option value only, see re-open conditions in the decision record). bd-5sqe deps on bd-mbtb/bd-9jdy REMOVED — it uses the shipped loader.
+
 ## Risk register (ranked by exposure = P(loss) × cost(loss); buckets, not forecasts)
 
 | # | risk | P(loss) | cost(loss) | exposure | status |
 |---|---|---|---|---|---|
 | R0 | self-host-vs-metered is the wrong model | MED | very high | HIGH | **RETIRED** — cost curve drawn (~26×/yr, no crossover, structurally unbounded). No cycle. |
-| R1 | Envio HyperSync-Solana genesis coverage insufficient for the canary mints (GATE-1) | MED | high | **HIGH** | **CYCLE 1** — the open sub-question |
-| R2 | Envio decode parity — adapter can't reproduce the §4.5 reference (GATE-2) | MED | medium | MED | CYCLE 2 |
-| R3 | resource fit — density-wall recurs, KF-015 OOM, or won't co-locate (GATE-3) | LOW-MED | medium | MED | CYCLE 3 |
+| R1 | Envio HyperSync-Solana genesis coverage insufficient for the canary mints (GATE-1) | MED | high | **HIGH** | **RETIRED** — CYCLE 1 NO-GO: NXDOMAIN endpoint + rolling floor 391.79M > all canary eras. Envio eliminated; SQD is the lake. |
+| R2 | Envio decode parity — adapter can't reproduce the §4.5 reference (GATE-2) | MED | medium | MED | **MOOT/PROVEN** — SQD 1767/1767 live; no Envio lake to compare. bd-9jdy optional. |
+| R3 | resource fit — density-wall recurs, KF-015 OOM, or won't co-locate (GATE-3) | LOW-MED | medium | MED | **RETIRED** — CYCLE 3 measured: seq density wall real (5–10 d), Strategy B refuted, escape = parallel range-partition (validated + **BUILT**: src/svm/sqd-parallel-loader.ts, ~6–12 h/coll). RAM/storage non-binding. |
 | R4 | schema drift onto the existing PK (GATE-4) | LOW | low | LOW | CYCLE 4 |
 | R5 | Envio-vs-SQD **ops convenience** | HIGH | low | LOW | tie-breaker only |
 | — | Envio-vs-SQD **cost** | — | — | — | **ZERO — identical curves; measured elsewhere** |
