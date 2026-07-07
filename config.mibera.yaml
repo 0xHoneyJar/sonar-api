@@ -347,10 +347,12 @@ chains:
       - name: MiladyCollection
         address:
           - 0x5af0d9827e0c53e4799bb226655a1de152a425a5 # Milady Maker
-      # Community — Azuki (real community). Dedicated contract + NO per-contract start_block,
-      # mirroring Milady above — envio #120: a single-address contract with a start_block ABOVE
-      # the chain floor (13090020) is not fetched on chain 1. Azuki deploy 14162194 > floor, so
-      # inheriting the floor loses no history.
+      # Community — Azuki (real community, #382): CANONICAL Azuki contract on Ethereum.
+      # The earlier 0x…dcc93746104133 was a CORRUPTED address (from the #382 order fixture) —
+      # envio faithfully indexed a non-existent contract → 0 events forever, immune to every
+      # config change. The "#120 single-address fetch gap" was THIS address bug, not envio
+      # (Milady indexed fine because its address was correct). Dedicated EthTrackedErc721 kept
+      # (structurally mirrors Milady; inherits chain floor 13090020, no history lost).
       - name: EthTrackedErc721
         address:
-          - 0xed5af388653567af2f388e6224dcc93746104133 # azuki
+          - 0xed5af388653567af2f388e6224dc7c4b3241c544 # azuki (canonical, verified on Etherscan)

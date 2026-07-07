@@ -9,12 +9,13 @@ import {
 import { TRACKED_ERC721_COLLECTION_KEYS } from "../src/handlers/tracked-erc721/constants";
 
 /** Azuki on Ethereum mainnet — a REAL community (promoted from kitchen E2E; #382 key decision).
- *  Bound to the DEDICATED contract `EthTrackedErc721` (envio #120 / sprint-bug-192): a single-address
- *  entry in the shared multi-chain `TrackedErc721` is not fetched on chain 1; a dedicated contract
- *  closes the gap (Milady, a dedicated single-address ETH contract, indexes fine). */
+ *  Uses the CANONICAL Azuki contract (verified Etherscan). Regression guard: the #382 order
+ *  fixture carried a corrupted address (0x…dcc93746104133) that indexed 0 events forever; the
+ *  "#120 fetch gap" was that bug, not envio. Bound to the dedicated `EthTrackedErc721` contract
+ *  (structurally mirrors Milady, a working dedicated single-address ETH contract). */
 const AZUKI = {
   chainId: 1,
-  contract: "0xed5af388653567af2f388e6224dcc93746104133",
+  contract: "0xed5af388653567af2f388e6224dc7c4b3241c544",
   collectionKey: "azuki",
   contractName: "EthTrackedErc721",
 } as const;
