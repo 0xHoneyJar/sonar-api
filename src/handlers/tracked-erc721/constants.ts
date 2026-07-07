@@ -41,8 +41,8 @@ export const TRACKED_ERC721_COLLECTION_KEYS: Record<string, string> = {
   // NOTE: mibera_zora is ERC-1155 (Zora platform), handled by MiberaZora1155 handler
   // NOTE: puru collections are ERC-1155 (party.app), handled by PuruApiculture1155 handler
 
-  // ===== COMMUNITY ONBOARDING (kitchen E2E) =====
-  "0xed5af388653567af2f388e6224dcc93746104133": "azuki_kitchen_e2e",
+  // ===== COMMUNITY — Azuki (promoted from kitchen E2E to a real community 2026-07-07; #382 key decision) =====
+  "0xed5af388653567af2f388e6224dcc93746104133": "azuki",
 
   // ===== BASE — COMMUNITY ONBOARDING BATCH 1 (top-10 ramp, #121) =====
   // 8 ERC-721s on Base (8453); the batch's 2 ERC-1155s (BasePaint, Parallel Planetfall)
@@ -68,7 +68,8 @@ export const TRACKED_ERC721_COLLECTION_KEYS: Record<string, string> = {
   "0x6b31859e5e32a5212f1ba4d7b377604b9d4c7a60": "lore_1_introducing_mibera",
   "0x9247edf18518c4dccfa7f8b2345a1e8a4738204f": "lore_2_honey_online_offline",
   "0xb2c7f411aa425d3fce42751e576a01b1ff150385": "lore_3_bera_kali_acc",
-  "0xa12064e3b1f6102435e77aa68569e79955070357": "lore_4_bgt_network_spirituality",
+  "0xa12064e3b1f6102435e77aa68569e79955070357":
+    "lore_4_bgt_network_spirituality",
   "0x6ca29eed22f04c1ec6126c59922844811dcbcdfa": "lore_5_initiation_ritual",
   "0x7988434e1469d35fa5f442e649de45d47c3df23c": "lore_6_miberamaker_design",
   "0x96c200ec4cca0bc57444cfee888cfba78a1ddbd8": "lore_7_miberamaker_design",
@@ -83,8 +84,9 @@ export const TRANSFER_TRACKED_COLLECTIONS = new Set<string>([
   // NOTE: mibera_zora is ERC-1155, transfers tracked by mibera-zora.ts handler
   // NOTE: puru collections are ERC-1155, transfers tracked by puru-apiculture1155.ts handler
 
-  // Mibera Lore Articles - track all transfers for timeline
-  // Base batch 1 — community scoring consumes transfer activity, not just holdings
+  // Mibera Lore Articles + community collections - track all transfers for timeline
+  // Base batch 1 + Azuki (ETH) — community scoring consumes transfer activity, not just holdings
+  "azuki",
   "based_punks",
   "hypio",
   "kemonokaki",

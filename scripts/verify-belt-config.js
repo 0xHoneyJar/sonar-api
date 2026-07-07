@@ -21,8 +21,8 @@
  * blocks. Comments and trailing whitespace are normalized away; structure and
  * values are compared exactly.
  */
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 /**
  * Belt contracts whose fidelity is enforced, each tagged with the chain it is
@@ -35,27 +35,27 @@ import { fileURLToPath } from 'node:url';
  */
 export const BELT_CONTRACTS = [
   // Berachain (80094) — score-api footprint
-  { name: 'MiberaLiquidBacking', chainId: 80094 },
-  { name: 'MiberaCollection', chainId: 80094 },
-  { name: 'PaddleFi', chainId: 80094 },
-  { name: 'BgtToken', chainId: 80094 },
-  { name: 'CubBadges1155', chainId: 80094 },
-  { name: 'CandiesMarket1155', chainId: 80094 },
-  { name: 'GeneralMints', chainId: 80094 },
-  { name: 'TrackedErc721', chainId: 80094 },
-  { name: 'Seaport', chainId: 80094 }, // Mibera secondary sales (OpenSea)
+  { name: "MiberaLiquidBacking", chainId: 80094 },
+  { name: "MiberaCollection", chainId: 80094 },
+  { name: "PaddleFi", chainId: 80094 },
+  { name: "BgtToken", chainId: 80094 },
+  { name: "CubBadges1155", chainId: 80094 },
+  { name: "CandiesMarket1155", chainId: 80094 },
+  { name: "GeneralMints", chainId: 80094 },
+  { name: "TrackedErc721", chainId: 80094 },
+  { name: "Seaport", chainId: 80094 }, // Mibera secondary sales (OpenSea)
   // Base (8453)
-  { name: 'FriendtechShares', chainId: 8453 },
-  { name: 'TrackedErc721', chainId: 8453 },
-  { name: 'TrackedErc20', chainId: 8453 },
+  { name: "FriendtechShares", chainId: 8453 },
+  { name: "TrackedErc721", chainId: 8453 },
+  { name: "TrackedErc20", chainId: 8453 },
   // Optimism (10)
-  { name: 'MiberaSets', chainId: 10 },
-  { name: 'MiberaZora1155', chainId: 10 },
-  { name: 'MirrorObservability', chainId: 10 },
-  { name: 'TrackedErc721', chainId: 10 },
+  { name: "MiberaSets", chainId: 10 },
+  { name: "MiberaZora1155", chainId: 10 },
+  { name: "MirrorObservability", chainId: 10 },
+  { name: "TrackedErc721", chainId: 10 },
   // Ethereum (1)
-  { name: 'MiladyCollection', chainId: 1 },
-  { name: 'TrackedErc721', chainId: 1 },
+  { name: "MiladyCollection", chainId: 1 },
+  { name: "EthTrackedErc721", chainId: 1 },
 ];
 
 /** @deprecated belt is now multi-chain — use BELT_CONTRACTS[].chainId. Kept for back-compat. */
@@ -68,10 +68,10 @@ export const BELT_CHAIN_ID = 80094;
  * @returns {string}
  */
 function stripComment(line) {
-  const hash = line.indexOf('#');
-  if (hash === -1) return line.replace(/\s+$/, '');
-  if (line.slice(0, hash).trim() === '') return ''; // whole-line comment
-  return line.slice(0, hash).replace(/\s+$/, '');
+  const hash = line.indexOf("#");
+  if (hash === -1) return line.replace(/\s+$/, "");
+  if (line.slice(0, hash).trim() === "") return ""; // whole-line comment
+  return line.slice(0, hash).replace(/\s+$/, "");
 }
 
 /**
@@ -80,7 +80,10 @@ function stripComment(line) {
  * @returns {string}
  */
 function normalizeBlock(lines) {
-  return lines.map(stripComment).filter((l) => l !== '').join('\n');
+  return lines
+    .map(stripComment)
+    .filter((l) => l !== "")
+    .join("\n");
 }
 
 /**
@@ -115,7 +118,7 @@ function topLevelContractsSection(lines) {
  * @returns {string | null}  normalized block (name + events + field_selection), or null
  */
 export function extractContractDefinition(text, contractName) {
-  const lines = text.split('\n');
+  const lines = text.split("\n");
   const section = topLevelContractsSection(lines);
   if (!section) return null;
   const nameRe = new RegExp(`^  - name:\\s+${contractName}\\s*$`);
@@ -135,7 +138,9 @@ export function extractContractDefinition(text, contractName) {
     }
   }
   // Exclude the `handler:` line — see the function doc (SDD §5.3 scope).
-  const block = lines.slice(blockStart, blockEnd).filter((l) => !/^\s+handler:\s/.test(l));
+  const block = lines
+    .slice(blockStart, blockEnd)
+    .filter((l) => !/^\s+handler:\s/.test(l));
   return normalizeBlock(block);
 }
 
@@ -177,7 +182,7 @@ function chainSection(lines, chainId) {
  * @returns {{ address: string[], startBlock: string | null } | null}
  */
 export function extractChainContractRef(text, chainId, contractName) {
-  const lines = text.split('\n');
+  const lines = text.split("\n");
   const chain = chainSection(lines, chainId);
   if (!chain) return null;
   const nameRe = new RegExp(`^      - name:\\s+${contractName}\\s*$`);
@@ -201,7 +206,7 @@ export function extractChainContractRef(text, chainId, contractName) {
   let inAddress = false;
   for (const raw of lines.slice(refStart, refEnd)) {
     const line = stripComment(raw);
-    if (line === '') continue;
+    if (line === "") continue;
     const trimmed = line.trim();
     if (/^address:/.test(trimmed)) {
       inAddress = true;
@@ -209,10 +214,10 @@ export function extractChainContractRef(text, chainId, contractName) {
     }
     if (/^start_block:/.test(trimmed)) {
       inAddress = false;
-      startBlock = trimmed.slice('start_block:'.length).trim();
+      startBlock = trimmed.slice("start_block:".length).trim();
       continue;
     }
-    if (inAddress && trimmed.startsWith('- ')) {
+    if (inAddress && trimmed.startsWith("- ")) {
       address.push(trimmed.slice(2).trim());
       continue;
     }
@@ -223,17 +228,17 @@ export function extractChainContractRef(text, chainId, contractName) {
 
 /** Report the first differing normalized line between two blocks. */
 function firstDiff(expected, actual) {
-  const e = expected.split('\n');
-  const a = actual.split('\n');
+  const e = expected.split("\n");
+  const a = actual.split("\n");
   for (let i = 0; i < Math.max(e.length, a.length); i++) {
     if (e[i] !== a[i]) {
       return (
-        `\n      config.yaml: ${e[i] ?? '(end of block)'}` +
-        `\n      belt config: ${a[i] ?? '(end of block)'}`
+        `\n      config.yaml: ${e[i] ?? "(end of block)"}` +
+        `\n      belt config: ${a[i] ?? "(end of block)"}`
       );
     }
   }
-  return '';
+  return "";
 }
 
 /**
@@ -250,13 +255,14 @@ function firstDiff(expected, actual) {
  */
 export function verifyBeltConfig(opts = {}) {
   const {
-    beltConfigPath = 'config.mibera.yaml',
-    monolithConfigPath = 'config.yaml',
+    beltConfigPath = "config.mibera.yaml",
+    monolithConfigPath = "config.yaml",
     beltConfigText,
     monolithConfigText,
   } = opts;
-  const beltText = beltConfigText ?? readFileSync(beltConfigPath, 'utf8');
-  const monoText = monolithConfigText ?? readFileSync(monolithConfigPath, 'utf8');
+  const beltText = beltConfigText ?? readFileSync(beltConfigPath, "utf8");
+  const monoText =
+    monolithConfigText ?? readFileSync(monolithConfigPath, "utf8");
   const mismatches = [];
 
   const seenDefs = new Set();
@@ -267,9 +273,13 @@ export function verifyBeltConfig(opts = {}) {
       const beltDef = extractContractDefinition(beltText, name);
       const monoDef = extractContractDefinition(monoText, name);
       if (monoDef === null) {
-        mismatches.push(`${name}: not found in monolith ${monolithConfigPath} — cannot verify`);
+        mismatches.push(
+          `${name}: not found in monolith ${monolithConfigPath} — cannot verify`,
+        );
       } else if (beltDef === null) {
-        mismatches.push(`${name}: missing from belt ${beltConfigPath} contracts: definitions`);
+        mismatches.push(
+          `${name}: missing from belt ${beltConfigPath} contracts: definitions`,
+        );
       } else if (beltDef !== monoDef) {
         mismatches.push(
           `${name}: contract definition / field_selection differs from config.yaml${firstDiff(monoDef, beltDef)}`,
@@ -281,13 +291,15 @@ export function verifyBeltConfig(opts = {}) {
     const beltRef = extractChainContractRef(beltText, chainId, name);
     const monoRef = extractChainContractRef(monoText, chainId, name);
     if (monoRef === null) {
-      mismatches.push(`${name}: not referenced on chain ${chainId} in monolith — cannot verify`);
+      mismatches.push(
+        `${name}: not referenced on chain ${chainId} in monolith — cannot verify`,
+      );
     } else if (beltRef === null) {
       mismatches.push(`${name}: missing from belt chain ${chainId} contracts:`);
     } else {
-      if (beltRef.address.join(',') !== monoRef.address.join(',')) {
+      if (beltRef.address.join(",") !== monoRef.address.join(",")) {
         mismatches.push(
-          `${name} (chain ${chainId}): address differs — belt [${beltRef.address.join(', ')}] vs config.yaml [${monoRef.address.join(', ')}]`,
+          `${name} (chain ${chainId}): address differs — belt [${beltRef.address.join(", ")}] vs config.yaml [${monoRef.address.join(", ")}]`,
         );
       }
       if (beltRef.startBlock !== monoRef.startBlock) {
@@ -311,7 +323,7 @@ function main() {
     );
     process.exit(0);
   }
-  console.error('✗ verify-belt-config: belt config drifted from config.yaml');
+  console.error("✗ verify-belt-config: belt config drifted from config.yaml");
   for (const m of result.mismatches) console.error(`  - ${m}`);
   process.exit(1);
 }
