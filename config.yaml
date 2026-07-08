@@ -610,6 +610,17 @@ chains:
       - name: EthTrackedErc721
         address:
           - 0xed5af388653567af2f388e6224dc7c4b3241c544 # azuki (canonical, verified on Etherscan)
+      # Seaport — OpenSea marketplace, mainnet Azuki secondary sales (FR-6a).
+      # Handler filters OrderFulfilled to TRACKED_COLLECTIONS (seaport.ts).
+      # OrderFulfilled ABI is stable across Seaport versions, so one handler
+      # catches all. Older versions cover Azuki's 2022→mid-2024 sale history.
+      - name: Seaport
+        address:
+          - "0x00000000006c3852cbEf3e08E8dF289169EdE581" # Seaport v1.1
+          - "0x00000000000001ad428e4906aE43D8F9852d0dD6" # Seaport v1.4
+          - "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC" # Seaport v1.5
+          - "0x0000000000000068F116a894984e2DB1123eB395" # Seaport v1.6
+        start_block: 14162194 # Azuki deployment — no relevant Azuki trades before
 
   # Arbitrum
   - id: 42161

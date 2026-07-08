@@ -26,8 +26,8 @@ describe("verify-belt-config", () => {
   it("covers all belt contracts across 4 chains (multi-chain footprint)", () => {
     const names = new Set(BELT_CONTRACTS.map((c) => c.name));
     const chains = new Set(BELT_CONTRACTS.map((c) => c.chainId));
-    expect(names.size).toBe(16); // +EthTrackedErc721 (dedicated chain-1 Azuki, #120 fix)
-    expect(BELT_CONTRACTS.length).toBe(18); // 18 entries — chain-1 TrackedErc721 renamed to EthTrackedErc721
+    expect(names.size).toBe(16); // EthTrackedErc721 (chain-1 Azuki, #120); Seaport already present on chain 80094
+    expect(BELT_CONTRACTS.length).toBe(19); // 18 (EthTrackedErc721 rename) +Seaport@1 (FR-6a mainnet Azuki secondary sales)
     expect([...chains].sort((a, b) => a - b)).toEqual([1, 10, 8453, 80094]);
     // Shared TrackedErc721 spans OP(lore) + Base(#124 batch) + Berachain(fractures); chain-1 Azuki is the
     // dedicated EthTrackedErc721 (envio #120 single-address fetch gap).
