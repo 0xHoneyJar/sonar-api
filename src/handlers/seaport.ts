@@ -56,7 +56,7 @@ const TRACKED_COLLECTIONS: Record<string, TrackedCollection> = {
   // Ethereum mainnet - Azuki (chain 1). Key + WETH LOWERCASED: lookups compare
   // .toLowerCase() (seaport.ts:84,110,123); a checksummed value silently sums to
   // 0 -> dropped sale (amountPaid > 0n guard, ~line 146). (FR-6a / R-12)
-  "0xed5af388653567af2f388e6224dcc93746104133": {
+  "0xed5af388653567af2f388e6224dc7c4b3241c544": {  // CANONICAL Azuki (was corrupted azuki_kitchen_e2e; real sales use this)
     chainId: 1,
     wrappedNativeToken: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2", // mainnet WETH
   },
