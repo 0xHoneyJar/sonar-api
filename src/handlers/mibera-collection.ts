@@ -20,11 +20,11 @@ import {
   type NftBurn,
   type NftBurnStats,
   type TrackedHolder as TrackedHolderEntity,
-  type Token as TokenEntity,
   type MiberaStakedToken as MiberaStakedTokenEntity,
   type MiberaStaker as MiberaStakerEntity,
 } from "envio";
 import { recordAction } from "../lib/actions";
+import { writeTokenOwnership } from "../lib/token-ownership";
 import { publishMintEvent } from "../lib/events-publisher";
 import { isMintFromZero, isBurnTransfer, isBurnAddress } from "../lib/mint-detection";
 import { BERACHAIN_ID, ZERO_ADDRESS } from "./constants";
@@ -406,31 +406,17 @@ export async function updateTokenOwnership({
   effectiveOwner,
   timestamp,
 }: UpdateTokenOwnershipArgs) {
-  const burned = isBurnAddress(effectiveOwner);
-  const owner = burned ? ZERO : effectiveOwner;
-
-  const tokenKey = `${MIBERA_COLLECTION_ADDRESS}_${BERACHAIN_ID}_${tokenId}`;
-  const existing = await context.Token.get(tokenKey);
-
-  const token: TokenEntity = existing
-    ? {
-        ...existing,
-        owner,
-        isBurned: burned,
-        lastTransferTime: timestamp,
-      }
-    : {
-        id: tokenKey,
-        collection: MIBERA_COLLECTION_ADDRESS,
-        chainId: BERACHAIN_ID,
-        tokenId,
-        owner,
-        isBurned: burned,
-        mintedAt: from === ZERO ? timestamp : BigInt(0),
-        lastTransferTime: timestamp,
-      };
-
-  context.Token.set(token);
+  await writeTokenOwnership({
+    context,
+    collection: MIBERA_COLLECTION_ADDRESS,
+    chainId: BERACHAIN_ID,
+    tokenId,
+    // Staking-aware: a staking DEPOSIT keeps the USER as owner (the TrackedHolder
+    // count isn't decremented on stake) — the caller resolves that into effectiveOwner.
+    candidateOwner: effectiveOwner,
+    from,
+    timestamp,
+  });
 }
 
 // =============================================================================

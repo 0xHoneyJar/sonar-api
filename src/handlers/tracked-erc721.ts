@@ -2,7 +2,6 @@ import {
   indexer,
   type EvmOnEventContext,
   type TrackedHolder as TrackedHolderEntity,
-  type Token as TokenEntity,
   type MiberaStakedToken as MiberaStakedTokenEntity,
   type MiberaStaker as MiberaStakerEntity,
 } from "envio";
@@ -16,6 +15,7 @@ import { STAKING_CONTRACT_KEYS } from "./mibera-staking/constants";
 import { isMarketplaceAddress } from "./marketplaces/constants";
 import { recordAction } from "../lib/actions";
 import { isBurnAddress, isMintFromZero } from "../lib/mint-detection";
+import { writeTokenOwnership } from "../lib/token-ownership";
 
 const ZERO = ZERO_ADDRESS.toLowerCase();
 
@@ -343,31 +343,18 @@ export async function updateTokenOwnership({
   to,
   timestamp,
 }: UpdateTokenOwnershipArgs) {
-  const burned = isBurnAddress(to);
-  const owner = burned ? ZERO : to;
-
-  const tokenKey = `${contractAddress}_${chainId}_${tokenId}`;
-  const existing = await context.Token.get(tokenKey);
-
-  const token: TokenEntity = existing
-    ? {
-        ...existing,
-        owner,
-        isBurned: burned,
-        lastTransferTime: timestamp,
-      }
-    : {
-        id: tokenKey,
-        collection: contractAddress,
-        chainId,
-        tokenId,
-        owner,
-        isBurned: burned,
-        mintedAt: from === ZERO ? timestamp : BigInt(0),
-        lastTransferTime: timestamp,
-      };
-
-  context.Token.set(token);
+  await writeTokenOwnership({
+    context,
+    collection: contractAddress,
+    chainId,
+    tokenId,
+    // loa:shortcut: candidateOwner=to — tracked ERC-721 collections don't stake, so `to` is the
+    // owner; a staking tracked collection MUST resolve effectiveOwner here like
+    // mibera-collection.ts (else Token↔Holder diverges — EVANS I-3).
+    candidateOwner: to,
+    from,
+    timestamp,
+  });
 }
 
 // Mibera staking helper types and functions
