@@ -26,8 +26,8 @@ describe("verify-belt-config", () => {
   it("covers all 16 belt contracts across 4 chains (multi-chain footprint)", () => {
     const names = new Set(BELT_CONTRACTS.map((c) => c.name));
     const chains = new Set(BELT_CONTRACTS.map((c) => c.chainId));
-    expect(names.size).toBe(15); // 15 distinct names — TrackedErc721 appears on 4 chains
-    expect(BELT_CONTRACTS.length).toBe(18); // +TrackedErc721@8453 (#124 Base batch — count missed in that PR's targeted test run)
+    expect(names.size).toBe(15); // 15 distinct names — TrackedErc721 appears on 4 chains; Seaport on 2
+    expect(BELT_CONTRACTS.length).toBe(19); // +Seaport@1 (FR-6a mainnet Azuki secondary sales)
     expect([...chains].sort((a, b) => a - b)).toEqual([1, 10, 8453, 80094]);
     // TrackedErc721 is referenced on Ethereum (Azuki), Optimism (lore), Base (#124 batch-1), and Berachain (fractures).
     expect(
