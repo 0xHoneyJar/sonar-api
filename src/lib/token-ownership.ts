@@ -52,7 +52,12 @@ export async function writeTokenOwnership({
   timestamp,
 }: WriteTokenOwnershipArgs): Promise<void> {
   const burned = isBurnAddress(candidateOwner);
-  const owner = burned ? ZERO : candidateOwner;
+  // Normalize to lowercase at the trust boundary (SHANNON F1). getNftsForOwner
+  // (#153/inventory-api#27) filters Token rows on `owner = <addr>` via the @index;
+  // a checksummed/mixed-case owner stored here would silently return [] for a
+  // lowercased query — the exact C1 casing-loss class this cycle fought. Callers
+  // already lowercase `to`/`from`, but the writer MUST NOT depend on that.
+  const owner = burned ? ZERO : candidateOwner.toLowerCase();
 
   const tokenKey = `${collection}_${chainId}_${tokenId}`;
   const existing = await context.Token.get(tokenKey);

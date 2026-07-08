@@ -72,8 +72,10 @@ function holderBalance(ctx: Ctx, owner: string): number {
   return h?.balance ?? 0;
 }
 
-const A = "0xAAAA000000000000000000000000000000000001";
-const B = "0xBBBB000000000000000000000000000000000002";
+// Lowercase — addresses are normalized at the handler boundary (event.params.*.toLowerCase())
+// and by writeTokenOwnership (SHANNON F1); the stored Token.owner is always lowercase.
+const A = "0xaaaa000000000000000000000000000000000001";
+const B = "0xbbbb000000000000000000000000000000000002";
 
 describe("Token ownership index — FR-2c reconciliation invariant (enumeration === holder balance)", () => {
   it("mint N → N enumerable tokens AND Holder.balance === N", async () => {
@@ -147,6 +149,21 @@ describe("Token ownership index — ported population wiring (#153, the actual f
     const t = ctx.Token.map.get(`${c}_1_7`);
     expect(t.isBurned).toBe(true);
     expect(t.owner).toBe(ZERO);
+  });
+
+  it("normalizes owner to lowercase at the trust boundary — a checksummed owner is NOT stored mixed-case (SHANNON F1 / C1)", async () => {
+    // getNftsForOwner filters `owner = <lowercased addr>` via the @index; a mixed-case
+    // stored owner would silently return [] — the #153 failure. The writer must not depend
+    // on callers lowercasing. Feed a CHECKSUMMED owner and assert it's stored lowercased.
+    const ctx = makeContext();
+    const c = "0xtarot0000000000000000000000000000000099";
+    const checksummed = "0xAbCdEf0000000000000000000000000000000042";
+    await updateTrackedToken({ context: ctx as any, contractAddress: c, chainId: 1, tokenId: 9n, from: ZERO, to: checksummed, timestamp: 1n });
+    const t = ctx.Token.map.get(`${c}_1_9`);
+    expect(t.owner).toBe(checksummed.toLowerCase());
+    expect(t.owner).not.toBe(checksummed); // would go red if the writer stopped normalizing
+    // and the enumeration query (lowercased) would find it
+    expect([...ctx.Token.map.values()].filter((x) => x.owner === checksummed.toLowerCase() && !x.isBurned)).toHaveLength(1);
   });
 
   it("mibera path: writes Token for 0x6666… on BERACHAIN with effectiveOwner (staking keeps user as owner)", async () => {
