@@ -53,10 +53,13 @@ const TRACKED_COLLECTIONS: Record<string, TrackedCollection> = {
     chainId: 8453,
     wrappedNativeToken: "0x4200000000000000000000000000000000000006", // WETH on Base
   },
-  // Ethereum mainnet - Azuki (chain 1). Key + WETH LOWERCASED: lookups compare
-  // .toLowerCase() (seaport.ts:84,110,123); a checksummed value silently sums to
-  // 0 -> dropped sale (amountPaid > 0n guard, ~line 146). (FR-6a / R-12)
-  "0xed5af388653567af2f388e6224dcc93746104133": {
+  // Ethereum mainnet - Azuki (chain 1). CANONICAL Azuki contract (verified on
+  // Etherscan; matches main's config binding + the #115 comment) — NOT the
+  // corrupted `…dcc93746104133` azuki_kitchen_e2e address (real Azuki sales
+  // reference the canonical address; the wrong key silently matches nothing).
+  // Key + WETH LOWERCASED: lookups compare .toLowerCase() (seaport.ts:84,110,123);
+  // a checksummed value silently sums to 0 -> dropped sale (amountPaid > 0n guard). (FR-6a / R-12)
+  "0xed5af388653567af2f388e6224dc7c4b3241c544": {
     chainId: 1,
     wrappedNativeToken: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2", // mainnet WETH
   },

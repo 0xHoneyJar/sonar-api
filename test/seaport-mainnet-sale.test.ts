@@ -45,7 +45,7 @@ const ITEM_TYPE_NATIVE = 0;
 const ITEM_TYPE_ERC20 = 1;
 const ITEM_TYPE_ERC721 = 2;
 
-const AZUKI = "0xed5af388653567af2f388e6224dcc93746104133";
+const AZUKI = "0xed5af388653567af2f388e6224dc7c4b3241c544"; // canonical Azuki (matches TRACKED_COLLECTIONS + main config + #115)
 // Checksummed on purpose — proves the handler lowercases the consideration token
 // before comparing against the (lowercased) configured wrappedNativeToken.
 const WETH_CHECKSUMMED = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
