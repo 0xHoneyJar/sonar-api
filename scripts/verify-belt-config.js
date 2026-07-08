@@ -56,6 +56,7 @@ export const BELT_CONTRACTS = [
   // Ethereum (1)
   { name: "MiladyCollection", chainId: 1 },
   { name: "EthTrackedErc721", chainId: 1 },
+  { name: "Seaport", chainId: 1 }, // mainnet Azuki secondary sales (OpenSea, FR-6a)
 ];
 
 /** @deprecated belt is now multi-chain — use BELT_CONTRACTS[].chainId. Kept for back-compat. */

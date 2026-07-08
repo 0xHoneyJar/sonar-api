@@ -356,3 +356,9 @@ chains:
       - name: EthTrackedErc721
         address:
           - 0xed5af388653567af2f388e6224dc7c4b3241c544 # azuki (canonical, verified on Etherscan)
+      # Seaport v1.6 — mainnet Azuki secondary sales (handler filters OrderFulfilled
+      # to TRACKED_COLLECTIONS). Field-identical to config.yaml chain-1 (belt parity, FR-6a).
+      - name: Seaport
+        address:
+          - "0x0000000000000068F116a894984e2DB1123eB395" # Seaport v1.6
+        start_block: 14162194 # Azuki deployment — no relevant Azuki trades before

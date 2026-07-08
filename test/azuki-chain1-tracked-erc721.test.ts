@@ -99,3 +99,39 @@ describe("chain-1 Azuki EthTrackedErc721 (#120 / sprint-bug-192; real community)
     expect(result.ok).toBe(true);
   });
 });
+
+/** Chain-1 Seaport binding for mainnet Azuki priced sales (FR-6a / R-10). */
+const SEAPORT_CHAIN1 = {
+  chainId: 1,
+  address: "0x0000000000000068F116a894984e2DB1123eB395", // Seaport v1.6
+  startBlock: "14162194", // Azuki deployment
+} as const;
+
+describe("chain-1 Seaport binding (FR-6a mainnet Azuki priced sale)", () => {
+  it("registers Seaport v1.6 on chain 1 in config.yaml", () => {
+    const ref = extractChainContractRef(monoText, SEAPORT_CHAIN1.chainId, "Seaport");
+    expect(ref).not.toBeNull();
+    // config quotes the Seaport address; strip quotes before comparing.
+    expect(ref!.address.map((a) => a.replace(/"/g, "").toLowerCase())).toContain(
+      SEAPORT_CHAIN1.address.toLowerCase(),
+    );
+  });
+
+  it("sets an explicit start_block at Azuki deployment (not chain floor only)", () => {
+    const ref = extractChainContractRef(monoText, SEAPORT_CHAIN1.chainId, "Seaport");
+    expect(ref!.startBlock).toBe(SEAPORT_CHAIN1.startBlock);
+  });
+
+  it("includes chain-1 Seaport in BELT_CONTRACTS so verify:belt-config catches drift", () => {
+    const seaportChains = BELT_CONTRACTS.filter((c) => c.name === "Seaport").map(
+      (c) => c.chainId,
+    );
+    expect(seaportChains.sort((a, b) => a - b)).toEqual([1, 80094]);
+  });
+
+  it("keeps config.mibera.yaml field-identical for the chain-1 Seaport binding", () => {
+    const beltRef = extractChainContractRef(beltText, SEAPORT_CHAIN1.chainId, "Seaport");
+    const monoRef = extractChainContractRef(monoText, SEAPORT_CHAIN1.chainId, "Seaport");
+    expect(beltRef).toEqual(monoRef);
+  });
+});
