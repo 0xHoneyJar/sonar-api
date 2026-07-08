@@ -349,11 +349,11 @@ type GlobalCollectionStat {
 
 type Token {
   id: ID!
-  collection: String!
+  collection: String! @index
   chainId: Int!
   tokenId: BigInt!
-  owner: String!
-  isBurned: Boolean!
+  owner: String! @index
+  isBurned: Boolean! @index
   mintedAt: BigInt!
   lastTransferTime: BigInt!
 }

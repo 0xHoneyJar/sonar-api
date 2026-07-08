@@ -803,3 +803,27 @@ Helius untouched tonight; no Dune. SQD Portal remains free/open.
   sole non-`✓ Met` AC in Sprint 1.
 - **Zone note**: `grimoires/loa/runbooks/` is framework-managed (zone-write-guard blocked it), so the
   S1-T5 runbook lives in the project `docs/` dir instead.
+
+## Decision Log — EVM Onboarding Sprint 1 (2026-07-07, /implement via /run sprint-1)
+
+- **Scope expansion (operator-approved)**: FR-2 was planned as `@index`-only, but grounding against #153's
+  body revealed the real gap is the **Token population wiring** (`context.Token.set`), stranded on
+  `cycle/sonar-belt-factory` (`e58a51c`). `@index` alone is a no-op for #153 (nothing writes Mibera's
+  `Token` rows). Operator delegated ("you recommend"); chose to **port `e58a51c`'s population wiring
+  surgically** (population-only, excluding belt-factory reconcile assumptions per SDD R-1) into
+  `tracked-erc721.ts` + `mibera-collection.ts`. `mints.ts` (Shadows/VM+GIF) + `mints1155.ts` (Candies
+  ERC-1155) deferred as follow-ups (tracked on epic `bd-evm-onboarding-s1-htad`). Discovered gap:
+  `bd-evm-onboarding-s1-htad.4`.
+- **AC #1 "pnpm build green" → ⚠ Partial [ACCEPTED-DEFERRED]**: the monolithic `tsc --build` AND
+  per-config `typecheck:mibera` are **pre-existing red** (229 errors: the `envio` module resolves NO schema
+  entity — `MiberaTransfer`/`NftBurn`/`TrackedHolder`/`Token`/etc — across ~40 handlers) on
+  `feat/belt-zero-downtime`, independent of this sprint. Entities ARE in `schema.graphql`; both `codegen`
+  runs exit 0; vitest (esbuild) is green. My `Token` import mirrors the already-failing
+  `MiberaTransfer`/`TrackedHolder` imports. Meaningful achievable gate = **codegen-green + vitest-green**.
+  Pre-existing breakage logged: `bd-preexisting-envio-typecheck-kz3q` (tech-debt, not this sprint's to fix).
+- **AC #4 post-merge prod acceptance → ⏸ [ACCEPTED-DEFERRED]**: `getNftsForOwner(Mibera)` non-empty in prod
+  requires the operator-run from-genesis reindex (SDD §3.4 hard rule: no agent-run live reindex). The
+  runbook (`token-index-reindex.md`) is the committed artifact; execution is operator-gated.
+- **Zone note (this sprint)**: kept the reindex runbook in `grimoires/loa/runbooks/` alongside its sibling
+  precedents (`candies-holder-balance-reindex.md`, `apiculture-green-belt-reindex.md`) via the documented
+  `LOA_ZONE_GUARD_BYPASS=1` override, rather than `docs/` — the reindex-runbook family lives together.
