@@ -1953,11 +1953,15 @@ bridgebuilder:
   max_input_tokens: 128000
   max_output_tokens: 16000
   dimensions:
-    - security
-    - quality
-    - test-coverage
-    - operational-readiness
-  persona_path: ".claude/data/bridgebuilder-persona.md"
+    - meaning-integrity      # SHANNON: does each term keep one meaning? (Evans lens)
+    - signal-fidelity        # SHANNON: is the transformation lossy — silent drop/zero/corrupt?
+    - identity-provenance    # SHANNON: full natural key + re-derivable provenance
+    - faithful-labelling     # SHANNON: correct classification, pinned by a red-if-regressed test
+  # Archetype swap (operator directive 2026-07-08): SHANNON — Evans's meaning-lens on
+  # Shannon's channel-model, tuned for this indexer's job (faithful data extraction +
+  # labelling, no silent signal loss). Default BEAUVOIR persona preserved at the path below.
+  persona_path: "grimoires/bridgebuilder/SHANNON.md"
+  # persona_path: ".claude/data/bridgebuilder-persona.md"  # default (BEAUVOIR — Security/Quality/Test/Ops)
 
 # =============================================================================
 # Advisor-strategy routing (cycle-108/116/120) — enabled 2026-07-07 (operator directive:
