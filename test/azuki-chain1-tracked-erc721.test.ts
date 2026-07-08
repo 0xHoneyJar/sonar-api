@@ -100,21 +100,34 @@ describe("chain-1 Azuki EthTrackedErc721 (#120 / sprint-bug-192; real community)
   });
 });
 
-/** Chain-1 Seaport binding for mainnet Azuki priced sales (FR-6a / R-10). */
+/**
+ * Chain-1 Seaport binding for mainnet Azuki priced sales (FR-6a / R-10).
+ * All four Seaport versions with real Azuki volume must be bound so a reindex
+ * prices Azuki's full Seaport-era sale history (2022→present). The OrderFulfilled
+ * ABI is stable across versions, so the single Seaport handler catches all.
+ * Addresses verified against the Seaport GitHub deployment table + Etherscan.
+ */
 const SEAPORT_CHAIN1 = {
   chainId: 1,
-  address: "0x0000000000000068F116a894984e2DB1123eB395", // Seaport v1.6
+  addresses: [
+    "0x00000000006c3852cbEf3e08E8dF289169EdE581", // Seaport v1.1
+    "0x00000000000001ad428e4906aE43D8F9852d0dD6", // Seaport v1.4
+    "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC", // Seaport v1.5
+    "0x0000000000000068F116a894984e2DB1123eB395", // Seaport v1.6
+  ],
   startBlock: "14162194", // Azuki deployment
 } as const;
 
 describe("chain-1 Seaport binding (FR-6a mainnet Azuki priced sale)", () => {
-  it("registers Seaport v1.6 on chain 1 in config.yaml", () => {
+  it("registers all Seaport versions (v1.1/v1.4/v1.5/v1.6) on chain 1 in config.yaml", () => {
     const ref = extractChainContractRef(monoText, SEAPORT_CHAIN1.chainId, "Seaport");
     expect(ref).not.toBeNull();
     // config quotes the Seaport address; strip quotes before comparing.
-    expect(ref!.address.map((a) => a.replace(/"/g, "").toLowerCase())).toContain(
-      SEAPORT_CHAIN1.address.toLowerCase(),
-    );
+    const bound = ref!.address.map((a) => a.replace(/"/g, "").toLowerCase());
+    for (const version of SEAPORT_CHAIN1.addresses) {
+      expect(bound).toContain(version.toLowerCase());
+    }
+    expect(bound).toHaveLength(SEAPORT_CHAIN1.addresses.length);
   });
 
   it("sets an explicit start_block at Azuki deployment (not chain floor only)", () => {
