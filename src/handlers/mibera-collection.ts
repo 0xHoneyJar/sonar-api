@@ -24,6 +24,7 @@ import {
   type MiberaStaker as MiberaStakerEntity,
 } from "envio";
 import { recordAction } from "../lib/actions";
+import { writeTokenOwnership } from "../lib/token-ownership";
 import { publishMintEvent } from "../lib/events-publisher";
 import { isMintFromZero, isBurnTransfer, isBurnAddress } from "../lib/mint-detection";
 import { BERACHAIN_ID, ZERO_ADDRESS } from "./constants";
@@ -74,6 +75,25 @@ indexer.onEvent(
     // `field_selection.transaction.value = true` is set in config.yaml.
     const txValue = (event.transaction as any).value;
     const amountPaid = txValue ? BigInt(txValue.toString()) : 0n;
+
+    // =========================================================================
+    // 0. Per-token current ownership (Token entity) — FR-2 / #153 (ported from
+    // cycle/sonar-belt-factory e58a51c). Mirrors the TrackedHolder count below so
+    // Token{owner} reconciles with TrackedHolder.tokenCount. For staking deposits
+    // the TrackedHolder count is NOT decremented (staked NFTs still count as
+    // held), so the effective owner stays the user (`from`), not the staking
+    // contract. On burn, owner=ZERO + isBurned=true.
+    // =========================================================================
+    const depositContractKeyForOwner = STAKING_CONTRACT_KEYS[to];
+    const isStakingDeposit = Boolean(depositContractKeyForOwner) && from !== ZERO;
+    const effectiveOwner = isStakingDeposit ? from : to;
+    await updateTokenOwnership({
+      context,
+      tokenId,
+      from,
+      effectiveOwner,
+      timestamp,
+    });
 
     // =========================================================================
     // 1. Create MiberaTransfer record (activity feed)
@@ -357,6 +377,46 @@ async function adjustHolder({
   };
 
   context.TrackedHolder.set(holder);
+}
+
+// =============================================================================
+// Per-token current ownership (Token entity) — FR-2 / #153
+// Ported from cycle/sonar-belt-factory e58a51c (population-only; no reconcile
+// baggage). Exported for direct unit testing of the reconciliation invariant.
+// =============================================================================
+
+interface UpdateTokenOwnershipArgs {
+  context: EvmOnEventContext;
+  tokenId: bigint;
+  from: string;
+  effectiveOwner: string;
+  timestamp: bigint;
+}
+
+/**
+ * Maintain the per-token current-owner record (Token entity) for Mibera.
+ * Keyed `${collection}_${chainId}_${tokenId}` to match the canonical Token
+ * shape (src/lib/erc721-holders.ts, honey-jar-nfts.ts). Burns (owner is a burn
+ * address) mark isBurned=true and set owner=ZERO.
+ */
+export async function updateTokenOwnership({
+  context,
+  tokenId,
+  from,
+  effectiveOwner,
+  timestamp,
+}: UpdateTokenOwnershipArgs) {
+  await writeTokenOwnership({
+    context,
+    collection: MIBERA_COLLECTION_ADDRESS,
+    chainId: BERACHAIN_ID,
+    tokenId,
+    // Staking-aware: a staking DEPOSIT keeps the USER as owner (the TrackedHolder
+    // count isn't decremented on stake) — the caller resolves that into effectiveOwner.
+    candidateOwner: effectiveOwner,
+    from,
+    timestamp,
+  });
 }
 
 // =============================================================================
