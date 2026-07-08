@@ -2,6 +2,7 @@ import {
   indexer,
   type EvmOnEventContext,
   type TrackedHolder as TrackedHolderEntity,
+  type Token as TokenEntity,
   type MiberaStakedToken as MiberaStakedTokenEntity,
   type MiberaStaker as MiberaStakerEntity,
 } from "envio";
@@ -67,6 +68,21 @@ export async function handleTrackedErc721Transfer(
 
   // Skip writes during preload
   if ((context as any).isPreload) return;
+
+  // Per-token current ownership (Token entity) — FR-2 / #153 (ported from
+  // cycle/sonar-belt-factory e58a51c). Mirrors the TrackedHolder count below
+  // so Token{owner} reconciles with TrackedHolder.tokenCount. Mibera main
+  // (0x6666…) is NOT in this handler's address list, so `to` is always the
+  // effective owner here. On burn (to a burn address) owner=ZERO + isBurned=true.
+  await updateTokenOwnership({
+    context,
+    contractAddress,
+    chainId,
+    tokenId,
+    from,
+    to,
+    timestamp,
+  });
 
   // If this is a mint (from zero address), also create a mint action
   if (from === ZERO) {
@@ -292,6 +308,66 @@ async function adjustHolder({
   };
 
   context.TrackedHolder.set(holder);
+}
+
+// =============================================================================
+// Per-token current ownership (Token entity) — FR-2 / #153
+// Ported from cycle/sonar-belt-factory e58a51c (population-only; no reconcile
+// baggage). Exported for direct unit testing of the reconciliation invariant.
+// =============================================================================
+
+interface UpdateTokenOwnershipArgs {
+  context: EvmOnEventContext;
+  contractAddress: string;
+  chainId: number;
+  tokenId: bigint;
+  from: string;
+  to: string;
+  timestamp: bigint;
+}
+
+/**
+ * Maintain the per-token current-owner record (Token entity) for tracked
+ * ERC-721 collections (Tarot + Fractures + lore + apdao_seat). Keyed
+ * `${collection}_${chainId}_${tokenId}` to match the canonical Token shape
+ * (src/lib/erc721-holders.ts). `collection` is the on-chain contract address
+ * (lowercase), matching the TrackedHolder.contract field used downstream.
+ * Burns (to a burn address) mark isBurned=true and set owner=ZERO.
+ */
+export async function updateTokenOwnership({
+  context,
+  contractAddress,
+  chainId,
+  tokenId,
+  from,
+  to,
+  timestamp,
+}: UpdateTokenOwnershipArgs) {
+  const burned = isBurnAddress(to);
+  const owner = burned ? ZERO : to;
+
+  const tokenKey = `${contractAddress}_${chainId}_${tokenId}`;
+  const existing = await context.Token.get(tokenKey);
+
+  const token: TokenEntity = existing
+    ? {
+        ...existing,
+        owner,
+        isBurned: burned,
+        lastTransferTime: timestamp,
+      }
+    : {
+        id: tokenKey,
+        collection: contractAddress,
+        chainId,
+        tokenId,
+        owner,
+        isBurned: burned,
+        mintedAt: from === ZERO ? timestamp : BigInt(0),
+        lastTransferTime: timestamp,
+      };
+
+  context.Token.set(token);
 }
 
 // Mibera staking helper types and functions
