@@ -84,9 +84,7 @@ indexer.onEvent(
     // held), so the effective owner stays the user (`from`), not the staking
     // contract. On burn, owner=ZERO + isBurned=true.
     // =========================================================================
-    const depositContractKeyForOwner = STAKING_CONTRACT_KEYS[to];
-    const isStakingDeposit = Boolean(depositContractKeyForOwner) && from !== ZERO;
-    const effectiveOwner = isStakingDeposit ? from : to;
+    const effectiveOwner = resolveEffectiveOwner(from, to);
     await updateTokenOwnership({
       context,
       tokenId,
@@ -377,6 +375,33 @@ async function adjustHolder({
   };
 
   context.TrackedHolder.set(holder);
+}
+
+// =============================================================================
+// Effective-owner resolution — F2 (SHANNON F2/F3)
+// =============================================================================
+
+/**
+ * Resolve the effective owner for a Mibera transfer.
+ *
+ * A staking DEPOSIT (`to` is a known staking contract, `from` is a real user)
+ * keeps the USER (`from`) as the effective owner: the TrackedHolder count is NOT
+ * decremented on stake (staked NFTs still count as held), so Token{owner} must
+ * stay the user for the Token↔Holder reconciliation invariant to hold. Every
+ * other transfer — normal, withdrawal, mint, burn — resolves to `to`.
+ *
+ * Pure + exported for unit testing. The resolution was previously inline in the
+ * onEvent closure (untestable — tests passed a pre-resolved effectiveOwner).
+ * Behavior is IDENTICAL to that inline form; addresses are lowercased at the
+ * boundary so the STAKING_CONTRACT_KEYS lookup is case-insensitive (mirrors
+ * writeTokenOwnership's SHANNON F1 normalization; the closure already passes
+ * lowercased args so this is a no-op on the live path).
+ */
+export function resolveEffectiveOwner(from: string, to: string): string {
+  const fromLower = from.toLowerCase();
+  const toLower = to.toLowerCase();
+  const isStakingDeposit = Boolean(STAKING_CONTRACT_KEYS[toLower]) && fromLower !== ZERO;
+  return isStakingDeposit ? fromLower : toLower;
 }
 
 // =============================================================================
