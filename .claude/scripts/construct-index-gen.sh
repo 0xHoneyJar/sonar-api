@@ -318,6 +318,13 @@ process_pack() {
             warn "Could not derive manifest base from construct.yaml in '$pack_slug' — skipping"
             return 1
         fi
+    elif [[ -f "$construct_yaml" ]]; then
+        # construct.yaml-only pack but yq is unavailable: fail LOUDLY instead of
+        # silently dropping the pack from the index (review P2 — a v4 pack
+        # vanishing with exit 0 masks a real environment defect; yq v4+ is a
+        # framework requirement).
+        warn "Pack '$pack_slug' has construct.yaml but yq is not available — cannot index v4 pack; install yq v4+ (skipping)"
+        return 1
     else
         return 1
     fi
