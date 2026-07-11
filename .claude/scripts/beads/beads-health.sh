@@ -42,7 +42,11 @@ unset _bh_src _bh_dir
 source "$SCRIPT_DIR/../bash-version-guard.sh"
 
 # shellcheck source=../lib/dx-utils.sh
-source "$SCRIPT_DIR/../lib/dx-utils.sh"
+# Conditional (fresh-eyes r3, bd-m1o6): partial installs must not hard-fail
+# at source time; the dx_unknown_flag call site guards via declare -F.
+if [[ -f "$SCRIPT_DIR/../lib/dx-utils.sh" ]]; then
+    source "$SCRIPT_DIR/../lib/dx-utils.sh"
+fi
 
 # Allow PROJECT_ROOT override for testing
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
@@ -126,8 +130,13 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            dx_unknown_flag "$1" "Usage: beads-health.sh [--json|--verbose|--quick|--repair|--dry-run|--force|--help]" \
-                --json --verbose --quick --repair --dry-run --force --help
+            if declare -F dx_unknown_flag >/dev/null 2>&1; then
+                dx_unknown_flag "$1" "Usage: beads-health.sh [--json|--verbose|--quick|--repair|--dry-run|--force|--help]" \
+                    --json --verbose --quick --repair --dry-run --force --help
+            else
+                echo "Unknown option: $1" >&2
+                echo "Usage: beads-health.sh [--json|--verbose|--quick|--repair|--dry-run|--force|--help]" >&2
+            fi
             exit 1
             ;;
     esac
