@@ -13,6 +13,7 @@
 # Exit codes:
 #   0 - Success
 #   1 - Error
+#   2 - Usage error (unknown option outside --economy forwarding)
 
 set -euo pipefail
 
@@ -26,19 +27,31 @@ TIER_VALIDATOR_SCRIPT="${SCRIPT_DIR}/tier-validator.sh"
 AUDIT_ENVELOPE_SCRIPT="${SCRIPT_DIR}/audit-envelope.sh"
 UPSTREAM_REPO="${LOA_UPSTREAM:-https://github.com/0xHoneyJar/loa.git}"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
+# Colors — respect NO_COLOR (https://no-color.org/) and non-TTY stdout, same
+# guard shape as lib/dx-utils.sh (R-001, bd-m1o6: piped output previously
+# carried raw ANSI escapes into agent pipelines).
+if [[ -z "${NO_COLOR:-}" ]] && [[ -t 1 ]]; then
+  RED='\033[0;31m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
+  CYAN='\033[0;36m'
+  BOLD='\033[1m'
+  NC='\033[0m'
+else
+  RED=''
+  GREEN=''
+  YELLOW=''
+  CYAN=''
+  BOLD=''
+  NC=''
+fi
 
 # Arguments
 JSON_OUTPUT=false
 VERSION_ONLY=false
 ECONOMY_MODE=false
 ECONOMY_ARGS=()
+UNKNOWN_ARGS=()
 
 for arg in "$@"; do
   case "$arg" in
@@ -61,10 +74,27 @@ for arg in "$@"; do
       ;;
     *)
       # In --economy mode, forward unknown args to the roll-up tool.
+      # Outside economy mode they are usage errors (R-001, bd-m1o6: a typo'd
+      # '--jsno' previously fell through silently and produced full human
+      # output with exit 0 — the worst possible outcome for a JSON consumer).
       ECONOMY_ARGS+=("$arg")
+      UNKNOWN_ARGS+=("$arg")
       ;;
   esac
 done
+
+USAGE_LINE="Usage: loa-status.sh [--json] [--version] [--economy [...]] [--help]"
+if [[ "$ECONOMY_MODE" != "true" ]] && [[ ${#UNKNOWN_ARGS[@]} -gt 0 ]]; then
+  # shellcheck source=lib/dx-utils.sh
+  source "${SCRIPT_DIR}/lib/dx-utils.sh" 2>/dev/null || true
+  if declare -F dx_unknown_flag >/dev/null 2>&1; then
+    dx_unknown_flag "${UNKNOWN_ARGS[0]}" "$USAGE_LINE" --json --version --economy --help
+  else
+    echo "Unknown option: ${UNKNOWN_ARGS[0]}" >&2
+    echo "$USAGE_LINE" >&2
+  fi
+  exit 2
+fi
 
 # Economy mode: short-circuit to the model-economy roll-up tool.
 # Single source of truth — loa-status.sh never reimplements aggregation.
