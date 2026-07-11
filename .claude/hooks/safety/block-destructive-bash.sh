@@ -843,8 +843,18 @@ if [[ "$command" == *"rm"* && "$command" == *"-"* ]] \
   # identical to the former grep -qE arguments.
   _re_dotdot='(^|/)\.\.(/|$)'
   _re_block_list='^(/|\$HOME|\$\{HOME\}|~|~/|/etc|/usr|/var|/home|\*|\.)$|^(/etc/|/usr/|/var/|/home/|~/|\$HOME/$|\$\{HOME\}/$)'
-  _re_allow_exclude='^\./($|\*|\.|\.git$|\.git/|\.ssh$|\.ssh/|\.env)'
-  _re_allow_list='^(\./[^/*.][^*]*|node_modules$|node_modules/|dist$|dist/|build$|build/|target$|target/|\.next$|\.next/|/tmp/.+|out$|out/|coverage$|coverage/)'
+  # bd-m1o6/R-002 (agent-ergonomics pass 1): the old bare `\.` alternative in
+  # the exclude list rejected EVERY hidden path, so FR-2-AMBIGUOUS's own
+  # advice ("use './path/' explicit form") failed for './.loa/qmd/' etc.
+  # (live incident 2026-07-10). Exclusion is now a named sensitive set —
+  # dot-roots ('./.', './..'), repo history ('.git'), credential/config dirs
+  # ('.ssh' '.aws' '.kube' '.gnupg' '.docker' '.config'), the System Zone
+  # ('.claude'), and '.env*' files stay blocked; other bounded hidden subdirs
+  # ('./.loa/…', './.cache/…') fall through to the new hidden-dir allow
+  # branch, which carries the same trailing-glob semantics as the visible-dir
+  # branch beside it.
+  _re_allow_exclude='^\./($|\*|\.$|\.\.($|/)|\.git($|/)|\.ssh($|/)|\.aws($|/)|\.kube($|/)|\.gnupg($|/)|\.docker($|/)|\.config($|/)|\.claude($|/)|\.env)'
+  _re_allow_list='^(\./[^/*.][^*]*|\./\.[A-Za-z0-9_-][^*]*|node_modules$|node_modules/|dist$|dist/|build$|build/|target$|target/|\.next$|\.next/|/tmp/.+|out$|out/|coverage$|coverage/)'
 
   # C15/cycle-119: matches the text immediately preceding an rm segment
   # (bounded to the SAME statement, via the identical boundary-alternation
@@ -1026,9 +1036,9 @@ if [[ "$command" == *"rm"* && "$command" == *"-"* ]] \
   done <<<"$rm_segments"
 
   if [[ $any_block -eq 1 ]]; then
-    emit_block "FR-2-BLOCK" "$matched_arg" "rm -rf on catastrophic path '$matched_arg' (system root / home / glob / current-dir) refused. Use 'trash <path>' for a recoverable delete, or an explicit './<path>/' form scoped to a real subdirectory."
+    emit_block "FR-2-BLOCK" "$matched_arg" "rm -rf on catastrophic path '$matched_arg' (system root / home / glob / current-dir) refused. Accepted: an explicit relative subdirectory ('./name/' or './.hidden-name/'; protected dot-dirs like .git/.ssh/.env stay blocked). Recoverable alternative: 'trash <path>'."
   elif [[ $any_ambiguous -eq 1 ]]; then
-    emit_block "FR-2-AMBIGUOUS" "$matched_arg" "rm -rf on an unclear path '$matched_arg'. Use './path/' explicit form, 'trash', or remove targeted children."
+    emit_block "FR-2-AMBIGUOUS" "$matched_arg" "rm -rf on an unclear path '$matched_arg'. Accepted: explicit relative subdirs — './name/' or './.hidden-name/' (protected: .git .ssh .aws .kube .gnupg .docker .config .claude .env*). Alternatives: 'trash <path>' (recoverable) or 'find <path> -mindepth 1 -delete' (contents only)."
   fi
   # else: every arg matched the allow list → fall through.
 fi

@@ -468,6 +468,74 @@ hook_invoke() {
 }
 
 # =============================================================================
+# Group R-002 — agent-ergonomics pass 1 (bd-m1o6): bounded hidden subdirs
+# ('./.name/…') are now ALLOWED, closing the FR-2-AMBIGUOUS self-contradiction
+# where the block message recommended the './path/' explicit form and the
+# allow-exclude regex then rejected every hidden path (live incident
+# 2026-07-10, './.loa/qmd/'). The named sensitive set MUST stay blocked.
+# =============================================================================
+
+@test "R-002 ALLOW: rm -rf ./.loa/qmd/ (bounded hidden subdir) allowed" {
+    run hook_invoke "rm -rf ./.loa/qmd/"
+    [ "$status" -eq 0 ]
+}
+
+@test "R-002 ALLOW: rm -rf ./.cache/foo allowed" {
+    run hook_invoke "rm -rf ./.cache/foo"
+    [ "$status" -eq 0 ]
+}
+
+@test "R-002 ALLOW: rm -rf ./.loa-test-123/ allowed" {
+    run hook_invoke "rm -rf ./.loa-test-123/"
+    [ "$status" -eq 0 ]
+}
+
+@test "R-002 PROTECT: rm -rf ./.git/ still blocks" {
+    run hook_invoke "rm -rf ./.git/"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2" ]]
+}
+
+@test "R-002 PROTECT: rm -rf ./.ssh/ still blocks" {
+    run hook_invoke "rm -rf ./.ssh/"
+    [ "$status" -eq 2 ]
+}
+
+@test "R-002 PROTECT: rm -rf ./.aws/ still blocks" {
+    run hook_invoke "rm -rf ./.aws/"
+    [ "$status" -eq 2 ]
+}
+
+@test "R-002 PROTECT: rm -rf ./.env.local still blocks" {
+    run hook_invoke "rm -rf ./.env.local"
+    [ "$status" -eq 2 ]
+}
+
+@test "R-002 PROTECT: rm -rf ./.claude/ (System Zone) still blocks" {
+    run hook_invoke "rm -rf ./.claude/"
+    [ "$status" -eq 2 ]
+}
+
+@test "R-002 PROTECT: rm -rf ./. still blocks" {
+    run hook_invoke "rm -rf ./."
+    [ "$status" -eq 2 ]
+}
+
+@test "R-002 PROTECT: rm -rf ./.. still blocks" {
+    run hook_invoke "rm -rf ./.."
+    [ "$status" -eq 2 ]
+}
+
+@test "R-002 PEDAGOGY: FR-2-AMBIGUOUS names working alternatives (find/trash/hidden form)" {
+    run hook_invoke "rm -rf unclear-relative-path"
+    [ "$status" -eq 2 ]
+    [[ "$output" =~ "FR-2-AMBIGUOUS" ]]
+    [[ "$output" =~ "find" ]]
+    [[ "$output" =~ "trash" ]]
+    [[ "$output" =~ "./.hidden-name/" ]]
+}
+
+# =============================================================================
 # Group C2 — C15/cycle-119 panel amendment: find ROOT ... -exec rm -rf {} +
 # classifies the FIND ROOT PATH (not the {} / + placeholder tokens) through
 # the SAME safe/dangerous/ambiguous ladder as any other rm operand.
