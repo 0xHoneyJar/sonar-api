@@ -275,13 +275,18 @@ main() {
       --from-tag) source_mode="tag"; shift ;;
       --from-changelog) source_mode="changelog"; shift ;;
       --downstream) downstream=true; shift ;;
-      --help|-h)
+      --help|-h|help)
         echo "Usage: semver-bump.sh [--from-tag | --from-changelog] [--downstream]"
         echo "  Computes next semver from conventional commits."
         echo "  Output: JSON with current, next, bump, commits"
         echo ""
         echo "Options:"
         echo "  --downstream  Filter out non-app commits (system-only, state-only, mixed-internal)"
+        echo ""
+        echo "Exit codes:"
+        echo "  0  Success (JSON on stdout)"
+        echo "  1  No commits since last tag"
+        echo "  2  No version source found (no tags / no CHANGELOG match) or bad input"
         exit 0
         ;;
       *)

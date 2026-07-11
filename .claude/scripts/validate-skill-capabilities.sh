@@ -36,7 +36,15 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --strict) STRICT=true; shift ;;
         --json) JSON_OUTPUT=true; shift ;;
-        --skill) SINGLE_SKILL="$2"; shift 2 ;;
+        --skill)
+            # R-010 (bd-m1o6): '--skill' as the last arg used to leak a raw
+            # bash '$2: unbound variable' error under set -u.
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: --skill requires a skill name (e.g. --skill reviewing-code)" >&2
+                echo "Usage: validate-skill-capabilities.sh [--strict] [--json] [--skill NAME]" >&2
+                exit 2
+            fi
+            SINGLE_SKILL="$2"; shift 2 ;;
         -h|--help)
             echo "Usage: validate-skill-capabilities.sh [--strict] [--json] [--skill NAME]"
             echo "  --strict   Promote warnings to errors"
