@@ -39,16 +39,19 @@
     "owner": "String",
     "delegate": "String",
     "name": "String",
+    "image": "String",
+    "uri": "String",
     "compressed": "Boolean",
     "slot": "bigint",
     "source": "String",
     "updated_at": "timestamptz"
    },
-   "_liveNote": "Went LIVE 2026-06-24: `CREATE TABLE svm.collection_nft` (PK constraint collection_nft_pkey, matching the indexer on_conflict) + Hasura pg_track_table + public-role select permission (columns:*, filter:{}) applied to belt-hasura-selfhost (source `default`), mirroring the svm_genesis_stone sibling. Auto-surfaces at belt-gateway (a Caddy reverse proxy over the self-host Hasura — no separate metadata). Verified present + contract-matching on both the self-host public surface and the belt-gateway read surface; the guard now hard-fails CI on future drift. DATA-READINESS CAVEAT: the table is live + consumer-readable but is populated by the on-demand pythians-collection-indexer (Helius DAS getAssetsByGroup), which is NOT a deployed Railway service — run `SOLANA_RPC_URL=<helius-DAS> HASURA_GRAPHQL_ADMIN_SECRET=<selfhost-secret> SVM_HASURA_ENDPOINT=https://belt-hasura-selfhost-production.up.railway.app npx tsx src/svm/pythians-collection-indexer.ts` to backfill/refresh holders.",
+   "_liveNote": "Went LIVE 2026-06-24: `CREATE TABLE svm.collection_nft` (PK constraint collection_nft_pkey, matching the indexer on_conflict) + Hasura pg_track_table + public-role select permission (columns:*, filter:{}) applied to belt-hasura-selfhost (source `default`), mirroring the svm_genesis_stone sibling. Auto-surfaces at belt-gateway (a Caddy reverse proxy over the self-host Hasura — no separate metadata). Verified present + contract-matching on both the self-host public surface and the belt-gateway read surface; the guard now hard-fails CI on future drift. DATA-READINESS CAVEAT: the table is live + consumer-readable but is populated by the on-demand pythians-collection-indexer (Helius DAS getAssetsByGroup), which is NOT a deployed Railway service — run `SOLANA_RPC_URL=<helius-DAS> HASURA_GRAPHQL_ADMIN_SECRET=<selfhost-secret> SVM_HASURA_ENDPOINT=https://belt-hasura-selfhost-production.up.railway.app npx tsx src/svm/pythians-collection-indexer.ts` to backfill/refresh holders. PYTH-1 (2026-07-13): image + uri added via migrations/svm/005_collection_nft_image_uri.sql — apply the ALTER TABLE (Hasura run_sql) + pg_reload_source BEFORE the next indexer run, else the upsert's image/uri columns 404 against the live schema.",
    "_invariants_doc": [
     "(DOCUMENTATION ONLY — not machine-checked; see _scope. Key renamed from 'invariants' so non-enforcement is self-evident.)",
     "id is the PK (NFT mint, base58); the indexer upserts on_conflict constraint collection_nft_pkey (named after the bare table svm.collection_nft, NOT the Hasura root field svm_collection_nft). Constraint name NOT verifiable from the read surface — see _scope.",
     "owner is the token-account owner — may be an escrow/stake PDA for listed/staked NFTs; delegate is surfaced alongside (often the real lister). Consumer disambiguation owner-vs-delegate belongs in a consumer-side type/lint, not forbiddenFields here.",
+    "image is the DAS-resolved image URL (content.links.image); uri is the canonical metadata pointer (content.json_uri). Both nullable — a burnt/odd asset may lack them; the indexer publishes null rather than fabricating a value (PYTH-1).",
     "compressed marks DAS compressed NFTs; both regular and compressed members are indexed."
    ]
   },

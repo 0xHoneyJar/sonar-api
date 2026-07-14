@@ -74,6 +74,8 @@ CREATE TABLE IF NOT EXISTS svm.collection_nft (
   owner           text NOT NULL,             -- token-account owner (may be an escrow/stake PDA — see caveat)
   delegate        text,                      -- delegate, if any (often the real lister for escrowless listings)
   name            text,
+  image           text,                      -- resolved image URL (content.links.image; PYTH-1, migrations/svm/005)
+  uri             text,                      -- canonical metadata pointer (content.json_uri; PYTH-1, migrations/svm/005)
   compressed      boolean NOT NULL DEFAULT false,
   slot            bigint NOT NULL,           -- snapshot slot (informational; chain tip at snapshot)
   source          text NOT NULL DEFAULT 'das',

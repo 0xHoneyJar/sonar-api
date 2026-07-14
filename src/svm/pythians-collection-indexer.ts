@@ -49,7 +49,7 @@ const SECRET = process.env.HASURA_GRAPHQL_ADMIN_SECRET ?? "";
 const UPSERT = `mutation Up($objects: [svm_collection_nft_insert_input!]!) {
   insert_svm_collection_nft(objects: $objects,
     on_conflict: { constraint: collection_nft_pkey,
-      update_columns: [collection_key, collection_mint, nft_mint, owner, delegate, name, compressed, slot, source, updated_at] }
+      update_columns: [collection_key, collection_mint, nft_mint, owner, delegate, name, image, uri, compressed, slot, source, updated_at] }
   ) { affected_rows }
 }`;
 
@@ -69,6 +69,8 @@ type NftRow = {
   owner: string;
   delegate: string | null;
   name: string | null;
+  image: string | null;
+  uri: string | null;
   compressed: boolean;
   slot: number;
   source: string;
@@ -100,6 +102,8 @@ export function toRows(snap: CollectionSnapshot, collectionKey: string, nowIso: 
     owner: m.owner,
     delegate: m.delegate,
     name: m.name,
+    image: m.image,
+    uri: m.uri,
     compressed: m.compressed,
     slot: snap.slot,
     source: snap.source,
