@@ -29,6 +29,8 @@ export interface CollectionMember {
   readonly owner: string; // base58 token-account owner (may be an escrow/stake PDA — see caveat)
   readonly delegate: string | null; // base58 delegate, if any (often the real lister for escrowless listings)
   readonly name: string | null;
+  readonly image: string | null; // resolved image URL (content.links.image — Helius resolves this server-side; PYTH-1)
+  readonly uri: string | null; // canonical metadata pointer (content.json_uri; PYTH-1)
   readonly compressed: boolean; // Bubblegum cNFT vs regular
 }
 
@@ -58,7 +60,7 @@ export interface DasAsset {
   id?: string;
   burnt?: boolean;
   ownership?: { owner?: string; delegate?: string | null };
-  content?: { metadata?: { name?: string } };
+  content?: { metadata?: { name?: string }; json_uri?: string; links?: { image?: string } };
   compression?: { compressed?: boolean };
 }
 
@@ -73,6 +75,10 @@ export function parseAsset(asset: DasAsset | null | undefined): CollectionMember
     owner,
     delegate: asset.ownership?.delegate ?? null,
     name: asset.content?.metadata?.name ?? null,
+    // content.links.image is Helius' server-side-resolved image URL (primary); content.json_uri is the
+    // canonical metadata pointer. Both nullable — a burnt/odd asset may lack them; never fabricate (PYTH-1).
+    image: asset.content?.links?.image ?? null,
+    uri: asset.content?.json_uri ?? null,
     compressed: Boolean(asset.compression?.compressed),
   };
 }

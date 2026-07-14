@@ -1,0 +1,106 @@
+{
+  "result": {
+    "items": [
+      {
+        "id": "JE8siizFxfGFRAgifYivW9pwJH7ninQMWYJZBpuz2wiK",
+        "burnt": false,
+        "ownership": {
+          "owner": "a8Ge9XL3ji1tHjBZz2WDCXT4jYx49Zmbmic4eZH9iZG",
+          "delegate": null
+        },
+        "content": {
+          "metadata": {
+            "name": "Pythenians #2559"
+          },
+          "json_uri": "https://ipfs.pythenians.xyz/metadata/2559.json",
+          "links": {
+            "image": "https://ipfs.pythenians.xyz/nft/607b3aca9b41aaf6d1cae53e7960658928cb7240.png"
+          }
+        },
+        "compression": {
+          "compressed": false
+        }
+      },
+      {
+        "id": "JE8VKG6sUqQgzJAWcMrxFjWNnz8K4z1JfyqbhRTgqQad",
+        "burnt": false,
+        "ownership": {
+          "owner": "2Y1uiDUpKj8ChLwbjd9yNUgbm9yRZPQAn2CrJCokhfTv",
+          "delegate": null
+        },
+        "content": {
+          "metadata": {
+            "name": "Pythenians #2986"
+          },
+          "json_uri": "https://ipfs.pythenians.xyz/metadata/2986.json",
+          "links": {
+            "image": "https://ipfs.pythenians.xyz/nft/4f941d397d52c3c2962f1f27bb4199ff7c8522aa.png"
+          }
+        },
+        "compression": {
+          "compressed": false
+        }
+      },
+      {
+        "id": "JE246435Mgmsz6EpSVVS1SapMkBb73dQxFMCtSU8aorH",
+        "burnt": false,
+        "ownership": {
+          "owner": "EALZUoeKsMGVByVCZHFcx3EVnAdSY2BooJSC3Rh8vkiZ",
+          "delegate": null
+        },
+        "content": {
+          "metadata": {
+            "name": "Pythenians #806"
+          },
+          "json_uri": "https://ipfs.pythenians.xyz/metadata/806.json",
+          "links": {
+            "image": "https://ipfs.pythenians.xyz/nft/a322286831eab9ea20fbe8451a948f5fb35ac384.png"
+          }
+        },
+        "compression": {
+          "compressed": false
+        }
+      },
+      {
+        "id": "JDyWU8Sv63s7HvyngJQuG6eUFLttrUVz7K44TaqYZP8h",
+        "burnt": false,
+        "ownership": {
+          "owner": "2jqneWjZjnwhr7sfkCnQr6iKzrJczyKuL6ReKLjoPBFv",
+          "delegate": null
+        },
+        "content": {
+          "metadata": {
+            "name": "Pythenians #660"
+          },
+          "json_uri": "https://ipfs.pythenians.xyz/metadata/660.json",
+          "links": {
+            "image": "https://ipfs.pythenians.xyz/nft/1e2228412b774def198b2321b3c335575d603ea4.png"
+          }
+        },
+        "compression": {
+          "compressed": false
+        }
+      },
+      {
+        "id": "JDaNQ9i4NspgYmE1RPzLwKC2W9DG9eqGCL9mu5mHTjsf",
+        "burnt": false,
+        "ownership": {
+          "owner": "7GufyWb1UgQoYYC7zY1AadXDhqK9wQQDBSoNXFNDDizQ",
+          "delegate": null
+        },
+        "content": {
+          "metadata": {
+            "name": "Pythenians #2500"
+          },
+          "json_uri": "https://ipfs.pythenians.xyz/metadata/2500.json",
+          "links": {
+            "image": "https://ipfs.pythenians.xyz/nft/bfc8e33466f105bec34c8877692712bea9d30210.png"
+          }
+        },
+        "compression": {
+          "compressed": false
+        }
+      }
+    ]
+  }
+}
