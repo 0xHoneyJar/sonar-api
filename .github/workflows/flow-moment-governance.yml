@@ -1,0 +1,15 @@
+name: Flow Moment Governance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  continuity-contract:
+    uses: 0xHoneyJar/loa-freeside/.github/workflows/reusable-flow-moment-governance.yml@177a57a4fdb18c071b4f82f7560ca705b5807a1c
+    with:
+      governance-ref: 177a57a4fdb18c071b4f82f7560ca705b5807a1c

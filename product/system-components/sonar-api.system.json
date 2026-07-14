@@ -1,0 +1,68 @@
+{
+  "$schema": "https://raw.githubusercontent.com/0xHoneyJar/loa-freeside/177a57a4fdb18c071b4f82f7560ca705b5807a1c/spec/product/system-component.schema.json",
+  "schema_version": "1.0",
+  "component_id": "sonar-api",
+  "repository": "github:0xHoneyJar/sonar-api",
+  "layer": "building",
+  "operator": {
+    "role": "Freeside systems component engineer",
+    "job": "Query cross-chain holdings and activity truth with explicit belt freshness instead of deriving it through product-specific RPC calls."
+  },
+  "object": {
+    "kind": "system-component",
+    "description": "The shared EVM and Solana indexing belt for holdings, transfers, mints, burns, rewards, and trades."
+  },
+  "question": "What onchain event or ownership state is indexed for this member, and how close is the belt to chain head?",
+  "responsibility": "Own cross-chain event ingestion, indexed onchain read models, GraphQL access, and belt freshness observability.",
+  "consumers": [
+    {
+      "name": "inventory-api",
+      "need": "Indexed holdings truth for inventory completeness joins."
+    },
+    {
+      "name": "score-api",
+      "need": "Consistent onchain activity inputs for rankings and lifecycle state."
+    },
+    {
+      "name": "loa-freeside",
+      "need": "Source provenance and freshness for composed Audit evidence."
+    }
+  ],
+  "trust": {
+    "contract_status": "declared",
+    "contract_refs": [
+      "file:README.md",
+      "file:scripts/belt-contract.json",
+      "file:scripts/action-contract.json"
+    ],
+    "evidence_refs": [
+      "file:scripts/verify-belt-contract.mjs"
+    ],
+    "note": "GraphQL reads are shared across products; a consumer must inspect chain-head freshness and must not interpret indexed presence as identity or conviction."
+  },
+  "actions": [
+    "query",
+    "inspect-freshness",
+    "trace-source",
+    "export"
+  ],
+  "boundaries": {
+    "owns": [
+      "Cross-chain event indexing and onchain read truth.",
+      "Belt contracts, source provenance, and sync freshness."
+    ],
+    "does_not_own": [
+      "Canonical member identity, scoring policy, or metadata ownership.",
+      "Product-specific recommendations or community-manager actions."
+    ],
+    "missing_capability_handoff": "Onboard the missing collection or event through the sonar contract; do not add direct RPC fallbacks inside downstream products."
+  },
+  "flow_moments": [
+    {
+      "flow_moment_id": "FM-AUDIT-COMPOSITION",
+      "canonical_ref": "flow:FM-AUDIT-COMPOSITION",
+      "role": "producer",
+      "contribution": "Produce raw onchain ownership and activity facts, with freshness context, for composition and movement receipts."
+    }
+  ]
+}
