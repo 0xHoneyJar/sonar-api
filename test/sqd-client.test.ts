@@ -100,6 +100,41 @@ describe("SqdClient.stream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3); // 2 retries + 1 success
   });
 
+  // Full-genesis hardening: undici throws "fetch failed" on ECONNRESET/socket reset —
+  // no HTTP status, so it bypasses the status checks. Must be retried, else one blip
+  // aborts the whole two-phase run (Promise.all rejects → every range dies).
+  it("retries a network throw (undici 'fetch failed') then succeeds", async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(jsonl([{ header: { number: 5 } }]));
+    const c = new SqdClient(undefined, 10);
+    const stats = freshStats();
+    for await (const _ of c.stream([MINT], 0, 5, stats)) { /* drain */ }
+    expect(fetchMock).toHaveBeenCalledTimes(2); // 1 network throw + 1 success
+    expect(stats.requests).toBe(1);
+  });
+
+  // SQD's nginx front proxy rejects with a non-JSON 400 (HTML body) under concurrency —
+  // a proxy-transient, NOT an app error. Retry it; real app errors are JSON (guarded below).
+  it("retries a non-JSON 400 (nginx front-proxy transient) then succeeds", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response("<html>400 Bad Request</html>", { status: 400, headers: { "content-type": "text/html" } }))
+      .mockResolvedValueOnce(jsonl([{ header: { number: 5 } }]));
+    const c = new SqdClient(undefined, 10);
+    const stats = freshStats();
+    for await (const _ of c.stream([MINT], 0, 5, stats)) { /* drain */ }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  // Negative guard: a JSON 400 is a genuine bad request — must fail loudly, NOT retry.
+  it("does NOT retry a JSON 400 (real app error) — fails fast", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "bad filter" }), { status: 400, headers: { "content-type": "application/json" } }));
+    const c = new SqdClient(undefined, 10);
+    const err = await c.stream([MINT], 0, 5, freshStats()).next().catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // no retry
+  });
+
   // T-1: SqdAuthRequiredError contains blockHeight, timestamp, status, url
   it("SqdAuthRequiredError carries blockHeight, timestamp, status, url fields", async () => {
     fetchMock.mockResolvedValue(new Response("", { status: 401 }));

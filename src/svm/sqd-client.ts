@@ -152,8 +152,21 @@ export class SqdClient {
       }
 
       let res: Response | null = null;
+      let bodyText = "";
       for (let attempt = 0; ; attempt++) {
-        res = await fetch(streamUrl, { method: "POST", headers: this.headers(), body });
+        try {
+          res = await fetch(streamUrl, { method: "POST", headers: this.headers(), body });
+        } catch (e) {
+          // Network-level failure (undici "fetch failed": ECONNRESET / ETIMEDOUT / DNS / socket reset) —
+          // NOT an HTTP status, so the status checks below never see it. Over a full-genesis backfill
+          // (millions of requests, high concurrency) transient network blips are CERTAIN; without a retry
+          // here ONE blip aborts the whole run (the parallel loader's Promise.all rejects → every range dies).
+          // Retry with the same backoff as 429/5xx.
+          const msg = e instanceof Error ? e.message : String(e);
+          if (attempt >= MAX_RETRIES) throw new Error(`sqd stream: network fetch failed after ${attempt} retries at slot ${frm}: ${msg}`);
+          await sleep(Math.min(2 ** attempt * 1000, RETRY_CAP_MS));
+          continue;
+        }
         // Auth guard (FR-6): 401/403 thrown immediately, NOT caught by retry loop
         if (res.status === 401 || res.status === 403) {
           throw new SqdAuthRequiredError({
@@ -163,22 +176,35 @@ export class SqdClient {
             url: streamUrl,
           });
         }
-        if (res.status === 429 || res.status >= 500) {
+        // 429/5xx = standard retryable. 408 (timeout) + 400 with a non-JSON (nginx HTML) body =
+        // FRONT-PROXY transient under concurrency, NOT an app error (SQD's real client errors are JSON) —
+        // retry with backoff, bounded by MAX_RETRIES so a genuine bad request still fails loudly.
+        const proxyTransient400 = res.status === 400 && !(res.headers.get("content-type") ?? "").includes("json");
+        if (res.status === 429 || res.status === 408 || res.status >= 500 || proxyTransient400) {
           if (attempt >= MAX_RETRIES) throw new Error(`sqd stream: HTTP ${res.status} after ${attempt} retries at slot ${frm}`);
           const retryAfter = Number(res.headers.get("retry-after")) || 0;
           await sleep(Math.min(retryAfter * 1000 || 2 ** attempt * 1000, RETRY_CAP_MS));
           continue;
         }
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`sqd stream: HTTP ${res.status} ${text.slice(0, 160)}`);
+        }
+        try {
+          bodyText = await res.text();
+        } catch (e) {
+          // Body-read reset mid-stream — transient; retry the whole request with backoff.
+          const msg = e instanceof Error ? e.message : String(e);
+          if (attempt >= MAX_RETRIES) throw new Error(`sqd stream: body read failed after ${attempt} retries at slot ${frm}: ${msg}`);
+          await sleep(Math.min(2 ** attempt * 1000, RETRY_CAP_MS));
+          continue;
+        }
         break;
-      }
-      if (!res!.ok) {
-        const text = await res!.text().catch(() => "");
-        throw new Error(`sqd stream: HTTP ${res!.status} ${text.slice(0, 160)}`);
       }
       stats.requests++;
       const blocks: SqdBlock[] = [];
       let last = frm;
-      for (const line of (await res!.text()).split("\n")) {
+      for (const line of bodyText.split("\n")) {
         if (!line.trim()) continue;
         try {
           const b = JSON.parse(line) as SqdBlock;

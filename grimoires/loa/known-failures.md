@@ -80,6 +80,10 @@ actually tried, not just what someone *said* was tried.
 | [KF-014](#kf-014-bridgebuilder-pass-2-enrichment-unavailable-on-claude-headless-cli-subscription) | DEGRADED-ACCEPTED 2026-05-22 (Pass-1 convergence findings still post; only the educational enrichment layer is lost) | `/bridgebuilder` two-pass review on `claude-headless` | 3 |
 | [KF-015](#kf-015-envio-belt-indexer-node-js-heap-oom-on-multi-chain-belt-default-2gb-heap-vs-large-container) | **RESOLVED-VIA-CONFIG 2026-05-22** (`NODE_OPTIONS=--max-old-space-size=12288` — 6-chain belt OOM'd Node's ~2GB default heap in a 24GB container; green-only; RECURRED 2026-06-19 on managed-Envio Cloud @3.2.1 — heap/RAM lever there is TBD) | belt-indexer 6-chain consolidated cold-sync OOM | 2 |
 | [KF-016](#kf-016-envio-321-blocks-chain-indexing-on-hasura-trackdatabase-retry) | **RESOLVED-VIA-CONFIG 2026-06-21** (set `HASURA_GRAPHQL_ENDPOINT` to a reachable Hasura — `envio@3.2.1` blocks chain-indexing on the `Hasura.trackDatabase`→`createSelectPermission` retry loop when no Hasura is reachable; `block_height` stuck at 0, `latest_processed_block` -1. The local-upload spike slipped past it; the GitHub-sourced re-home did not — give the indexer a Hasura at deploy time) | self-host envio@3.2.1 deploy, indexer seeds schema but never indexes | 1 |
+| [KF-017](#kf-017-address-resolve-head-of-line-blocking--poison-pill-rpc-failures-stall-the-resolution-queue) | OPEN | address-resolve queue (poison-pill RPC) | 1 |
+| [KF-019](#kf-019--update-loa-merge-conflict-inside-a-pretooluse-hook-bricks-the-whole-toolchain) | RESOLVED-PROCEDURAL 2026-07-05 | /update-loa PreToolUse hook merge-conflict | 1 |
+| [KF-020](#kf-020--reaching-for-metered-reads-when-self-hosting-the-indexer-was-the-answer-the-svm-cost-saga) | DOCTRINE-CORRECTION 2026-07-06 | SVM cost saga — self-host indexer vs metered reads | 1 |
+| [KF-021](#kf-021-own-the-data-plane-dont-rent--the-agentic-data-infrastructure-foundation) | DOCTRINE 2026-07-07 | data-plane ownership / agentic-infra foundation | structural |
 
 ---
 
@@ -1027,3 +1031,43 @@ This is a liveness bug, not a correctness bug — the MV data is unaffected. The
 |------|---------|--------|----------|
 | 2026-07 | metered reads for Solana history (Helius DAS credits, Dune egress) | quota-outs + ~100x cost misses; snapshot-first only bought point-in-time ownership | KF-018, metered-provider-spike-protocol |
 | 2026-07-06 | recognize self-hosted-indexer-first (belt-indexer already proves the pattern) | DOCTRINE — not yet built for SVM; the correct deep-history path | this entry |
+
+## KF-021: own the data plane (don't rent) — the agentic-data-infrastructure foundation
+
+**Status**: DOCTRINE 2026-07-07 (operator: "the most important part is data plane and ownership so we can build out our agentic data infrastructure"; "we used to host on their platforms for years and never consumed/ingest any data so we were simply paying rent")
+**Feature**: data-plane strategy · agentic data infrastructure · BOEHM cost-shape discipline
+**Symptom**: the deeper pattern under KF-020. For years we paid hosted-indexer rent (Subsquid/Envio Cloud) AND never ingested the data into a plane we own — the worst quadrant: neither cost savings NOR ownership. Rent for access we didn't exploit.
+**First observed**: 2026-07-07 (svm-deep-history-spike close-out reframe)
+**Recurrence count**: structural (felt across the whole product's history — treat as a standing bias, not a one-off)
+**Related**: KF-020 (self-host-vs-metered-reads — the *reads* sibling of this doctrine), KF-015/KF-016 (self-host Envio ops cost = the devops tuition this doctrine budgets for), grimoires/loa/context/2026-07-06-boehm-economics-svm-indexer.md, grimoires/loa/context/2026-07-06-lake-decision-record.md
+
+### The doctrine
+
+**1. Two cost SHAPES, never flattened (BOEHM).** Renting hosted infra is a *recurring OpEx annuity* — never flattens, re-charges per month and per unit forever. Owning the data plane is *fixed CapEx + a near-flat marginal that amortizes* — one box, one-time devops tuition, ~$0 marginal per collection/chain when co-located. Operator's own framing: BOEHM exists "so that my brain doesn't try to flatten different shapes and different cost curves." When anyone says *cheap / at scale / basically free / just paying rent*, REFUSE the point-estimate and demand the SHAPE + the crossover. Reflex-skills installed: `refusing-cheap`, `modeling-cost-curves`, `structuring-a-spiral`. (construct-boehm is not yet packaged — it has proven load-bearing across this spike and this thread; author via the-weaver at the next cost-shape decision.)
+
+**2. The rent trap — four quadrants.**
+```
+                 INGEST into our plane        DON'T ingest
+   RENT infra    convenience @ recurring $    PURE WASTE  ← where we lived for years
+   OWN plane     THE FOUNDATION ← going here  pointless devops
+```
+Renting AND not ingesting is the worst cell: pay the annuity, own nothing. Under zero revenue, kill this first.
+
+**3. Ownership is NOT unconditional (question the question).** Own the data plane WHEN: (a) you will actually *build on it* — agentic queries, cross-chain joins, model feeds — else it's rent either way; AND (b) you can absorb the one-time devops tuition (KF-015/016 ARE that tuition, already paid). Under zero revenue the calculus SHARPENS, it does not reverse: fixed costs hurt more, but a recurring rent you don't exploit is pure bleed, while devops is a one-time cost that flattens across all N (economies of scale — one box serves every collection and chain). Crossover: ownership wins at N=1 the moment you'll build on the data; the gap widens super-linearly (Boehm economics doc §3: ~26×/yr at N=100, growing).
+
+**4. Why ownership is the agentic-infra substrate.** Owning `svm.collection_event` (+ the whole index) on our own Postgres gives agents *direct, un-gated* access to the data plane — query, join across chains, feed models, analyze — with no vendor API shape, rate limit, or per-call price deciding what our agents may do. Hosted GraphQL is a keyhole; ownership is the room. Closer access is the point; cost is the enabler, not the goal.
+
+**5. The ingestion primitive (step 1, BUILT).** `src/svm/sqd-parallel-loader.ts` — range-partitioned parallel backfill from the FREE lake (SQD Portal, block 0 → head) into the owned plane, ~6–12h/collection, two-phase (parallel fetch → ordered decode) so `decodeSqdBlocks` stays byte-identical (§4.5). It fills the room. North-star next primitives (unbuilt): the owned plane made self-describing / agent-queryable; cross-chain unification; the index as a first-class agent tool.
+
+### Measured substrate facts (perishable — re-verify; dated 2026-07-06)
+
+- **SQD Portal** (`portal.sqd.dev`, `solana-mainnet`): open/unauth, **block 0 → head** (head 431,262,533). Pagination **block-batch-bound ~558 slots/request regardless of filter**. Tolerates **≥20 concurrent unauth requests** (all 200, 0×429, ~10× speedup, p95 ~1s). ~0.58s/req filtered. The free lake we own-by-ingesting-from.
+- **Envio HyperSync-Solana** (`solana.hypersync.xyz`): **NXDOMAIN** on 1.1.1.1 + 8.8.8.8; documented **rolling retention floor ~slot 391,791,680** (advances forward) → cannot serve genesis. Eliminated at GATE-1. (eth.hypersync.xyz resolves — EVM lake live, Solana isn't.)
+- **Chunk multiplier**: SQD's ~1500-mint payload ceiling forces collections >1500 members to re-scan the range per chunk (pythians 3682→3, smb_gen2 4992→4). Naive **sequential** full-genesis = **713k–1.44M requests ≈ 5–10 days**; **parallel** range-partition ≈ **6–12h**. **Strategy B refuted** (unfiltered full-block scan: same 558 slots/req but 261 MiB/req → ~59 TB + ~10 days).
+
+### Attempts
+
+| Date | What we tried | Outcome | Evidence |
+|------|---------------|---------|----------|
+| (years) | host on Subsquid/Envio Cloud, never ingest the data | pure rent — paid the annuity, owned nothing | operator account 2026-07-07 |
+| 2026-07-06 | own the plane: self-host parallel backfill from the free lake → our Postgres | BUILT + proven (13/13 tests, §4.5 floor intact, GATE-4 PASS) | lake-decision-record.md; src/svm/sqd-parallel-loader.ts |
