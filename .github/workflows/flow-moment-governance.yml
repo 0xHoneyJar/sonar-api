@@ -10,6 +10,6 @@ permissions:
 
 jobs:
   continuity-contract:
-    uses: 0xHoneyJar/loa-freeside/.github/workflows/reusable-flow-moment-governance.yml@177a57a4fdb18c071b4f82f7560ca705b5807a1c
+    uses: 0xHoneyJar/loa-freeside/.github/workflows/reusable-flow-moment-governance.yml@ba3c1347f93e388e488f109ed5c9c5cf39642d5d
     with:
-      governance-ref: 177a57a4fdb18c071b4f82f7560ca705b5807a1c
+      governance-ref: ba3c1347f93e388e488f109ed5c9c5cf39642d5d

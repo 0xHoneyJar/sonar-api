@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/0xHoneyJar/loa-freeside/177a57a4fdb18c071b4f82f7560ca705b5807a1c/spec/product/system-component.schema.json",
+  "$schema": "https://raw.githubusercontent.com/0xHoneyJar/loa-freeside/ba3c1347f93e388e488f109ed5c9c5cf39642d5d/spec/product/system-component.schema.json",
   "schema_version": "1.0",
   "component_id": "sonar-api",
   "repository": "github:0xHoneyJar/sonar-api",
