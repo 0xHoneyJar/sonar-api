@@ -8,15 +8,41 @@ on:
     branches: [main]
     paths:
       - "src/kitchen/**"
+      - "src/collection-resolver/protocol.ts"
+      - "src/collection-resolver/capability-registry/**"
+      - "migrations/kitchen/**"
+      - "migrations/kitchen_ingest_jobs.sql"
+      - "scripts/kitchen-*.ts"
+      - "vendor/collection-protocol/**"
+      - "Caddyfile"
       - "Dockerfile.kitchen"
       - "package.kitchen.json"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "tsconfig.json"
+      - "vitest.config.ts"
+      - "scripts/rebuild-events-dist.sh"
+      - "tsconfig.kitchen.json"
       - ".github/workflows/kitchen-build.yml"
   pull_request:
     branches: [main]
     paths:
       - "src/kitchen/**"
+      - "src/collection-resolver/protocol.ts"
+      - "src/collection-resolver/capability-registry/**"
+      - "migrations/kitchen/**"
+      - "migrations/kitchen_ingest_jobs.sql"
+      - "scripts/kitchen-*.ts"
+      - "vendor/collection-protocol/**"
+      - "Caddyfile"
       - "Dockerfile.kitchen"
       - "package.kitchen.json"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "tsconfig.json"
+      - "vitest.config.ts"
+      - "scripts/rebuild-events-dist.sh"
+      - "tsconfig.kitchen.json"
       - ".github/workflows/kitchen-build.yml"
   workflow_dispatch:
 
@@ -24,17 +50,45 @@ jobs:
   kitchen-image:
     name: kitchen-api — docker build + health smoke
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kitchen
+          POSTGRES_PASSWORD: kitchen
+          POSTGRES_DB: kitchen_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kitchen -d kitchen_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install repository dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Kitchen typecheck
+        run: pnpm exec tsc -p tsconfig.kitchen.json --pretty false
+
+      - name: Kitchen hermetic tests
+        env:
+          KITCHEN_TEST_DATABASE_URL: postgresql://kitchen:kitchen@127.0.0.1:5432/kitchen_test
+        run: pnpm exec vitest run src/kitchen
 
       - name: Build Dockerfile.kitchen
         run: docker build -f Dockerfile.kitchen -t sonar-kitchen-api:ci .
 
       - name: Smoke /health (no Postgres required)
         run: |
-          cid=$(docker run -d -e PORT=8080 -e NODE_ENV=development -p 18080:8080 sonar-kitchen-api:ci)
+          cid=$(docker run -d -e PORT=8080 -e NODE_ENV=development -e KITCHEN_WORKER_ENABLED=true -e KITCHEN_PREPARATION_PORT=local_config -p 18080:8080 sonar-kitchen-api:ci)
           trap "docker rm -f $cid" EXIT
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:18080/health | grep -q '"ok":true'; then

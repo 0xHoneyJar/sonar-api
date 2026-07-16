@@ -1,65 +1,288 @@
 import pg from "pg";
 
+import { decodeCollectionDeploymentRef, type CollectionDeploymentRef } from "../collection-resolver/protocol.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
-import { collectionKeyId, makeIngestJobId } from "./normalize.js";
-import type { CollectionKey, IngestJobRecord, IngestJobStatus, IngestRequestBody } from "./types.js";
+import {
+  collectionKeyId,
+  deploymentFromCollectionKey,
+  makePhysicalJobId,
+  physicalJobKey,
+} from "./normalize.js";
+import { resolvePreparationCapability } from "./capability.js";
+import type {
+  AdmissionRequest,
+  AdmissionResult,
+  CollectionKey,
+  IngestJobRecord,
+  IngestJobStatus,
+  IngestRequestBody,
+  JobCorrelation,
+  MigrationAuthorityState,
+  TokenStandard,
+} from "./types.js";
+import { Effect } from "effect";
 
-const ENSURE_TABLE_SQL = `
+/**
+ * Runtime bootstrap is expand-only. Authority flips and constraints live in
+ * ordered migration artifacts and must never be inferred at service startup.
+ */
+const ENSURE_EXPANDED_SQL = `
 CREATE TABLE IF NOT EXISTS kitchen_ingest_jobs (
-  chain_id int NOT NULL,
-  contract text NOT NULL,
-  job_id text NOT NULL,
-  order_id text NOT NULL,
-  source text NOT NULL,
+  chain_id int,
+  contract text,
+  job_id text,
+  order_id text,
+  source text,
   status text NOT NULL DEFAULT 'queued',
   contact_email text,
   community_name text,
   error_message text,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (chain_id, contract)
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS error_message text;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS physical_job_id text;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS deployment_id text;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS deployment_json jsonb;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS capability_id text;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS capability_version text;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS token_standard text;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS prepare_adapter_id text;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS prepare_adapter_version text;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS source_sequence text;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS finality_policy_version text;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS attempt int NOT NULL DEFAULT 1;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS error_code text;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS lease_owner text;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS lease_until timestamptz;
+ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS lease_epoch bigint NOT NULL DEFAULT 0;
+
+CREATE UNIQUE INDEX IF NOT EXISTS kitchen_ingest_jobs_legacy_key_uq
+  ON kitchen_ingest_jobs (chain_id, contract)
+  WHERE chain_id IS NOT NULL AND contract IS NOT NULL;
+DO $$
+DECLARE
+  legacy_pk name;
+BEGIN
+  SELECT constraint_name INTO legacy_pk
+  FROM (
+    SELECT c.conname AS constraint_name,
+           array_agg(a.attname ORDER BY key_columns.ordinality) AS columns
+    FROM pg_constraint c
+    JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS key_columns(attnum, ordinality)
+      ON true
+    JOIN pg_attribute a
+      ON a.attrelid = c.conrelid AND a.attnum = key_columns.attnum
+    WHERE c.conrelid = 'kitchen_ingest_jobs'::regclass AND c.contype = 'p'
+    GROUP BY c.conname
+  ) primary_keys
+  WHERE columns = ARRAY['chain_id', 'contract']::name[];
+
+  IF legacy_pk IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE kitchen_ingest_jobs DROP CONSTRAINT %I', legacy_pk);
+  END IF;
+END $$;
+
+ALTER TABLE kitchen_ingest_jobs ALTER COLUMN chain_id DROP NOT NULL;
+ALTER TABLE kitchen_ingest_jobs ALTER COLUMN contract DROP NOT NULL;
+ALTER TABLE kitchen_ingest_jobs ALTER COLUMN order_id DROP NOT NULL;
+ALTER TABLE kitchen_ingest_jobs ALTER COLUMN source DROP NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS kitchen_ingest_jobs_physical_identity_uq
+  ON kitchen_ingest_jobs (deployment_id, capability_id, capability_version)
+  WHERE deployment_id IS NOT NULL AND capability_id IS NOT NULL AND capability_version IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS kitchen_ingest_jobs_physical_job_id_uq
+  ON kitchen_ingest_jobs (physical_job_id)
+  WHERE physical_job_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS kitchen_ingest_jobs_legacy_evm_idx
+  ON kitchen_ingest_jobs (chain_id, lower(contract))
+  WHERE chain_id IS NOT NULL AND contract IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS kitchen_job_correlations (
+  physical_job_id text NOT NULL,
+  source text NOT NULL,
+  correlation_id text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (physical_job_id, source, correlation_id)
+);
+
+CREATE TABLE IF NOT EXISTS kitchen_job_identity_migration_state (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  phase text NOT NULL,
+  divergence boolean NOT NULL DEFAULT false,
+  reason text,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 `;
 
 type JobRow = {
-  chain_id: number;
-  contract: string;
-  job_id: string;
-  order_id: string;
-  source: string;
-  status: string;
-  contact_email: string | null;
-  community_name: string | null;
+  chain_id: number | null;
+  contract: string | null;
+  job_id: string | null;
+  order_id: string | null;
+  source: string | null;
+  physical_job_id: string | null;
+  deployment_id: string | null;
+  deployment_json: unknown | null;
+  capability_id: "ownership_index.v1" | null;
+  capability_version: string | null;
+  token_standard: TokenStandard | null;
+  prepare_adapter_id: IngestJobRecord["prepareAdapterId"] | null;
+  prepare_adapter_version: string | null;
+  source_sequence: string | null;
+  finality_policy_version: string | null;
+  status: IngestJobStatus;
+  attempt: number;
+  error_code: string | null;
   error_message: string | null;
+  lease_owner: string | null;
+  lease_until: Date | null;
+  lease_epoch: string | number;
   created_at: Date;
   updated_at: Date;
 };
 
-function rowToRecord(row: JobRow): IngestJobRecord {
+const JOB_COLUMNS = `chain_id, contract, job_id, order_id, source, physical_job_id, deployment_id, deployment_json, capability_id,
+  capability_version, token_standard, prepare_adapter_id, prepare_adapter_version,
+  source_sequence, finality_policy_version, status, attempt, error_code, error_message,
+  lease_owner, lease_until, lease_epoch, created_at, updated_at`;
+
+async function rowToRecord(row: JobRow): Promise<IngestJobRecord> {
+  if (
+    row.physical_job_id === null ||
+    row.deployment_json === null ||
+    row.capability_id === null ||
+    row.capability_version === null ||
+    row.token_standard === null ||
+    row.prepare_adapter_id === null ||
+    row.prepare_adapter_version === null ||
+    row.source_sequence === null ||
+    row.finality_policy_version === null
+  ) {
+    return legacyRowToRecord(row);
+  }
+  const deployment = await Effect.runPromise(decodeCollectionDeploymentRef(row.deployment_json));
   return {
-    jobId: row.job_id,
-    key: {
-      chainId: row.chain_id,
-      contract: row.contract as `0x${string}`,
-    },
-    orderId: row.order_id,
-    source: row.source,
-    contactEmail: row.contact_email ?? undefined,
-    communityName: row.community_name ?? undefined,
-    status: row.status as IngestJobStatus,
+    physicalJobId: row.physical_job_id,
+    jobId: row.physical_job_id,
+    deployment,
+    ...(row.chain_id !== null && row.contract !== null
+      ? { key: { chainId: row.chain_id, contract: row.contract.toLowerCase() as `0x${string}` } }
+      : {}),
+    capabilityId: row.capability_id,
+    capabilityVersion: row.capability_version,
+    tokenStandard: row.token_standard,
+    prepareAdapterId: row.prepare_adapter_id,
+    prepareAdapterVersion: row.prepare_adapter_version,
+    sourceSequence: row.source_sequence,
+    finalityPolicyVersion: row.finality_policy_version,
+    status: row.status,
+    attempt: row.attempt,
+    errorCode: row.error_code ?? undefined,
     errorMessage: row.error_message ?? undefined,
+    leaseOwner: row.lease_owner ?? undefined,
+    leaseUntilMs: row.lease_until?.getTime(),
+    leaseEpoch: Number(row.lease_epoch),
     createdAtMs: row.created_at.getTime(),
     updatedAtMs: row.updated_at.getTime(),
   };
 }
 
-const JOB_COLUMNS = `chain_id, contract, job_id, order_id, source, status,
-              contact_email, community_name, error_message, created_at, updated_at`;
+async function legacyRowToRecord(row: JobRow): Promise<IngestJobRecord> {
+  if (row.chain_id === null || row.contract === null || row.job_id === null) {
+    throw new Error("legacy Kitchen row lacks chain_id, contract, or job_id");
+  }
+  const key: CollectionKey = {
+    chainId: row.chain_id,
+    contract: row.contract.toLowerCase() as `0x${string}`,
+  };
+  const deployment = await deploymentFromCollectionKey(key);
+  const capability = await resolvePreparationCapability({
+    network: deployment.network,
+    tokenStandard: "erc721",
+  });
+  return {
+    physicalJobId: row.job_id,
+    jobId: row.job_id,
+    deployment,
+    key,
+    capabilityId: capability.capabilityId,
+    capabilityVersion: capability.capabilityVersion,
+    tokenStandard: "erc721",
+    prepareAdapterId: capability.prepareAdapterId,
+    prepareAdapterVersion: capability.prepareAdapterVersion,
+    sourceSequence: capability.sourceSequence,
+    finalityPolicyVersion: capability.finalityPolicyVersion,
+    status: row.status,
+    attempt: row.attempt,
+    errorCode: row.error_code ?? undefined,
+    errorMessage: row.error_message ?? undefined,
+    leaseOwner: row.lease_owner ?? undefined,
+    leaseUntilMs: row.lease_until?.getTime(),
+    leaseEpoch: Number(row.lease_epoch),
+    createdAtMs: row.created_at.getTime(),
+    updatedAtMs: row.updated_at.getTime(),
+  };
+}
 
 export async function ensureKitchenIngestTable(pool: pg.Pool): Promise<void> {
-  await pool.query(ENSURE_TABLE_SQL);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('kitchen.bootstrap.physical-job.v1'))",
+    );
+    const before = await client.query<{ existed: boolean }>(
+      `SELECT to_regclass('public.kitchen_job_identity_migration_state') IS NOT NULL AS existed`,
+    );
+    const stateTableExisted = before.rows[0]?.existed === true;
+    if (stateTableExisted) {
+      const authority = await client.query<{ phase: MigrationAuthorityState["phase"] }>(
+        `SELECT phase FROM kitchen_job_identity_migration_state WHERE singleton = true`,
+      );
+      if (!authority.rows[0] || authority.rows[0].phase === "constrained") {
+        await client.query("COMMIT");
+        return;
+      }
+    }
+    await client.query(ENSURE_EXPANDED_SQL);
+    if (!stateTableExisted) {
+      await client.query(
+        `INSERT INTO kitchen_job_identity_migration_state (singleton, phase, divergence)
+         VALUES (true, 'legacy', false)`,
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function unavailableAdmission(request: AdmissionRequest): AdmissionResult | undefined {
+  if (!request.capability.enabled || request.capability.health === "disabled") {
+    return {
+      ok: false,
+      code: request.capability.reason.includes("generic Kitchen")
+        ? "unsupported_standard"
+        : request.capability.reason.includes("network ")
+          ? "unsupported_network"
+          : "capability_disabled",
+      reasonClass: request.capability.reasonClass,
+      reason: request.capability.reason,
+    };
+  }
+  if (request.capability.health === "degraded") {
+    return {
+      ok: false,
+      code: "capability_degraded",
+      reasonClass: request.capability.reasonClass,
+      reason: request.capability.reason,
+    };
+  }
+  return undefined;
 }
 
 export class PostgresIngestJobStore implements IngestJobStorePort {
@@ -67,118 +290,379 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
 
   async get(key: CollectionKey): Promise<IngestJobRecord | undefined> {
     const result = await this.pool.query<JobRow>(
-      `SELECT ${JOB_COLUMNS}
-       FROM kitchen_ingest_jobs
-       WHERE chain_id = $1 AND lower(contract) = lower($2)`,
+      `SELECT ${JOB_COLUMNS} FROM kitchen_ingest_jobs
+       WHERE chain_id = $1 AND lower(contract) = lower($2)
+       ORDER BY created_at DESC LIMIT 1`,
       [key.chainId, key.contract],
     );
-    const row = result.rows[0];
-    return row ? rowToRecord(row) : undefined;
+    return result.rows[0] ? rowToRecord(result.rows[0]) : undefined;
   }
 
-  async upsertQueued(
-    key: CollectionKey,
-    body: IngestRequestBody,
-    nowMs = Date.now(),
-  ): Promise<IngestJobRecord> {
-    const existing = await this.get(key);
-    if (existing) {
-      if (existing.status !== "failed") return existing;
-      const result = await this.pool.query<JobRow>(
-        `UPDATE kitchen_ingest_jobs
-         SET job_id = $3, order_id = $4, source = $5, status = 'queued',
-             contact_email = $6, community_name = $7, error_message = NULL,
-             updated_at = to_timestamp($8 / 1000.0)
-         WHERE chain_id = $1 AND lower(contract) = lower($2)
-         RETURNING ${JOB_COLUMNS}`,
+  async getByPhysicalJobId(physicalJobId: string): Promise<IngestJobRecord | undefined> {
+    const result = await this.pool.query<JobRow>(
+      `SELECT ${JOB_COLUMNS} FROM kitchen_ingest_jobs
+       WHERE physical_job_id = $1 OR (physical_job_id IS NULL AND job_id = $1)
+       ORDER BY physical_job_id NULLS LAST LIMIT 1`,
+      [physicalJobId],
+    );
+    return result.rows[0] ? rowToRecord(result.rows[0]) : undefined;
+  }
+
+  async admit(request: AdmissionRequest, nowMs = Date.now()): Promise<AdmissionResult> {
+    const unavailable = unavailableAdmission(request);
+    if (unavailable) return unavailable;
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const key = physicalJobKey({
+        deployment: request.deployment,
+        capabilityId: request.capability.capabilityId,
+        capabilityVersion: request.capability.capabilityVersion,
+      });
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [key]);
+
+      const authority = await client.query<{
+        phase: MigrationAuthorityState["phase"];
+        divergence: boolean;
+        reason: string | null;
+      }>(
+        `SELECT phase, divergence, reason FROM kitchen_job_identity_migration_state
+         WHERE singleton = true FOR SHARE`,
+      );
+      const authorityRow = authority.rows[0];
+      if (!authorityRow || authorityRow.divergence) {
+        await client.query("ROLLBACK");
+        return {
+          ok: false,
+          code: "migration_divergence",
+          reasonClass: "integrity_compromise",
+          reason: authorityRow?.reason ?? "migration authority row is missing",
+        };
+      }
+
+      const existingResult = await client.query<JobRow>(
+        `SELECT ${JOB_COLUMNS} FROM kitchen_ingest_jobs
+         WHERE deployment_id = $1 AND capability_id = $2 AND capability_version = $3
+         FOR UPDATE`,
         [
-          key.chainId,
-          key.contract,
-          makeIngestJobId(key),
-          body.order_id,
-          body.source,
-          body.contact_email ?? null,
-          body.community_name ?? null,
-          nowMs,
+          request.deployment.deployment_id.digest,
+          request.capability.capabilityId,
+          request.capability.capabilityVersion,
         ],
       );
-      const row = result.rows[0];
-      if (!row) throw new Error(`ingest requeue failed for ${collectionKeyId(key)}`);
-      return rowToRecord(row);
+      let row = existingResult.rows[0];
+      let created = false;
+      const legacy =
+        request.deployment.network.network_namespace === "eip155"
+          ? {
+              chainId: Number(request.deployment.network.network_reference),
+              contract: request.deployment.normalized_address,
+            }
+          : undefined;
+
+      if (!row && legacy) {
+        const legacyResult = await client.query<JobRow>(
+          `SELECT ${JOB_COLUMNS} FROM kitchen_ingest_jobs
+           WHERE chain_id = $1 AND lower(contract) = lower($2)
+           ORDER BY created_at ASC LIMIT 1 FOR UPDATE`,
+          [legacy.chainId, legacy.contract],
+        );
+        const legacyRow = legacyResult.rows[0];
+        if (legacyRow?.physical_job_id === null) {
+          if (!legacyRow.job_id) throw new Error(`legacy job_id missing for ${legacy.chainId}:${legacy.contract}`);
+          const upgraded = await client.query<JobRow>(
+            `UPDATE kitchen_ingest_jobs SET
+               physical_job_id = job_id,
+               deployment_id = $3,
+               deployment_json = $4::jsonb,
+               capability_id = $5,
+               capability_version = $6,
+               token_standard = $7,
+               prepare_adapter_id = $8,
+               prepare_adapter_version = $9,
+               source_sequence = $10,
+               finality_policy_version = $11,
+               updated_at = to_timestamp($12 / 1000.0)
+             WHERE chain_id = $1 AND lower(contract) = lower($2) AND physical_job_id IS NULL
+             RETURNING ${JOB_COLUMNS}`,
+            [
+              legacy.chainId,
+              legacy.contract,
+              request.deployment.deployment_id.digest,
+              JSON.stringify(request.deployment),
+              request.capability.capabilityId,
+              request.capability.capabilityVersion,
+              request.tokenStandard,
+              request.capability.prepareAdapterId,
+              request.capability.prepareAdapterVersion,
+              request.capability.sourceSequence,
+              request.capability.finalityPolicyVersion,
+              nowMs,
+            ],
+          );
+          row = upgraded.rows[0];
+          if (row && legacyRow.source && legacyRow.order_id) {
+            await client.query(
+              `INSERT INTO kitchen_job_correlations (physical_job_id, source, correlation_id, created_at)
+               VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+              [row.physical_job_id, legacyRow.source, legacyRow.order_id, legacyRow.created_at],
+            );
+          }
+        } else if (
+          legacyRow &&
+          legacyRow.deployment_id === request.deployment.deployment_id.digest &&
+          legacyRow.capability_id === request.capability.capabilityId &&
+          legacyRow.capability_version === request.capability.capabilityVersion
+        ) {
+          // Backfill or another compatible writer upgraded the legacy row after
+          // the first canonical lookup. Join the same physical job.
+          row = legacyRow;
+        } else if (
+          legacyRow &&
+          authorityRow.phase !== "canonical" &&
+          authorityRow.phase !== "constrained"
+        ) {
+          await client.query("ROLLBACK");
+          return {
+            ok: false,
+            code: "capability_version_mismatch",
+            reasonClass: "operator_policy",
+            reason: "legacy-key authority cannot represent a second capability version before cutover",
+          };
+        }
+      }
+
+      if (!row) {
+        const physicalJobId = makePhysicalJobId({
+          deployment: request.deployment,
+          capabilityVersion: request.capability.capabilityVersion,
+        });
+        const inserted = await client.query<JobRow>(
+          `INSERT INTO kitchen_ingest_jobs (
+             chain_id, contract, job_id, physical_job_id, deployment_id, deployment_json,
+             capability_id, capability_version, token_standard, prepare_adapter_id,
+             prepare_adapter_version, source_sequence, finality_policy_version,
+             status, attempt, lease_epoch, created_at, updated_at
+           ) VALUES (
+             $1, $2, $3, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12,
+             'queued', 1, 0, to_timestamp($13 / 1000.0), to_timestamp($13 / 1000.0)
+           ) RETURNING ${JOB_COLUMNS}`,
+          [
+            legacy?.chainId ?? null,
+            legacy?.contract ?? null,
+            physicalJobId,
+            request.deployment.deployment_id.digest,
+            JSON.stringify(request.deployment),
+            request.capability.capabilityId,
+            request.capability.capabilityVersion,
+            request.tokenStandard,
+            request.capability.prepareAdapterId,
+            request.capability.prepareAdapterVersion,
+            request.capability.sourceSequence,
+            request.capability.finalityPolicyVersion,
+            nowMs,
+          ],
+        );
+        row = inserted.rows[0];
+        created = true;
+      } else if (row.status === "failed") {
+        const updated = await client.query<JobRow>(
+          `UPDATE kitchen_ingest_jobs SET status = 'queued', attempt = attempt + 1,
+             error_code = NULL, error_message = NULL, lease_owner = NULL, lease_until = NULL,
+             updated_at = to_timestamp($2 / 1000.0)
+           WHERE physical_job_id = $1 RETURNING ${JOB_COLUMNS}`,
+          [row.physical_job_id, nowMs],
+        );
+        row = updated.rows[0];
+      }
+      if (!row) throw new Error(`physical job admission failed for ${key}`);
+
+      if (request.correlation) {
+        await client.query(
+          `INSERT INTO kitchen_job_correlations (physical_job_id, source, correlation_id, created_at)
+           VALUES ($1, $2, $3, to_timestamp($4 / 1000.0))
+           ON CONFLICT DO NOTHING`,
+          [row.physical_job_id, request.correlation.source, request.correlation.correlationId, nowMs],
+        );
+      }
+      await client.query("COMMIT");
+      return { ok: true, job: await rowToRecord(row), created };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
     }
+  }
 
-    const jobId = makeIngestJobId(key);
-    const result = await this.pool.query<JobRow>(
-      `INSERT INTO kitchen_ingest_jobs
-         (chain_id, contract, job_id, order_id, source, status, contact_email, community_name, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, 'queued', $6, $7, to_timestamp($8 / 1000.0), to_timestamp($8 / 1000.0))
-       ON CONFLICT (chain_id, contract) DO NOTHING
-       RETURNING ${JOB_COLUMNS}`,
-      [
-        key.chainId,
-        key.contract,
-        jobId,
-        body.order_id,
-        body.source,
-        body.contact_email ?? null,
-        body.community_name ?? null,
-        nowMs,
-      ],
-    );
-
-    const inserted = result.rows[0];
-    if (inserted) return rowToRecord(inserted);
-
-    const raced = await this.get(key);
-    if (!raced) {
-      throw new Error(`ingest upsert lost race for ${collectionKeyId(key)}`);
-    }
-    return raced;
+  async upsertQueued(key: CollectionKey, body: IngestRequestBody, nowMs = Date.now()): Promise<IngestJobRecord> {
+    const deployment = await deploymentFromCollectionKey(key);
+    const capability = await resolvePreparationCapability({ network: deployment.network, tokenStandard: "erc721" });
+    const result = await this.admit({
+      deployment,
+      tokenStandard: "erc721",
+      capability,
+      correlation: { source: body.source, correlationId: body.order_id },
+    }, nowMs);
+    if (!result.ok) throw new Error(`${result.code}: ${result.reason}`);
+    return result.job;
   }
 
   async listByStatus(status: IngestJobStatus, limit = 50): Promise<IngestJobRecord[]> {
     const result = await this.pool.query<JobRow>(
-      `SELECT ${JOB_COLUMNS}
-       FROM kitchen_ingest_jobs
-       WHERE status = $1
-       ORDER BY created_at ASC
-       LIMIT $2`,
+      `SELECT ${JOB_COLUMNS} FROM kitchen_ingest_jobs
+       WHERE status = $1 AND physical_job_id IS NOT NULL ORDER BY created_at ASC LIMIT $2`,
       [status, limit],
     );
-    return result.rows.map(rowToRecord);
+    return Promise.all(result.rows.map(rowToRecord));
+  }
+
+  async claimQueued(args: {
+    workerId: string;
+    limit?: number;
+    leaseMs?: number;
+    nowMs?: number;
+  }): Promise<IngestJobRecord[]> {
+    const nowMs = args.nowMs ?? Date.now();
+    const leaseMs = args.leaseMs ?? 30_000;
+    const result = await this.pool.query<JobRow>(
+      `WITH candidates AS (
+         SELECT physical_job_id FROM kitchen_ingest_jobs
+         WHERE status = 'queued' AND physical_job_id IS NOT NULL
+           AND (lease_until IS NULL OR lease_until <= to_timestamp($1 / 1000.0))
+           AND EXISTS (
+             SELECT 1 FROM kitchen_job_identity_migration_state
+             WHERE singleton = true AND divergence = false
+           )
+         ORDER BY created_at ASC
+         FOR UPDATE SKIP LOCKED
+         LIMIT $2
+       )
+       UPDATE kitchen_ingest_jobs jobs
+       SET lease_owner = $3,
+           lease_until = to_timestamp(($1 + $4) / 1000.0),
+           lease_epoch = jobs.lease_epoch + 1,
+           updated_at = to_timestamp($1 / 1000.0)
+       FROM candidates
+       WHERE jobs.physical_job_id = candidates.physical_job_id
+       RETURNING ${JOB_COLUMNS.split(",").map((column) => `jobs.${column.trim()}`).join(", ")}`,
+      [nowMs, args.limit ?? 10, args.workerId, leaseMs],
+    );
+    return Promise.all(result.rows.map(rowToRecord));
   }
 
   async updateStatus(
-    key: CollectionKey,
+    physicalJobId: string,
     status: IngestJobStatus,
-    args?: { errorMessage?: string; nowMs?: number },
+    args?: {
+      errorCode?: string;
+      errorMessage?: string;
+      nowMs?: number;
+      releaseLease?: boolean;
+      expectedLease?: { owner: string; epoch: number };
+      expectedStatus?: IngestJobStatus;
+    },
   ): Promise<IngestJobRecord | undefined> {
     const nowMs = args?.nowMs ?? Date.now();
     const result = await this.pool.query<JobRow>(
-      `UPDATE kitchen_ingest_jobs
-       SET status = $3,
-           error_message = $4,
-           updated_at = to_timestamp($5 / 1000.0)
-       WHERE chain_id = $1 AND lower(contract) = lower($2)
+      `UPDATE kitchen_ingest_jobs SET status = $2, error_code = $3, error_message = $4,
+         lease_owner = CASE WHEN $6 THEN NULL ELSE lease_owner END,
+         lease_until = CASE WHEN $6 THEN NULL ELSE lease_until END,
+         updated_at = to_timestamp($5 / 1000.0)
+       WHERE physical_job_id = $1
+         AND ($9::text IS NULL OR status = $9)
+         AND (
+           $7::text IS NULL OR (
+             lease_owner = $7 AND lease_epoch = $8
+             AND lease_until > to_timestamp($5 / 1000.0)
+           )
+         )
        RETURNING ${JOB_COLUMNS}`,
-      [key.chainId, key.contract, status, args?.errorMessage ?? null, nowMs],
+      [
+        physicalJobId,
+        status,
+        args?.errorCode ?? null,
+        args?.errorMessage ?? null,
+        nowMs,
+        args?.releaseLease !== false,
+        args?.expectedLease?.owner ?? null,
+        args?.expectedLease?.epoch ?? null,
+        args?.expectedStatus ?? null,
+      ],
+    );
+    return result.rows[0] ? rowToRecord(result.rows[0]) : undefined;
+  }
+
+  async renewLease(args: {
+    physicalJobId: string;
+    lease: { owner: string; epoch: number };
+    leaseMs?: number;
+    nowMs?: number;
+  }): Promise<IngestJobRecord | undefined> {
+    const nowMs = args.nowMs ?? Date.now();
+    const result = await this.pool.query<JobRow>(
+      `UPDATE kitchen_ingest_jobs
+       SET lease_until = to_timestamp(($4 + $5) / 1000.0),
+           updated_at = to_timestamp($4 / 1000.0)
+       WHERE physical_job_id = $1 AND status = 'queued'
+         AND lease_owner = $2 AND lease_epoch = $3
+         AND lease_until > to_timestamp($4 / 1000.0)
+       RETURNING ${JOB_COLUMNS}`,
+      [args.physicalJobId, args.lease.owner, args.lease.epoch, nowMs, args.leaseMs ?? 30_000],
+    );
+    return result.rows[0] ? rowToRecord(result.rows[0]) : undefined;
+  }
+
+  async getMigrationAuthority(): Promise<MigrationAuthorityState> {
+    const result = await this.pool.query<{
+      phase: MigrationAuthorityState["phase"];
+      divergence: boolean;
+      reason: string | null;
+      updated_at: Date;
+    }>(
+      `SELECT phase, divergence, reason, updated_at
+       FROM kitchen_job_identity_migration_state WHERE singleton = true`,
     );
     const row = result.rows[0];
-    return row ? rowToRecord(row) : undefined;
+    if (!row) return { phase: "legacy", divergence: true, reason: "migration authority row missing", updatedAtMs: 0 };
+    return {
+      phase: row.phase,
+      divergence: row.divergence,
+      reason: row.reason ?? undefined,
+      updatedAtMs: row.updated_at.getTime(),
+    };
+  }
+
+  async listCorrelations(physicalJobId: string): Promise<JobCorrelation[]> {
+    const result = await this.pool.query<{
+      physical_job_id: string;
+      source: string;
+      correlation_id: string;
+      created_at: Date;
+    }>(
+      `SELECT physical_job_id, source, correlation_id, created_at
+       FROM kitchen_job_correlations WHERE physical_job_id = $1 ORDER BY created_at`,
+      [physicalJobId],
+    );
+    return result.rows.map((row) => ({
+      physicalJobId: row.physical_job_id,
+      source: row.source,
+      correlationId: row.correlation_id,
+      createdAtMs: row.created_at.getTime(),
+    }));
   }
 }
 
 export function kitchenDatabaseUrlFromEnv(): string | undefined {
   const direct = process.env.KITCHEN_DATABASE_URL?.trim();
   if (direct) return direct;
-
   const host = process.env.ENVIO_PG_HOST?.trim();
   const port = process.env.ENVIO_PG_PORT?.trim();
   const user = process.env.ENVIO_PG_USER?.trim();
   const password = process.env.ENVIO_PG_PASSWORD?.trim();
   const database = process.env.ENVIO_PG_DATABASE?.trim();
   if (!host || !user || !database) return undefined;
-
   const encodedPassword = password ? encodeURIComponent(password) : "";
   const auth = encodedPassword ? `${user}:${encodedPassword}` : user;
   return `postgresql://${auth}@${host}:${port ?? "5432"}/${database}`;
@@ -187,16 +671,11 @@ export function kitchenDatabaseUrlFromEnv(): string | undefined {
 function pgPoolConfig(connectionString: string): pg.PoolConfig {
   const sslMode = process.env.ENVIO_PG_SSL_MODE?.trim();
   const config: pg.PoolConfig = { connectionString };
-  if (sslMode && sslMode !== "disable") {
-    // Railway Postgres uses an internal CA; accept for belt-private networking.
-    config.ssl = { rejectUnauthorized: false };
-  }
+  if (sslMode && sslMode !== "disable") config.ssl = { rejectUnauthorized: false };
   return config;
 }
 
-export async function createPostgresIngestJobStore(
-  connectionString: string,
-): Promise<PostgresIngestJobStore> {
+export async function createPostgresIngestJobStore(connectionString: string): Promise<PostgresIngestJobStore> {
   const pool = new pg.Pool(pgPoolConfig(connectionString));
   await ensureKitchenIngestTable(pool);
   return new PostgresIngestJobStore(pool);

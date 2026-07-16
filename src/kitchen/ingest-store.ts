@@ -1,28 +1,190 @@
+import { resolvePreparationCapability } from "./capability.js";
+import {
+  collectionKeyFromDeployment,
+  collectionKeyId,
+  deploymentFromCollectionKey,
+  makePhysicalJobId,
+  physicalJobKey,
+} from "./normalize.js";
 import type {
+  AdmissionRequest,
+  AdmissionResult,
   CollectionKey,
   IngestJobRecord,
   IngestJobStatus,
   IngestRequestBody,
+  JobCorrelation,
+  MigrationAuthorityState,
 } from "./types.js";
-import { collectionKeyId, makeIngestJobId } from "./normalize.js";
 
 export interface IngestJobStorePort {
   get(key: CollectionKey): Promise<IngestJobRecord | undefined>;
+  getByPhysicalJobId(physicalJobId: string): Promise<IngestJobRecord | undefined>;
+  admit(request: AdmissionRequest, nowMs?: number): Promise<AdmissionResult>;
   upsertQueued(key: CollectionKey, body: IngestRequestBody, nowMs?: number): Promise<IngestJobRecord>;
   listByStatus(status: IngestJobStatus, limit?: number): Promise<IngestJobRecord[]>;
+  claimQueued(args: {
+    workerId: string;
+    limit?: number;
+    leaseMs?: number;
+    nowMs?: number;
+  }): Promise<IngestJobRecord[]>;
+  renewLease(args: {
+    physicalJobId: string;
+    lease: { owner: string; epoch: number };
+    leaseMs?: number;
+    nowMs?: number;
+  }): Promise<IngestJobRecord | undefined>;
   updateStatus(
-    key: CollectionKey,
+    physicalJobId: string,
     status: IngestJobStatus,
-    args?: { errorMessage?: string; nowMs?: number },
+    args?: {
+      errorCode?: string;
+      errorMessage?: string;
+      nowMs?: number;
+      releaseLease?: boolean;
+      expectedLease?: { owner: string; epoch: number };
+      expectedStatus?: IngestJobStatus;
+    },
   ): Promise<IngestJobRecord | undefined>;
+  getMigrationAuthority(): Promise<MigrationAuthorityState>;
+  listCorrelations(physicalJobId: string): Promise<JobCorrelation[]>;
 }
 
-/** In-memory store for tests and local dev without Postgres. */
+function cloneJob(job: IngestJobRecord): IngestJobRecord {
+  return structuredClone(job);
+}
+
+/** Atomic in-memory reference implementation used by hermetic tests and local development. */
 export class MemoryIngestJobStore implements IngestJobStorePort {
-  private readonly jobs = new Map<string, IngestJobRecord>();
+  private readonly jobsByKey = new Map<string, IngestJobRecord>();
+  private readonly jobsById = new Map<string, IngestJobRecord>();
+  private readonly legacyAliases = new Map<string, string>();
+  private readonly correlations = new Map<string, JobCorrelation>();
+  private authority: MigrationAuthorityState = {
+    phase: "canonical",
+    divergence: false,
+    updatedAtMs: 0,
+  };
+  private serial: Promise<void> = Promise.resolve();
+
+  private async atomic<A>(operation: () => A | Promise<A>): Promise<A> {
+    const previous = this.serial;
+    let release!: () => void;
+    this.serial = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
 
   async get(key: CollectionKey): Promise<IngestJobRecord | undefined> {
-    return this.jobs.get(collectionKeyId(key));
+    const physicalJobId = this.legacyAliases.get(collectionKeyId(key));
+    const record = physicalJobId ? this.jobsById.get(physicalJobId) : undefined;
+    return record ? cloneJob(record) : undefined;
+  }
+
+  async getByPhysicalJobId(physicalJobId: string): Promise<IngestJobRecord | undefined> {
+    const record = this.jobsById.get(physicalJobId);
+    return record ? cloneJob(record) : undefined;
+  }
+
+  async admit(request: AdmissionRequest, nowMs = Date.now()): Promise<AdmissionResult> {
+    return this.atomic(() => {
+      if (this.authority.divergence) {
+        return {
+          ok: false,
+          code: "migration_divergence",
+          reasonClass: "integrity_compromise",
+          reason: this.authority.reason ?? "legacy and canonical job identity diverged",
+        };
+      }
+      if (!request.capability.enabled || request.capability.health === "disabled") {
+        const unsupportedStandard = request.capability.reason.includes("generic Kitchen");
+        const unsupportedNetwork = request.capability.reason.includes("network ");
+        return {
+          ok: false,
+          code: unsupportedStandard
+            ? "unsupported_standard"
+            : unsupportedNetwork
+              ? "unsupported_network"
+              : "capability_disabled",
+          reasonClass: request.capability.reasonClass,
+          reason: request.capability.reason,
+        };
+      }
+      if (request.capability.health === "degraded") {
+        return {
+          ok: false,
+          code: "capability_degraded",
+          reasonClass: request.capability.reasonClass,
+          reason: request.capability.reason,
+        };
+      }
+
+      const canonicalKey = physicalJobKey({
+        deployment: request.deployment,
+        capabilityId: request.capability.capabilityId,
+        capabilityVersion: request.capability.capabilityVersion,
+      });
+      let record = this.jobsByKey.get(canonicalKey);
+      let created = false;
+
+      if (!record) {
+        const physicalJobId = makePhysicalJobId({
+          deployment: request.deployment,
+          capabilityVersion: request.capability.capabilityVersion,
+        });
+        record = {
+          physicalJobId,
+          jobId: physicalJobId,
+          deployment: request.deployment,
+          key: collectionKeyFromDeployment(request.deployment),
+          capabilityId: request.capability.capabilityId,
+          capabilityVersion: request.capability.capabilityVersion,
+          tokenStandard: request.tokenStandard,
+          prepareAdapterId: request.capability.prepareAdapterId,
+          prepareAdapterVersion: request.capability.prepareAdapterVersion,
+          sourceSequence: request.capability.sourceSequence,
+          finalityPolicyVersion: request.capability.finalityPolicyVersion,
+          status: "queued",
+          attempt: 1,
+          leaseEpoch: 0,
+          createdAtMs: nowMs,
+          updatedAtMs: nowMs,
+        };
+        this.jobsByKey.set(canonicalKey, record);
+        this.jobsById.set(physicalJobId, record);
+        if (record.key) this.legacyAliases.set(collectionKeyId(record.key), physicalJobId);
+        created = true;
+      } else if (record.status === "failed") {
+        record.status = "queued";
+        record.attempt += 1;
+        record.errorCode = undefined;
+        record.errorMessage = undefined;
+        record.leaseOwner = undefined;
+        record.leaseUntilMs = undefined;
+        record.updatedAtMs = nowMs;
+      }
+
+      if (request.correlation) {
+        const correlationKey = `${record.physicalJobId}:${request.correlation.source}:${request.correlation.correlationId}`;
+        if (!this.correlations.has(correlationKey)) {
+          this.correlations.set(correlationKey, {
+            physicalJobId: record.physicalJobId,
+            source: request.correlation.source,
+            correlationId: request.correlation.correlationId,
+            createdAtMs: nowMs,
+          });
+        }
+      }
+
+      return { ok: true, job: cloneJob(record), created };
+    });
   }
 
   async upsertQueued(
@@ -30,63 +192,158 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
     body: IngestRequestBody,
     nowMs = Date.now(),
   ): Promise<IngestJobRecord> {
-    const id = collectionKeyId(key);
-    const existing = this.jobs.get(id);
-    if (existing) {
-      if (existing.status !== "failed") return existing;
-      existing.status = "queued";
-      existing.orderId = body.order_id;
-      existing.source = body.source;
-      existing.contactEmail = body.contact_email;
-      existing.communityName = body.community_name;
-      existing.updatedAtMs = nowMs;
-      return existing;
-    }
-
-    const record: IngestJobRecord = {
-      jobId: makeIngestJobId(key),
-      key,
-      orderId: body.order_id,
-      source: body.source,
-      contactEmail: body.contact_email,
-      communityName: body.community_name,
-      status: "queued",
-      createdAtMs: nowMs,
-      updatedAtMs: nowMs,
-    };
-    this.jobs.set(id, record);
-    return record;
+    const deployment = await deploymentFromCollectionKey(key);
+    const capability = await resolvePreparationCapability({
+      network: deployment.network,
+      tokenStandard: "erc721",
+    });
+    const result = await this.admit(
+      {
+        deployment,
+        tokenStandard: "erc721",
+        capability,
+        correlation: { source: body.source, correlationId: body.order_id },
+      },
+      nowMs,
+    );
+    if (!result.ok) throw new Error(`${result.code}: ${result.reason}`);
+    return result.job;
   }
 
   async listByStatus(status: IngestJobStatus, limit = 50): Promise<IngestJobRecord[]> {
-    return [...this.jobs.values()]
+    return [...this.jobsById.values()]
       .filter((job) => job.status === status)
       .sort((a, b) => a.createdAtMs - b.createdAtMs)
-      .slice(0, limit);
+      .slice(0, limit)
+      .map(cloneJob);
+  }
+
+  async claimQueued(args: {
+    workerId: string;
+    limit?: number;
+    leaseMs?: number;
+    nowMs?: number;
+  }): Promise<IngestJobRecord[]> {
+    return this.atomic(() => {
+      if (this.authority.divergence) return [];
+      const nowMs = args.nowMs ?? Date.now();
+      const leaseMs = args.leaseMs ?? 30_000;
+      const claimed: IngestJobRecord[] = [];
+      for (const job of [...this.jobsById.values()].sort((a, b) => a.createdAtMs - b.createdAtMs)) {
+        if (claimed.length >= (args.limit ?? 10)) break;
+        if (job.status !== "queued") continue;
+        if (job.leaseUntilMs !== undefined && job.leaseUntilMs > nowMs) continue;
+        job.leaseOwner = args.workerId;
+        job.leaseUntilMs = nowMs + leaseMs;
+        job.leaseEpoch += 1;
+        job.updatedAtMs = nowMs;
+        claimed.push(cloneJob(job));
+      }
+      return claimed;
+    });
   }
 
   async updateStatus(
-    key: CollectionKey,
+    physicalJobId: string,
     status: IngestJobStatus,
-    args?: { errorMessage?: string; nowMs?: number },
+    args?: {
+      errorCode?: string;
+      errorMessage?: string;
+      nowMs?: number;
+      releaseLease?: boolean;
+      expectedLease?: { owner: string; epoch: number };
+      expectedStatus?: IngestJobStatus;
+    },
   ): Promise<IngestJobRecord | undefined> {
-    const record = this.jobs.get(collectionKeyId(key));
-    if (!record) return undefined;
-    record.status = status;
-    record.errorMessage = args?.errorMessage;
-    record.updatedAtMs = args?.nowMs ?? Date.now();
-    return record;
+    return this.atomic(() => {
+      const record = this.jobsById.get(physicalJobId);
+      if (!record) return undefined;
+      const nowMs = args?.nowMs ?? Date.now();
+      if (args?.expectedStatus !== undefined && record.status !== args.expectedStatus) {
+        return undefined;
+      }
+      if (
+        args?.expectedLease &&
+        (
+          record.leaseOwner !== args.expectedLease.owner ||
+          record.leaseEpoch !== args.expectedLease.epoch ||
+          record.leaseUntilMs === undefined ||
+          record.leaseUntilMs <= nowMs
+        )
+      ) {
+        return undefined;
+      }
+      record.status = status;
+      record.errorCode = args?.errorCode;
+      record.errorMessage = args?.errorMessage;
+      record.updatedAtMs = nowMs;
+      if (args?.releaseLease !== false) {
+        record.leaseOwner = undefined;
+        record.leaseUntilMs = undefined;
+      }
+      return cloneJob(record);
+    });
+  }
+
+  async renewLease(args: {
+    physicalJobId: string;
+    lease: { owner: string; epoch: number };
+    leaseMs?: number;
+    nowMs?: number;
+  }): Promise<IngestJobRecord | undefined> {
+    return this.atomic(() => {
+      const record = this.jobsById.get(args.physicalJobId);
+      const nowMs = args.nowMs ?? Date.now();
+      if (
+        !record ||
+        record.status !== "queued" ||
+        record.leaseOwner !== args.lease.owner ||
+        record.leaseEpoch !== args.lease.epoch ||
+        record.leaseUntilMs === undefined ||
+        record.leaseUntilMs <= nowMs
+      ) {
+        return undefined;
+      }
+      record.leaseUntilMs = nowMs + (args.leaseMs ?? 30_000);
+      record.updatedAtMs = nowMs;
+      return cloneJob(record);
+    });
+  }
+
+  async getMigrationAuthority(): Promise<MigrationAuthorityState> {
+    return { ...this.authority };
+  }
+
+  async listCorrelations(physicalJobId: string): Promise<JobCorrelation[]> {
+    return [...this.correlations.values()]
+      .filter((correlation) => correlation.physicalJobId === physicalJobId)
+      .map((correlation) => ({ ...correlation }));
+  }
+
+  setMigrationDivergenceForTests(reason?: string): void {
+    this.authority = {
+      phase: "parity",
+      divergence: true,
+      reason,
+      updatedAtMs: Date.now(),
+    };
   }
 
   markFailed(key: CollectionKey, nowMs = Date.now()): IngestJobRecord | undefined {
-    const record = this.jobs.get(collectionKeyId(key));
+    const physicalJobId = this.legacyAliases.get(collectionKeyId(key));
+    const record = physicalJobId ? this.jobsById.get(physicalJobId) : undefined;
     if (!record) return undefined;
     record.status = "failed";
     record.updatedAtMs = nowMs;
-    return record;
+    return cloneJob(record);
   }
 
   clearForTests(): void {
-    this.jobs.clear();
+    this.jobsByKey.clear();
+    this.jobsById.clear();
+    this.legacyAliases.clear();
+    this.correlations.clear();
+    this.authority = { phase: "canonical", divergence: false, updatedAtMs: 0 };
+    this.serial = Promise.resolve();
   }
 }

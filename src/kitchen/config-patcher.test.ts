@@ -43,14 +43,14 @@ describe("config-patcher", () => {
     expect(patched).toContain("0x1111111111111111111111111111111111111111");
   });
 
-  it("creates TrackedErc721 when missing on the chain", () => {
+  it("creates EthTrackedErc721 on Ethereum", () => {
     const { changed, configYaml } = patchConfigForKitchenIngest({
       configYaml: FIXTURE,
       key: { chainId: 1, contract: "0xED5Af388653567Af2F388e6224DcC93746104133" },
       label: "azuki_kitchen_e2e",
     });
     expect(changed).toBe(true);
-    expect(configYaml).toContain("TrackedErc721");
+    expect(configYaml).toContain("EthTrackedErc721");
     expect(configYaml.toLowerCase()).toContain("0xed5af388653567af2f388e6224dcc93746104133");
   });
 

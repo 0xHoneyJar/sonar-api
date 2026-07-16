@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MemoryIngestJobStore } from "./ingest-store.js";
 import { createCollectionRoutes } from "./routes.js";
+import { INJECTED_PREPARATION_RUNTIME } from "./preparation-runtime.js";
 import type { CollectionStatusReader } from "./status.js";
 
 /** Berachain fixture from tracked-erc721-bera-collections.test.ts */
@@ -13,23 +14,41 @@ const SERVICE_TOKEN = "test-service-token";
 function makeReader(snapshot: {
   holderCount: number;
   indexedAtMs?: number | null;
+  ready?: boolean;
 }): CollectionStatusReader {
   return {
     readIndexedSnapshot: async () => ({
       holderCount: snapshot.holderCount,
       indexedAtMs: snapshot.indexedAtMs ?? null,
+      ...((snapshot.ready ?? snapshot.holderCount > 0)
+        ? {
+            readiness: {
+              state: "ready" as const,
+              kind: "indexed_rows" as const,
+              observedAtMs: snapshot.indexedAtMs ?? Date.now(),
+            },
+          }
+        : {}),
     }),
   };
 }
 
 describe("kitchen collection routes", () => {
   const store = new MemoryIngestJobStore();
-  let app = createCollectionRoutes({ reader: makeReader({ holderCount: 0 }), store });
+  let app = createCollectionRoutes({
+    reader: makeReader({ holderCount: 0 }),
+    store,
+    preparationRuntime: INJECTED_PREPARATION_RUNTIME,
+  });
 
   beforeEach(() => {
     store.clearForTests();
     vi.stubEnv("SERVICE_TOKEN", SERVICE_TOKEN);
-    app = createCollectionRoutes({ reader: makeReader({ holderCount: 0 }), store });
+    app = createCollectionRoutes({
+      reader: makeReader({ holderCount: 0 }),
+      store,
+      preparationRuntime: INJECTED_PREPARATION_RUNTIME,
+    });
   });
 
   afterEach(() => {
@@ -63,6 +82,7 @@ describe("kitchen collection routes", () => {
         indexedAtMs: Date.parse("2026-07-01T12:00:00.000Z"),
       }),
       store,
+      preparationRuntime: INJECTED_PREPARATION_RUNTIME,
     });
 
     const res = await app.request(`/${FIXTURE_CHAIN_ID}/${FIXTURE_CONTRACT}/status`, {
@@ -95,7 +115,7 @@ describe("kitchen collection routes", () => {
     const queued = await ingest.json();
     expect(queued).toMatchObject({
       status: "queued",
-      job_id: `ingest_80094_${FIXTURE_CONTRACT.slice(2)}`,
+      job_id: expect.stringMatching(/^ingest_[0-9a-f]+_[0-9a-f]+$/),
     });
 
     const status = await app.request(`/${FIXTURE_CHAIN_ID}/${FIXTURE_CONTRACT}/status`, {
@@ -129,6 +149,29 @@ describe("kitchen collection routes", () => {
     expect(first.status).toBe(202);
     expect(second.status).toBe(202);
     await expect(first.json()).resolves.toEqual(await second.json());
+  });
+
+  it("preserves legacy trimming and excess-field compatibility", async () => {
+    const res = await app.request(`/${FIXTURE_CHAIN_ID}/${FIXTURE_CONTRACT}/ingest`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        order_id: "  legacy-order  ",
+        source: "  ordering-service  ",
+        ignored_legacy_extension: true,
+      }),
+    });
+    expect(res.status).toBe(202);
+    const body = await res.json() as { job_id: string };
+    await expect(store.listCorrelations(body.job_id)).resolves.toEqual([
+      expect.objectContaining({
+        source: "ordering-service",
+        correlationId: "legacy-order",
+      }),
+    ]);
   });
 
   it("returns failed when the ingest job failed", async () => {
@@ -189,6 +232,7 @@ describe("kitchen collection routes", () => {
         indexedAtMs: Date.parse("2026-07-01T12:00:00.000Z"),
       }),
       store,
+      preparationRuntime: INJECTED_PREPARATION_RUNTIME,
     });
 
     const res = await app.request(`/${FIXTURE_CHAIN_ID}/${FIXTURE_CONTRACT}/ingest`, {

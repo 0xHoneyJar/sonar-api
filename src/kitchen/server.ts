@@ -8,6 +8,7 @@ import {
   kitchenDatabaseUrlFromEnv,
 } from "./postgres-ingest-store.js";
 import { createKitchenApp } from "./routes.js";
+import { preparationRuntimeFromEnv } from "./preparation-runtime.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
 
 async function resolveIngestStore(): Promise<IngestJobStorePort> {
@@ -27,7 +28,8 @@ async function resolveIngestStore(): Promise<IngestJobStorePort> {
 export async function createKitchenServer() {
   const store = await resolveIngestStore();
   const reader = createHasuraCollectionStatusReader();
-  const app = createKitchenApp({ reader, store });
+  const preparationRuntime = preparationRuntimeFromEnv();
+  const app = createKitchenApp({ reader, store, preparationRuntime });
   return { app, store, reader };
 }
 
@@ -38,6 +40,10 @@ createKitchenServer()
     if (kitchenWorkerEnabled()) {
       startKitchenIngestWorker({ store, reader });
       console.log("kitchen ingest worker enabled");
+    } else if (process.env.KITCHEN_WORKER_ENABLED) {
+      console.warn(
+        "kitchen ingest worker requested but disabled: KITCHEN_PREPARATION_PORT must name an explicit preparation seam",
+      );
     }
     serve({ fetch: app.fetch, port }, () => {
       console.log(`kitchen-api listening on :${port}`);

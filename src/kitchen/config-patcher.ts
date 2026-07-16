@@ -52,9 +52,10 @@ export function appendTrackedErc721ToChainBlock(
   chainBlock: string,
   contract: `0x${string}`,
   label: string,
+  contractName = "TrackedErc721",
 ): string {
   const addressLine = `          - ${normalizeAddress(contract)} # ${label}`;
-  const trackedHeader = "      - name: TrackedErc721";
+  const trackedHeader = `      - name: ${contractName}`;
 
   if (chainBlock.includes(trackedHeader)) {
     const lines = chainBlock.split("\n");
@@ -62,7 +63,7 @@ export function appendTrackedErc721ToChainBlock(
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].includes(trackedHeader)) {
         for (let j = i + 1; j < lines.length; j++) {
-          if (/^      - name: /.test(lines[j]) && !lines[j].includes("TrackedErc721")) {
+          if (/^      - name: /.test(lines[j]) && !lines[j].includes(contractName)) {
             insertAt = j;
             break;
           }
@@ -86,7 +87,7 @@ export function appendTrackedErc721ToChainBlock(
 
   const block = [
     "      # Kitchen ingest — community onboarding ERC-721 holder tracking",
-    "      - name: TrackedErc721",
+    `      - name: ${contractName}`,
     "        address:",
     addressLine,
   ].join("\n");
@@ -97,6 +98,7 @@ export function patchConfigForKitchenIngest(args: {
   configYaml: string;
   key: CollectionKey;
   label?: string;
+  contractName?: "EthTrackedErc721" | "TrackedErc721";
 }): { changed: boolean; configYaml: string } {
   const chainBlock = extractChainBlock(args.configYaml, args.key.chainId);
   if (!chainBlock) {
@@ -110,7 +112,13 @@ export function patchConfigForKitchenIngest(args: {
     args.label?.trim() ||
       `kitchen_${args.key.chainId}_${args.key.contract.slice(2, 10)}`,
   );
-  const patchedBlock = appendTrackedErc721ToChainBlock(chainBlock, args.key.contract, label);
+  const contractName = args.contractName ?? (args.key.chainId === 1 ? "EthTrackedErc721" : "TrackedErc721");
+  const patchedBlock = appendTrackedErc721ToChainBlock(
+    chainBlock,
+    args.key.contract,
+    label,
+    contractName,
+  );
   const lines = args.configYaml.split("\n");
   let start = -1;
   let end = lines.length;

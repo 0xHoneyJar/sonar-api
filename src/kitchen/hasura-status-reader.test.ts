@@ -27,6 +27,11 @@ describe("createHasuraCollectionStatusReader", () => {
     expect(snapshot).toEqual({
       holderCount: 5,
       indexedAtMs: 1700000000 * 1000,
+      readiness: {
+        state: "ready",
+        kind: "indexed_rows",
+        observedAtMs: 1700000000 * 1000,
+      },
     });
   });
 
@@ -47,6 +52,10 @@ describe("createHasuraCollectionStatusReader", () => {
       contract: "0x0000000000000000000000000000000000000001",
     });
 
-    expect(snapshot).toEqual({ holderCount: 3, indexedAtMs: null });
+    expect(snapshot).toMatchObject({
+      holderCount: 3,
+      indexedAtMs: null,
+      readiness: { state: "ready", kind: "indexed_rows" },
+    });
   });
 });

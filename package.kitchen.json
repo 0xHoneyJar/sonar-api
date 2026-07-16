@@ -3,7 +3,9 @@
   "type": "module",
   "private": true,
   "dependencies": {
+    "@freeside/collection-protocol": "file:./vendor/collection-protocol/freeside-collection-protocol-1.0.0.tgz",
     "@hono/node-server": "^1.14.4",
+    "effect": "^3.21.0",
     "hono": "^4.12.23",
     "pg": "^8.16.0"
   }

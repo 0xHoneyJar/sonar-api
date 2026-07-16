@@ -91,7 +91,15 @@ export function createHasuraCollectionStatusReader(args?: {
           ? toNumber(lastTransfer) * 1000
           : null;
 
-      return { holderCount, indexedAtMs };
+      return {
+        holderCount,
+        indexedAtMs,
+        readiness: {
+          state: "ready",
+          kind: "indexed_rows",
+          observedAtMs: indexedAtMs ?? Date.now(),
+        },
+      };
     },
   };
 }
