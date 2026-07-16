@@ -31,6 +31,7 @@ import {
   ERC1155_SUPPORTS_CALLDATA,
   ERC721_SUPPORTS_CALLDATA,
   isEmptyBytecode,
+  isValidStorageWord,
   isZeroStorageWord,
 } from "./abi.js";
 import { abortOrDeadline } from "./abort.js";
@@ -289,6 +290,9 @@ export const createEvmNftProbeAdapter = (
         return mapRpcFailure(storageExit.left);
       }
       const storageWord = storageExit.right;
+      if (!isValidStorageWord(storageWord)) {
+        return canonicalUnavailable("rpc_invalid_response");
+      }
       if (!isZeroStorageWord(storageWord)) {
         const implAddr = addressFromStorageWord(storageWord);
         if (implAddr === undefined) {

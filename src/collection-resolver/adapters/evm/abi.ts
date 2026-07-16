@@ -101,6 +101,11 @@ export const isZeroStorageWord = (word: `0x${string}`): boolean => {
   return body.length === 64 && /^0+$/.test(body);
 };
 
+export const isValidStorageWord = (word: string): boolean => {
+  const body = strip0x(word);
+  return body.length === 64 && /^[0-9a-fA-F]{64}$/.test(body);
+};
+
 export const isEmptyBytecode = (code: string): boolean => {
   const body = strip0x(code);
   return body.length === 0 || /^0*$/.test(body);
