@@ -962,7 +962,7 @@ describe("CR-107 coalesce follower work accounting", () => {
     expect(leaderTerminal?.adapter_attempts).toBe(1);
   });
 
-  it("classifies a follower deadline response as partial", async () => {
+  it("classifies a distinct short-budget demand as partial", async () => {
     const processClock = createProcessMonotonicClock();
     const ethOnly = expectSuccess(
       decodeCapabilityRegistrySnapshot(withNetworks([ethereumMainnetCapability()], "3")),
@@ -1009,14 +1009,19 @@ describe("CR-107 coalesce follower work accounting", () => {
 
     expect(follower.diagnostics.partial).toBe(true);
     await leader;
-    const followerTerminals = observer
+    const shortBudgetTerminals = observer
       .events()
-      .filter((event) => event.kind === "resolver_terminal" && event.role === "follower");
-    expect(followerTerminals).toHaveLength(1);
-    expect(followerTerminals[0]).toMatchObject({
+      .filter(
+        (event) =>
+          event.kind === "resolver_terminal" &&
+          event.role === "leader" &&
+          event.terminal_outcome === "partial",
+      );
+    expect(shortBudgetTerminals).toHaveLength(1);
+    expect(shortBudgetTerminals[0]).toMatchObject({
       terminal_outcome: "partial",
       candidate_count_bucket: "0",
-      adapter_attempts: 0,
+      adapter_attempts: 1,
     });
   });
 });
