@@ -58,7 +58,10 @@ implementation issues must not be marked ready until the closure conditions in
 
 EVM belt networks present in `config.yaml` at audit: **1, 42161, 7777777, 10,
 8453, 80094**. **Robinhood mainnet chain ID
-[`4663`](https://docs.robinhood.com/chain/connecting/) is absent.**
+[`4663`](https://docs.robinhood.com/chain/connecting/) is absent.** The
+external Robinhood reference was accessed on 2026-07-16; it is a mutable live
+source, so future acceptance must reverify the chain ID rather than inherit
+this observation.
 
 ### 2.2 Required by plan; not present on `main`
 
@@ -229,7 +232,7 @@ Kitchen dual-read divergence and trust-stream producer failure.
 
 | Claim | Path / proof |
 |---|---|
-| HEAD = sprint baseline sonar-api | `git rev-parse HEAD` → `a68bbae0…` |
+| Audited worktree revision = sprint baseline sonar-api | At the audit checkout, `git rev-parse HEAD` → `a68bbae0bf04e281a9b6b46fc3812c9dbb471afa` |
 | Kitchen EVM-only key + order_id | `src/kitchen/types.ts`, `migrations/kitchen_ingest_jobs.sql` |
 | Unconditional TrackedErc721 patch | `src/kitchen/config-patcher.ts` (`appendTrackedErc721ToChainBlock`) |
 | No collection resolver package | no `src/resolver*`; `packages/protocol/beacon.yaml` only |
