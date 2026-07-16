@@ -16,6 +16,7 @@ export type MetadataFailureReason =
   | "unsupported_scheme"
   | "ambiguous_host"
   | "dns_resolution_failed"
+  | "dns_timeout"
   | "denied_address"
   | "denied_port"
   | "invalid_redirect"

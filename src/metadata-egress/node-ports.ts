@@ -6,19 +6,46 @@
  * after the address is pinned for a hop.
  */
 
-import * as dns from "node:dns/promises";
+import { Resolver } from "node:dns/promises";
 import * as http from "node:http";
 import * as https from "node:https";
 import type { DnsAnswer, DnsPort, PinnedTransportPort } from "./ports.js";
 import type { TransportRequest, TransportResponse } from "./types.js";
 
 export const createNodeDnsPort = (): DnsPort => ({
-  lookup: async (hostname: string): Promise<ReadonlyArray<DnsAnswer>> => {
-    const results = await dns.lookup(hostname, { all: true, verbatim: true });
-    return results.map((entry) => ({
-      address: entry.address,
-      family: entry.family === 6 ? "ipv6" : "ipv4",
-    }));
+  lookup: async (
+    hostname: string,
+    options: { readonly signal: AbortSignal },
+  ): Promise<ReadonlyArray<DnsAnswer>> => {
+    const resolver = new Resolver();
+    const cancel = () => resolver.cancel();
+    if (options.signal.aborted) {
+      cancel();
+      throw new Error("DNS lookup aborted");
+    }
+    options.signal.addEventListener("abort", cancel, { once: true });
+    try {
+      const [ipv4, ipv6] = await Promise.allSettled([
+        resolver.resolve4(hostname),
+        resolver.resolve6(hostname),
+      ]);
+      if (options.signal.aborted) throw new Error("DNS lookup aborted");
+      const answers: DnsAnswer[] = [];
+      if (ipv4.status === "fulfilled") {
+        answers.push(
+          ...ipv4.value.map((address): DnsAnswer => ({ address, family: "ipv4" })),
+        );
+      }
+      if (ipv6.status === "fulfilled") {
+        answers.push(
+          ...ipv6.value.map((address): DnsAnswer => ({ address, family: "ipv6" })),
+        );
+      }
+      if (answers.length === 0) throw new Error("DNS resolution failed");
+      return answers;
+    } finally {
+      options.signal.removeEventListener("abort", cancel);
+    }
   },
 });
 

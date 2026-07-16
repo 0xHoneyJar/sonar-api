@@ -46,8 +46,8 @@ export interface RemoteMetadataEnrichment {
   readonly metadata_quality: CandidateMetadataQuality;
   /**
    * Trusted/renderable image URL — always undefined from remote metadata JSON.
-   * Direct `collection_image` fetches also leave this undefined; validated
-   * bytes live on `retrieval` and any pointer is `untrusted_image_ref`.
+   * Direct validated image fetches also leave this undefined; bytes live on
+   * `retrieval` and any pointer is `untrusted_image_ref`.
    */
   readonly image: undefined;
   readonly untrusted_image_ref: UntrustedImageRef | undefined;
@@ -220,7 +220,10 @@ export const enrichCandidateFromRemoteMetadata = async (input: {
     };
   }
 
-  if (purpose === "collection_image") {
+  if (
+    purpose === "collection_image" ||
+    (purpose === "report_enrichment" && retrieval.content_type === "image/png")
+  ) {
     // Bytes were fetched and positively validated through the boundary.
     // Still do not expose a trusted renderable URL — Dashboard must use the
     // authenticated image proxy / a subsequent policy-bound path.

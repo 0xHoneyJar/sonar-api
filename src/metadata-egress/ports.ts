@@ -18,7 +18,25 @@ export interface DnsAnswer {
 }
 
 export interface DnsPort {
-  readonly lookup: (hostname: string) => Promise<ReadonlyArray<DnsAnswer>>;
+  /**
+   * Resolve one hostname. Implementations MUST stop underlying lookup work
+   * when `signal` aborts; retrieval races this port against a bounded DNS
+   * deadline and must not leave resolver work orphaned after returning.
+   */
+  readonly lookup: (
+    hostname: string,
+    options: { readonly signal: AbortSignal },
+  ) => Promise<ReadonlyArray<DnsAnswer>>;
+}
+
+/** Monotonic clock used only for absolute egress phase deadlines. */
+export interface MetadataEgressClock {
+  readonly nowMs: () => number;
+}
+
+/** Scheduler sharing the injected clock's absolute millisecond coordinate. */
+export interface MetadataEgressDeadlineScheduler {
+  readonly scheduleAt: (at_ms: number, callback: () => void) => () => void;
 }
 
 export interface PinnedTransportPort {

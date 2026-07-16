@@ -76,7 +76,14 @@ export {
   sha256Hex,
 } from "./provenance.js";
 
-export type { DnsAnswer, DnsPort, MetadataEgressPorts, PinnedTransportPort } from "./ports.js";
+export type {
+  DnsAnswer,
+  DnsPort,
+  MetadataEgressClock,
+  MetadataEgressDeadlineScheduler,
+  MetadataEgressPorts,
+  PinnedTransportPort,
+} from "./ports.js";
 
 export { retrieveMetadata, type RetrieveMetadataDeps } from "./retrieve.js";
 

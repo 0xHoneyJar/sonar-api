@@ -2,6 +2,7 @@
 
 export interface MetadataEgressLimits {
   readonly max_redirects: number;
+  readonly dns_timeout_ms: number;
   readonly connect_timeout_ms: number;
   readonly header_timeout_ms: number;
   readonly body_timeout_ms: number;
@@ -19,6 +20,7 @@ export const DEFAULT_ALLOWED_PORTS: ReadonlyArray<number> = [80, 443];
 
 export const DEFAULT_METADATA_EGRESS_LIMITS: MetadataEgressLimits = {
   max_redirects: 3,
+  dns_timeout_ms: 2_000,
   connect_timeout_ms: 3_000,
   header_timeout_ms: 5_000,
   body_timeout_ms: 10_000,

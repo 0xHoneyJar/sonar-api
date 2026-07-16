@@ -352,6 +352,75 @@ describe("CR-004 retrieveMetadata hostile fixtures", () => {
     }
   });
 
+  it("bounds stalled DNS, aborts resolver work, and never reaches transport", async () => {
+    let scheduledAt: number | undefined;
+    let fireDeadline: (() => void) | undefined;
+    let dnsActive = false;
+    let dnsAborted = false;
+    let transportCalls = 0;
+    const resultPromise = retrieveMetadata(
+      {
+        uri: "https://stalled-dns.example.test/meta.json",
+        purpose: "collection_metadata",
+        now: fixedNow,
+      },
+      {
+        ports: {
+          dns: {
+            lookup: (_hostname, options) =>
+              new Promise((_, reject) => {
+                dnsActive = true;
+                options.signal.addEventListener(
+                  "abort",
+                  () => {
+                    dnsActive = false;
+                    dnsAborted = true;
+                    reject(new Error("cancelled by DNS deadline"));
+                  },
+                  { once: true },
+                );
+              }),
+          },
+          transport: {
+            exchange: async () => {
+              transportCalls += 1;
+              throw new Error("transport must not run after DNS timeout");
+            },
+          },
+        },
+        limits: {
+          ...DEFAULT_METADATA_EGRESS_LIMITS,
+          dns_timeout_ms: 25,
+        },
+        clock: { nowMs: () => 1_000 },
+        scheduler: {
+          scheduleAt: (at_ms, callback) => {
+            scheduledAt = at_ms;
+            fireDeadline = callback;
+            return () => {
+              fireDeadline = undefined;
+            };
+          },
+        },
+      },
+    );
+
+    await Promise.resolve();
+    expect(dnsActive).toBe(true);
+    expect(scheduledAt).toBe(1_025);
+    expect(fireDeadline).toBeDefined();
+    fireDeadline!();
+    const result = await resultPromise;
+    expect(result.outcome).toBe("partial");
+    if (result.outcome === "partial") {
+      expect(result.reason).toBe("dns_timeout");
+      expect(result.safe_message).toBe("DNS resolution deadline exceeded");
+    }
+    expect(dnsAborted).toBe(true);
+    expect(dnsActive).toBe(false);
+    expect(transportCalls).toBe(0);
+  });
+
   it("never calls transport for 6to4 relay anycast resolutions", async () => {
     let transportCalls = 0;
     const ports = createHermeticPorts({
@@ -1738,6 +1807,38 @@ describe("CR-004 enrichCandidateFromRemoteMetadata", () => {
     expect(enrichment.image).toBeUndefined();
     expect(enrichment.untrusted_image_ref?.safe_uri).toBe("https://img.example.test/img.png");
     expect(enrichment.diagnostics.pinned_address).toBe(PUBLIC_V4);
+    expect(enrichment.retrieval.outcome).toBe("ok");
+  });
+
+  it("returns validated PNG report enrichment as an image result, not JSON failure", async () => {
+    const ports = createHermeticPorts({
+      dns: {
+        "report-image.example.test": [{ address: PUBLIC_V4, family: "ipv4" }],
+      },
+      transport: {
+        "https://report-image.example.test/img.png": {
+          kind: "response",
+          status: 200,
+          headers: { "content-type": "image/png" },
+          body: FIXTURE_PNG,
+        },
+      },
+    });
+    const report = createReportMetadataWorkerPort({ ports });
+    const enrichment = await report.enrich({
+      uri: "https://report-image.example.test/img.png",
+      purpose: "report_enrichment",
+      now: fixedNow,
+    });
+    expect(enrichment.metadata_quality).toBe("external_pointer");
+    expect(enrichment.name).toBeUndefined();
+    expect(enrichment.symbol).toBeUndefined();
+    expect(enrichment.image).toBeUndefined();
+    expect(enrichment.untrusted_image_ref?.safe_uri).toBe(
+      "https://report-image.example.test/img.png",
+    );
+    expect(enrichment.diagnostics.content_type).toBe("image/png");
+    expect(enrichment.diagnostics.reason).toBeUndefined();
     expect(enrichment.retrieval.outcome).toBe("ok");
   });
 });

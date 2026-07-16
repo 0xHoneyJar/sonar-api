@@ -50,7 +50,8 @@ const hostPortKey = (request: TransportRequest): string =>
 export const createScriptedDnsPort = (table: ScriptedDns): DnsPort => {
   const cursors = new Map<string, number>();
   return {
-    lookup: async (hostname: string) => {
+    lookup: async (hostname: string, options: { readonly signal: AbortSignal }) => {
+      if (options.signal.aborted) throw new Error("hermetic DNS lookup aborted");
       const key = hostname.toLowerCase();
       const entry = table[key];
       if (entry === undefined) {
@@ -60,8 +61,10 @@ export const createScriptedDnsPort = (table: ScriptedDns): DnsPort => {
         const index = cursors.get(key) ?? 0;
         const answers = entry.sequence[Math.min(index, entry.sequence.length - 1)]!;
         cursors.set(key, index + 1);
+        if (options.signal.aborted) throw new Error("hermetic DNS lookup aborted");
         return answers;
       }
+      if (options.signal.aborted) throw new Error("hermetic DNS lookup aborted");
       return entry;
     },
   };

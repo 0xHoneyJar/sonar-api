@@ -24,7 +24,11 @@ import {
   DEFAULT_METADATA_EGRESS_LIMITS,
   type MetadataEgressLimits,
 } from "./limits.js";
-import type { MetadataEgressPorts } from "./ports.js";
+import type {
+  MetadataEgressClock,
+  MetadataEgressDeadlineScheduler,
+  MetadataEgressPorts,
+} from "./ports.js";
 import {
   buildRequestedProvenance,
   redactUri,
@@ -43,6 +47,17 @@ import type {
 import { isUrlPolicyError, parseMetadataUrl } from "./url-policy.js";
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+const PROCESS_CLOCK: MetadataEgressClock = {
+  nowMs: () => performance.now(),
+};
+
+const PROCESS_SCHEDULER: MetadataEgressDeadlineScheduler = {
+  scheduleAt: (at_ms, callback) => {
+    const handle = setTimeout(callback, Math.max(0, at_ms - performance.now()));
+    return () => clearTimeout(handle);
+  },
+};
 
 const partial = (
   reason: MetadataFailureReason,
@@ -126,6 +141,9 @@ const resolveTarget = async (input: {
   readonly rawUrl: string;
   readonly ports: MetadataEgressPorts;
   readonly allowed_ports: ReadonlyArray<number>;
+  readonly dns_timeout_ms: number;
+  readonly clock: MetadataEgressClock;
+  readonly scheduler: MetadataEgressDeadlineScheduler;
 }): Promise<
   | { readonly ok: true; readonly target: ValidatedTarget }
   | { readonly ok: false; readonly reason: MetadataFailureReason; readonly safe_message: string }
@@ -161,18 +179,62 @@ const resolveTarget = async (input: {
     };
   }
 
-  let answers;
-  try {
-    answers = await input.ports.dns.lookup(parsed.hostname);
-  } catch {
-    return {
-      ok: false,
-      reason: "dns_resolution_failed",
-      safe_message: "DNS resolution failed",
+  const controller = new AbortController();
+  const deadlineAt = input.clock.nowMs() + Math.max(0, input.dns_timeout_ms);
+  const answers = await new Promise<
+    | { readonly ok: true; readonly answers: ReadonlyArray<{ address: string; family: AddressFamily }> }
+    | { readonly ok: false; readonly reason: MetadataFailureReason; readonly safe_message: string }
+  >((resolve) => {
+    let settled = false;
+    let cancelDeadline: () => void = () => undefined;
+    const finish = (
+      result:
+        | { readonly ok: true; readonly answers: ReadonlyArray<{ address: string; family: AddressFamily }> }
+        | { readonly ok: false; readonly reason: MetadataFailureReason; readonly safe_message: string },
+    ) => {
+      if (settled) return;
+      settled = true;
+      cancelDeadline();
+      resolve(result);
     };
-  }
 
-  const pinned = selectPinnedPublicAddress(answers);
+    let work: Promise<ReadonlyArray<{ address: string; family: AddressFamily }>>;
+    try {
+      work = input.ports.dns.lookup(parsed.hostname, {
+        signal: controller.signal,
+      });
+    } catch {
+      finish({
+        ok: false,
+        reason: "dns_resolution_failed",
+        safe_message: "DNS resolution failed",
+      });
+      return;
+    }
+    cancelDeadline = input.scheduler.scheduleAt(deadlineAt, () => {
+      controller.abort("dns_timeout");
+      finish({
+        ok: false,
+        reason: "dns_timeout",
+        safe_message: "DNS resolution deadline exceeded",
+      });
+    });
+    void work.then(
+      (resolved) => finish({ ok: true, answers: resolved }),
+      () =>
+        finish({
+          ok: false,
+          reason: controller.signal.aborted ? "dns_timeout" : "dns_resolution_failed",
+          safe_message: controller.signal.aborted
+            ? "DNS resolution deadline exceeded"
+            : "DNS resolution failed",
+        }),
+    );
+  });
+
+  if (!answers.ok) return answers;
+
+  const pinned = selectPinnedPublicAddress(answers.answers);
   if (!pinned.ok) {
     return { ok: false, reason: pinned.reason, safe_message: pinned.safe_message };
   }
@@ -233,6 +295,9 @@ const redactFinal = (href: string) => redactUri(href);
 export interface RetrieveMetadataDeps {
   readonly ports: MetadataEgressPorts;
   readonly limits?: MetadataEgressLimits;
+  /** Inject both against the same monotonic coordinate for hermetic deadlines. */
+  readonly clock?: MetadataEgressClock;
+  readonly scheduler?: MetadataEgressDeadlineScheduler;
   /**
    * Optional caller header map — always sanitized to empty; present so tests
    * can prove ambient/credential headers are never forwarded.
@@ -248,12 +313,25 @@ export const retrieveMetadata = async (
   deps: RetrieveMetadataDeps,
 ): Promise<MetadataRetrievalResult> => {
   const limits = deps.limits ?? DEFAULT_METADATA_EGRESS_LIMITS;
+  const clock = deps.clock ?? PROCESS_CLOCK;
+  const scheduler = deps.scheduler ?? PROCESS_SCHEDULER;
   assertServerOnlyMetadataEgress();
   const retrievedAt = nowIso(request);
   const baseProvenance = buildRequestedProvenance({
     raw_uri: request.uri,
     retrieved_at: retrievedAt,
   });
+
+  if ((deps.clock === undefined) !== (deps.scheduler === undefined)) {
+    return partial(
+      "internal_misconfiguration",
+      "metadata egress clock and scheduler must be injected together",
+      {
+        ...baseProvenance,
+        redirect_count: 0,
+      },
+    );
+  }
 
   // Caller ambient headers are accepted only to prove they are discarded.
   sanitizeCallerHeaders(deps.ambient_headers);
@@ -284,6 +362,9 @@ export const retrieveMetadata = async (
       rawUrl: currentUrl,
       ports: deps.ports,
       allowed_ports: limits.allowed_ports,
+      dns_timeout_ms: limits.dns_timeout_ms,
+      clock,
+      scheduler,
     });
     if (!resolved.ok) {
       const final = redactFinal(currentUrl);
