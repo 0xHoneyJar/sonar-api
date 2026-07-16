@@ -166,7 +166,7 @@ describe("CR-102 deadlines and late-result suppression", () => {
       max_searched_networks: 1,
       max_concurrent_probes: 1,
     };
-    const { deps } = createHermeticBoundedDeps({
+    const { deps, adapter } = createHermeticBoundedDeps({
       clock,
       config,
       script: SCRIPT_EVM_ERC721,
@@ -672,6 +672,46 @@ describe("CR-102 cache separation and invalidation", () => {
     expect(adapter.calls().length).toBeGreaterThan(coldCalls);
   });
 
+  it("reprobes a warm negative entry after adapter policy rotation", () => {
+    const firstConfig = {
+      ...defaultBoundedResolverConfig(),
+      max_searched_networks: 1,
+      max_concurrent_probes: 1,
+      adapter_policy_version: "resolver-adapter-policy.v1",
+    };
+    const rotatedConfig = {
+      ...firstConfig,
+      adapter_policy_version: "resolver-adapter-policy.v2",
+    };
+    const { deps, adapter } = createHermeticBoundedDeps({
+      config: firstConfig,
+      script: SCRIPT_ZERO_CANDIDATES,
+    });
+    const first = expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "negative-policy-cold"),
+        config: firstConfig,
+        deps,
+      }),
+    );
+    expect(first.candidates).toHaveLength(0);
+    const coldCalls = adapter.calls().length;
+
+    const rotated = expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(
+          MULTI_CHAIN_EVM_ADDRESS,
+          "negative-policy-rotated",
+        ),
+        config: rotatedConfig,
+        deps,
+      }),
+    );
+    expect(rotated.candidates).toHaveLength(0);
+    expect(rotated.diagnostics.cache.negative_hit).toBe(false);
+    expect(adapter.calls().length).toBeGreaterThan(coldCalls);
+  });
+
   it("strict-decodes candidates returned exclusively from warm cache", () => {
     const config = {
       ...defaultBoundedResolverConfig(),
@@ -923,6 +963,7 @@ describe("CR-102 cache separation and invalidation", () => {
           identifier_format: "evm_address",
           identifier_structural_digest: sha256Canonical("id"),
           capability_snapshot_version: loadHermeticCapabilitySnapshot().version,
+          adapter_policy_version: "resolver-adapter-policy.v1",
           searched_coverage: ["eip155:1"],
           claims_beyond_coverage: false,
         },
@@ -1507,7 +1548,7 @@ describe("CR-102 revision-2 concurrent leader/follower coalesce", () => {
     );
   });
 
-  it("follower with short deadline gets typed partial timeout, not empty fabrication while leader continues", async () => {
+  it("requests with different deadline budgets do not coalesce", async () => {
     const processClock = createProcessMonotonicClock();
     const slowConfig = {
       ...defaultBoundedResolverConfig(),
@@ -1521,7 +1562,7 @@ describe("CR-102 revision-2 concurrent leader/follower coalesce", () => {
       global_deadline_ms: 15,
       per_network_deadline_ms: 10,
     };
-    const { deps } = createHermeticBoundedDeps({
+    const { deps, adapter } = createHermeticBoundedDeps({
       processClock,
       config: slowConfig,
       script: SCRIPT_EVM_ERC721,
@@ -1543,14 +1584,18 @@ describe("CR-102 revision-2 concurrent leader/follower coalesce", () => {
         deps,
       }),
     );
-    // Follower must not invent empty success while leader is still working.
+    // The short-budget request must execute under its own policy rather than
+    // inheriting the long-budget leader's result.
     expect(follower.diagnostics.partial).toBe(true);
-    expect(follower.diagnostics.cache.coalesced).toBe(true);
+    expect(follower.diagnostics.cache.coalesced).toBe(false);
     expect(follower.candidates).toHaveLength(0);
-    expect(follower.diagnostics.entries.some((e) => e.code.includes("coalesce"))).toBe(true);
+    expect(
+      follower.diagnostics.entries.some((e) => e.code.includes("coalesce")),
+    ).toBe(false);
 
     const leader = await leaderP;
     expect(leader.candidates.length).toBeGreaterThan(0);
+    expect(adapter.externalStarts()).toBe(2);
   });
 
   it("releases a follower with a safe typed result when the leader defects", async () => {

@@ -738,12 +738,14 @@ export const resolveBounded = (input: {
       identifier_format: identifier.format,
       identifier_structural_digest: structuralDigest,
       capability_snapshot_version: input.deps.capabilitySnapshot.version,
+      adapter_policy_version: config.adapter_policy_version,
       searched_coverage: coverage,
       claims_beyond_coverage: false,
     };
     const negativeKey = yield* digestNegativeBinding(negativeBinding);
     const scopeDigest = sha256Canonical(request.caller.authorization_scope);
-    const coalesceKey = `demand:${negativeKey}:auth:${scopeDigest}`;
+    const configDigest = sha256Canonical(config);
+    const coalesceKey = `demand:${negativeKey}:auth:${scopeDigest}:config:${configDigest}`;
     const globalDeadlineAt = started + config.global_deadline_ms;
 
     const coalesce = yield* input.deps.coalesce.begin(coalesceKey);
