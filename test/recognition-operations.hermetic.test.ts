@@ -792,6 +792,15 @@ describe("CR-107 live capability snapshot disable", () => {
     const response = await inFlight;
     expect(response.capability_snapshot_version.registry_sequence).toBe("3");
     expect(response.candidates.length).toBeGreaterThan(0);
+    expect(
+      observer.events().some(
+        (event) =>
+          event.kind === "network_outcome" && event.network_key === "eip155:1",
+      ),
+    ).toBe(true);
+    expect(
+      observer.dropped().some((drop) => drop.reason === "network_key_refused"),
+    ).toBe(false);
 
     // Subsequent request uses the new disabled catalog.
     observer.clear();

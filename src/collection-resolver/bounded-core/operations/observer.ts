@@ -69,7 +69,9 @@ export const liveAllowedNetworkKeys = (
 ): AllowedNetworkKeySource => {
   // Retain registry-authorized keys observed by in-flight requests across a
   // live transition so their terminal network events remain attributable.
-  const observed = new Set<string>();
+  // Seed synchronously: the first network event may arrive only after that
+  // network has been removed from the live snapshot.
+  const observed = new Set<string>(networkKeysFromCapabilitySnapshot(current()));
   return {
     currentKeys: () => {
       for (const key of networkKeysFromCapabilitySnapshot(current())) {
