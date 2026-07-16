@@ -33,6 +33,7 @@ export {
 } from "./candidate.js";
 export {
   collectionProtocolFixturesRoot,
+  verifyVendoredCollectionProtocolDigest,
   decodeCollectionCandidate,
   decodeCollectionDeploymentRef,
   makeCollectionDeploymentRef,

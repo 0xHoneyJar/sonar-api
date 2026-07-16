@@ -20,6 +20,7 @@ import {
   normalizeSolanaAddress,
   resolveProbe,
   solanaRecognizeCapability,
+  verifyVendoredCollectionProtocolDigest,
 } from "../src/collection-resolver/index.js";
 import { toRows } from "../src/svm/collection-nft-rows.js";
 import {
@@ -415,6 +416,22 @@ describe("CR-003 DAS / SVM probe normalization projection", () => {
 });
 
 describe("CR-003 protocol conformance", () => {
+  it("verifies the executable vendored protocol tarball against its committed digest", () => {
+    const verified = verifyVendoredCollectionProtocolDigest();
+    expect(verified.actual).toBe(verified.expected);
+  });
+
+  it("rejects a mixed surface containing both exact and lowercased Solana keys", () => {
+    const key = "OwnerKeyABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk";
+    const error = expectFailure(
+      assertSolanaKeyCaseRetained({
+        original: key,
+        surfaces: [`exact=${key};bad=${key.toLowerCase()}`],
+      }),
+    );
+    expect(error._tag).toBe("DasCaseRetentionError");
+  });
+
   it("strict-decodes CR-001 committed candidate fixtures through the Sonar adapter", () => {
     for (const name of [
       "evm-candidate.valid.json",

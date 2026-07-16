@@ -121,7 +121,9 @@ export const assertSolanaKeyCaseRetained = (input: {
   if (folded === original) return Effect.void;
 
   for (const surface of surfaces) {
-    if (surface.includes(folded) && !surface.includes(original)) {
+    // A surface containing both the exact key and a lowercased copy is still
+    // corrupt; exact presence must not mask a bad duplicate.
+    if (surface.includes(folded)) {
       return Effect.fail(
         new DasCaseRetentionError({
           original,
