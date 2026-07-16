@@ -125,6 +125,35 @@ describe("kitchen collection routes", () => {
     await expect(status.json()).resolves.toEqual({ status: "indexing" });
   });
 
+  it("preserves legacy clients that send blank optional ingest fields", async () => {
+    for (const optionalFields of [
+      { contact_email: "", community_name: "   " },
+      { contact_email: null, community_name: null },
+    ]) {
+      store.clearForTests();
+      const ingest = await app.request(
+        `/${FIXTURE_CHAIN_ID}/${FIXTURE_CONTRACT}/ingest`,
+        {
+          method: "POST",
+          headers: {
+            ...authHeaders(),
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            order_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            source: "ordering-service",
+            ...optionalFields,
+          }),
+        },
+      );
+      expect(ingest.status).toBe(202);
+      await expect(ingest.json()).resolves.toMatchObject({
+        status: "queued",
+        job_id: expect.stringMatching(/^ingest_[0-9a-f]+_[0-9a-f]+$/),
+      });
+    }
+  });
+
   it("is idempotent on repeat ingest for the same collection", async () => {
     const body = JSON.stringify({
       order_id: "22222222-2222-4222-8222-222222222222",

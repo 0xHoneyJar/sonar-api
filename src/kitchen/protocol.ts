@@ -63,12 +63,26 @@ const decodeLegacy = Schema.decodeUnknown(LegacyIngestRequestSchema, {
   onExcessProperty: "ignore",
 });
 
+const normalizeLegacyOptionalFields = (raw: unknown): unknown => {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return raw;
+  }
+  const normalized = { ...(raw as Record<string, unknown>) };
+  for (const key of ["contact_email", "community_name"] as const) {
+    const value = normalized[key];
+    if (value === null || (typeof value === "string" && value.trim() === "")) {
+      delete normalized[key];
+    }
+  }
+  return normalized;
+};
+
 export async function decodeCanonicalPreparationRequest(raw: unknown) {
   return Effect.runPromise(decodeCanonical(raw));
 }
 
 export async function decodeLegacyIngestRequest(raw: unknown) {
-  return Effect.runPromise(decodeLegacy(raw));
+  return Effect.runPromise(decodeLegacy(normalizeLegacyOptionalFields(raw)));
 }
 
 export async function decodeCanonicalPreparationResponse(raw: unknown) {
