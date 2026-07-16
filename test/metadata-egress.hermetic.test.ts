@@ -588,15 +588,36 @@ describe("CR-004 retrieveMetadata hostile fixtures", () => {
 
   it("rejects ambiguous non-canonical IPv4 host forms", async () => {
     const ports = createHermeticPorts({ dns: {}, transport: {} });
-    for (const uri of ["http://127.1/", "http://2130706433/", "http://0x7f000001/"]) {
+    for (const uri of [
+      "http://127.1/",
+      "http://2130706433/",
+      "http://0x7f000001/",
+      // These canonicalize to public 1.1.1.1, so a later address-policy deny
+      // cannot accidentally make the raw-spelling test pass.
+      "http://001.001.001.001/",
+      "http://16843009/",
+      "http://0x01010101/",
+    ]) {
+      const parsed = parseMetadataUrl(uri);
+      expect(isUrlPolicyError(parsed)).toBe(true);
+      if (isUrlPolicyError(parsed)) {
+        expect(parsed.reason).toBe("ambiguous_host");
+      }
       const result = await retrieveMetadata(
         { uri, purpose: "collection_metadata", now: fixedNow },
         { ports },
       );
       expect(result.outcome).toBe("partial");
       if (result.outcome === "partial") {
-        expect(["ambiguous_host", "denied_address"]).toContain(result.reason);
+        expect(result.reason).toBe("ambiguous_host");
       }
+    }
+
+    const canonical = parseMetadataUrl("http://1.1.1.1/");
+    expect(isUrlPolicyError(canonical)).toBe(false);
+    if (!isUrlPolicyError(canonical)) {
+      expect(canonical.hostname).toBe("1.1.1.1");
+      expect(canonical.host_is_ip_literal).toBe(true);
     }
   });
 
@@ -796,6 +817,8 @@ describe("CR-004 retrieveMetadata hostile fixtures", () => {
     );
     const utf16 = Buffer.from("<html>utf16</html>", "utf16le");
     const utf16Bom = Uint8Array.from([0xff, 0xfe, ...utf16]);
+    const utf16BeHtml = utf16be("<html>utf16-be</html>");
+    const utf16BeSvg = utf16be("<svg xmlns='http://www.w3.org/2000/svg'></svg>");
     const polyglot = Uint8Array.from(
       Buffer.from('{"ok":true}\n<html><script>x</script></html>', "utf8"),
     );
@@ -803,6 +826,8 @@ describe("CR-004 retrieveMetadata hostile fixtures", () => {
     expect(sniffHostilePayload(bomHtml).hostile).toBe(true);
     expect(sniffHostilePayload(commented).hostile).toBe(true);
     expect(sniffHostilePayload(utf16Bom).hostile).toBe(true);
+    expect(sniffHostilePayload(utf16BeHtml).hostile).toBe(true);
+    expect(sniffHostilePayload(utf16BeSvg).hostile).toBe(true);
     expect(sniffHostilePayload(polyglot).hostile).toBe(true);
 
     const ports = createHermeticPorts({
@@ -840,6 +865,18 @@ describe("CR-004 retrieveMetadata hostile fixtures", () => {
           headers: { "content-type": "application/json" },
           body: polyglot,
         },
+        "https://hostile.example.test/utf16be.json": {
+          kind: "response",
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: utf16BeHtml,
+        },
+        "https://hostile.example.test/utf16be.txt": {
+          kind: "response",
+          status: 200,
+          headers: { "content-type": "text/plain" },
+          body: utf16BeSvg,
+        },
       },
     });
 
@@ -849,6 +886,8 @@ describe("CR-004 retrieveMetadata hostile fixtures", () => {
       ["https://hostile.example.test/smuggle.png", "hostile_content"],
       ["https://hostile.example.test/bom.json", "hostile_content"],
       ["https://hostile.example.test/poly.json", "hostile_content"],
+      ["https://hostile.example.test/utf16be.json", "hostile_content"],
+      ["https://hostile.example.test/utf16be.txt", "hostile_content"],
     ] as const) {
       const result = await retrieveMetadata(
         {

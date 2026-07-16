@@ -34,8 +34,39 @@ const DEFAULT_PORTS: Record<"http" | "https", number> = {
   https: 443,
 };
 
-/** Decimal / hex / octal IPv4 litterals that browsers historically accept. */
-const AMBIGUOUS_IPV4_LITERAL = /^(?:\d+|0x[0-9a-f]+)$/i;
+/**
+ * Extract the hostname spelling from the original authority before WHATWG URL
+ * canonicalization. Browsers normalize legacy IPv4 forms (for example,
+ * `001.001.001.001` and `16843009`) into ordinary dotted decimal, which would
+ * otherwise erase the evidence needed to reject an ambiguous input.
+ */
+const rawAuthorityHostname = (raw: string): string | undefined => {
+  const match = /^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i.exec(raw.trim());
+  if (match === null) return undefined;
+  const authority = match[1]!;
+  const hostAndPort = authority.slice(authority.lastIndexOf("@") + 1);
+  if (hostAndPort.startsWith("[")) {
+    const closingBracket = hostAndPort.indexOf("]");
+    return closingBracket < 0 ? undefined : hostAndPort.slice(0, closingBracket + 1);
+  }
+  const colonCount = hostAndPort.split(":").length - 1;
+  if (colonCount > 1) return undefined;
+  const colon = hostAndPort.lastIndexOf(":");
+  return (colon < 0 ? hostAndPort : hostAndPort.slice(0, colon)).toLowerCase();
+};
+
+/** Decimal, hexadecimal, octal-like, or shortened IPv4 accepted by WHATWG. */
+const isAmbiguousRawIpv4Literal = (rawHostname: string): boolean => {
+  if (rawHostname.startsWith("[")) return false;
+  const candidate = rawHostname.endsWith(".")
+    ? rawHostname.slice(0, -1)
+    : rawHostname;
+  const parts = candidate.split(".");
+  if (!parts.every((part) => /^(?:\d+|0x[0-9a-f]+)$/i.test(part))) {
+    return false;
+  }
+  return parseCanonicalIpv4(candidate) === undefined;
+};
 
 export const parseMetadataUrl = (
   raw: string,
@@ -75,6 +106,17 @@ export const parseMetadataUrl = (
     };
   }
 
+  const originalHostname = rawAuthorityHostname(raw);
+  if (
+    originalHostname !== undefined &&
+    isAmbiguousRawIpv4Literal(originalHostname)
+  ) {
+    return {
+      reason: "ambiguous_host",
+      safe_message: "metadata URI host is an ambiguous non-canonical IPv4 literal",
+    };
+  }
+
   // Reject brackets-less IPv6 and other non-URL-parser-normalized forms by
   // requiring the hostname to round-trip without spaces / control chars.
   if (/[\s\\]/.test(url.hostname) || /[\u0000-\u001f\u007f]/.test(url.href)) {
@@ -109,7 +151,7 @@ export const parseMetadataUrl = (
         safe_message: "metadata URI host is non-canonical",
       };
     }
-    if (AMBIGUOUS_IPV4_LITERAL.test(hostname) || hostname.includes("%")) {
+    if (hostname.includes("%")) {
       return {
         reason: "ambiguous_host",
         safe_message: "metadata URI host is an ambiguous non-canonical literal",

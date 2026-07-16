@@ -201,6 +201,22 @@ const decodeLeadingText = (body: Uint8Array): string => {
   ) {
     return Buffer.from(sample).toString("utf16le");
   }
+  // UTF-16 BE without BOM: NUL in even positions for ASCII markup.
+  if (
+    sample.byteLength >= 8 &&
+    sample[0] === 0x00 &&
+    sample[2] === 0x00 &&
+    sample[4] === 0x00 &&
+    sample[1] !== 0x00
+  ) {
+    const even = sample.byteLength & ~1;
+    const swapped = Buffer.alloc(even);
+    for (let i = 0; i + 1 < even; i += 2) {
+      swapped[i] = sample[i + 1]!;
+      swapped[i + 1] = sample[i]!;
+    }
+    return swapped.toString("utf16le");
+  }
   return Buffer.from(sample).toString("utf8");
 };
 
