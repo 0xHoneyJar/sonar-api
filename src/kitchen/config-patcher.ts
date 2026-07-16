@@ -59,30 +59,33 @@ export function appendTrackedErc721ToChainBlock(
 
   if (chainBlock.includes(trackedHeader)) {
     const lines = chainBlock.split("\n");
-    let insertAt = lines.length;
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes(trackedHeader)) {
+      if (lines[i].trimEnd() === trackedHeader) {
+        let contractEnd = lines.length;
         for (let j = i + 1; j < lines.length; j++) {
-          if (/^      - name: /.test(lines[j]) && !lines[j].includes(contractName)) {
-            insertAt = j;
-            break;
-          }
-          if (/^  - id: /.test(lines[j])) {
-            insertAt = j;
+          if (/^      - name: /.test(lines[j]) || /^  - id: /.test(lines[j])) {
+            contractEnd = j;
             break;
           }
         }
-        if (insertAt === lines.length) {
-          insertAt = i + 1;
-          while (insertAt < lines.length && /^\s+- 0x/i.test(lines[insertAt])) {
-            insertAt++;
-          }
+
+        const addressIndex = lines.findIndex(
+          (line, index) =>
+            index > i && index < contractEnd && /^        address:\s*$/.test(line),
+        );
+        if (addressIndex < 0) {
+          lines.splice(i + 1, 0, "        address:", addressLine);
+          return lines.join("\n");
         }
-        break;
+
+        let insertAt = addressIndex + 1;
+        while (insertAt < contractEnd && /^          -\s+/.test(lines[insertAt])) {
+          insertAt += 1;
+        }
+        lines.splice(insertAt, 0, addressLine);
+        return lines.join("\n");
       }
     }
-    lines.splice(insertAt, 0, addressLine);
-    return lines.join("\n");
   }
 
   const block = [

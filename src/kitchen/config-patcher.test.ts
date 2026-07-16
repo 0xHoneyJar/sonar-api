@@ -43,6 +43,30 @@ describe("config-patcher", () => {
     expect(patched).toContain("0x1111111111111111111111111111111111111111");
   });
 
+  it("appends into a terminal EthTrackedErc721 address list", () => {
+    const terminal = [
+      "  - id: 1",
+      "    contracts:",
+      "      - name: EthTrackedErc721",
+      "        address:",
+      "          - 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # existing",
+    ].join("\n");
+    const patched = appendTrackedErc721ToChainBlock(
+      terminal,
+      "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "new_collection",
+      "EthTrackedErc721",
+    );
+    expect(patched).toContain(
+      [
+        "        address:",
+        "          - 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # existing",
+        "          - 0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb # new_collection",
+      ].join("\n"),
+    );
+    expect(patched.match(/^        address:$/gm)).toHaveLength(1);
+  });
+
   it("creates EthTrackedErc721 on Ethereum", () => {
     const { changed, configYaml } = patchConfigForKitchenIngest({
       configYaml: FIXTURE,
