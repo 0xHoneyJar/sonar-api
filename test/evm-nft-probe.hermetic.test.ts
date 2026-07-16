@@ -771,22 +771,29 @@ describe("CR-103 EVM NFT probe adapter", () => {
     expect(adapter.normalizationCount()).toBe(2);
   });
 
-  it("clamps index_status to unsupported when capability index_support is false", async () => {
-    const clock = virtualClock();
-    const capability = {
-      ...ethereumMainnetCapability(),
-      index_support: false,
-    };
-    const adapter = makeAdapter({
-      rpc: fixtureRpc({ "eip155:1": scriptErc721() }, clock),
-      clock,
-    });
-    const outcome = await runProbe(adapter, requestFor({ capability, clock }));
-    expect(outcome.kind).toBe("hit");
-    if (outcome.kind !== "hit") return;
-    expect(outcome.index_status).toBe("unsupported");
-    expect(outcome.report_readiness).toBe("unsupported");
-  });
+  it.each(["missing", "failed", "unknown"] as const)(
+    "clamps %s Kitchen status to unsupported on a recognize-only network",
+    async (observedIndex) => {
+      const clock = virtualClock();
+      const capability = {
+        ...ethereumMainnetCapability(),
+        index_support: false,
+      };
+      const adapter = makeAdapter({
+        rpc: fixtureRpc({ "eip155:1": scriptErc721() }, clock),
+        indexStatus: createScriptedIndexStatusPort({
+          [`1:${FIXTURE_ADDRESS_NORMALIZED}`]: observedIndex,
+        }),
+        clock,
+      });
+      const outcome = await runProbe(adapter, requestFor({ capability, clock }));
+      expect(outcome.kind).toBe("hit");
+      if (outcome.kind !== "hit") return;
+      expect(outcome.recognition).toBe("recognized");
+      expect(outcome.index_status).toBe("unsupported");
+      expect(outcome.report_readiness).toBe("unsupported");
+    },
+  );
 
   it("never leaks provider URLs, credentials, or raw RPC bodies in outcomes", async () => {
     const clock = virtualClock();

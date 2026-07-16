@@ -123,10 +123,6 @@ export const applyIndexSupportBound = (
   observed: CollectionCandidate["index_status"],
   indexSupport: boolean,
 ): CollectionCandidate["index_status"] => {
-  if (!indexSupport) {
-    if (observed === "indexed" || observed === "indexing" || observed === "missing") {
-      return "unsupported";
-    }
-  }
+  if (!indexSupport) return "unsupported";
   return observed;
 };
