@@ -15,6 +15,7 @@ import {
   createHermeticBaselineSignatureVerifier,
   decodeCapabilityRegistrySnapshot,
   defaultMainnetRegistryInput,
+  degradedPrepareOp,
   degradedRecognizeOp,
   ethereumMainnetCapability,
   getSnapshotIdentity,
@@ -252,6 +253,37 @@ describe("CR-101 default search", () => {
     expect(projected.capabilities[0]!.recognize).toBe(true);
     expect(projected.capabilities[0]!.index).toBe(false);
     expect(projected.version).toEqual(snapshot.version);
+  });
+
+  it("projects index support only while prepare is enabled and available", () => {
+    const baseline = expectSuccess(
+      decodeCapabilityRegistrySnapshot(defaultMainnetRegistryInput()),
+    );
+    const baselineCapabilities = toRecognizeCapabilitySnapshot(baseline).capabilities;
+    expect(
+      baselineCapabilities.find(
+        (capability) => capability.network.network_reference === "1",
+      )?.index,
+    ).toBe(true);
+    expect(
+      baselineCapabilities.some(
+        (capability) => capability.network.network_reference === "4663",
+      ),
+    ).toBe(false);
+
+    const prepareDegraded: NetworkCapability = {
+      ...ethereumMainnetCapability(),
+      operations: {
+        ...ethereumMainnetCapability().operations,
+        prepare: degradedPrepareOp("2", "indexer recovery in progress"),
+      },
+    };
+    const degraded = expectSuccess(
+      decodeCapabilityRegistrySnapshot(withNetworks([prepareDegraded], "2")),
+    );
+    const [projected] = toRecognizeCapabilitySnapshot(degraded).capabilities;
+    expect(projected?.recognize).toBe(true);
+    expect(projected?.index).toBe(false);
   });
 });
 

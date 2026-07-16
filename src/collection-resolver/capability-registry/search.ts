@@ -1,7 +1,6 @@
 import type { CollectionIdentifier } from "../protocol.js";
 import type { CapabilitySnapshot, RecognizeCapability } from "../identifier.js";
 import {
-  isOperationEnabledAndActive,
   isOperationEnabledAndHealthy,
   networkIdentityKey,
 } from "./keys.js";
@@ -126,7 +125,9 @@ export const toRecognizeCapabilitySnapshot = (
         environment: "mainnet",
         probe_adapter: network.probe_adapter.adapter_id,
         recognize: recognize.enabled && recognize.state === "available",
-        index: network.index_support && isOperationEnabledAndActive(network.operations.prepare),
+        index:
+          network.index_support &&
+          isOperationEnabledAndHealthy(network.operations.prepare),
         supported_standards: [...network.supported_standards],
         finality_policy_version: network.finality_policy.policy_version,
         health: "available",
