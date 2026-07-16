@@ -288,6 +288,24 @@ describe("CR-101 default search", () => {
 });
 
 describe("CR-101 validation refusals", () => {
+  it("rejects zero source_sequence on direct snapshot decode", () => {
+    const zeroSource: NetworkCapability = {
+      ...ethereumMainnetCapability(),
+      operations: {
+        ...ethereumMainnetCapability().operations,
+        recognize: {
+          ...ethereumMainnetCapability().operations.recognize,
+          source_sequence: "0",
+        },
+      },
+    };
+    const error = expectFailure(
+      decodeCapabilityRegistrySnapshot(withNetworks([zeroSource], "0")),
+    );
+    expect(error._tag).toBe("CapabilityRegistryDecodeError");
+    expect(String((error as { reason: string }).reason)).toMatch(/strict Effect Schema decode/);
+  });
+
   it("rejects duplicate networks", () => {
     const error = expectFailure(
       decodeCapabilityRegistrySnapshot(

@@ -44,6 +44,16 @@ export const DecimalUint64 = Schema.String.pipe(
 ).annotations({ identifier: "DecimalUint64" });
 export type DecimalUint64 = Schema.Schema.Type<typeof DecimalUint64>;
 
+/** Per-operation sequence numbers are one-based; registry epochs may still begin at zero. */
+export const SourceSequence = DecimalUint64.pipe(
+  Schema.filter(
+    (value) =>
+      BigInt(value) >= BigInt(INITIAL_SOURCE_SEQUENCE) ||
+      `source_sequence must be at least INITIAL_SOURCE_SEQUENCE=${INITIAL_SOURCE_SEQUENCE}`,
+  ),
+).annotations({ identifier: "CapabilitySourceSequence" });
+export type SourceSequence = Schema.Schema.Type<typeof SourceSequence>;
+
 export const NetworkEnvironment = Schema.Literal("mainnet", "testnet").annotations({
   identifier: "NetworkEnvironment",
 });
@@ -191,7 +201,7 @@ export const OperationCapability = Schema.Struct({
   reason_class: CapabilityReasonClass,
   reason: NonEmptyString,
   effective_at: IsoTimestamp,
-  source_sequence: DecimalUint64,
+  source_sequence: SourceSequence,
   drain_policy: DrainPolicy,
   prior_evidence_revocation_policy: PriorEvidenceRevocationPolicy,
   normative_effects: NormativeEffects,
@@ -445,7 +455,7 @@ export const OrderingCapabilityView = Schema.Struct({
   drain_policy: DrainPolicy,
   prior_evidence_revocation_policy: PriorEvidenceRevocationPolicy,
   normative_effects: NormativeEffects,
-  source_sequence: DecimalUint64,
+  source_sequence: SourceSequence,
   effective_at: IsoTimestamp,
   reason_class: CapabilityReasonClass,
   network_priority: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
