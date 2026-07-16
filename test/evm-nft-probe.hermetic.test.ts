@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   createEvmNftProbeAdapter,
   createFixtureEvmRpcPort,
+  createKitchenIndexStatusPort,
   createScriptedIndexStatusPort,
   multiNetworkScripts,
   scriptBothInterfaces,
@@ -33,6 +34,9 @@ import {
   POST_METADATA_RESERVE_SAFETY_FLOOR_MS,
   type EvmMetadataBudgetConfig,
 } from "../src/collection-resolver/adapters/evm/index.js";
+import {
+  encodeSupportsInterface,
+} from "../src/collection-resolver/adapters/evm/abi.js";
 import { ethereumMainnetCapability, baseMainnetCapability } from "../src/collection-resolver/capability-registry/fixtures.js";
 import type { AdapterProbeRequest } from "../src/collection-resolver/bounded-core/ports.js";
 import { createEvmNftProbeAdapter as createAdapter } from "../src/collection-resolver/adapters/evm/adapter.js";
@@ -151,6 +155,15 @@ const assertNoProviderLeak = (value: unknown): void => {
 };
 
 describe("CR-103 EVM NFT probe adapter", () => {
+  it("ABI-encodes ERC-165 bytes4 arguments with right padding", () => {
+    expect(encodeSupportsInterface("0x80ac58cd")).toBe(
+      "0x01ffc9a780ac58cd00000000000000000000000000000000000000000000000000000000",
+    );
+    expect(encodeSupportsInterface("0xd9b67a26")).toBe(
+      "0x01ffc9a7d9b67a2600000000000000000000000000000000000000000000000000000000",
+    );
+  });
+
   it("recognizes ERC-721 with binding evidence and one boundary normalization", async () => {
     const clock = virtualClock();
     const rpc = fixtureRpc({ "eip155:1": scriptErc721() }, clock);
@@ -373,6 +386,55 @@ describe("CR-103 EVM NFT probe adapter", () => {
     if (outcome.kind !== "unavailable") return;
     expect(outcome.safe_message).toBe(SAFE_MESSAGES.rpc_transport_failed);
     assertNoProviderLeak(outcome);
+  });
+
+  it("preserves RPC abort as cancellation rather than timeout", () => {
+    expect(mapRpcFailure(evmRpcFailure("rpc_aborted", "caller cancelled"))).toEqual({
+      kind: "unavailable",
+      safe_code: "rpc_aborted",
+      safe_message: SAFE_MESSAGES.rpc_aborted,
+    });
+    expect(mapRpcFailure(evmRpcFailure("rpc_timeout", "provider timed out"))).toEqual({
+      kind: "timeout",
+    });
+  });
+
+  it("bounds a never-settling Kitchen index lookup by the shared deadline", async () => {
+    const clock = virtualClock();
+    const port = createKitchenIndexStatusPort({
+      reader: { readIndexedSnapshot: () => new Promise(() => undefined) },
+      clock,
+    });
+    const pending = Effect.runPromise(
+      port.lookup({
+        chain_id: 1,
+        normalized_address: FIXTURE_ADDRESS_NORMALIZED,
+        abort: makeAbort().signal,
+        deadline_at_ms: clock.nowMs() + 25,
+      }),
+    );
+    clock.advanceMs(25);
+    await expect(pending).resolves.toBe("unknown");
+  });
+
+  it("rejects a hit when index lookup consumes the remaining deadline", async () => {
+    const clock = virtualClock();
+    const adapter = createEvmNftProbeAdapter({
+      rpc: fixtureRpc({ "eip155:1": scriptErc721() }, clock),
+      indexStatus: {
+        lookup: () =>
+          Effect.sync(() => {
+            clock.advanceMs(50);
+            return "indexed" as const;
+          }),
+      },
+      clock,
+    });
+    const outcome = await runProbe(
+      adapter,
+      requestFor({ clock, deadline_at_ms: clock.nowMs() + 50 }),
+    );
+    expect(outcome).toEqual({ kind: "timeout" });
   });
 
   it("types quorum failure as unavailable without raw cause", async () => {

@@ -27,8 +27,11 @@ export const mapRpcFailure = (err: EvmRpcFailure): ProbeOutcome => {
   if (!KNOWN_CODES.has(code)) {
     return canonicalUnavailable("rpc_transport_failed");
   }
-  if (code === "rpc_timeout" || code === "rpc_aborted") {
+  if (code === "rpc_timeout") {
     return timeoutOutcome();
+  }
+  if (code === "rpc_aborted") {
+    return canonicalUnavailable("rpc_aborted");
   }
   return canonicalUnavailable(code);
 };

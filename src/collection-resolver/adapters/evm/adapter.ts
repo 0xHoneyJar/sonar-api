@@ -395,9 +395,14 @@ export const createEvmNftProbeAdapter = (
         deadline_at_ms: request.deadline_at_ms,
       });
 
-      if (request.abort.signal.aborted) {
-        return canonicalUnavailable("rpc_aborted");
-      }
+      // A dependency may complete at the boundary; never project a late success.
+      const postIndexGate = abortOrDeadline({
+        abort: request.abort.signal,
+        deadline_at_ms: request.deadline_at_ms,
+        now_ms: clock.nowMs(),
+      });
+      if (postIndexGate === "aborted") return canonicalUnavailable("rpc_aborted");
+      if (postIndexGate === "deadline") return timeoutOutcome();
 
       const index_status = applyIndexSupportBound(
         observedIndex,

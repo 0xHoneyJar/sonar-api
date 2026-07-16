@@ -16,11 +16,9 @@ import {
 const strip0x = (hex: string): string =>
   hex.startsWith("0x") || hex.startsWith("0X") ? hex.slice(2) : hex;
 
-const padLeft32 = (hexNoPrefix: string): string => hexNoPrefix.padStart(64, "0");
-
-/** Encode supportsInterface(bytes4). */
+/** Encode supportsInterface(bytes4); fixed-size bytes are ABI right-padded. */
 export const encodeSupportsInterface = (interfaceId: `0x${string}`): `0x${string}` => {
-  const id = padLeft32(strip0x(interfaceId).toLowerCase());
+  const id = strip0x(interfaceId).toLowerCase().padEnd(64, "0");
   return `${SELECTOR_SUPPORTS_INTERFACE}${id}` as `0x${string}`;
 };
 

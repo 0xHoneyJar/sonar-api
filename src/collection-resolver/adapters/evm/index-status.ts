@@ -12,6 +12,10 @@ import {
 } from "../../../kitchen/status.js";
 import type { CollectionKey, IngestJobRecord } from "../../../kitchen/types.js";
 import type { CollectionCandidate } from "../../protocol.js";
+import type {
+  DeadlineTimerPort,
+  MonotonicClock,
+} from "../../bounded-core/clock.js";
 import type { ChainQualifiedIndexStatusPort } from "./ports.js";
 
 export type KitchenJobLookup = (
@@ -43,23 +47,59 @@ const mapKitchenStatus = (
 export const createKitchenIndexStatusPort = (deps: {
   readonly reader: CollectionStatusReader;
   readonly getJob?: KitchenJobLookup;
+  readonly clock: MonotonicClock & DeadlineTimerPort;
 }): ChainQualifiedIndexStatusPort => ({
   lookup: (input) =>
     Effect.promise(async () => {
-      if (input.abort.aborted) return "unknown";
+      if (input.abort.aborted || deps.clock.nowMs() >= input.deadline_at_ms) {
+        return "unknown";
+      }
       const key: CollectionKey = {
         chainId: input.chain_id,
         contract: input.normalized_address,
       };
-      try {
-        const indexed: IndexedSnapshot = await deps.reader.readIndexedSnapshot(key);
-        if (input.abort.aborted) return "unknown";
-        const job = deps.getJob ? await deps.getJob(key) : undefined;
-        if (input.abort.aborted) return "unknown";
-        return mapKitchenStatus(resolveCollectionStatus({ indexed, job }));
-      } catch {
-        return "unknown";
-      }
+      return new Promise<CollectionCandidate["index_status"]>((resolve) => {
+        let settled = false;
+        let cancelDeadline = (): void => undefined;
+        const finish = (status: CollectionCandidate["index_status"]): void => {
+          if (settled) return;
+          settled = true;
+          cancelDeadline();
+          input.abort.removeEventListener("abort", onAbort);
+          resolve(status);
+        };
+        const onAbort = (): void => finish("unknown");
+
+        input.abort.addEventListener("abort", onAbort, { once: true });
+        cancelDeadline = deps.clock.scheduleAt(input.deadline_at_ms, () =>
+          finish("unknown"),
+        );
+
+        void (async () => {
+          try {
+            const indexed: IndexedSnapshot =
+              await deps.reader.readIndexedSnapshot(key);
+            if (
+              input.abort.aborted ||
+              deps.clock.nowMs() >= input.deadline_at_ms
+            ) {
+              finish("unknown");
+              return;
+            }
+            const job = deps.getJob ? await deps.getJob(key) : undefined;
+            if (
+              input.abort.aborted ||
+              deps.clock.nowMs() >= input.deadline_at_ms
+            ) {
+              finish("unknown");
+              return;
+            }
+            finish(mapKitchenStatus(resolveCollectionStatus({ indexed, job })));
+          } catch {
+            finish("unknown");
+          }
+        })();
+      });
     }),
 });
 
