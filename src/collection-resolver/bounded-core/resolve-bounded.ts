@@ -914,7 +914,7 @@ export const resolveBounded = (input: {
           : identifier.raw,
       identifier_format: identifier.format,
       identifier_structural_digest: structuralDigest,
-      capability_snapshot_version: input.deps.capabilitySnapshot.version,
+      capability_snapshot_version: capabilitySnapshot.version,
       authorization_scope: request.caller.authorization_scope,
       adapter_policy_version: config.adapter_policy_version,
       allowed_network_keys: allowedNetworkKeys,
@@ -976,7 +976,7 @@ export const resolveBounded = (input: {
       const { candidates, ranking_evidence } = aggregateAndRank(decodedCachedCandidates);
       return cloneFreeze({
         schema_version: 1 as const,
-        capability_snapshot_version: input.deps.capabilitySnapshot.version,
+        capability_snapshot_version: capabilitySnapshot.version,
         candidates,
         diagnostics: {
           schema_version: 1 as const,

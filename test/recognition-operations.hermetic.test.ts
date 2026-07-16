@@ -605,6 +605,48 @@ describe("CR-107 circuit breaker through resolveBounded", () => {
 });
 
 describe("CR-107 live capability snapshot disable", () => {
+  it("keys positive-cache reads to the request-pinned live snapshot", () => {
+    let liveSnapshot = expectSuccess(
+      decodeCapabilityRegistrySnapshot(
+        withNetworks([ethereumMainnetCapability()], "3"),
+      ),
+    );
+    const capabilitySnapshotProvider = {
+      current: () => liveSnapshot,
+    };
+    const { deps, adapter } = createHermeticBoundedDeps({
+      capabilitySnapshot: liveSnapshot,
+      capabilitySnapshotProvider,
+      script: SCRIPT_EVM_ERC721,
+    });
+
+    const first = expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS),
+        config: defaultBoundedResolverConfig(),
+        deps,
+      }),
+    );
+    expect(first.capability_snapshot_version.registry_sequence).toBe("3");
+    const startsAfterFirst = adapter.externalStarts();
+
+    liveSnapshot = expectSuccess(
+      decodeCapabilityRegistrySnapshot(
+        withNetworks([ethereumMainnetCapability()], "4"),
+      ),
+    );
+    const second = expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS),
+        config: defaultBoundedResolverConfig(),
+        deps,
+      }),
+    );
+
+    expect(second.capability_snapshot_version.registry_sequence).toBe("4");
+    expect(adapter.externalStarts()).toBe(startsAfterFirst + 1);
+  });
+
   it("applies valid CR-101 disable without dep reconstruction; next request skips adapter", () => {
     const initial = loadHermeticCapabilitySnapshot();
     const store = createMemoryCapabilitySnapshotStore(initial);

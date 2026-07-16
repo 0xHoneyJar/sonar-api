@@ -7,8 +7,8 @@
  * 3. Registry-derived network_key allowlist for any event carrying network_key
  *
  * Invalid / forged payloads are dropped via a typed result — never thrown into
- * the resolve path. Bridges to legacy MetricsPort aggregate counters for
- * load-harness compatibility only when explicitly enabled.
+ * the resolve path. The legacy MetricsPort remains exposed for load-harness
+ * compatibility, but resolver-owned counters are never bridged from events.
  */
 import { Either, Schema } from "effect";
 import type { ParseOptions } from "effect/SchemaAST";
