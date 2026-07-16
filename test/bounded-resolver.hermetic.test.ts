@@ -636,6 +636,91 @@ describe("CR-102 cache separation and invalidation", () => {
     expect(adapter.calls().length).toBeGreaterThan(coldCalls);
   });
 
+  it("reprobes warm positive/readiness entries after adapter policy rotation", () => {
+    const firstConfig = {
+      ...defaultBoundedResolverConfig(),
+      max_searched_networks: 1,
+      max_concurrent_probes: 1,
+      adapter_policy_version: "resolver-adapter-policy.v1",
+    };
+    const rotatedConfig = {
+      ...firstConfig,
+      adapter_policy_version: "resolver-adapter-policy.v2",
+    };
+    const { deps, adapter } = createHermeticBoundedDeps({
+      config: firstConfig,
+      script: SCRIPT_EVM_ERC721,
+    });
+    expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "policy-cold"),
+        config: firstConfig,
+        deps,
+      }),
+    );
+    const coldCalls = adapter.calls().length;
+
+    const rotated = expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "policy-rotated"),
+        config: rotatedConfig,
+        deps,
+      }),
+    );
+    expect(rotated.diagnostics.cache.positive_hit).toBe(false);
+    expect(rotated.diagnostics.cache.readiness_hit).toBe(false);
+    expect(adapter.calls().length).toBeGreaterThan(coldCalls);
+  });
+
+  it("strict-decodes candidates returned exclusively from warm cache", () => {
+    const config = {
+      ...defaultBoundedResolverConfig(),
+      max_searched_networks: 1,
+      max_concurrent_probes: 1,
+    };
+    const base = createHermeticBoundedDeps({
+      config,
+      script: SCRIPT_EVM_ERC721,
+    });
+    expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "corrupt-cold"),
+        config,
+        deps: base.deps,
+      }),
+    );
+    const corruptDeps = {
+      ...base.deps,
+      cache: {
+        ...base.deps.cache,
+        findPositive: (query: Parameters<typeof base.deps.cache.findPositive>[0]) =>
+          base.deps.cache.findPositive(query).pipe(
+            Effect.map((entries) =>
+              entries.map((entry) => ({
+                ...entry,
+                candidate: {
+                  ...entry.candidate,
+                  provenance: entry.candidate.provenance.map((item) => ({
+                    ...item,
+                    observed_at: "not-an-iso-timestamp",
+                  })),
+                },
+              })),
+            ),
+          ),
+      },
+    };
+
+    const error = expectFailure(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "corrupt-warm"),
+        config,
+        deps: corruptDeps,
+      }),
+    );
+    expect(error._tag).toBe("BoundedResolverDecodeError");
+  });
+
   it("uses exported digest helpers for positive/readiness writes and readiness reads", () => {
     const base = createHermeticBoundedDeps({ script: SCRIPT_EVM_ERC721 });
     const positiveWrites: Array<{
@@ -1343,6 +1428,43 @@ describe("CR-102 revision-2 slow Inventory under global deadline", () => {
 });
 
 describe("CR-102 revision-2 concurrent leader/follower coalesce", () => {
+  it("does not coalesce identical identifiers across authorization scopes", async () => {
+    const processClock = createProcessMonotonicClock();
+    const config = {
+      ...defaultBoundedResolverConfig(),
+      global_deadline_ms: 200,
+      per_network_deadline_ms: 150,
+      max_searched_networks: 1,
+      max_concurrent_probes: 1,
+    };
+    const { deps, adapter } = createHermeticBoundedDeps({
+      processClock,
+      config,
+      script: SCRIPT_EVM_ERC721,
+      realSleepMsByNetwork: { "eip155:1": 40 },
+    });
+    const authenticated = hermeticResolveRequest(
+      MULTI_CHAIN_EVM_ADDRESS,
+      "scope-authenticated",
+    );
+    const anonymous = {
+      ...hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "scope-anonymous"),
+      caller: {
+        bucket_id: "scope-anonymous",
+        authorization_scope: { scope_class: "anonymous" as const },
+      },
+    };
+
+    const first = Effect.runPromise(resolveBounded({ request: authenticated, config, deps }));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const second = Effect.runPromise(resolveBounded({ request: anonymous, config, deps }));
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(firstResult.diagnostics.cache.coalesced).toBe(false);
+    expect(secondResult.diagnostics.cache.coalesced).toBe(false);
+    expect(adapter.externalStarts()).toBe(2);
+  });
+
   it("follower receives leader sealed candidates (not fabricated empty)", async () => {
     const processClock = createProcessMonotonicClock();
     const config = {

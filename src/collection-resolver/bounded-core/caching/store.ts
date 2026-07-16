@@ -53,7 +53,8 @@ export const createMemoryResolverCache = (input: {
             deployment.normalized_address === query.normalized_address &&
             networks.has(`${deployment.network.network_namespace}:${deployment.network.network_reference}`) &&
             JSON.stringify(entry.binding.capability_snapshot_version) === snapshot &&
-            JSON.stringify(entry.binding.authorization_scope) === scope
+            JSON.stringify(entry.binding.authorization_scope) === scope &&
+            entry.binding.adapter_policy_version === query.adapter_policy_version
           ) {
             found.push(cloneFreeze(entry));
           }

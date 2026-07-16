@@ -645,6 +645,7 @@ export const resolveBounded = (input: {
           : identifier.raw,
       capability_snapshot_version: input.deps.capabilitySnapshot.version,
       authorization_scope: request.caller.authorization_scope,
+      adapter_policy_version: config.adapter_policy_version,
       allowed_network_keys: allowedNetworkKeys,
     });
     const readyPositiveHits: typeof positiveHits[number][] = [];
@@ -669,7 +670,10 @@ export const resolveBounded = (input: {
         };
         const readinessKey = yield* digestReadinessBinding(readinessBinding);
         const ready = yield* input.deps.cache.getReadiness(readinessKey);
-        if (ready === undefined) {
+        if (
+          ready === undefined ||
+          ready.binding.adapter_policy_version !== config.adapter_policy_version
+        ) {
           readinessHit = false;
         } else {
           readyPositiveHits.push(entry);
@@ -695,7 +699,8 @@ export const resolveBounded = (input: {
 
     if (positiveHits.length > 0 && targets.length === 0) {
       input.deps.metrics.recordLatency(input.deps.clock.nowMs() - started);
-      const { candidates, ranking_evidence } = aggregateAndRank(cachedCandidates);
+      const decodedCachedCandidates = yield* assertCandidatesDecode(cachedCandidates);
+      const { candidates, ranking_evidence } = aggregateAndRank(decodedCachedCandidates);
       return cloneFreeze({
         schema_version: 1 as const,
         capability_snapshot_version: input.deps.capabilitySnapshot.version,
@@ -737,7 +742,8 @@ export const resolveBounded = (input: {
       claims_beyond_coverage: false,
     };
     const negativeKey = yield* digestNegativeBinding(negativeBinding);
-    const coalesceKey = `demand:${negativeKey}`;
+    const scopeDigest = sha256Canonical(request.caller.authorization_scope);
+    const coalesceKey = `demand:${negativeKey}:auth:${scopeDigest}`;
     const globalDeadlineAt = started + config.global_deadline_ms;
 
     const coalesce = yield* input.deps.coalesce.begin(coalesceKey);

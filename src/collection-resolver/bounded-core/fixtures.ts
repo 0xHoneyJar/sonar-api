@@ -121,10 +121,8 @@ export const createHermeticBoundedDeps = (
     }),
     coalesce: createMemoryCoalesce({
       isNegativeCached: (key) => {
-        const digest =
-          key.startsWith("neg:") || key.startsWith("demand:")
-            ? key.replace(/^(neg:|demand:)/, "")
-            : key;
+        const demandDigest = /^demand:([0-9a-f]{64})(?::|$)/.exec(key)?.[1];
+        const digest = demandDigest ?? (key.startsWith("neg:") ? key.slice(4) : key);
         return negativeKeys.has(digest);
       },
     }),
