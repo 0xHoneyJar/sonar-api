@@ -36,11 +36,30 @@ Remove the vendor artifact once that pin lands. Do not copy schemas into Sonar.
 | Path | Role |
 |---|---|
 | `src/collection-resolver/protocol.ts` | Thin re-export + fixture-root helper |
+| `src/collection-resolver/capability-registry/` | CR-101 versioned mainnet capability registry + Ordering projection |
 | `src/collection-resolver/resolve.ts` | Hermetic `resolve-probe` core |
 | `src/collection-resolver/das-normalize.ts` | Adapts real `CollectionSnapshot` / `CollectionMember` + shared `toRows`/`NftRow` |
 | `src/svm/collection-nft-rows.ts` | Shared persistence projector used by the ownership indexer and DAS normalize |
 | `src/svm/nft-collection-source.ts` | DAS seam: `parseAsset` → `CollectionMember` (refuses missing owner) |
 | `src/metadata-egress/` | CR-004 sole metadata network boundary (resolver + report workers) |
+
+## Capability registry (CR-101)
+
+- Snapshot identity is `(registry_epoch, registry_sequence)` from CR-001;
+  sequence is a decimal-string uint64 (never a JS number). Same-epoch advances
+  MUST be contiguous (`current + 1`); see `capability-registry/PROTOCOL.md`.
+- Default search selects enabled **healthy** (`state=available`) mainnet recognize
+  capabilities; degraded rows require explicit `selectDiagnosticRecognizeNetworks`.
+  A network may recognize while `index_support=false`.
+- Ordering consumes `projectOrderingCapabilityViews` only — exposes
+  `effective_at` / `source_sequence` / `reason_class`; no RPC credentials,
+  display/icon, or provenance internals.
+- Baseline epoch resets require a signature over the complete baseline
+  **binding digest** (predecessor identity + candidate identity + snapshot digest);
+  this worktree ships the port + hermetic verifier, not production signing keys.
+- Robinhood Chain `eip155:4663` is disabled (or recognize-only in staging
+  fixtures) until CR-401. Solana prepare/index awaits CR-402.
+  Downstream Ordering/report wiring: CR-103 / CR-104.
 
 Resolver outputs must always strict-decode through CR-001 `CollectionCandidate`
 before leaving Sonar. DAS normalize must not invent a parallel member/owner
