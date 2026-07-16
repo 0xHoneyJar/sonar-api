@@ -535,7 +535,10 @@ export const withInitialSourceSequences = (
     recognize: {
       ...network.operations.recognize,
       source_sequence: "1",
-      reason_class: "epoch_reset",
+      reason_class:
+        network.operations.recognize.state === "disabled"
+          ? network.operations.recognize.reason_class
+          : "epoch_reset",
     },
     prepare: {
       ...network.operations.prepare,

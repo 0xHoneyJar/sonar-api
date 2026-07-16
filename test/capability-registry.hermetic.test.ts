@@ -847,6 +847,85 @@ describe("CR-101 probe 2 — cross-snapshot source sequencing", () => {
 });
 
 describe("CR-101 probe 3 — epoch reset binding signatures", () => {
+  it("resets the default catalog while retaining every disabled operation reason", () => {
+    const current = expectSuccess(
+      decodeCapabilityRegistrySnapshot(defaultMainnetRegistryInput()),
+    );
+    const nextVersion = {
+      registry_epoch: "22222222-2222-4222-8222-222222222222",
+      registry_sequence: "0",
+    };
+    const candidateNetworks = current.networks.map(withInitialSourceSequences);
+
+    const robinhood = candidateNetworks.find(
+      (network) => network.network.network_reference === "4663",
+    )!;
+    expect(robinhood.kill_switch).toBe(true);
+    expect(robinhood.operations.recognize.reason_class).toBe("kill_switch");
+    expect(robinhood.operations.prepare.reason_class).toBe("kill_switch");
+    expect(robinhood.operations.read_evidence.reason_class).toBe("kill_switch");
+    for (const operation of Object.values(robinhood.operations)) {
+      expect(operation.source_sequence).toBe(INITIAL_SOURCE_SEQUENCE);
+    }
+
+    const solana = candidateNetworks.find(
+      (network) => network.network.network_namespace === "solana",
+    )!;
+    expect(solana.operations.recognize.reason_class).toBe("epoch_reset");
+    expect(solana.operations.prepare.reason_class).toBe("capability_unsupported");
+    expect(solana.operations.read_evidence.reason_class).toBe(
+      "capability_unsupported",
+    );
+
+    const candidate = expectSuccess(
+      decodeCapabilityRegistrySnapshot(
+        withNetworks(
+          candidateNetworks,
+          nextVersion.registry_sequence,
+          nextVersion.registry_epoch,
+        ),
+      ),
+    );
+    const baseline = expectSuccess(
+      makeEpochResetBaseline({
+        previousEpoch: current.version.registry_epoch,
+        next: nextVersion,
+      }),
+    );
+    const material = expectSuccess(buildBaselineMaterial(candidate, current.version));
+    const publicKey = "aa".repeat(32);
+
+    const reset = expectSuccess(
+      applyCapabilityRegistryTransition({
+        current,
+        transition: {
+          kind: "epoch_reset",
+          from: current.version,
+          to: nextVersion,
+          networks: candidateNetworks,
+          baseline,
+          signature: {
+            algorithm: "ed25519",
+            public_key_hex: publicKey,
+            signature_hex: hermeticBaselineSignatureHex(
+              material.binding_digest.digest,
+              publicKey,
+            ),
+          },
+          reason_class: "epoch_reset",
+          effective_at: FIXTURE_EFFECTIVE_AT,
+          actor: audit.actor,
+        },
+        signatureVerifier: createHermeticBaselineSignatureVerifier(),
+      }),
+    );
+    expect(reset.snapshot.version).toEqual(nextVersion);
+    expect(
+      lookupNetwork(reset.snapshot, "eip155:4663").network!.operations.recognize
+        .reason_class,
+    ).toBe("kill_switch");
+  });
+
   it("binds predecessor identity into binding_digest and rejects cross-predecessor reuse", () => {
     const current = expectSuccess(
       decodeCapabilityRegistrySnapshot(
