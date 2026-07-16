@@ -17,7 +17,7 @@ export type DasTransportFailure =
   | "http_429"
   | "http_5xx"
   | "http_auth"
-  | "http_4xx"
+  | "http_client"
   | "rpc_error"
   | "malformed"
   | "incomplete"
@@ -85,7 +85,7 @@ export const classifyHttpStatus = (status: number): DasTransportFailure => {
   if (status === 401 || status === 403) return "http_auth";
   if (status === 429) return "http_429";
   if (status >= 500 && status <= 599) return "http_5xx";
-  if (status >= 400 && status <= 499) return "http_4xx";
+  if (status >= 400 && status <= 499) return "http_client";
   return "network";
 };
 

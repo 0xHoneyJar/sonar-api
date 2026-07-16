@@ -118,7 +118,7 @@ const adapterFor = (
           | "http_429"
           | "http_5xx"
           | "http_auth"
-          | "http_4xx"
+          | "http_client"
           | "rpc_error"
           | "malformed"
           | "incomplete"
@@ -425,14 +425,14 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
     expect(outcome).toEqual({ kind: "unavailable" });
   });
 
-  it("maps malformed / incomplete / 429 / 5xx / auth to typed unavailable without leaking secrets", async () => {
+  it("maps malformed / incomplete / HTTP failures to typed unavailable without leaking secrets", async () => {
     for (const failure of [
       "malformed",
       "incomplete",
       "http_429",
       "http_5xx",
       "http_auth",
-      "http_4xx",
+      "http_client",
     ] as const) {
       const { adapter } = adapterFor(() => ({ kind: "unavailable", failure }));
       const outcome = await expectAsyncSuccess(
@@ -444,7 +444,10 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
     expect(classifyHttpStatus(429)).toBe("http_429");
     expect(classifyHttpStatus(503)).toBe("http_5xx");
     expect(classifyHttpStatus(401)).toBe("http_auth");
-    expect(classifyHttpStatus(404)).toBe("http_4xx");
+    expect(classifyHttpStatus(403)).toBe("http_auth");
+    expect(classifyHttpStatus(400)).toBe("http_client");
+    expect(classifyHttpStatus(404)).toBe("http_client");
+    expect(classifyHttpStatus(422)).toBe("http_client");
   });
 
   it("parseDasSampleRpcResponse never returns raw provider bodies", () => {

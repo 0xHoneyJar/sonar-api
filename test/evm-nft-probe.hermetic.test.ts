@@ -550,13 +550,18 @@ describe("CR-103 EVM NFT probe adapter", () => {
     assertNoProviderLeak(outcome);
   });
 
-  it("preserves RPC abort as cancellation rather than timeout", () => {
-    expect(mapRpcFailure(evmRpcFailure("rpc_aborted", "caller cancelled"))).toEqual({
+  it("preserves RPC-port abort diagnostics without collapsing them into timeout", () => {
+    const mapped = mapRpcFailure(
+      evmRpcFailure("rpc_aborted", "provider-specific abort detail"),
+    );
+
+    expect(mapped).toEqual({
       kind: "unavailable",
       safe_code: "rpc_aborted",
       safe_message: SAFE_MESSAGES.rpc_aborted,
     });
-    expect(mapRpcFailure(evmRpcFailure("rpc_timeout", "provider timed out"))).toEqual({
+    expect(JSON.stringify(mapped)).not.toContain("provider-specific");
+    expect(mapRpcFailure(evmRpcFailure("rpc_timeout", "late provider"))).toEqual({
       kind: "timeout",
     });
   });
