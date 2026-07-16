@@ -17,6 +17,9 @@ export interface AddressNormalizationResult {
  * unsupported. Never re-normalize the result.
  */
 export const normalizeAddressOnce = (raw: string): AddressNormalizationResult => {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(raw)) {
+    throw new TypeError("invalid EVM address");
+  }
   const normalized = normalizeEvmAddress(raw) as NormalizedEvmAddress;
   return { normalized, normalization_count: 1 };
 };

@@ -155,6 +155,16 @@ const decodeCoalescedResponse = (
     return cloneFreeze({ ...envelope, candidates });
   });
 
+const ADAPTER_UNAVAILABLE_MESSAGES: Readonly<Record<string, string>> = {
+  rpc_transport_failed: "EVM RPC transport failed for configured network",
+  rpc_quorum_failed: "EVM source-head quorum could not be established",
+  rpc_aborted: "EVM RPC probe aborted",
+  rpc_finality_unavailable: "EVM finality-qualified observation block unavailable",
+  rpc_unsupported_network: "network is not a configured EVM probe target",
+  rpc_invalid_response: "EVM RPC returned an invalid response",
+  rpc_capability_mismatch: "capability probe adapter is not the EVM NFT probe",
+};
+
 export interface BoundedResolveResponse {
   readonly schema_version: 1;
   readonly capability_snapshot_version: CapabilityRegistrySnapshot["version"];
@@ -458,10 +468,16 @@ const runFanout = (input: {
               typeof outcome.safe_message === "string" &&
               outcome.safe_message.length > 0
             ) {
+              const knownMessage =
+                ADAPTER_UNAVAILABLE_MESSAGES[outcome.safe_code];
               unavailable_diagnostics.push({
                 network: hit.network.network,
-                code: outcome.safe_code.slice(0, 64),
-                safe_message: outcome.safe_message.slice(0, 256),
+                code:
+                  knownMessage === undefined
+                    ? "adapter_unavailable"
+                    : outcome.safe_code,
+                safe_message:
+                  knownMessage ?? "adapter unavailable without a recognized diagnostic code",
               });
             }
             break;

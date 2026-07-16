@@ -1362,6 +1362,42 @@ describe("CR-102 ranking and diagnostics safety", () => {
     expect(() => assertNoSecretLeak({ body: "SUPERSECRET" })).toThrow(/secret-like/);
   });
 
+  it("maps unrecognized adapter diagnostic codes to a local safe fallback", () => {
+    const config = {
+      ...defaultBoundedResolverConfig(),
+      max_searched_networks: 1,
+      max_concurrent_probes: 1,
+    };
+    const { deps } = createHermeticBoundedDeps({
+      config,
+      script: {
+        "eip155:1": {
+          kind: "unavailable",
+          safe_code: "https://rpc.example.test/?token=SUPERSECRET",
+          safe_message: "provider https://rpc.example.test/?token=SUPERSECRET failed",
+        },
+      },
+    });
+    const response = expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS),
+        config,
+        deps,
+      }),
+    );
+    expect(response.diagnostics.entries).toContainEqual({
+      network: {
+        schema_version: 1,
+        network_namespace: "eip155",
+        network_reference: "1",
+      },
+      code: "adapter_unavailable",
+      safe_message: "adapter unavailable without a recognized diagnostic code",
+    });
+    expect(JSON.stringify(response.diagnostics)).not.toContain("SUPERSECRET");
+    expect(JSON.stringify(response.diagnostics)).not.toContain("rpc.example.test");
+  });
+
   it("raw decode-cause probe never retains ParseError bodies on public errors", () => {
     const err = expectFailure(
       decodeBoundedResolverConfig({

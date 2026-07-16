@@ -27,6 +27,7 @@ import {
   SAFE_MESSAGES,
   EVM_NFT_PROBE_ADAPTER_VERSION,
   mapRpcFailure,
+  normalizeAddressOnce,
   metadataSubDeadlineAtMs,
   resolveMetadataBudgetConfig,
   DEFAULT_METADATA_BUDGET_MAX_MS,
@@ -157,6 +158,17 @@ const assertNoProviderLeak = (value: unknown): void => {
 };
 
 describe("CR-103 EVM NFT probe adapter", () => {
+  it("refuses malformed addresses at the adapter normalization boundary", () => {
+    expect(() => normalizeAddressOnce("not-an-address")).toThrow(
+      /invalid EVM address/,
+    );
+    expect(() => normalizeAddressOnce("0x1234")).toThrow(/invalid EVM address/);
+    expect(normalizeAddressOnce(FIXTURE_ADDRESS)).toEqual({
+      normalized: FIXTURE_ADDRESS_NORMALIZED,
+      normalization_count: 1,
+    });
+  });
+
   it("ABI-encodes ERC-165 bytes4 arguments with right padding", () => {
     expect(encodeSupportsInterface("0x80ac58cd")).toBe(
       "0x01ffc9a780ac58cd00000000000000000000000000000000000000000000000000000000",
