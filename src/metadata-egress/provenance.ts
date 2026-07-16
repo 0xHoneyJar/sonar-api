@@ -215,6 +215,17 @@ export const redactUri = (raw: string): RedactedUri => {
     };
   }
 
+  // WHATWG URL pathname mutations are no-ops for opaque URLs (for example
+  // data:, javascript:, and mailto:). Emit only the scheme plus a digest stub;
+  // never let the opaque payload survive into a field named safe_uri.
+  const afterScheme = raw.slice(url.protocol.length);
+  if (url.host === "" && !afterScheme.startsWith("//")) {
+    return {
+      safe_uri: `${url.protocol}${redactedStub(url.pathname)}`,
+      uri_sha256: sha256Hex(correlationForm(url)),
+    };
+  }
+
   const safe = new URL(url.href);
   safe.username = "";
   safe.password = "";

