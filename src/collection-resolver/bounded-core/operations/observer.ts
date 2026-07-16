@@ -66,9 +66,19 @@ export const allowedNetworkKeysFromSnapshot = (
 
 export const liveAllowedNetworkKeys = (
   current: () => CapabilityRegistrySnapshot,
-): AllowedNetworkKeySource => ({
-  currentKeys: () => networkKeysFromCapabilitySnapshot(current()),
-});
+): AllowedNetworkKeySource => {
+  // Retain registry-authorized keys observed by in-flight requests across a
+  // live transition so their terminal network events remain attributable.
+  const observed = new Set<string>();
+  return {
+    currentKeys: () => {
+      for (const key of networkKeysFromCapabilitySnapshot(current())) {
+        observed.add(key);
+      }
+      return new Set(observed);
+    },
+  };
+};
 
 const LABEL_SET = new Set<string>(OPERATIONAL_EVENT_LABEL_ALLOWLIST);
 const VALUE_SET = new Set<string>(OPERATIONAL_EVENT_VALUE_ALLOWLIST);

@@ -111,6 +111,8 @@ binding:
   Prometheus/OTLP exporters, dashboards, and alerts are deployment work.
 - `resolveBounded` remains the sole owner of aggregate `MetricsPort` counters;
   observer event recording never mirrors those counters and cannot double-count.
+- Live observer allowlists retain registry-authorized keys across transitions so
+  requests pinned before a disable can still emit attributable terminal events.
 
 ## Telemetry wiring (downstream)
 

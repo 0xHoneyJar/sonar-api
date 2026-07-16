@@ -1116,7 +1116,7 @@ export const resolveBounded = (input: {
       }
       terminal.finalize({
         identifier_format,
-        terminal_outcome: "partial",
+        terminal_outcome: "failed",
         candidate_count: 0,
         cache_outcome: "none",
         role: "follower",
