@@ -106,6 +106,18 @@ Remove the vendor artifact once that pin lands. Do not copy schemas into Sonar.
   It does not accept user RPC URLs or chain defs.
   Production provider/quorum wiring and Robinhood Chain enablement remain
   deployment / CR-401 work.
+- CR-107 recognition observability and operator controls:
+  typed low-cardinality events (strict observer decode + identity/network_key
+  allowlist), live CR-101 snapshot provider/LKG store (bootstrap +
+  `applyTransition` only — no public live replace bypass), global admission
+  full-stop (separate from rate limit), idempotent per-request
+  `resolver_terminal` finalizer, circuit transition observability, and
+  `OPERATIONS.md` degraded/full-stop runbooks.
+  **External blocker (explicit):** this repo still lacks fleet-wide durable
+  control transport and a concrete exporter. CR-107 ships the validated
+  process-local substrate only and cannot yet satisfy fleet-wide “disable
+  without deploy” until a real runtime transport is integrated. Do not invent
+  admin UI / Redis / NATS / Prometheus production wiring here.
 
 Resolver outputs must always strict-decode through CR-001 `CollectionCandidate`
 before leaving Sonar. DAS normalize must not invent a parallel member/owner

@@ -109,5 +109,10 @@ fanout.
 - **CR-104** — live Solana DAS adapter behind `NetworkAdapterPort`
 - **CR-105 / Inventory** — production enrichment contract behind the port
 - **CR-106** — Dashboard BFF consumes Ordering's session API (not this core)
-- **CR-107** — production metrics/operator controls on top of `MetricsPort`
+- **CR-107** — typed recognition observability + operator controls
+  (`operations/`, `OPERATIONS.md`): idempotent per-request `resolver_terminal`
+  finalizer, live CR-101 LKG store (bootstrap + `applyTransition` only),
+  global admission full-stop, strict observer decode + registry network_key
+  allowlist. Process-local substrate only — fleet-wide durable control
+  transport / concrete exporters remain an explicit external blocker.
 - **CR-012A** — Ordering consumes `EquivalenceRevocationImpact` edges

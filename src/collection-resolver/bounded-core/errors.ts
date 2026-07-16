@@ -1,4 +1,5 @@
 import { Data } from "effect";
+import type { ResolverAdmissionFullStopError } from "./operations/admission-control.js";
 
 /**
  * Public typed errors — never retain raw identifier/config/cause/provider bodies.
@@ -76,6 +77,10 @@ export class InvalidationEdgeStoreError extends Data.TaggedError(
   readonly safe_cause: string;
 }> {}
 
+/**
+ * Exhaustive public aggregate — includes CR-107 admission full-stop.
+ * Prefer this union at API boundaries over hand-rolled subsets.
+ */
 export type BoundedResolverError =
   | BoundedResolverDecodeError
   | BoundedResolverConfigError
@@ -84,4 +89,5 @@ export type BoundedResolverError =
   | ResolverRateLimitedError
   | CircuitOpenError
   | BoundedResolverInternalError
-  | InvalidationEdgeStoreError;
+  | InvalidationEdgeStoreError
+  | ResolverAdmissionFullStopError;

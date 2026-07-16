@@ -57,9 +57,22 @@ import {
   NoHealthyCapabilityError,
   ResolverRateLimitedError,
   BoundedResolverDecodeError,
-  StructuralPreflightError,
   type BoundedResolverError,
 } from "./errors.js";
+import {
+  ResolverAdmissionFullStopError,
+} from "./operations/admission-control.js";
+import { resolveRequestCapabilitySnapshot } from "./operations/capability-snapshot-store.js";
+import {
+  classifyTerminalOutcome,
+  type IdentifierFormatDimension,
+  type NetworkOutcomeDimension,
+} from "./operations/events.js";
+import {
+  createResolverTerminalFinalizer,
+  failedTerminal,
+  unclassifiedRejectedTerminal,
+} from "./operations/terminal-finalizer.js";
 import type {
   BoundedResolverDeps,
   CoalesceSealedResult,
@@ -178,12 +191,8 @@ export interface BoundedResolveResponse {
   }>;
 }
 
-export type BoundedResolveFailure =
-  | BoundedResolverError
-  | StructuralPreflightError
-  | NoHealthyCapabilityError
-  | ResolverRateLimitedError
-  | BoundedResolverDecodeError;
+/** Public failure surface — exhaustive via BoundedResolverError. */
+export type BoundedResolveFailure = BoundedResolverError;
 
 const toRecognizeCapability = (network: NetworkCapability): RecognizeCapability => {
   const recognize = network.operations.recognize;
@@ -238,6 +247,8 @@ interface FanoutResult {
   readonly global_deadline_exceeded: boolean;
   /** Declared healthy coverage keys that were never successfully concluded. */
   readonly unsearched_or_uncertain: ReadonlyArray<string>;
+  /** External adapter starts for this fanout (leaders only). */
+  readonly adapter_attempts: number;
 }
 
 const TIMEOUT_OUTCOME: ProbeOutcome = { kind: "timeout" };
@@ -257,6 +268,9 @@ const runFanout = (input: {
   readonly globalAbort: AbortSignal;
   readonly globalController: ReturnType<typeof createDeadlineController>;
   readonly global_deadline_at_ms: number;
+  readonly identifier_format: IdentifierFormatDimension;
+  /** Request-local counter: increment at each external adapter start. */
+  readonly recordAdapterStart: () => void;
 }): Effect.Effect<FanoutResult, never> =>
   Effect.gen(function* () {
     const {
@@ -267,7 +281,23 @@ const runFanout = (input: {
       globalAbort,
       globalController,
       global_deadline_at_ms: globalDeadlineAt,
+      identifier_format,
+      recordAdapterStart,
     } = input;
+
+    const recordNetwork = (
+      network_key: string,
+      network_outcome: NetworkOutcomeDimension,
+      adapter_attempted: boolean,
+    ): void => {
+      deps.observer?.record({
+        kind: "network_outcome",
+        identifier_format,
+        network_key,
+        network_outcome,
+        adapter_attempted,
+      });
+    };
 
     const timed_out: NetworkRef[] = [];
     const unavailable: NetworkRef[] = [];
@@ -284,6 +314,7 @@ const runFanout = (input: {
     const hits: FanoutResult["hits"] = [];
     const declaredCoverage = targets.map((t) => networkIdentityKey(t.network.network));
     const concluded = new Set<string>();
+    let adapter_attempts = 0;
 
     let sealed = false;
     let global_deadline_exceeded = false;
@@ -316,6 +347,7 @@ const runFanout = (input: {
           return;
         }
 
+        const networkKey = networkIdentityKey(hit.network.network);
         const recognize = hit.network.operations.recognize;
         if (
           hit.network.kill_switch ||
@@ -323,15 +355,17 @@ const runFanout = (input: {
           recognize.state === "disabled" ||
           recognize.prior_evidence_revocation_policy === "revoke_integrity"
         ) {
+          // CR-101 disable precedes breaker/adapters.
           pushUnique(unavailable, hit.network.network);
+          recordNetwork(networkKey, "disabled", false);
           return;
         }
         if (recognize.state !== "available") {
           pushUnique(unavailable, hit.network.network);
+          recordNetwork(networkKey, "unavailable", false);
           return;
         }
 
-        const networkKey = networkIdentityKey(hit.network.network);
         const gate = yield* deps.circuitBreaker.beforeCall({
           network_key: networkKey,
           operation: "recognize",
@@ -339,6 +373,7 @@ const runFanout = (input: {
         });
         if (!gate.allow) {
           pushUnique(circuit_open, hit.network.network);
+          recordNetwork(networkKey, "circuit_open", false);
           return;
         }
 
@@ -355,6 +390,8 @@ const runFanout = (input: {
         inFlight += 1;
         deps.metrics.observeConcurrency(inFlight);
         deps.metrics.incr("adapter_calls");
+        adapter_attempts += 1;
+        recordAdapterStart();
 
         const disarm = armDeadlineRace({
           clock: deps.clock,
@@ -406,6 +443,7 @@ const runFanout = (input: {
           if (deadlineFired === "global_deadline" || outcome.kind === "timeout") {
             deps.metrics.incr("timeouts");
             pushUnique(timed_out, hit.network.network);
+            recordNetwork(networkKey, "timeout", true);
           } else {
             pushUnique(cancelled, hit.network.network);
           }
@@ -425,6 +463,7 @@ const runFanout = (input: {
           seal("global_deadline");
           deps.metrics.incr("timeouts");
           pushUnique(timed_out, hit.network.network);
+          recordNetwork(networkKey, "timeout", true);
           return;
         }
         if (breach === "per_network_deadline" || outcome.kind === "timeout") {
@@ -435,6 +474,7 @@ const runFanout = (input: {
             now_ms: deps.clock.nowMs(),
           });
           pushUnique(timed_out, hit.network.network);
+          recordNetwork(networkKey, "timeout", true);
           return;
         }
 
@@ -447,6 +487,7 @@ const runFanout = (input: {
             });
             hits.push({ network: hit.network, outcome });
             concluded.add(networkKey);
+            recordNetwork(networkKey, "hit", true);
             break;
           case "miss":
             yield* deps.circuitBreaker.recordSuccess({
@@ -456,6 +497,7 @@ const runFanout = (input: {
             });
             pushUnique(conclusive_misses, hit.network.network);
             concluded.add(networkKey);
+            recordNetwork(networkKey, "conclusive_miss", true);
             break;
           case "unavailable":
             yield* deps.circuitBreaker.recordFailure({
@@ -464,6 +506,7 @@ const runFanout = (input: {
               now_ms: deps.clock.nowMs(),
             });
             pushUnique(unavailable, hit.network.network);
+            recordNetwork(networkKey, "unavailable", true);
             if (
               typeof outcome.safe_code === "string" &&
               outcome.safe_code.length > 0 &&
@@ -573,6 +616,7 @@ const runFanout = (input: {
       sealed,
       global_deadline_exceeded,
       unsearched_or_uncertain,
+      adapter_attempts,
     };
   });
 
@@ -692,17 +736,56 @@ const markCoalesced = (
 /**
  * Bounded collection resolve — the CR-102 orchestration entrypoint.
  * Strict-decodes config before cache / rate / adapters.
+ * CR-107: demand/network/terminal events, live snapshot pin, admission full-stop.
+ *
+ * Exactly one `resolver_terminal` is emitted per invocation via a request-local
+ * idempotent finalizer (exit hook). Demand is emitted only after structural
+ * preflight succeeds.
  */
 export const resolveBounded = (input: {
   readonly request: unknown;
   readonly config: unknown;
   readonly deps: BoundedResolverDeps;
 }): Effect.Effect<BoundedResolveResponse, BoundedResolveFailure> =>
-  Effect.gen(function* () {
+  Effect.suspend(() => {
     const started = input.deps.clock.nowMs();
+    const terminal = createResolverTerminalFinalizer({
+      observer: input.deps.observer,
+      started_ms: started,
+      nowMs: () => input.deps.clock.nowMs(),
+    });
+    /** Set once structural preflight classifies the identifier. */
+    let classifiedFormat: IdentifierFormatDimension | undefined;
+    /**
+     * Honest external adapter starts for this request (leaders only).
+     * Incremented at the probe start site; used by success terminals and by
+     * classified failure/defect fallbacks after work may have begun.
+     */
+    let adapterStarts = 0;
+    const recordAdapterStart = (): void => {
+      adapterStarts += 1;
+    };
+    const classifiedFailedTerminal = (
+      format: IdentifierFormatDimension,
+    ): ReturnType<typeof failedTerminal> =>
+      failedTerminal({
+        identifier_format: format,
+        adapter_attempts: adapterStarts,
+      });
 
+    const emit = (event: unknown): void => {
+      input.deps.observer?.record(event);
+    };
+
+    return Effect.gen(function* () {
     // 0. Strict-decode complete excess-property-free config BEFORE any effectful work.
-    const config = yield* decodeBoundedResolverConfig(input.config);
+    const config = yield* decodeBoundedResolverConfig(input.config).pipe(
+      Effect.tapError(() =>
+        Effect.sync(() => {
+          terminal.finalize(unclassifiedRejectedTerminal());
+        }),
+      ),
+    );
 
     const request = yield* decodeRequest(input.request).pipe(
       Effect.mapError(
@@ -713,18 +796,75 @@ export const resolveBounded = (input: {
             cause_digest: sha256Canonical(safeErrorLabel(cause)),
           }),
       ),
+      Effect.tapError(() =>
+        Effect.sync(() => {
+          terminal.finalize(unclassifiedRejectedTerminal());
+        }),
+      ),
     );
 
-    // 1. Structural preflight — BEFORE rate limit, cache, coalesce, adapter.
-    const { identifier } = yield* structuralPreflight(request.identifier);
+    // 1. Structural preflight — BEFORE admission, rate limit, cache, coalesce, adapter.
+    const { identifier } = yield* structuralPreflight(request.identifier).pipe(
+      Effect.tapError(() =>
+        Effect.sync(() => {
+          terminal.finalize(unclassifiedRejectedTerminal());
+        }),
+      ),
+    );
+    const identifier_format = identifier.format as IdentifierFormatDimension;
+    classifiedFormat = identifier_format;
 
-    // 2. Rate limit debit (only after preflight).
+    // CR-107: one demand event only after structural preflight.
+    emit({
+      kind: "resolver_demand",
+      identifier_format,
+    });
+
+    // 1b. Global admission full-stop — before rate/cache/coalesce/fanout.
+    if (input.deps.admissionControl !== undefined) {
+      yield* input.deps.admissionControl.assertOpen().pipe(
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            terminal.finalize({
+              identifier_format,
+              terminal_outcome: "full_stop",
+              candidate_count: 0,
+              cache_outcome: "none",
+              role: "admission",
+              adapter_attempts: 0,
+            });
+          }),
+        ),
+        Effect.mapError(
+          () =>
+            new ResolverAdmissionFullStopError({
+              reason: "resolver admission is full_stop; no new recognition work",
+            }),
+        ),
+      );
+    }
+
+    // Pin capability snapshot once for this request (live provider preferred).
+    const capabilitySnapshot = resolveRequestCapabilitySnapshot({
+      capabilitySnapshot: input.deps.capabilitySnapshot,
+      capabilitySnapshotProvider: input.deps.capabilitySnapshotProvider,
+    });
+
+    // 2. Rate limit debit (only after preflight + admission).
     const rate = yield* input.deps.rateLimiter.tryAcquire({
       caller_bucket_id: request.caller.bucket_id,
       now_ms: input.deps.clock.nowMs(),
     });
     if (!rate.allowed) {
       input.deps.metrics.incr("rate_limited");
+      terminal.finalize({
+        identifier_format,
+        terminal_outcome: "rate_limited",
+        candidate_count: 0,
+        cache_outcome: "none",
+        role: "rate_limited",
+        adapter_attempts: 0,
+      });
       return yield* Effect.fail(
         new ResolverRateLimitedError({
           scope: rate.scope,
@@ -737,16 +877,17 @@ export const resolveBounded = (input: {
     }
 
     const selectedTargets = selectBoundedTargets(
-      input.deps.capabilitySnapshot,
+      capabilitySnapshot,
       identifier,
       config.max_searched_networks,
     );
 
     if (selectedTargets.length === 0) {
+      terminal.finalize(failedTerminal({ identifier_format }));
       return yield* Effect.fail(
         new NoHealthyCapabilityError({
           reason: "no healthy mainnet recognize capabilities for identifier format",
-          capability_snapshot_version: input.deps.capabilitySnapshot.version,
+          capability_snapshot_version: capabilitySnapshot.version,
         }),
       );
     }
@@ -856,7 +997,7 @@ export const resolveBounded = (input: {
       namespace: "negative_probe",
       identifier_format: identifier.format,
       identifier_structural_digest: structuralDigest,
-      capability_snapshot_version: input.deps.capabilitySnapshot.version,
+      capability_snapshot_version: capabilitySnapshot.version,
       adapter_policy_version: config.adapter_policy_version,
       authorization_scope: request.caller.authorization_scope,
       searched_coverage: coverage,
@@ -906,9 +1047,17 @@ export const resolveBounded = (input: {
             },
           ],
         };
+        terminal.finalize({
+          identifier_format,
+          terminal_outcome: "zero_result",
+          candidate_count: 0,
+          cache_outcome: "negative_hit",
+          role: "negative_cache",
+          adapter_attempts: 0,
+        });
         return cloneFreeze({
           schema_version: 1 as const,
-          capability_snapshot_version: input.deps.capabilitySnapshot.version,
+          capability_snapshot_version: capabilitySnapshot.version,
           candidates: [],
           diagnostics,
           ranking_evidence: [],
@@ -938,15 +1087,35 @@ export const resolveBounded = (input: {
       if (sealed.kind === "response") {
         const response = yield* decodeCoalescedResponse(
           sealed.response,
-          input.deps.capabilitySnapshot.version,
+          capabilitySnapshot.version,
         );
-        return yield* markCoalesced(
+        const markedResponse = yield* markCoalesced(
           response,
           input.deps.capabilitySnapshot.version,
         );
+        terminal.finalize({
+          identifier_format,
+          terminal_outcome: classifyTerminalOutcome({
+            candidate_count: markedResponse.candidates.length,
+            partial: markedResponse.diagnostics.partial,
+          }),
+          candidate_count: markedResponse.candidates.length,
+          cache_outcome: "none",
+          role: "follower",
+          adapter_attempts: 0,
+        });
+        return markedResponse;
       }
+      terminal.finalize({
+        identifier_format,
+        terminal_outcome: "partial",
+        candidate_count: 0,
+        cache_outcome: "none",
+        role: "follower",
+        adapter_attempts: 0,
+      });
       return followerTimeoutResponse({
-        capability_snapshot_version: input.deps.capabilitySnapshot.version,
+        capability_snapshot_version: capabilitySnapshot.version,
         global_deadline_exceeded: sealed.safe_code === "coalesce_follower_deadline",
         safe_code: sealed.safe_code,
         safe_message: sealed.safe_message,
@@ -974,6 +1143,8 @@ export const resolveBounded = (input: {
         globalAbort: globalController.signal,
         globalController,
         global_deadline_at_ms: globalDeadlineAt,
+        identifier_format,
+        recordAdapterStart,
       });
 
       if (fanout.global_deadline_exceeded || fanout.sealed) {
@@ -1154,6 +1325,7 @@ export const resolveBounded = (input: {
 
       // Positive / readiness cache — bind observed evidence only; never fabricate.
       // Forbidden when required enrichment/binding evidence arrives late.
+      // Honest CR-107 note: there is no positive/readiness *read* path yet.
       if (acceptCacheWrites && !missingBindingEvidence) {
         for (const candidate of candidates) {
           const deployment = candidate.identity.deployments[0];
@@ -1180,7 +1352,7 @@ export const resolveBounded = (input: {
             namespace: "positive_recognition" as const,
             identifier_format: identifier.format,
             identifier_structural_digest: structuralDigest,
-            capability_snapshot_version: input.deps.capabilitySnapshot.version,
+            capability_snapshot_version: capabilitySnapshot.version,
             capability_source_sequence: networkCap.operations.recognize.source_sequence,
             deployment_id: deployment.deployment_id.digest,
             account_digest: binding.account_digest,
@@ -1222,7 +1394,7 @@ export const resolveBounded = (input: {
           const readinessBindingInput = {
             schema_version: 1 as const,
             namespace: "report_readiness" as const,
-            capability_snapshot_version: input.deps.capabilitySnapshot.version,
+            capability_snapshot_version: capabilitySnapshot.version,
             deployment_id: deployment.deployment_id.digest,
             report_readiness: candidate.report_readiness,
             index_status: candidate.index_status,
@@ -1290,9 +1462,21 @@ export const resolveBounded = (input: {
         },
       };
 
+      terminal.finalize({
+        identifier_format,
+        terminal_outcome: classifyTerminalOutcome({
+          candidate_count: candidates.length,
+          partial,
+        }),
+        candidate_count: candidates.length,
+        cache_outcome: writeNegative ? "negative_miss" : "none",
+        role: "leader",
+        adapter_attempts: adapterStarts,
+      });
+
       return cloneFreeze({
         schema_version: 1 as const,
-        capability_snapshot_version: input.deps.capabilitySnapshot.version,
+        capability_snapshot_version: capabilitySnapshot.version,
         candidates,
         diagnostics,
         ranking_evidence,
@@ -1300,11 +1484,22 @@ export const resolveBounded = (input: {
     }).pipe(
       Effect.tap((response) => completeCoalesce({ kind: "response", response })),
       Effect.tapErrorCause((cause) =>
-        completeCoalesce({
-          kind: "error",
-          safe_code: "bounded_resolver_failure",
-          safe_message: redactSafeMessage(safeErrorLabel(cause)),
-        }),
+        Effect.sync(() => {
+          terminal.finalize(
+            failedTerminal({
+              identifier_format,
+              adapter_attempts: adapterStarts,
+            }),
+          );
+        }).pipe(
+          Effect.zipRight(
+            completeCoalesce({
+              kind: "error",
+              safe_code: "bounded_resolver_failure",
+              safe_message: redactSafeMessage(safeErrorLabel(cause)),
+            }),
+          ),
+        ),
       ),
       Effect.ensuring(Effect.sync(() => cancelGlobalTimer())),
     );
@@ -1312,14 +1507,34 @@ export const resolveBounded = (input: {
     return yield* leaderBody;
   }).pipe(
     Effect.catchAllDefect((defect) =>
-      Effect.fail(
-        new BoundedResolverDecodeError({
-          reason: "bounded resolver defect suppressed",
-          safe_cause: safeErrorLabel(defect),
-          cause_digest: sha256Canonical(safeErrorLabel(defect)),
-        }),
+      Effect.sync(() => {
+        terminal.finalize(
+          classifiedFormat !== undefined
+            ? classifiedFailedTerminal(classifiedFormat)
+            : unclassifiedRejectedTerminal(),
+        );
+      }).pipe(
+        Effect.zipRight(
+          Effect.fail(
+            new BoundedResolverDecodeError({
+              reason: "bounded resolver defect suppressed",
+              safe_cause: safeErrorLabel(defect),
+              cause_digest: sha256Canonical(safeErrorLabel(defect)),
+            }),
+          ),
+        ),
       ),
     ),
+    Effect.onExit(() =>
+      Effect.sync(() => {
+        terminal.ensure(
+          classifiedFormat !== undefined
+            ? classifiedFailedTerminal(classifiedFormat)
+            : unclassifiedRejectedTerminal(),
+        );
+      }),
+    ),
   );
+  });
 
 export type { BoundedResolveRequestType };
