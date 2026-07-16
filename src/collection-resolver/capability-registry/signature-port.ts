@@ -10,6 +10,7 @@
  * identity + candidate snapshot digest). A signature for one predecessor
  * epoch cannot authorize a reset from another.
  */
+import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { CapabilityRegistrySignatureError } from "./errors.js";
 import type {
@@ -42,8 +43,8 @@ export const rejectAllBaselineSignatures: CapabilityRegistrySignatureVerifier = 
 };
 
 /**
- * Hermetic test verifier: accepts only when signature_hex equals
- * `test:${binding_digest}:${public_key_hex}` — never a production algorithm.
+ * Hermetic test verifier: accepts only a deterministic 64-byte hex fixture
+ * derived from the binding and public key — never a production algorithm.
  */
 export const createHermeticBaselineSignatureVerifier = (): CapabilityRegistrySignatureVerifier => ({
   verifyBaseline: ({ material, envelope }) => {
@@ -54,7 +55,10 @@ export const createHermeticBaselineSignatureVerifier = (): CapabilityRegistrySig
         }),
       );
     }
-    const expected = `test:${material.binding_digest.digest}:${envelope.public_key_hex}`;
+    const expected = hermeticBaselineSignatureHex(
+      material.binding_digest.digest,
+      envelope.public_key_hex,
+    );
     if (envelope.signature_hex !== expected) {
       return Effect.fail(
         new CapabilityRegistrySignatureError({
@@ -69,4 +73,7 @@ export const createHermeticBaselineSignatureVerifier = (): CapabilityRegistrySig
 export const hermeticBaselineSignatureHex = (
   bindingDigestHex: string,
   publicKeyHex: string,
-): string => `test:${bindingDigestHex}:${publicKeyHex}`;
+): string =>
+  createHash("sha512")
+    .update(`test:${bindingDigestHex}:${publicKeyHex}`, "utf8")
+    .digest("hex");

@@ -373,8 +373,8 @@ export type CapabilityRegistryBaselineMaterial = Schema.Schema.Type<
  */
 export const BaselineSignatureEnvelope = Schema.Struct({
   algorithm: Schema.Literal("ed25519"),
-  signature_hex: NonEmptyString,
-  public_key_hex: NonEmptyString,
+  signature_hex: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{128}$/)),
+  public_key_hex: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/)),
 }).annotations({ identifier: "BaselineSignatureEnvelope" });
 export type BaselineSignatureEnvelope = Schema.Schema.Type<
   typeof BaselineSignatureEnvelope

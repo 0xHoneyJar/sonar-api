@@ -109,7 +109,14 @@ export const projectOrderingCapabilityViews = (
       views,
     };
 
-    assertNoLeakage(raw, "$");
+    yield* Effect.try({
+      try: () => assertNoLeakage(raw, "$"),
+      catch: (cause) =>
+        new CapabilityRegistryDecodeError({
+          reason: "Ordering projection failed leakage guard",
+          cause,
+        }),
+    });
 
     const projection = yield* decodeProjection(raw).pipe(
       Effect.mapError(
