@@ -186,9 +186,9 @@ export const createSolanaDasNetworkAdapter = (
           if (readinessOutcome.kind === "timeout") {
             return { kind: "timeout" } as const;
           }
-          if (readinessOutcome.kind === "unavailable") {
-            return { kind: "unavailable" } as const;
-          }
+          // Readiness is optional enrichment after DAS has already recognized
+          // the collection. An outage degrades to the honest default rather
+          // than erasing the recognized candidate.
           if (readinessOutcome.kind === "observed") {
             readiness = readinessOutcome.readiness;
           }

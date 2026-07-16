@@ -542,6 +542,28 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
     ).toEqual({ index_status: "indexed", report_readiness: "ready" });
   });
 
+  it("preserves DAS recognition when the readiness dependency is unavailable", async () => {
+    const { adapter } = adapterFor(
+      () => sampleOutcome(PYTHIANS_COLLECTION_MINT, FIXTURE_PROGRAMMABLE_ITEMS),
+      undefined,
+      {
+        readinessPort: {
+          observe: () => Effect.succeed({ kind: "unavailable" as const }),
+        },
+      },
+    );
+
+    const outcome = await expectAsyncSuccess(
+      adapter.probe(probeRequest(PYTHIANS_COLLECTION_MINT)),
+    );
+
+    expect(outcome.kind).toBe("hit");
+    if (outcome.kind !== "hit") return;
+    expect(outcome.recognition).toBe("recognized");
+    expect(outcome.index_status).toBe("missing");
+    expect(outcome.report_readiness).toBe("preparation_required");
+  });
+
   it("honors abort/deadline and does not mutate state after abort", async () => {
     const sharedState = { mutations: 0 };
     const controller = new AbortController();
