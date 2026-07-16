@@ -14,6 +14,7 @@ import {
   createScriptedDasSamplePort,
   createVirtualClock,
   DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT,
+  MAX_DAS_RECOGNITION_SAMPLE_LIMIT,
   defaultBoundedResolverConfig,
   deriveIndexAndReadiness,
   findCollectionByMintExact,
@@ -26,9 +27,11 @@ import {
   hermeticResolveRequest,
   loadHermeticCapabilitySnapshot,
   normalizeDasCollectionProbe,
+  normalizeDasSampleLimit,
   normalizeSolanaAddress,
   parseDasGetAssetRpcResponse,
   parseDasSampleRpcResponse,
+  parseDasSampleLimitArgument,
   projectSolanaDasHit,
   PYTHIANS_COLLECTION_MINT,
   REGISTERED_COLLECTION_MINT,
@@ -194,6 +197,25 @@ describe("CR-104 Solana DAS sample classifier (CLI parity)", () => {
     expect(body.params.page).toBe(1);
     expect(body.params.groupValue).toBe(PYTHIANS_COLLECTION_MINT);
     expect(body.params.groupValue).not.toBe(PYTHIANS_COLLECTION_MINT.toLowerCase());
+  });
+
+  it("rejects non-finite budgets and clamps finite adapter/CLI budgets", () => {
+    expect(normalizeDasSampleLimit(Number.NaN)).toBeUndefined();
+    expect(normalizeDasSampleLimit(Number.POSITIVE_INFINITY)).toBeUndefined();
+    expect(normalizeDasSampleLimit(0)).toBe(1);
+    expect(normalizeDasSampleLimit(7.9)).toBe(7);
+    expect(normalizeDasSampleLimit(50_000)).toBe(MAX_DAS_RECOGNITION_SAMPLE_LIMIT);
+    expect(parseDasSampleLimitArgument("50000")).toBe(
+      MAX_DAS_RECOGNITION_SAMPLE_LIMIT,
+    );
+    expect(() => parseDasSampleLimitArgument("Infinity")).toThrow(/finite/);
+    expect(() => parseDasSampleLimitArgument("not-a-number")).toThrow(/finite/);
+    expect(() =>
+      buildDasSampleRequestBody({
+        collection_mint: PYTHIANS_COLLECTION_MINT,
+        limit: Number.NaN,
+      }),
+    ).toThrow(/finite/);
   });
 });
 
@@ -666,6 +688,25 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
     expect(port.calls()[0]!.limit).toBeLessThanOrEqual(
       DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT,
     );
+  });
+
+  it("clamps at the adapter boundary before any custom DAS port sees the limit", async () => {
+    const port = createScriptedDasSamplePort({
+      handler: () => sampleOutcome(PYTHIANS_COLLECTION_MINT, FIXTURE_PROGRAMMABLE_ITEMS),
+    });
+    const adapter = createSolanaDasNetworkAdapter({
+      dasPort: port,
+      sampleLimit: 50_000,
+    });
+    await expectAsyncSuccess(adapter.probe(probeRequest(PYTHIANS_COLLECTION_MINT)));
+    expect(port.calls()[0]!.limit).toBe(MAX_DAS_RECOGNITION_SAMPLE_LIMIT);
+
+    expect(() =>
+      createSolanaDasNetworkAdapter({
+        dasPort: port,
+        sampleLimit: Number.POSITIVE_INFINITY,
+      }),
+    ).toThrow(/finite/);
   });
 });
 

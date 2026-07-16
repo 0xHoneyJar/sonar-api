@@ -9,6 +9,35 @@ import { parseAsset, type DasAsset } from "../../../svm/nft-collection-source.js
 
 /** Default interactive recognition / CLI sample size — never paginate beyond page 1. */
 export const DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT = 8;
+export const MAX_DAS_RECOGNITION_SAMPLE_LIMIT = 1000;
+
+/**
+ * Canonical DAS sample budget boundary shared by adapters, transports, and CLI.
+ * Non-finite values are invalid; finite values are integerized and bounded.
+ */
+export const normalizeDasSampleLimit = (value: number): number | undefined => {
+  if (!Number.isFinite(value)) return undefined;
+  return Math.max(
+    1,
+    Math.min(Math.floor(value), MAX_DAS_RECOGNITION_SAMPLE_LIMIT),
+  );
+};
+
+export const parseDasSampleLimitArgument = (raw: string | undefined): number => {
+  const normalized = normalizeDasSampleLimit(Number(raw));
+  if (normalized === undefined) {
+    throw new RangeError("--sample requires a finite numeric value");
+  }
+  return normalized;
+};
+
+const requireDasSampleLimit = (value: number): number => {
+  const normalized = normalizeDasSampleLimit(value);
+  if (normalized === undefined) {
+    throw new RangeError("DAS sample limit must be finite");
+  }
+  return normalized;
+};
 
 export type DasCoverageKind =
   | "classic"
@@ -76,7 +105,7 @@ export const buildDasSampleRequestBody = (input: {
     groupKey: "collection",
     groupValue: input.collection_mint,
     page: 1,
-    limit: Math.max(1, Math.min(input.limit, 1000)),
+    limit: requireDasSampleLimit(input.limit),
   },
 });
 

@@ -28,6 +28,7 @@ import {
   classifyDasSampleItems,
   DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT,
   filterVerifiedDasSampleMembers,
+  parseDasSampleLimitArgument,
   parseDasSampleRpcResponse,
 } from "../collection-resolver/adapters/solana/sample-classifier.js";
 
@@ -59,7 +60,7 @@ async function main(): Promise<void> {
   const si = process.argv.indexOf("--sample");
   const sample =
     si >= 0
-      ? Math.max(1, Number(process.argv[si + 1]) || DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT)
+      ? parseDasSampleLimitArgument(process.argv[si + 1])
       : DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT;
 
   console.log(`\n  ◇ probing collection ${mint} (sample ${sample}) …`);

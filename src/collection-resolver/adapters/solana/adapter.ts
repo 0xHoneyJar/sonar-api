@@ -23,6 +23,7 @@ import {
   classifyDasSampleItems,
   DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT,
   filterVerifiedDasSampleMembers,
+  normalizeDasSampleLimit,
 } from "./sample-classifier.js";
 
 export interface SolanaDasAdapterOptions {
@@ -78,7 +79,12 @@ const sealIfAborted = (
 export const createSolanaDasNetworkAdapter = (
   options: SolanaDasAdapterOptions,
 ): NetworkAdapterPort => {
-  const sampleLimit = options.sampleLimit ?? DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT;
+  const sampleLimit = normalizeDasSampleLimit(
+    options.sampleLimit ?? DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT,
+  );
+  if (sampleLimit === undefined) {
+    throw new RangeError("Solana DAS adapter sampleLimit must be finite");
+  }
   const nowMs = options.nowMs ?? (() => Date.now());
 
   return {
