@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import {
   COLLECTION_PROTOCOL_SCHEMA_VERSION,
   makeCollectionDeploymentRef,
+  type CollectionDeploymentRef,
 } from "../collection-resolver/protocol.js";
 import { requireServiceToken } from "./auth.js";
 import { resolvePreparationCapability } from "./capability.js";
@@ -67,24 +68,12 @@ async function admitCanonical(args: {
   store: IngestJobStorePort;
   capabilityResolver: PreparationCapabilityResolver;
   preparationRuntime: PreparationRuntimeState;
-  network: {
-    readonly schema_version: 1;
-    readonly network_namespace: "eip155" | "solana";
-    readonly network_reference: string;
-  };
-  address: string;
+  deployment: CollectionDeploymentRef;
   tokenStandard: Parameters<typeof resolvePreparationCapability>[0]["tokenStandard"];
   correlation?: { source: string; correlationId: string };
 }): Promise<AdmissionResult> {
-  const deployment = await Effect.runPromise(
-    makeCollectionDeploymentRef({
-      schema_version: COLLECTION_PROTOCOL_SCHEMA_VERSION,
-      network: args.network,
-      address: args.address,
-    }),
-  );
   const capability = await args.capabilityResolver({
-    network: deployment.network,
+    network: args.deployment.network,
     tokenStandard: args.tokenStandard,
   });
   if (capability.enabled && capability.health === "available" && !args.preparationRuntime.available) {
@@ -96,7 +85,7 @@ async function admitCanonical(args: {
     };
   }
   return args.store.admit({
-    deployment,
+    deployment: args.deployment,
     tokenStandard: args.tokenStandard,
     capability,
     correlation: args.correlation,
@@ -154,8 +143,7 @@ export function createCollectionRoutes(deps: {
       store,
       capabilityResolver,
       preparationRuntime,
-      network: deployment.network,
-      address: deployment.address,
+      deployment,
       tokenStandard: "erc721",
       correlation: { source: body.source, correlationId: body.order_id },
     });
@@ -193,14 +181,26 @@ export function createCanonicalPreparationRoutes(deps: {
       return c.json({ schema_version: 1, error: { code: "invalid_request", message: "request does not match schema version 1" } }, 400);
     }
 
+    let deployment: CollectionDeploymentRef;
+    try {
+      deployment = await Effect.runPromise(
+        makeCollectionDeploymentRef({
+          schema_version: COLLECTION_PROTOCOL_SCHEMA_VERSION,
+          network: body.network,
+          address: body.address,
+        }),
+      );
+    } catch {
+      return c.json({ schema_version: 1, error: { code: "invalid_deployment", message: "network and address do not form a valid deployment" } }, 400);
+    }
+
     let result: AdmissionResult;
     try {
       result = await admitCanonical({
         store: deps.store,
         capabilityResolver,
         preparationRuntime,
-        network: body.network,
-        address: body.address,
+        deployment,
         tokenStandard: body.token_standard,
         ...(body.correlation
           ? {
@@ -212,7 +212,7 @@ export function createCanonicalPreparationRoutes(deps: {
           : {}),
       });
     } catch {
-      return c.json({ schema_version: 1, error: { code: "invalid_deployment", message: "network and address do not form a valid deployment" } }, 400);
+      return c.json({ schema_version: 1, error: { code: "admission_failed", message: "collection preparation admission failed" } }, 500);
     }
 
     if (!result.ok) return c.json(admissionError(result), admissionHttpStatus(result));

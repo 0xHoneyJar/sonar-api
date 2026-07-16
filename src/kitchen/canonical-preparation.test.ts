@@ -54,6 +54,39 @@ describe("canonical collection preparation", () => {
     expect((await request(evmRequest({ schema_version: 2 }))).status).toBe(400);
   });
 
+  it("separates invalid deployments from admission infrastructure failures", async () => {
+    const invalid = await request(evmRequest({ address: "not-an-evm-address" }));
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toMatchObject({
+      error: { code: "invalid_deployment" },
+    });
+
+    const failingStore = new MemoryIngestJobStore();
+    vi.spyOn(failingStore, "admit").mockRejectedValue(
+      new Error("database credentials and private admission detail"),
+    );
+    const failed = await createKitchenApp({
+      store: failingStore,
+      reader,
+      preparationRuntime: INJECTED_PREPARATION_RUNTIME,
+    }).request("/v2/collection-preparations", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(evmRequest()),
+    });
+    expect(failed.status).toBe(500);
+    await expect(failed.json()).resolves.toEqual({
+      schema_version: 1,
+      error: {
+        code: "admission_failed",
+        message: "collection preparation admission failed",
+      },
+    });
+  });
+
   it("joins legacy and v2 requests to one physical job without subscriber ownership", async () => {
     const canonical = await request(evmRequest({
       correlation: { source: "ordering-service", correlation_id: "order-a" },
