@@ -42,10 +42,10 @@ const hopKey = (request: TransportRequest): string =>
   `${request.target.scheme}://${request.target.hostname}:${request.target.port}${request.target.url.pathname}${request.target.url.search}@@${request.target.pinned_address}`;
 
 const hostKey = (request: TransportRequest): string =>
-  `${request.target.scheme}://${request.target.hostname}${request.target.url.pathname}`;
+  `${request.target.scheme}://${request.target.hostname}${request.target.url.pathname}${request.target.url.search}`;
 
 const hostPortKey = (request: TransportRequest): string =>
-  `${request.target.scheme}://${request.target.host_authority}${request.target.url.pathname}`;
+  `${request.target.scheme}://${request.target.host_authority}${request.target.url.pathname}${request.target.url.search}`;
 
 export const createScriptedDnsPort = (table: ScriptedDns): DnsPort => {
   const cursors = new Map<string, number>();

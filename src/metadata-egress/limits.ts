@@ -7,8 +7,6 @@ export interface MetadataEgressLimits {
   readonly body_timeout_ms: number;
   readonly max_compressed_bytes: number;
   readonly max_decompressed_bytes: number;
-  /** Prefer HTTPS; HTTP is allowed only when the URI is already http. */
-  readonly prefer_https: boolean;
   /**
    * Ports permitted for egress. Default 80/443 so public-IP port scanning is
    * not an ambient capability. Every redirect revalidates against this set.
@@ -26,7 +24,6 @@ export const DEFAULT_METADATA_EGRESS_LIMITS: MetadataEgressLimits = {
   body_timeout_ms: 10_000,
   max_compressed_bytes: 256 * 1024,
   max_decompressed_bytes: 1_048_576,
-  prefer_https: true,
   allowed_ports: DEFAULT_ALLOWED_PORTS,
 };
 

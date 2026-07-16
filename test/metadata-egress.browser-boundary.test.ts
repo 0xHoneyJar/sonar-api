@@ -10,12 +10,38 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import ts from "typescript";
 import {
   METADATA_EGRESS_RUNTIME,
   assertServerOnlyMetadataEgress,
 } from "../src/metadata-egress/index.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+// Exact audited infrastructure call sites. Any new direct fetch in src fails
+// this test and must either route through metadata-egress or be explicitly
+// reviewed as non-metadata infrastructure transport.
+const NON_METADATA_FETCH_ALLOWLIST = new Set([
+  "src/kitchen/ingest-worker.ts",
+  "src/labels/ensure-schema.ts",
+  "src/labels/ingest.ts",
+  "src/self/live/graphql-introspect.live.ts",
+  "src/self/live/railway.live.ts",
+  "src/sense/live/sonar-sense.live.ts",
+  "src/svm/collection-event-indexer.ts",
+  "src/svm/collection-event-source.ts",
+  "src/svm/collection-event-writer.ts",
+  "src/svm/dune-client.ts",
+  "src/svm/ensure-kind-constraint.ts",
+  "src/svm/genesis-stone-indexer.ts",
+  "src/svm/nft-collection-source.ts",
+  "src/svm/probe-collection.ts",
+  "src/svm/pythians-collection-indexer.ts",
+  "src/svm/sqd-client.ts",
+  "src/svm/sqd-liveness-monitor.ts",
+  "src/svm/sqd-loader.ts",
+  "src/svm/warehouse-loader.ts",
+]);
 
 const walkFiles = (dir: string, out: string[] = []): string[] => {
   if (!existsSync(dir)) return out;
@@ -36,6 +62,24 @@ const walkFiles = (dir: string, out: string[] = []): string[] => {
     else if (/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(entry)) out.push(full);
   }
   return out;
+};
+
+const hasDirectFetchCall = (file: string, source: string): boolean => {
+  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "fetch"
+    ) {
+      found = true;
+      return;
+    }
+    if (!found) ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return found;
 };
 
 describe("CR-004 browser metadata boundary", () => {
@@ -64,15 +108,8 @@ describe("CR-004 browser metadata boundary", () => {
     for (const file of files) {
       const rel = relative(ROOT, file);
       if (rel.startsWith("src/metadata-egress/")) continue;
-      // Operator-configured infrastructure fetchers (Hasura/RPC/Dune/etc.) are
-      // out of CR-004 scope; only flag collection-metadata shaped URL fetches.
       const source = readFileSync(file, "utf8");
-      // Flag only collection-metadata URI fetches — not Hasura /v1/metadata admin.
-      if (
-        /fetch\(\s*(?:tokenUri|metadataUri|imageUri|json_uri|jsonUri)\b/i.test(source) ||
-        /fetch\(\s*(?:uri|url)\s*[,)]/i.test(source) &&
-          /tokenUri|metadataUri|collection.?metadata/i.test(source)
-      ) {
+      if (hasDirectFetchCall(file, source) && !NON_METADATA_FETCH_ALLOWLIST.has(rel)) {
         offenders.push(rel);
       }
     }

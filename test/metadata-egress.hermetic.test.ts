@@ -295,7 +295,7 @@ describe("CR-004 retrieveMetadata hostile fixtures", () => {
         "cdn.example.test": [{ address: PUBLIC_V4, family: "ipv4" }],
       },
       transport: {
-        "https://cdn.example.test/meta.json": {
+        [`https://cdn.example.test/meta.json?access_token=${token}`]: {
           kind: "response",
           status: 200,
           headers: { "content-type": "application/json" },

@@ -259,12 +259,14 @@ export const retrieveMetadata = async (
   sanitizeCallerHeaders(deps.ambient_headers);
 
   let currentUrl = request.uri;
+  // Keep only one-way loop keys in memory; URLs may contain bearer query data.
   const seen = new Set<string>();
   let redirectCount = 0;
   let lastTarget: ValidatedTarget | undefined;
 
   while (redirectCount <= limits.max_redirects) {
-    if (seen.has(currentUrl)) {
+    const loopKey = sha256Hex(new TextEncoder().encode(currentUrl));
+    if (seen.has(loopKey)) {
       const final = redactFinal(currentUrl);
       return partial("redirect_loop", "redirect loop detected", {
         ...baseProvenance,
@@ -276,7 +278,7 @@ export const retrieveMetadata = async (
         terminal_address_class: lastTarget?.terminal_address_class,
       });
     }
-    seen.add(currentUrl);
+    seen.add(loopKey);
 
     const resolved = await resolveTarget({
       rawUrl: currentUrl,
