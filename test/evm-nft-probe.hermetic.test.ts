@@ -177,6 +177,28 @@ describe("CR-103 EVM NFT probe adapter", () => {
     expect(outcome).toMatchObject({ kind: "unavailable", safe_code: "rpc_invalid_response" });
   });
 
+  it("preserves an indexed Kitchen snapshot when optional job lookup fails", async () => {
+    const clock = virtualClock();
+    const port = createKitchenIndexStatusPort({
+      reader: {
+        readIndexedSnapshot: async () => ({ holderCount: 12, indexedAtMs: 1 }),
+      },
+      getJob: async () => {
+        throw new Error("optional job store unavailable");
+      },
+      clock,
+    });
+    const status = await Effect.runPromise(
+      port.lookup({
+        chain_id: 1,
+        normalized_address: FIXTURE_ADDRESS_NORMALIZED,
+        abort: makeAbort().signal,
+        deadline_at_ms: clock.nowMs() + 50,
+      }),
+    );
+    expect(status).toBe("indexed");
+  });
+
   it("ABI-encodes ERC-165 bytes4 arguments with right padding", () => {
     expect(encodeSupportsInterface("0x80ac58cd")).toBe(
       "0x01ffc9a780ac58cd00000000000000000000000000000000000000000000000000000000",

@@ -86,7 +86,16 @@ export const createKitchenIndexStatusPort = (deps: {
               finish("unknown");
               return;
             }
-            const job = deps.getJob ? await deps.getJob(key) : undefined;
+            let job: IngestJobRecord | undefined;
+            if (deps.getJob !== undefined) {
+              try {
+                job = await deps.getJob(key);
+              } catch {
+                // Optional job enrichment cannot erase an authoritative
+                // indexed snapshot when its backing store is unavailable.
+                job = undefined;
+              }
+            }
             if (
               input.abort.aborted ||
               deps.clock.nowMs() >= input.deadline_at_ms
