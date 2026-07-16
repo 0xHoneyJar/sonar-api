@@ -71,7 +71,10 @@ async function waitForAdvisoryWaiter(
   throw new Error(`timed out waiting for advisory lock waiter ${applicationName}`);
 }
 
-function runBackfillScript(applicationName: string): BackfillRun {
+function runBackfillScript(
+  applicationName: string,
+  env: Readonly<Record<string, string>> = {},
+): BackfillRun {
   const child = spawn(
     "pnpm",
     ["exec", "tsx", "scripts/kitchen-backfill-job-identity.ts"],
@@ -81,6 +84,7 @@ function runBackfillScript(applicationName: string): BackfillRun {
         ...process.env,
         KITCHEN_DATABASE_URL: databaseUrl,
         PGAPPNAME: applicationName,
+        ...env,
       },
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
@@ -138,6 +142,20 @@ async function cleanupBackfillProcesses(): Promise<void> {
     }
     activeBackfills.delete(run);
   }));
+}
+
+async function withDeadline<A>(promise: Promise<A>, timeoutMs: number, message: string): Promise<A> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, rejectTimeout) => {
+        timeout = setTimeout(() => rejectTimeout(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 describePostgres("Postgres physical-job mixed-version integration", () => {
@@ -501,6 +519,69 @@ describePostgres("Postgres physical-job mixed-version integration", () => {
     }
   }, 45_000);
 
+  it("fails closed within the configured timeout when a canonical lock is held", async () => {
+    await pool!.query(`
+      CREATE TABLE kitchen_ingest_jobs (
+        chain_id int NOT NULL,
+        contract text NOT NULL,
+        job_id text NOT NULL,
+        order_id text NOT NULL,
+        source text NOT NULL,
+        status text NOT NULL DEFAULT 'queued',
+        contact_email text,
+        community_name text,
+        error_message text,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (chain_id, contract)
+      );
+      INSERT INTO kitchen_ingest_jobs
+        (chain_id, contract, job_id, order_id, source, status)
+      VALUES
+        (80094, '${key.contract}', 'lock-timeout-job', 'legacy-order', 'legacy-source', 'indexing');
+    `);
+    await pool!.query(expandSql);
+    await pool!.query(
+      `UPDATE kitchen_job_identity_migration_state SET phase = 'dual_write' WHERE singleton = true`,
+    );
+    const request = await admissionRequest("new-order");
+    const lockKey = physicalJobKey({
+      deployment: request.deployment,
+      capabilityId: request.capability.capabilityId,
+      capabilityVersion: request.capability.capabilityVersion,
+    });
+    const blocker = await pool!.connect();
+    let blockerOpen = false;
+    try {
+      await blocker.query("BEGIN");
+      blockerOpen = true;
+      await blocker.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
+
+      const backfill = runBackfillScript("cr203-lock-timeout", {
+        KITCHEN_BACKFILL_LOCK_TIMEOUT_MS: "100",
+      });
+      const result = await withDeadline(
+        backfill.result,
+        10_000,
+        "backfill did not honor lock timeout",
+      );
+      expect(result.code).not.toBe(0);
+      expect(result.stderr).toContain("canceling statement due to lock timeout");
+      const authority = await pool!.query(
+        `SELECT phase, divergence, reason
+         FROM kitchen_job_identity_migration_state WHERE singleton = true`,
+      );
+      expect(authority.rows[0]).toMatchObject({
+        phase: "parity",
+        divergence: true,
+        reason: expect.stringContaining("lock timeout"),
+      });
+    } finally {
+      if (blockerOpen) await blocker.query("ROLLBACK").catch(() => undefined);
+      blocker.release();
+    }
+  }, 30_000);
+
   it("marks divergence when a concurrent upgrade preserves scalar identity but corrupts deployment JSON", async () => {
     await pool!.query(`
       CREATE TABLE kitchen_ingest_jobs (
@@ -662,6 +743,11 @@ describePostgres("Postgres physical-job mixed-version integration", () => {
       "utf8",
     );
     await pool!.query(authoritySql);
+    const authorityIndexes = await pool!.query<{ legacy_unique_present: boolean }>(`
+      SELECT to_regclass('public.kitchen_ingest_jobs_legacy_key_uq') IS NOT NULL
+        AS legacy_unique_present
+    `);
+    expect(authorityIndexes.rows[0]?.legacy_unique_present).toBe(false);
     await pool!.query(constrainSql);
     await ensureKitchenIngestTable(pool!);
 
@@ -673,6 +759,11 @@ describePostgres("Postgres physical-job mixed-version integration", () => {
       WHERE c.conrelid = 'kitchen_ingest_jobs'::regclass AND c.contype = 'p'
     `);
     expect(primary.rows[0]?.columns).toEqual(["physical_job_id"]);
+    const constrainedIndexes = await pool!.query<{ legacy_unique_present: boolean }>(`
+      SELECT to_regclass('public.kitchen_ingest_jobs_legacy_key_uq') IS NOT NULL
+        AS legacy_unique_present
+    `);
+    expect(constrainedIndexes.rows[0]?.legacy_unique_present).toBe(false);
     await expect(store.getMigrationAuthority()).resolves.toMatchObject({
       phase: "constrained",
       divergence: false,

@@ -6,6 +6,14 @@ import { deploymentFromCollectionKey, physicalJobKey } from "../src/kitchen/norm
 const connectionString = process.env.KITCHEN_DATABASE_URL?.trim();
 if (!connectionString) throw new Error("KITCHEN_DATABASE_URL is required");
 const pool = new pg.Pool({ connectionString });
+const lockTimeoutMs = (() => {
+  const raw = process.env.KITCHEN_BACKFILL_LOCK_TIMEOUT_MS?.trim() ?? "5000";
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 60_000) {
+    throw new Error("KITCHEN_BACKFILL_LOCK_TIMEOUT_MS must be an integer from 1 to 60000");
+  }
+  return parsed;
+})();
 
 type CanonicalIdentityRow = {
   job_id: string | null;
@@ -102,6 +110,7 @@ try {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
+        await client.query("SELECT set_config('lock_timeout', $1, true)", [`${lockTimeoutMs}ms`]);
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [canonicalLockKey]);
         const locked = await client.query<CanonicalIdentityRow>(
           `SELECT ${CANONICAL_IDENTITY_COLUMNS},

@@ -37,6 +37,7 @@ BEGIN
     EXECUTE format('ALTER TABLE kitchen_ingest_jobs DROP CONSTRAINT %I', legacy_pk);
   END IF;
 END $$;
+DROP INDEX IF EXISTS kitchen_ingest_jobs_legacy_key_uq;
 CREATE INDEX IF NOT EXISTS kitchen_ingest_jobs_legacy_lookup_idx
   ON kitchen_ingest_jobs (chain_id, lower(contract), created_at DESC)
   WHERE chain_id IS NOT NULL AND contract IS NOT NULL;

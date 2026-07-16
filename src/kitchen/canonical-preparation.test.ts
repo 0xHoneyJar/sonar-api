@@ -191,7 +191,13 @@ describe("canonical collection preparation", () => {
       reader,
       preparationRuntime: INJECTED_PREPARATION_RUNTIME,
     }).request("/health");
-    expect(health.status).toBe(503);
+    expect(health.status).toBe(200);
+    const ready = await createKitchenApp({
+      store,
+      reader,
+      preparationRuntime: INJECTED_PREPARATION_RUNTIME,
+    }).request("/ready");
+    expect(ready.status).toBe(503);
   });
 
   it("does not admit immortal production jobs without a drain port", async () => {
@@ -209,13 +215,37 @@ describe("canonical collection preparation", () => {
       error: { code: "capability_degraded" },
     });
     expect(await store.listByStatus("queued")).toHaveLength(0);
-    expect((await unavailableApp.request("/health")).status).toBe(503);
+    expect((await unavailableApp.request("/health")).status).toBe(200);
+    expect((await unavailableApp.request("/ready")).status).toBe(503);
 
     expect(preparationRuntimeFromEnv({
       NODE_ENV: "production",
       KITCHEN_PREPARATION_PORT: "local_config",
       KITCHEN_WORKER_ENABLED: "true",
     })).toMatchObject({ available: false, mode: "unavailable" });
+  });
+
+  it("separates process liveness from preparation readiness", async () => {
+    const app = createKitchenApp({
+      store,
+      reader,
+      preparationRuntime: INJECTED_PREPARATION_RUNTIME,
+    });
+    const health = await app.request("/health");
+    expect(health.status).toBe(200);
+    await expect(health.json()).resolves.toEqual({
+      ok: true,
+      service: "kitchen-api",
+    });
+
+    const ready = await app.request("/ready");
+    expect(ready.status).toBe(200);
+    await expect(ready.json()).resolves.toMatchObject({
+      ok: true,
+      service: "kitchen-api",
+      preparation_admission: "enabled",
+      migration_phase: "canonical",
+    });
   });
 
   it("enables local_config only when the non-production worker is also enabled", () => {

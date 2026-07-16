@@ -48,6 +48,7 @@ BEGIN
     RAISE EXCEPTION 'Kitchen constrain refused: unexpected primary key %', primary_columns;
   END IF;
 END $$;
+DROP INDEX IF EXISTS kitchen_ingest_jobs_legacy_key_uq;
 ALTER TABLE kitchen_ingest_jobs ADD CONSTRAINT kitchen_ingest_jobs_capability_check
   CHECK (capability_id = 'ownership_index.v1');
 ALTER TABLE kitchen_ingest_jobs ADD CONSTRAINT kitchen_ingest_jobs_status_check

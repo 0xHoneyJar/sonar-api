@@ -18,10 +18,13 @@ describe("Kitchen physical-job migration artifacts", () => {
     expect(authority).toContain("parity proof is absent");
     expect(authority).toContain("ARRAY['chain_id', 'contract']");
     expect(authority).toContain("DROP CONSTRAINT %I");
+    expect(authority).toContain("DROP INDEX IF EXISTS kitchen_ingest_jobs_legacy_key_uq");
     expect(constrain).toContain("canonical identity backfill has gaps");
     expect(constrain).toContain("IF NOT EXISTS");
     expect(constrain).toContain("phase = 'canonical' AND divergence = false");
     expect(constrain).toContain("ALTER COLUMN physical_job_id SET NOT NULL");
+    expect(constrain).toContain("DROP INDEX IF EXISTS kitchen_ingest_jobs_legacy_key_uq");
+    expect(expand).toContain("phase IN ('legacy', 'dual_write', 'parity')");
   });
 
   it("backfills with the shared deployment constructor and marks divergence fail closed", () => {
@@ -32,6 +35,8 @@ describe("Kitchen physical-job migration artifacts", () => {
     expect(backfill).toContain("const physicalJobId = legacy.job_id");
     expect(backfill).toContain("physicalJobKey");
     expect(backfill).toContain("canonicalLockKey");
+    expect(backfill).toContain("set_config('lock_timeout'");
+    expect(backfill).toContain("KITCHEN_BACKFILL_LOCK_TIMEOUT_MS");
     expect(backfill).toContain("ON CONFLICT DO NOTHING");
     expect(backfill).toContain("divergence = true");
     expect(parity).toContain("legacy_projection");

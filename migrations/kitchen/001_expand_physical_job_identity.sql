@@ -30,12 +30,25 @@ ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS lease_owner text;
 ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS lease_until timestamptz;
 ALTER TABLE kitchen_ingest_jobs ADD COLUMN IF NOT EXISTS lease_epoch bigint NOT NULL DEFAULT 0;
 
--- Preserve the legacy key before removing only the exact legacy composite PK.
--- A rerun against a constrained canonical table must never drop its
--- physical_job_id primary key.
-CREATE UNIQUE INDEX IF NOT EXISTS kitchen_ingest_jobs_legacy_key_uq
-  ON kitchen_ingest_jobs (chain_id, contract)
-  WHERE chain_id IS NOT NULL AND contract IS NOT NULL;
+-- Preserve the legacy key only while legacy/dual-write authority still owns
+-- identity. A rerun after canonical authority must not recreate this index.
+DO $$
+BEGIN
+  IF to_regclass('kitchen_job_identity_migration_state') IS NULL THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS kitchen_ingest_jobs_legacy_key_uq
+      ON kitchen_ingest_jobs (chain_id, contract)
+      WHERE chain_id IS NOT NULL AND contract IS NOT NULL;
+  ELSIF EXISTS (
+    SELECT 1 FROM kitchen_job_identity_migration_state
+    WHERE singleton = true AND phase IN ('legacy', 'dual_write', 'parity')
+  ) THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS kitchen_ingest_jobs_legacy_key_uq
+      ON kitchen_ingest_jobs (chain_id, contract)
+      WHERE chain_id IS NOT NULL AND contract IS NOT NULL;
+  END IF;
+END $$;
+-- Remove only the exact legacy composite PK. A rerun against a constrained
+-- canonical table must never drop its physical_job_id primary key.
 DO $$
 DECLARE
   legacy_pk name;

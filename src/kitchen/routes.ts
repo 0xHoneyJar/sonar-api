@@ -237,7 +237,11 @@ export function createKitchenApp(deps: {
   preparationRuntime?: PreparationRuntimeState;
 }): Hono {
   const app = new Hono();
-  app.get("/health", async (c) => {
+  app.get("/health", (c) => c.json({
+    ok: true,
+    service: "kitchen-api",
+  }, 200));
+  app.get("/ready", async (c) => {
     const migration = await deps.store.getMigrationAuthority();
     const preparationRuntime = deps.preparationRuntime ?? UNAVAILABLE_PREPARATION_RUNTIME;
     const available = !migration.divergence && preparationRuntime.available;

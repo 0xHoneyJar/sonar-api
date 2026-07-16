@@ -14,9 +14,9 @@
 - The background ingest worker requires both `KITCHEN_WORKER_ENABLED=true` and
   the explicit `KITCHEN_PREPARATION_PORT=local_config` seam. This proves
   ERC-721 adapter selection and leasing hermetically, but is not a production
-  config/deploy port. Production admission and `/health` therefore remain
-  unavailable until a durable preparation drain port exists; requests are not
-  accepted into an immortal queue. Ethereum uses `EthTrackedErc721`; other supported EVM
+  config/deploy port. `/health` remains process liveness; production admission
+  and `/ready` remain unavailable until a durable preparation drain port exists,
+  so requests are not accepted into an immortal queue. Ethereum uses `EthTrackedErc721`; other supported EVM
   networks use `TrackedErc721`. ERC-1155 and Solana preparation fail typed
   without mutation.
 - Bearer auth via `SERVICE_TOKEN`
