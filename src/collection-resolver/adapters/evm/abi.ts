@@ -35,13 +35,10 @@ export const ERC1155_SUPPORTS_CALLDATA = encodeSupportsInterface(INTERFACE_ID_ER
 export const decodeAbiBool = (data: `0x${string}`): boolean | undefined => {
   const body = strip0x(data);
   if (body.length < 64) return undefined;
-  const word = body.slice(0, 64);
-  if (!/^[0-9a-fA-F]+$/.test(word)) return undefined;
-  try {
-    return BigInt(`0x${word}`) !== 0n;
-  } catch {
-    return undefined;
-  }
+  const word = body.slice(0, 64).toLowerCase();
+  if (word === "0".repeat(64)) return false;
+  if (word === `${"0".repeat(63)}1`) return true;
+  return undefined;
 };
 
 /**

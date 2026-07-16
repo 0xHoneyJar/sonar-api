@@ -35,7 +35,9 @@ import {
   type EvmMetadataBudgetConfig,
 } from "../src/collection-resolver/adapters/evm/index.js";
 import {
+  decodeAbiBool,
   encodeSupportsInterface,
+  ERC721_SUPPORTS_CALLDATA,
 } from "../src/collection-resolver/adapters/evm/abi.js";
 import { ethereumMainnetCapability, baseMainnetCapability } from "../src/collection-resolver/capability-registry/fixtures.js";
 import type { AdapterProbeRequest } from "../src/collection-resolver/bounded-core/ports.js";
@@ -161,6 +163,57 @@ describe("CR-103 EVM NFT probe adapter", () => {
     );
     expect(encodeSupportsInterface("0xd9b67a26")).toBe(
       "0x01ffc9a7d9b67a2600000000000000000000000000000000000000000000000000000000",
+    );
+  });
+
+  it("decodes only canonical ABI bool words", () => {
+    expect(decodeAbiBool(`0x${"0".repeat(64)}`)).toBe(false);
+    expect(decodeAbiBool(`0x${"0".repeat(63)}1`)).toBe(true);
+    expect(decodeAbiBool(`0x${"0".repeat(63)}2`)).toBeUndefined();
+    expect(decodeAbiBool(`0x1${"0".repeat(63)}`)).toBeUndefined();
+  });
+
+  it("treats a non-canonical RPC bool word as absent interface evidence", async () => {
+    const clock = virtualClock();
+    const script = scriptErc721();
+    const account = script.accounts[FIXTURE_ADDRESS_NORMALIZED]!;
+    const adapter = makeAdapter({
+      rpc: fixtureRpc(
+        {
+          "eip155:1": {
+            ...script,
+            accounts: {
+              ...script.accounts,
+              [FIXTURE_ADDRESS_NORMALIZED]: {
+                ...account,
+                calls: {
+                  ...account.calls,
+                  [ERC721_SUPPORTS_CALLDATA.toLowerCase()]: {
+                    kind: "success",
+                    data: `0x${"0".repeat(63)}2`,
+                  },
+                },
+              },
+            },
+          },
+        },
+        clock,
+      ),
+      clock,
+    });
+
+    const outcome = await runProbe(adapter, requestFor({ clock }));
+
+    expect(outcome.kind).toBe("hit");
+    if (outcome.kind !== "hit") return;
+    expect(outcome.token_standard).toBe("unknown");
+    expect(outcome.recognition).toBe("ambiguous");
+    expect(outcome.binding_evidence?.standard_evidence).toMatchObject({
+      token_standard: "unknown",
+      evidence_quality: "unknown",
+    });
+    expect(outcome.binding_evidence?.standard_evidence.interface_bits).not.toContain(
+      "erc165:0x80ac58cd",
     );
   });
 
