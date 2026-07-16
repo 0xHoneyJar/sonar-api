@@ -182,7 +182,15 @@ describe("CR-103 EVM NFT probe adapter", () => {
     const clock = virtualClock();
     const port = createKitchenIndexStatusPort({
       reader: {
-        readIndexedSnapshot: async () => ({ holderCount: 12, indexedAtMs: 1 }),
+        readIndexedSnapshot: async () => ({
+          holderCount: 12,
+          indexedAtMs: 1,
+          readiness: {
+            state: "ready" as const,
+            kind: "indexed_rows" as const,
+            observedAtMs: 1,
+          },
+        }),
       },
       getJob: async () => {
         throw new Error("optional job store unavailable");
