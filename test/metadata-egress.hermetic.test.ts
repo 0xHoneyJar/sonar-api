@@ -1781,6 +1781,14 @@ describe("CR-004 enrichCandidateFromRemoteMetadata", () => {
     expect(v6Ref!.denied_inline).toBe(true);
     expect(v6Ref!.safe_uri).toBeUndefined();
     expect(JSON.stringify(v6Ref)).not.toContain("fe80");
+
+    for (const raw of ["http://2130706433/img.png", "http://0x7f000001/img.png"]) {
+      const ambiguousRef = classifyUntrustedImageRef(raw);
+      expect(ambiguousRef!.denied_inline).toBe(true);
+      expect(ambiguousRef!.safe_uri).toMatch(/^http:\/\/\[redacted:[0-9a-f]{12}\]\/img\.png$/);
+      expect(JSON.stringify(ambiguousRef)).not.toContain("127.0.0.1");
+      expect(JSON.stringify(ambiguousRef)).not.toContain(new URL(raw).hostname);
+    }
   });
 
   it("accepts a successful public image through the image purpose without trusted URL", async () => {
@@ -1853,6 +1861,24 @@ describe("CR-004 provenance redaction helpers", () => {
     expect(redacted.safe_uri).not.toContain("pass");
     expect(redacted.safe_uri).not.toContain("sig=");
     expect(redacted.uri_sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("hashes ambiguous numeric IPv4 authorities before WHATWG-normalized provenance", () => {
+    for (const raw of [
+      "http://2130706433/metadata.json",
+      "http://0x7f000001/metadata.json",
+      "http://167772161/metadata.json",
+      "http://0x0a000001/metadata.json",
+    ]) {
+      const redacted = redactUri(raw);
+      expect(redacted.safe_uri).toMatch(
+        /^http:\/\/\[redacted:[0-9a-f]{12}\]\/metadata\.json$/,
+      );
+      expect(redacted.safe_uri).not.toContain("127.0.0.1");
+      expect(redacted.safe_uri).not.toContain("10.0.0.1");
+      expect(redacted.safe_uri).not.toContain(new URL(raw).hostname);
+      expect(redacted.uri_sha256).toMatch(/^[0-9a-f]{64}$/);
+    }
   });
 
   it("redacts opaque and secret-bearing path components while keeping origin", () => {

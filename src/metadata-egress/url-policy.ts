@@ -40,7 +40,7 @@ const DEFAULT_PORTS: Record<"http" | "https", number> = {
  * `001.001.001.001` and `16843009`) into ordinary dotted decimal, which would
  * otherwise erase the evidence needed to reject an ambiguous input.
  */
-const rawAuthorityHostname = (raw: string): string | undefined => {
+export const rawAuthorityHostname = (raw: string): string | undefined => {
   const match = /^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i.exec(raw.trim());
   if (match === null) return undefined;
   const authority = match[1]!;
@@ -56,7 +56,7 @@ const rawAuthorityHostname = (raw: string): string | undefined => {
 };
 
 /** Decimal, hexadecimal, octal-like, or shortened IPv4 accepted by WHATWG. */
-const isAmbiguousRawIpv4Literal = (rawHostname: string): boolean => {
+export const isAmbiguousRawIpv4Literal = (rawHostname: string): boolean => {
   if (rawHostname.startsWith("[")) return false;
   const candidate = rawHostname.endsWith(".")
     ? rawHostname.slice(0, -1)

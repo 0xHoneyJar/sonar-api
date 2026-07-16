@@ -12,6 +12,10 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { TerminalAddressClass } from "./address-policy.js";
 import type { AddressFamily, MetadataFailureReason } from "./types.js";
+import {
+  isAmbiguousRawIpv4Literal,
+  rawAuthorityHostname,
+} from "./url-policy.js";
 
 const SECRETISH_QUERY_KEY =
   /^(?:token|access_token|refresh_token|id_token|auth|authorization|password|passwd|secret|signature|sig|api_key|apikey|key|session|jwt|bearer|credential|credentials)$/i;
@@ -194,6 +198,20 @@ export const redactUri = (raw: string): RedactedUri => {
     return {
       safe_uri: "invalid://",
       uri_sha256: sha256Hex(`invalid|${raw.length}`),
+    };
+  }
+
+  const rawHostname = rawAuthorityHostname(raw);
+  if (
+    rawHostname !== undefined &&
+    isAmbiguousRawIpv4Literal(rawHostname)
+  ) {
+    // WHATWG rewrites legacy numeric IPv4 spellings (decimal, hex, shortened,
+    // or octal-like) before provenance sees them. Never emit the rewritten
+    // authority: it can reveal a denied private or loopback destination.
+    return {
+      safe_uri: `${url.protocol}//${redactedStub(rawHostname)}${redactPathname(url.pathname)}`,
+      uri_sha256: sha256Hex(correlationForm(url)),
     };
   }
 
