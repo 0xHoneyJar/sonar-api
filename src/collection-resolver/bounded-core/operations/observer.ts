@@ -157,51 +157,8 @@ const resolveAllowlist = (
   return source as ReadonlySet<string>;
 };
 
-const bridgeToMetrics = (
-  metrics: MetricsPort,
-  event: OperationalEvent,
-): void => {
-  switch (event.kind) {
-    case "network_outcome":
-      if (event.adapter_attempted) {
-        metrics.incr("adapter_calls");
-      }
-      if (event.network_outcome === "timeout") {
-        metrics.incr("timeouts");
-      }
-      break;
-    case "resolver_terminal":
-      metrics.recordLatency(event.latency_ms);
-      if (event.terminal_outcome === "partial") {
-        metrics.incr("partials");
-      }
-      if (event.terminal_outcome === "rate_limited") {
-        metrics.incr("rate_limited");
-      }
-      if (event.cache_outcome === "negative_hit") {
-        metrics.incr("cache_negative_hit");
-        metrics.incr("coalesced");
-      }
-      if (event.cache_outcome === "negative_miss" && event.role === "leader") {
-        metrics.incr("cache_negative_miss");
-      }
-      if (event.role === "follower") {
-        metrics.incr("coalesced");
-      }
-      break;
-    default:
-      break;
-  }
-};
-
 export const createMemoryRecognitionObserver = (options: {
   readonly metrics?: MetricsPort;
-  /**
-   * When true, mirror selected events onto aggregate MetricsPort counters.
-   * Default false — resolveBounded still owns legacy counters so bridging would
-   * double-count when both paths are live.
-   */
-  readonly bridgeMetrics?: boolean;
   /**
    * Registry-derived network_key allowlist. Required at construction so
    * production callers cannot silently drop network/circuit events.
@@ -209,7 +166,6 @@ export const createMemoryRecognitionObserver = (options: {
   readonly allowedNetworkKeys: AllowedNetworkKeySource;
 }): MemoryRecognitionObserver => {
   const metrics = options.metrics ?? createMemoryMetrics();
-  const bridge = options.bridgeMetrics === true;
   const recorded: OperationalEvent[] = [];
   const dropped: Array<{ reason: ObserverDropReason; raw: unknown }> = [];
 
@@ -260,9 +216,6 @@ export const createMemoryRecognitionObserver = (options: {
         }
 
         recorded.push(event);
-        if (bridge) {
-          bridgeToMetrics(metrics, event);
-        }
         return { kind: "accepted", event };
       } catch {
         // Absolute safety: never throw into resolveBounded / circuit breaker.

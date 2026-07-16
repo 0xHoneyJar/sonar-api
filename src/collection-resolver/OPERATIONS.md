@@ -109,6 +109,8 @@ binding:
 - Circuit breakers are also process-local.
 - Typed events are accepted into an in-process observer only; concrete
   Prometheus/OTLP exporters, dashboards, and alerts are deployment work.
+- `resolveBounded` remains the sole owner of aggregate `MetricsPort` counters;
+  observer event recording never mirrors those counters and cannot double-count.
 
 ## Telemetry wiring (downstream)
 
