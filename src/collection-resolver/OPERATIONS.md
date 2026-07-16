@@ -122,6 +122,8 @@ Typed events distinguish:
 - terminal outcome (`complete`, `partial`, `zero_result`, `rate_limited`,
   `full_stop`, `rejected`, `failed`) — exactly one `resolver_terminal` per
   resolve exit via an idempotent request-local finalizer
+- resolver role `capability` means the pinned catalog admitted zero healthy
+  targets; it is zero work, not an adapter execution failure
 - candidate count bucket, cache outcome, circuit transitions
 - bounded work units (`adapter_attempts`) — not dollar billing
 

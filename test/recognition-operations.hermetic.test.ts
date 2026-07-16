@@ -204,6 +204,17 @@ const allEventShapes = (): ReadonlyArray<OperationalEvent> => [
   {
     kind: "resolver_terminal",
     identifier_format: "evm_address",
+    terminal_outcome: "zero_result",
+    candidate_count_bucket: "0",
+    cache_outcome: "none",
+    ambiguous: false,
+    role: "capability",
+    latency_ms: 0,
+    adapter_attempts: 0,
+  },
+  {
+    kind: "resolver_terminal",
+    identifier_format: "evm_address",
     terminal_outcome: "rate_limited",
     candidate_count_bucket: "0",
     cache_outcome: "none",
@@ -699,7 +710,7 @@ describe("CR-107 live capability snapshot disable", () => {
       max_concurrent_probes: 1,
     };
 
-    const { deps } = createHermeticBoundedDeps({
+    const { deps, observer } = createHermeticBoundedDeps({
       processClock,
       config,
       capabilitySnapshot: ethOnly,
@@ -741,6 +752,7 @@ describe("CR-107 live capability snapshot disable", () => {
     expect(response.candidates.length).toBeGreaterThan(0);
 
     // Subsequent request uses the new disabled catalog.
+    observer.clear();
     const next = expectFailure(
       resolveBounded({
         request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS),
@@ -749,6 +761,18 @@ describe("CR-107 live capability snapshot disable", () => {
       }),
     );
     expect(next._tag).toBe("NoHealthyCapabilityError");
+    if (next._tag !== "NoHealthyCapabilityError") return;
+    expect(next.capability_snapshot_version.registry_sequence).toBe("4");
+    expect(observer.events().filter((e) => e.kind === "resolver_terminal")).toEqual([
+      expect.objectContaining({
+        identifier_format: "evm_address",
+        terminal_outcome: "zero_result",
+        candidate_count_bucket: "0",
+        cache_outcome: "none",
+        role: "capability",
+        adapter_attempts: 0,
+      }),
+    ]);
   });
 });
 

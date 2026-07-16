@@ -103,6 +103,7 @@ export const ResolverRoleDimension = Schema.Literal(
   "leader",
   "follower",
   "negative_cache",
+  "capability",
   "admission",
   "rate_limited",
   "failed",

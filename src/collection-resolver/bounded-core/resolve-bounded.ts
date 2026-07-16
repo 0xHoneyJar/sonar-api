@@ -883,7 +883,15 @@ export const resolveBounded = (input: {
     );
 
     if (selectedTargets.length === 0) {
-      terminal.finalize(failedTerminal({ identifier_format }));
+      // Catalog exclusion is zero admitted work, not an adapter failure.
+      terminal.finalize({
+        identifier_format,
+        terminal_outcome: "zero_result",
+        candidate_count: 0,
+        cache_outcome: "none",
+        role: "capability",
+        adapter_attempts: 0,
+      });
       return yield* Effect.fail(
         new NoHealthyCapabilityError({
           reason: "no healthy mainnet recognize capabilities for identifier format",

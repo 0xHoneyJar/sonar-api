@@ -194,7 +194,7 @@ const bridgeToMetrics = (
   }
 };
 
-export const createMemoryRecognitionObserver = (options?: {
+export const createMemoryRecognitionObserver = (options: {
   readonly metrics?: MetricsPort;
   /**
    * When true, mirror selected events onto aggregate MetricsPort counters.
@@ -203,14 +203,13 @@ export const createMemoryRecognitionObserver = (options?: {
    */
   readonly bridgeMetrics?: boolean;
   /**
-   * Registry-derived network_key allowlist. Required for network_outcome /
-   * circuit_transition acceptance. Absent ⇒ those events are dropped
-   * (`network_key_refused`) rather than accepting arbitrary strings.
+   * Registry-derived network_key allowlist. Required at construction so
+   * production callers cannot silently drop network/circuit events.
    */
-  readonly allowedNetworkKeys?: AllowedNetworkKeySource;
+  readonly allowedNetworkKeys: AllowedNetworkKeySource;
 }): MemoryRecognitionObserver => {
-  const metrics = options?.metrics ?? createMemoryMetrics();
-  const bridge = options?.bridgeMetrics === true;
+  const metrics = options.metrics ?? createMemoryMetrics();
+  const bridge = options.bridgeMetrics === true;
   const recorded: OperationalEvent[] = [];
   const dropped: Array<{ reason: ObserverDropReason; raw: unknown }> = [];
 
@@ -254,7 +253,7 @@ export const createMemoryRecognitionObserver = (options?: {
         }
 
         if ("network_key" in event) {
-          const allow = resolveAllowlist(options?.allowedNetworkKeys);
+          const allow = resolveAllowlist(options.allowedNetworkKeys);
           if (allow === undefined || !allow.has(event.network_key)) {
             return drop("network_key_refused", raw);
           }
