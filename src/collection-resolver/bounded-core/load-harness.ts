@@ -123,12 +123,26 @@ export const runDeterministicLoadHarness = (input?: {
   let cold_successful_completions = 0;
 
   for (let i = 0; i < coldCount; i++) {
+    const active =
+      i === 0
+        ? cold
+        : createHermeticBoundedDeps({
+            clock,
+            config,
+            script: SCRIPT_MULTI_CHAIN_SAME_ADDRESS,
+            workMsByNetwork: { "eip155:1": workMs, "eip155:8453": workMs },
+            capabilitySnapshot: cold.deps.capabilitySnapshot,
+          });
     // Distinct caller buckets avoid artificial rate-limit skew in the cold phase.
     const exit = Effect.runSyncExit(
       resolveBounded({
         request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, `cold-${i}`),
-        config: cold.config,
-        deps: cold.deps,
+        config: active.config,
+        deps: {
+          ...active.deps,
+          metrics: cold.deps.metrics,
+          rateLimiter: cold.deps.rateLimiter,
+        },
       }),
     );
     if (Exit.isSuccess(exit)) {

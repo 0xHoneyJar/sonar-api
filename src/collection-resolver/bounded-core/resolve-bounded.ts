@@ -481,12 +481,12 @@ const pushDiagnostic = (
   entries: SafeDiagnosticEntryType[],
   entry: SafeDiagnosticEntryType,
 ): Effect.Effect<void, BoundedResolverDecodeError> =>
-  decodeSafeDiagnostic(entry).pipe(
+  decodeSafeDiagnostic({
+    ...entry,
+    safe_message: redactSafeMessage(entry.safe_message).slice(0, 256),
+  }).pipe(
     Effect.map((decoded) => {
-      entries.push({
-        ...decoded,
-        safe_message: redactSafeMessage(decoded.safe_message),
-      });
+      entries.push(decoded);
     }),
     Effect.mapError(
       (cause) =>
@@ -618,13 +618,13 @@ export const resolveBounded = (input: {
       );
     }
 
-    const targets = selectBoundedTargets(
+    const selectedTargets = selectBoundedTargets(
       input.deps.capabilitySnapshot,
       identifier,
       config.max_searched_networks,
     );
 
-    if (targets.length === 0) {
+    if (selectedTargets.length === 0) {
       return yield* Effect.fail(
         new NoHealthyCapabilityError({
           reason: "no healthy mainnet recognize capabilities for identifier format",
@@ -633,7 +633,86 @@ export const resolveBounded = (input: {
       );
     }
 
-    const coverage = targets.map((t) => networkIdentityKey(t.network.network));
+    const allowedNetworkKeys = selectedTargets.map((t) =>
+      networkIdentityKey(t.network.network),
+    );
+    const positiveHits = yield* input.deps.cache.findPositive({
+      normalized_address:
+        identifier.format === "evm_address"
+          ? identifier.raw.toLowerCase()
+          : identifier.raw,
+      capability_snapshot_version: input.deps.capabilitySnapshot.version,
+      authorization_scope: request.caller.authorization_scope,
+      allowed_network_keys: allowedNetworkKeys,
+    });
+    const cachedCandidates = positiveHits.map((entry) => entry.candidate);
+    let readinessHit = positiveHits.length > 0;
+    if (positiveHits.length > 0) {
+      for (const entry of positiveHits) {
+        const candidate = entry.candidate;
+        const deployment = candidate.identity.deployments[0];
+        if (deployment === undefined) {
+          readinessHit = false;
+          continue;
+        }
+        const readinessBinding = {
+          schema_version: 1 as const,
+          namespace: "report_readiness" as const,
+          capability_snapshot_version: entry.binding.capability_snapshot_version,
+          deployment_id: deployment.deployment_id.digest,
+          report_readiness: candidate.report_readiness,
+          index_status: candidate.index_status,
+          adapter_policy_version: entry.binding.adapter_policy_version,
+          authorization_scope: entry.binding.authorization_scope,
+        };
+        const ready = yield* input.deps.cache.getReadiness(
+          sha256Canonical(JSON.stringify(readinessBinding)),
+        );
+        if (ready === undefined) readinessHit = false;
+      }
+      input.deps.metrics.incr("cache_positive_hit", positiveHits.length);
+      if (readinessHit) input.deps.metrics.incr("cache_readiness_hit", positiveHits.length);
+    }
+
+    const cachedNetworkKeys = new Set(
+      cachedCandidates
+        .map((candidate) => candidate.identity.deployments[0]?.network)
+        .filter((network): network is NetworkRef => network !== undefined)
+        .map(networkIdentityKey),
+    );
+    const targets = selectedTargets.filter(
+      (target) => !cachedNetworkKeys.has(networkIdentityKey(target.network.network)),
+    );
+
+    if (positiveHits.length > 0 && targets.length === 0) {
+      input.deps.metrics.recordLatency(input.deps.clock.nowMs() - started);
+      const { candidates, ranking_evidence } = aggregateAndRank(cachedCandidates);
+      return cloneFreeze({
+        schema_version: 1 as const,
+        capability_snapshot_version: input.deps.capabilitySnapshot.version,
+        candidates,
+        diagnostics: {
+          schema_version: 1 as const,
+          searched: [],
+          timed_out: [],
+          unavailable: [],
+          cancelled: [],
+          circuit_open: [],
+          partial: false,
+          global_deadline_exceeded: false,
+          cache: {
+            positive_hit: true,
+            readiness_hit: readinessHit,
+            negative_hit: false,
+            coalesced: false,
+          },
+          entries: [],
+        },
+        ranking_evidence,
+      });
+    }
+
+    const coverage = allowedNetworkKeys;
     const structuralDigest = structuralIdentifierDigest({
       format: identifier.format,
       raw: identifier.raw,
@@ -752,10 +831,9 @@ export const resolveBounded = (input: {
 
       if (fanout.global_deadline_exceeded || fanout.sealed) {
         globalController.abort("global_deadline");
-        input.deps.metrics.incr("partials");
       }
 
-      const built: CollectionCandidate[] = [];
+      const built: CollectionCandidate[] = [...cachedCandidates];
       const diagnosticEntries: SafeDiagnosticEntryType[] = [];
       let missingBindingEvidence = false;
       /** Required enrichment/binding arrived after seal — forbid positive/readiness writes. */
@@ -915,7 +993,9 @@ export const resolveBounded = (input: {
         !globalController.aborted;
 
       const writeNegative =
-        acceptCacheWrites && mayWriteNegativeCache(fanout, targets.length);
+        candidates.length === 0 &&
+        acceptCacheWrites &&
+        mayWriteNegativeCache(fanout, targets.length);
 
       // Positive / readiness cache — bind observed evidence only; never fabricate.
       // Forbidden when required enrichment/binding evidence arrives late.
@@ -1046,8 +1126,8 @@ export const resolveBounded = (input: {
         inventory: inventoryDiag,
         entries: diagnosticEntries.slice(0, 32),
         cache: {
-          positive_hit: false,
-          readiness_hit: false,
+          positive_hit: positiveHits.length > 0,
+          readiness_hit: readinessHit,
           negative_hit: false,
           coalesced: false,
         },
@@ -1062,15 +1142,11 @@ export const resolveBounded = (input: {
       });
     }).pipe(
       Effect.tap((response) => completeCoalesce({ kind: "response", response })),
-      Effect.tapError((err) =>
+      Effect.tapErrorCause((cause) =>
         completeCoalesce({
           kind: "error",
-          safe_code: err._tag,
-          safe_message: redactSafeMessage(
-            "reason" in err && typeof err.reason === "string"
-              ? err.reason
-              : safeErrorLabel(err),
-          ),
+          safe_code: "bounded_resolver_failure",
+          safe_message: redactSafeMessage(safeErrorLabel(cause)),
         }),
       ),
       Effect.ensuring(Effect.sync(() => cancelGlobalTimer())),

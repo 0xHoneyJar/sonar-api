@@ -494,7 +494,8 @@ describe("CR-102 negative cache conclusive coverage", () => {
         deps: recoveredDeps,
       }),
     );
-    expect(again.candidates).toHaveLength(0);
+    expect(again.candidates.length).toBeGreaterThan(0);
+    expect(again.diagnostics.cache.positive_hit).toBe(true);
     expect(recovered.adapter.calls().length).toBeGreaterThan(0);
   });
 });
@@ -566,16 +567,79 @@ describe("CR-102 cache separation and invalidation", () => {
     expect(debug.negative).toBe(0);
   });
 
+  it("reuses warm positive/readiness entries and probes only uncovered networks", () => {
+    const { deps, config, adapter } = createHermeticBoundedDeps({
+      script: SCRIPT_EVM_ERC721,
+    });
+    const first = expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "warm-first"),
+        config,
+        deps,
+      }),
+    );
+    expect(first.candidates.length).toBeGreaterThan(0);
+    const callsAfterColdResolve = adapter.calls().length;
+
+    const warm = expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "warm-second"),
+        config,
+        deps,
+      }),
+    );
+    expect(warm.candidates).toEqual(first.candidates);
+    expect(warm.diagnostics.cache.positive_hit).toBe(true);
+    expect(warm.diagnostics.cache.readiness_hit).toBe(true);
+    expect(adapter.calls().length).toBeGreaterThan(callsAfterColdResolve);
+    expect(adapter.calls().length - callsAfterColdResolve).toBeLessThan(callsAfterColdResolve);
+  });
+
   it("emits equivalence-revocation impact edge; eviction alone is insufficient", () => {
     const { deps, cache, edges } = createHermeticBoundedDeps({
       script: SCRIPT_EVM_ERC721,
     });
+    const affectedOne = sha256Canonical("dep-1");
+    const affectedTwo = sha256Canonical("dep-2");
+    const unaffected = sha256Canonical("dep-3");
+    const positiveBinding = (deployment_id: string) => ({
+      schema_version: 1 as const,
+      namespace: "positive_recognition" as const,
+      capability_snapshot_version: deps.capabilitySnapshot.version,
+      capability_source_sequence: "1",
+      deployment_id,
+      account_digest: "22".repeat(32),
+      code_digest: "11".repeat(32),
+      observed_position: {
+        family: "evm" as const,
+        block_number: "1",
+        block_hash: "33".repeat(32),
+      },
+      standard_evidence: {
+        token_standard: "erc721" as const,
+        evidence_quality: "confirmed" as const,
+      },
+      proxy_evidence: { is_proxy: false },
+      authorization_scope: { scope_class: "authenticated" as const },
+      adapter_policy_version: "resolver-adapter-policy.v1",
+      finality_policy_version: "ethereum-finalized.v1",
+    });
+    for (const deployment_id of [affectedOne, affectedTwo, unaffected]) {
+      Effect.runSync(
+        cache.setPositive(`positive-${deployment_id}`, {
+          binding: positiveBinding(deployment_id),
+          candidate: {} as CollectionCandidate,
+          stored_at_ms: 0,
+          expires_at_ms: 60_000,
+        }),
+      );
+    }
     const impact = {
       schema_version: 1 as const,
       kind: "collection_equivalence_revocation" as const,
       equivalence_digest: sha256Canonical("eq-1"),
       previous_collection_identity_digest: sha256Canonical("id-1"),
-      affected_deployment_ids: [sha256Canonical("dep-1")],
+      affected_deployment_ids: [affectedOne, affectedTwo],
       capability_snapshot_version: deps.capabilitySnapshot.version,
       emitted_at: deps.clock.nowIso(),
       impact: {
@@ -591,9 +655,13 @@ describe("CR-102 cache separation and invalidation", () => {
         edges,
         cause: "equivalence_revocation",
         impact,
-        deployment_id: sha256Canonical("dep-1"),
+        // A caller-provided deployment is only a hint; the canonical impact list
+        // is authoritative for every affected deployment.
+        deployment_id: affectedOne,
       }),
     );
+    expect(result.evicted).toBe(2);
+    expect(cache.__debug().positive).toBe(1);
     expect(result.edge_emitted).toBe(true);
     expect(edges.listEmitted()).toHaveLength(1);
     expect(edges.listEmitted()[0]!.impact.eviction_alone_insufficient).toBe(true);
@@ -1261,6 +1329,56 @@ describe("CR-102 revision-2 concurrent leader/follower coalesce", () => {
 
     const leader = await leaderP;
     expect(leader.candidates.length).toBeGreaterThan(0);
+  });
+
+  it("releases a follower with a safe typed result when the leader defects", async () => {
+    const processClock = createProcessMonotonicClock();
+    const config = {
+      ...defaultBoundedResolverConfig(),
+      global_deadline_ms: 300,
+      per_network_deadline_ms: 250,
+      max_searched_networks: 1,
+      max_concurrent_probes: 1,
+    };
+    const base = createHermeticBoundedDeps({
+      processClock,
+      config,
+      script: SCRIPT_EVM_ERC721,
+      realSleepMsByNetwork: { "eip155:1": 30 },
+    });
+    const deps = {
+      ...base.deps,
+      cache: {
+        ...base.deps.cache,
+        setPositive: () => Effect.die("raw cache defect must not reach follower"),
+      },
+    };
+
+    const leaderP = Effect.runPromiseExit(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "defect-leader"),
+        config,
+        deps,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const followerStartedAt = Date.now();
+    const follower = await Effect.runPromise(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "defect-follower"),
+        config,
+        deps,
+      }),
+    );
+
+    expect(Exit.isFailure(await leaderP)).toBe(true);
+    expect(Date.now() - followerStartedAt).toBeLessThan(config.global_deadline_ms);
+    expect(follower.diagnostics.partial).toBe(true);
+    expect(follower.diagnostics.cache.coalesced).toBe(true);
+    expect(follower.diagnostics.entries).toContainEqual({
+      code: "bounded_resolver_failure",
+      safe_message: expect.not.stringContaining("raw cache defect"),
+    });
   });
 });
 

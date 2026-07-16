@@ -111,6 +111,12 @@ export interface NegativeCacheEntry {
 }
 
 export interface ResolverCachePort {
+  readonly findPositive: (input: {
+    readonly normalized_address: string;
+    readonly capability_snapshot_version: PositiveCacheBinding["capability_snapshot_version"];
+    readonly authorization_scope: PositiveCacheBinding["authorization_scope"];
+    readonly allowed_network_keys: ReadonlyArray<string>;
+  }) => Effect.Effect<ReadonlyArray<PositiveCacheEntry>, never>;
   readonly getPositive: (
     keyDigest: string,
   ) => Effect.Effect<PositiveCacheEntry | undefined, never>;

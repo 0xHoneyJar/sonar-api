@@ -36,6 +36,31 @@ export const createMemoryResolverCache = (input: {
   };
 
   return {
+    findPositive: (query) =>
+      Effect.sync(() => {
+        const found: PositiveCacheEntry[] = [];
+        const snapshot = JSON.stringify(query.capability_snapshot_version);
+        const scope = JSON.stringify(query.authorization_scope);
+        const networks = new Set(query.allowed_network_keys);
+        for (const [key, entry] of [...store.positive.entries()]) {
+          if (expired(entry.expires_at_ms, input.nowMs())) {
+            store.positive.delete(key);
+            continue;
+          }
+          const deployment = entry.candidate.identity.deployments[0];
+          if (
+            deployment !== undefined &&
+            deployment.normalized_address === query.normalized_address &&
+            networks.has(`${deployment.network.network_namespace}:${deployment.network.network_reference}`) &&
+            JSON.stringify(entry.binding.capability_snapshot_version) === snapshot &&
+            JSON.stringify(entry.binding.authorization_scope) === scope
+          ) {
+            found.push(cloneFreeze(entry));
+          }
+        }
+        return found;
+      }),
+
     getPositive: (keyDigest) =>
       Effect.sync(() => {
         const entry = store.positive.get(keyDigest);

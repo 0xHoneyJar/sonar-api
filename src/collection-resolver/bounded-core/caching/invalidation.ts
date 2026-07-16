@@ -82,9 +82,19 @@ export const applyInvalidation = (input: {
       if (input.impact === undefined) {
         return { evicted: 0, edge_emitted: false };
       }
+      const decoded = yield* decodeImpact(input.impact).pipe(
+        Effect.mapError(
+          (cause) =>
+            new BoundedResolverDecodeError({
+              reason: "equivalence revocation impact failed strict decode",
+              safe_cause: safeErrorLabel(cause),
+              cause_digest: sha256Canonical(safeErrorLabel(cause)),
+            }),
+        ),
+      );
       // Decode + persist/ack FIRST — failure must not evict.
       const ack = yield* input.edges.emitEquivalenceRevocation(
-        input.impact as EquivalenceRevocationImpactType,
+        decoded,
       );
       if (ack.acknowledged !== true) {
         return yield* Effect.fail(
@@ -96,7 +106,10 @@ export const applyInvalidation = (input: {
       }
       const { evicted } = yield* input.cache.invalidate({
         cause: input.cause,
-        deployment_id: input.deployment_id,
+        predicate: ({ binding }) => {
+          const deployment = (binding as { deployment_id?: string }).deployment_id;
+          return deployment !== undefined && decoded.affected_deployment_ids.includes(deployment);
+        },
         keyDigest: input.keyDigest,
         namespace: input.namespace,
       });

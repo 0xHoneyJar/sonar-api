@@ -92,27 +92,9 @@ export const applyInventoryEnrichment = (
     const ranking = new Set(candidate.ranking_reasons);
     ranking.add(hit.ranking_reason);
 
-    const identity = {
-      ...candidate.identity,
-      ...(hit.curated_name !== undefined ? { name: hit.curated_name } : {}),
-      ...(hit.collection_key !== undefined ? { collection_key: hit.collection_key } : {}),
-      ...(hit.equivalence_basis_kind === "explicit_inventory_equivalence" &&
-      hit.equivalence_version !== undefined
-        ? {
-            equivalence_basis: {
-              schema_version: candidate.identity.equivalence_basis.schema_version,
-              kind: "explicit_inventory_equivalence" as const,
-              // Keep single_deployment unless Inventory asserts explicit equivalence
-              // with a versioned basis — wire shape may only allow known kinds.
-            },
-          }
-        : {}),
-    };
-
     // Do not widen to multi-deployment from address similarity — Inventory must
-    // supply explicit equivalence. For this core, keep single_deployment unless
-    // the hit already carries an explicit kind we can safely surface as ranking.
-    void identity;
+    // supply explicit equivalence. CR-102 treats equivalence as a ranking hint;
+    // identity authority remains with Inventory/CR-001 rather than this core.
 
     return {
       ...candidate,
