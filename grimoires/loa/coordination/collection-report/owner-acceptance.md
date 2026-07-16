@@ -5,7 +5,7 @@
 | Task | `ACCEPT-SONAR` (`collection-report-coordinator-f09.40`) |
 | Repository | `0xHoneyJar/sonar-api` (this worktree; tracks `origin/main`) |
 | Audited revision | `a68bbae0bf04e281a9b6b46fc3812c9dbb471afa` (2026-07-14) |
-| Master plan | coordinator `grimoires/loa/{prd,sdd,sprint}.md` v0.3 / 0.5 / 0.6 |
+| Master plan | coordinator `grimoires/loa/{prd,sdd,sprint}.md` v0.3 / 0.5 / 0.6 at `2c1be075e34f896704e0e8ff45500aeaddcd1a10` (file blobs `ef5847c06f880d99927a985a0ec7eaa3d216b4c0` / `5b431433954194ae181685f249caa42e772b2b6c` / `f76863bb2302bae660ad5a57a2a9ea4888be918d`) |
 | Date | 2026-07-16 |
 | Author role | Sonar boundary owner (KRANZ dispatch; no CR implementation) |
 | **Overall verdict** | **conditional** |
@@ -235,7 +235,7 @@ Kitchen dual-read divergence and trust-stream producer failure.
 | No collection resolver package | no `src/resolver*`; `packages/protocol/beacon.yaml` only |
 | Solana probe is CLI/registry | `src/svm/probe-collection.ts`, `src/svm/collection-registry.ts` |
 | No Robinhood 4663 | `config.yaml` chain ids listed in §2.1 |
-| Kitchen unit suite green | `pnpm exec vitest run src/kitchen` → **7 files / 32 tests passed** (2026-07-16; via sibling `node_modules` at audited SHA `a68bbae0…`; sibling and audited trees both resolve `pnpm-lock.yaml` to Git blob `802197fb…`) |
+| Kitchen unit suite green | `pnpm exec vitest run src/kitchen` → **7 files / 32 tests passed** (2026-07-16; via sibling `node_modules` at audited SHA `a68bbae0bf04e281a9b6b46fc3812c9dbb471afa`; sibling and audited trees both resolve `pnpm-lock.yaml` to Git blob `802197fb7717e1ffb72fc4bcfd60b21bc7998350`; dependency-tree equivalence was not independently proven by a clean install, so this is recipe-identity evidence rather than hermetic install provenance) |
 
 ### 7.2 Tests that must exist before Sonar CRs close (not claiming they exist)
 
@@ -259,7 +259,7 @@ Kitchen dual-read divergence and trust-stream producer failure.
 | ID | Severity | Unresolved evidence | Closure condition | Unblocks |
 |---|---|---|---|---|
 | U-1 | Blocker | CR-001 shared identity schemas not published | Loa ACCEPT + CR-001 fixtures consumable by Sonar | CR-003, CR-203 |
-| U-2 | Blocker | CR-009 signed trust-envelope protocol not ratified | Loa CR-009 + key registry pin | CR-011A |
+| U-2 | Blocker | CR-009 signed trust-envelope protocol not ratified | Loa CR-009 + CR-013 production signing-key custody / key registry pin | CR-011A |
 | U-3 | Blocker | No capability registry / finality policies on `main` | CR-101 merges with per-network policies (no Ethereum default inheritance) | CR-102+, G6 |
 | U-4 | Blocker | No operator network disable without deploy | CR-107 disable path + runbook drill | Production recognize flags |
 | U-5 | High | Kitchen `order_id` / email fields imply order ownership | CR-203 design review: correlation-only; Ordering owns subscribers; expand→dual-write→parity | CR-204A |
