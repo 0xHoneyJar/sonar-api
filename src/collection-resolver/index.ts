@@ -41,6 +41,9 @@ export {
 /** CR-101: versioned resolver capability registry + Ordering projection. */
 export * from "./capability-registry/index.js";
 
+/** CR-102: bounded resolver orchestration core + ports/reference impls. */
+export * from "./bounded-core/index.js";
+
 /** CR-004: resolver workers fetch remote metadata only through this port. */
 export {
   createResolverMetadataPort,

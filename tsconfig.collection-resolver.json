@@ -12,6 +12,7 @@
     "src/svm/helius-meter.ts",
     "test/collection-resolver.hermetic.test.ts",
     "test/capability-registry.hermetic.test.ts",
+    "test/bounded-resolver.hermetic.test.ts",
     "test/metadata-egress.hermetic.test.ts",
     "test/metadata-egress.browser-boundary.test.ts"
   ]

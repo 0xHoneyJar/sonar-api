@@ -37,7 +37,8 @@ Remove the vendor artifact once that pin lands. Do not copy schemas into Sonar.
 |---|---|
 | `src/collection-resolver/protocol.ts` | Thin re-export + fixture-root helper |
 | `src/collection-resolver/capability-registry/` | CR-101 versioned mainnet capability registry + Ordering projection |
-| `src/collection-resolver/resolve.ts` | Hermetic `resolve-probe` core |
+| `src/collection-resolver/bounded-core/` | CR-102 bounded fanout/cache/rate-limit/circuit-breaker orchestration |
+| `src/collection-resolver/resolve.ts` | Hermetic `resolve-probe` core (CR-003) |
 | `src/collection-resolver/das-normalize.ts` | Adapts real `CollectionSnapshot` / `CollectionMember` + shared `toRows`/`NftRow` |
 | `src/svm/collection-nft-rows.ts` | Shared persistence projector used by the ownership indexer and DAS normalize |
 | `src/svm/nft-collection-source.ts` | DAS seam: `parseAsset` → `CollectionMember` (refuses missing owner) |
@@ -60,6 +61,27 @@ Remove the vendor artifact once that pin lands. Do not copy schemas into Sonar.
 - Robinhood Chain `eip155:4663` is disabled (or recognize-only in staging
   fixtures) until CR-401. Solana prepare/index awaits CR-402.
   Downstream Ordering/report wiring: CR-103 / CR-104.
+
+## Bounded resolver core (CR-102)
+
+- `resolveBounded` strict-decodes config then fans out only over CR-101
+  `selectDefaultRecognizeNetworks` (healthy mainnet recognize). No user RPC/chain
+  definitions or implicit fallback.
+- Structural preflight fails before cache, rate-limit debit, coalesce, or adapters.
+- Global ≤4s and per-network ≤1.5s deadlines convert each adapter/Inventory
+  Effect to exactly one fiber then race it via injected monotonic timers
+  (never directly await unbounded promises; never probe-then-re-run);
+  late results cannot mutate/cache after seal. The same global deadline covers
+  Inventory enrichment. Concurrency ≤6 (min 1) and searched networks ≤8.
+- In-flight coalesce shares one sealed result per canonical key; followers await
+  up to their own global deadline (honest timeout or leader result — never a
+  fabricated empty while the leader later returns candidates).
+- Positive recognition binds **observed** adapter evidence only; missing binding
+  evidence yields partial diagnostics without cache writes. Negative cache only
+  for conclusive searched coverage. Equivalence revocation emit-then-evict is
+  fail-closed (`eviction_alone_insufficient: true`).
+- Live EVM/Solana adapters and production metrics remain CR-103 / CR-104 / CR-107.
+  See `bounded-core/PROTOCOL.md`.
 
 Resolver outputs must always strict-decode through CR-001 `CollectionCandidate`
 before leaving Sonar. DAS normalize must not invent a parallel member/owner
