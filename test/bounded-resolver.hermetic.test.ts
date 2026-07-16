@@ -1424,6 +1424,7 @@ describe("CR-102 abort propagation", () => {
         network_capability: loadHermeticCapabilitySnapshot().networks[0]!,
         address: MULTI_CHAIN_EVM_ADDRESS,
         abort: { signal: controller.signal, aborted: true },
+        clock,
         deadline_at_ms: 1000,
       }),
     ) as { kind: string };

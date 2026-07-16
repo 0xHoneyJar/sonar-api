@@ -76,6 +76,7 @@ const expectAsyncSuccess = async <A, E>(effect: Effect.Effect<A, E>): Promise<A>
 };
 
 const solanaCapability = () => solanaMainnetCapability();
+const defaultProbeClock = createProcessMonotonicClock();
 
 const probeRequest = (
   address: string,
@@ -83,6 +84,7 @@ const probeRequest = (
 ): AdapterProbeRequest => {
   const capability = solanaCapability();
   const controller = new AbortController();
+  const clock = overrides.clock ?? defaultProbeClock;
   return {
     network: capability.network,
     network_capability: capability,
@@ -93,7 +95,8 @@ const probeRequest = (
         return controller.signal.aborted;
       },
     },
-    deadline_at_ms: Date.now() + 5_000,
+    clock,
+    deadline_at_ms: clock.nowMs() + 5_000,
     ...overrides,
   };
 };
@@ -140,7 +143,6 @@ const adapterFor = (
     dasPort: port,
     sampleLimit: DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT,
     observedAt: "2026-07-16T12:00:00.000Z",
-    nowMs: () => Date.now(),
     sharedState: state,
     readinessPort: extras?.readinessPort,
   });
@@ -554,7 +556,6 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
     const adapter = createSolanaDasNetworkAdapter({
       dasPort: port,
       sharedState,
-      nowMs: () => clock.nowMs(),
       observedAt: "2026-07-16T12:00:00.000Z",
     });
 
@@ -568,6 +569,7 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
             return controller.signal.aborted;
           },
         },
+        clock,
         deadline_at_ms: clock.nowMs() + 1_000,
       }),
     );
@@ -575,6 +577,7 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
     expect(sharedState.mutations).toBe(0);
 
     const shared2 = { mutations: 0 };
+    const expiredClock = createVirtualClock({ originMs: 1_000 });
     const { adapter: deadlineAdapter } = adapterFor(
       () => sampleOutcome(PYTHIANS_COLLECTION_MINT, FIXTURE_PROGRAMMABLE_ITEMS),
       shared2,
@@ -582,11 +585,40 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
     const timedOut = await expectAsyncSuccess(
       deadlineAdapter.probe({
         ...probeRequest(PYTHIANS_COLLECTION_MINT),
-        deadline_at_ms: Date.now() - 1,
+        clock: expiredClock,
+        deadline_at_ms: expiredClock.nowMs() - 1,
       }),
     );
     expect(timedOut.kind).toBe("timeout");
     expect(shared2.mutations).toBe(0);
+  });
+
+  it("uses the resolver monotonic clock with default adapter wiring", async () => {
+    const clock = createVirtualClock({ originMs: 1_000 });
+    let sampleCalls = 0;
+    const port = createScriptedDasSamplePort({
+      handler: () => {
+        sampleCalls += 1;
+        return sampleOutcome(
+          PYTHIANS_COLLECTION_MINT,
+          FIXTURE_PROGRAMMABLE_ITEMS,
+        );
+      },
+    });
+    const adapter = createSolanaDasNetworkAdapter({ dasPort: port });
+
+    const outcome = await expectAsyncSuccess(
+      adapter.probe(
+        probeRequest(PYTHIANS_COLLECTION_MINT, {
+          clock,
+          deadline_at_ms: clock.nowMs() + 500,
+        }),
+      ),
+    );
+
+    expect(outcome.kind).toBe("hit");
+    expect(sampleCalls).toBe(1);
+    expect(port.calls()).toHaveLength(1);
   });
 
   it("in-flight abort after probe start: prompt timeout, one op, no late mutation", async () => {
@@ -608,7 +640,6 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
       dasPort: port,
       sharedState,
       observedAt: "2026-07-16T12:00:00.000Z",
-      nowMs: () => Date.now(),
     });
 
     const controller = new AbortController();
@@ -622,7 +653,6 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
             return controller.signal.aborted;
           },
         },
-        deadline_at_ms: Date.now() + 5_000,
       }),
     );
 
@@ -757,7 +787,6 @@ describe("CR-104 binding omission + CR-102 cache refusal", () => {
     const solanaAdapter = createSolanaDasNetworkAdapter({
       dasPort: port,
       observedAt: "2026-07-16T12:00:00.000Z",
-      nowMs: () => 0,
     });
 
     const base = createHermeticBoundedDeps({
@@ -812,7 +841,6 @@ describe("CR-104 resolver-level negative cache refusal for non-conclusive sample
       dasPort: port,
       sampleLimit: DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT,
       observedAt: "2026-07-16T12:00:00.000Z",
-      nowMs: () => clock.nowMs(),
       sharedState: state,
     });
     const base = createHermeticBoundedDeps({ clock });
@@ -890,7 +918,6 @@ describe("CR-104 in-flight abort at resolver — no late candidate/cache mutatio
       dasPort: port,
       sharedState,
       observedAt: "2026-07-16T12:00:00.000Z",
-      nowMs: () => processClock.nowMs(),
     });
 
     const config = {
@@ -1268,7 +1295,6 @@ describe("CR-104 createFetchDasSamplePort — getAsset identity binding", () => 
       dasPort: port,
       sampleLimit: DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT,
       observedAt: "2026-07-16T12:00:00.000Z",
-      nowMs: () => Date.now(),
     });
     const outcome = await expectAsyncSuccess(
       adapter.probe(probeRequest(UNREGISTERED_COLLECTION_MINT)),
@@ -1326,7 +1352,6 @@ describe("CR-104 createFetchDasSamplePort — getAsset identity binding", () => 
       dasPort: port,
       sampleLimit: DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT,
       observedAt: "2026-07-16T12:00:00.000Z",
-      nowMs: () => Date.now(),
     });
     const outcome = await expectAsyncSuccess(
       adapter.probe(probeRequest(UNREGISTERED_COLLECTION_MINT)),

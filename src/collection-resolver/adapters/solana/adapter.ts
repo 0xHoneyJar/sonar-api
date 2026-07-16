@@ -30,8 +30,8 @@ export interface SolanaDasAdapterOptions {
   readonly dasPort: DasSamplePort;
   /** Sample page size — capped; never triggers multi-page pagination. */
   readonly sampleLimit?: number;
-  /** Injected clock for observed_at + deadline checks (defaults to Date). */
-  readonly nowMs?: () => number;
+  /** Wall-clock source used only for observed_at (defaults to Date). */
+  readonly wallNowMs?: () => number;
   /** ISO observed_at override for hermetic fixtures. */
   readonly observedAt?: string;
   /**
@@ -64,12 +64,11 @@ const isoNow = (nowMs: () => number): string => new Date(nowMs()).toISOString();
 
 const sealIfAborted = (
   request: AdapterProbeRequest,
-  nowMs: () => number,
 ): ProbeOutcome | undefined => {
   if (
     request.abort.aborted ||
     request.abort.signal.aborted ||
-    nowMs() >= request.deadline_at_ms
+    request.clock.nowMs() >= request.deadline_at_ms
   ) {
     return { kind: "timeout" };
   }
@@ -85,12 +84,12 @@ export const createSolanaDasNetworkAdapter = (
   if (sampleLimit === undefined) {
     throw new RangeError("Solana DAS adapter sampleLimit must be finite");
   }
-  const nowMs = options.nowMs ?? (() => Date.now());
+  const wallNowMs = options.wallNowMs ?? (() => Date.now());
 
   return {
     probe: (request: AdapterProbeRequest): Effect.Effect<ProbeOutcome, never> =>
       Effect.gen(function* () {
-        const early = sealIfAborted(request, nowMs);
+        const early = sealIfAborted(request);
         if (early !== undefined) return early;
 
         if (request.network.network_namespace !== "solana") {
@@ -112,12 +111,12 @@ export const createSolanaDasNetworkAdapter = (
           limit: sampleLimit,
           abort: request.abort.signal,
           deadline_at_ms: request.deadline_at_ms,
-          now_ms: nowMs,
+          now_ms: request.clock.nowMs,
         });
 
         // Honor abort/deadline after transport settlement — late success must
         // not mutate shared state or return a hit.
-        const afterSample = sealIfAborted(request, nowMs);
+        const afterSample = sealIfAborted(request);
         if (afterSample !== undefined) return afterSample;
 
         if (outcome.kind === "timeout") {
@@ -147,7 +146,7 @@ export const createSolanaDasNetworkAdapter = (
 
         const classification = classifyDasSampleItems(verified);
         const registry = findCollectionByMintExact(address);
-        const observed_at = options.observedAt ?? isoNow(nowMs);
+        const observed_at = options.observedAt ?? isoNow(wallNowMs);
 
         // Optional bounded getAsset(collection mint) — never member projection.
         let collection_asset: DasCollectionAssetObservation | undefined;
@@ -157,9 +156,9 @@ export const createSolanaDasNetworkAdapter = (
             limit: sampleLimit,
             abort: request.abort.signal,
             deadline_at_ms: request.deadline_at_ms,
-            now_ms: nowMs,
+            now_ms: request.clock.nowMs,
           });
-          const afterAsset = sealIfAborted(request, nowMs);
+          const afterAsset = sealIfAborted(request);
           if (afterAsset !== undefined) return afterAsset;
           if (assetOutcome.kind === "timeout") {
             return { kind: "timeout" } as const;
@@ -180,9 +179,9 @@ export const createSolanaDasNetworkAdapter = (
             collection_mint: address,
             abort: request.abort.signal,
             deadline_at_ms: request.deadline_at_ms,
-            now_ms: nowMs,
+            now_ms: request.clock.nowMs,
           });
-          const afterReady = sealIfAborted(request, nowMs);
+          const afterReady = sealIfAborted(request);
           if (afterReady !== undefined) return afterReady;
           if (readinessOutcome.kind === "timeout") {
             return { kind: "timeout" } as const;

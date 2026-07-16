@@ -356,6 +356,7 @@ const runFanout = (input: {
                 return networkController.aborted;
               },
             },
+            clock: deps.clock,
             deadline_at_ms: Math.min(perNetworkDeadline, globalDeadlineAt),
           }),
           clock: deps.clock,
