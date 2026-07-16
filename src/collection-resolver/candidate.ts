@@ -57,6 +57,11 @@ export interface ProbeHitEvidence {
   readonly name?: string;
   readonly symbol?: string;
   readonly image?: string;
+  /**
+   * Stable local registry key (e.g. SVM collection-registry) on exact mint match.
+   * Display enrichment only — never invents cross-deployment equivalence.
+   */
+  readonly collection_key?: string;
   readonly recognition: "recognized" | "ambiguous";
   readonly index_status: CollectionCandidate["index_status"];
   readonly report_readiness: CollectionCandidate["report_readiness"];
@@ -196,6 +201,9 @@ export const buildCandidateFromHit = (input: {
             ...(hit.name !== undefined ? { name: hit.name } : {}),
             ...(hit.symbol !== undefined ? { symbol: hit.symbol } : {}),
             ...(hit.image !== undefined ? { image: hit.image } : {}),
+            ...(hit.collection_key !== undefined
+              ? { collection_key: hit.collection_key }
+              : {}),
             deployments: [deployment],
             equivalence_basis: {
               schema_version: COLLECTION_PROTOCOL_SCHEMA_VERSION,

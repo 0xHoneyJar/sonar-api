@@ -58,6 +58,8 @@ export interface NftCollectionSource {
 /** A Metaplex DAS asset (the subset we read). */
 export interface DasAsset {
   id?: string;
+  /** DAS `interface` (e.g. ProgrammableNFT, V1_NFT) — used by recognition probe classification. */
+  interface?: string;
   burnt?: boolean;
   ownership?: { owner?: string; delegate?: string | null };
   content?: { metadata?: { name?: string }; json_uri?: string; links?: { image?: string } };
