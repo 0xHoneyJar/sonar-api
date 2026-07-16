@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "clean": "tsc --clean",
+    "prepare": "./scripts/prepare-effect.sh",
     "build": "tsc --build",
     "watch": "tsc --watch",
     "codegen": "envio codegen",
