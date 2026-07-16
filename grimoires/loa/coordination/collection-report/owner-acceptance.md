@@ -57,7 +57,8 @@ implementation issues must not be marked ready until the closure conditions in
 | Optional events pillar | NATS + Ed25519 | Mint-detection envelopes; fail-soft when unset | `src/lib/events-publisher.ts`, README |
 
 EVM belt networks present in `config.yaml` at audit: **1, 42161, 7777777, 10,
-8453, 80094**. **Robinhood `4663` is absent.**
+8453, 80094**. **Robinhood mainnet chain ID
+[`4663`](https://docs.robinhood.com/chain/connecting/) is absent.**
 
 ### 2.2 Required by plan; not present on `main`
 
@@ -148,10 +149,11 @@ operator Discord gate.
 
 | Aggregate | Value |
 |---|---|
-| Central estimate | **~70 eng-days** (~3.5 eng-months calendar if single-threaded) |
-| Range | **55–100 eng-days** |
+| Central estimate | **~89 eng-days** (~4.5 eng-months calendar if single-threaded) |
+| Range | **69–109 eng-days** |
+| Aggregation | Direct sum of the per-CR ranges; central estimate is the range midpoint |
 | Assumed headcount | **1.0 FTE Sonar** for foundation+S1; **+0.5 FTE** during CR-203 dual-write and CR-402 |
-| Parallelism note | CR-003/004 can proceed after CR-001; CR-101–104 after CR-003; CR-203 after CR-103/104; CR-011A after CR-009/013; CR-401/402 after G2A + CR-203 |
+| Parallelism note | CR-003/004 can proceed after CR-001; CR-101–104 after CR-003; CR-203 after CR-103/104; CR-011A after CR-009 + CR-013 (production signing-key custody); CR-401/402 after G2A (resolver fixtures) + CR-203 |
 | Retention commitment (CR-011A) | Capability registry views / evidence retention per SDD (~90 days after supersession for registry views); exact producer retention SLO **TBD in CR-011A issue** — not inventable here |
 | V1 resolver budget Sonar must meet | ≤8 enabled mainnets, 6 concurrent probes, 4s global / 1.5s per-network (sprint thresholds) — **not measured on `main`** |
 
@@ -233,7 +235,7 @@ Kitchen dual-read divergence and trust-stream producer failure.
 | No collection resolver package | no `src/resolver*`; `packages/protocol/beacon.yaml` only |
 | Solana probe is CLI/registry | `src/svm/probe-collection.ts`, `src/svm/collection-registry.ts` |
 | No Robinhood 4663 | `config.yaml` chain ids listed in §2.1 |
-| Kitchen unit suite green | `pnpm exec vitest run src/kitchen` → **7 files / 32 tests passed** (2026-07-16; via sibling `node_modules`) |
+| Kitchen unit suite green | `pnpm exec vitest run src/kitchen` → **7 files / 32 tests passed** (2026-07-16; via sibling `node_modules` at audited SHA `a68bbae0…`; sibling and audited trees both resolve `pnpm-lock.yaml` to Git blob `802197fb…`) |
 
 ### 7.2 Tests that must exist before Sonar CRs close (not claiming they exist)
 
@@ -277,7 +279,8 @@ enablement even if code lands behind flags.
 
 - Does **not** authorize implementing any CR in this dispatch.
 - Does **not** accept production enablement of collection recognition.
-- Does **not** treat Kitchen “indexed” as Gate Leak `ownership_index.v1` ready.
+- Does **not** treat Kitchen “indexed” as the Gate Leak report recipe’s
+  `ownership_index.v1` ready.
 - Does **not** accept Robinhood or Solana prepare as available.
 - Does **not** equate NATS mint envelopes with CR-011A trust-stream adoption.
 
