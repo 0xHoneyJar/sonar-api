@@ -110,9 +110,14 @@ export const isOperationReasonBoundToTransition = (
   operationReason: TransitionAudit["reason_class"],
   transitionReason: TransitionAudit["reason_class"],
   operationState: "available" | "degraded" | "disabled",
+  transitionKind: CapabilityRegistryTransition["kind"],
 ): boolean => {
   if (operationReason === transitionReason) return true;
-  if (transitionReason !== "epoch_reset" || operationState !== "disabled") {
+  if (
+    transitionKind !== "epoch_reset" ||
+    transitionReason !== "epoch_reset" ||
+    operationState !== "disabled"
+  ) {
     return false;
   }
   const retainedDisableReasons: ReadonlyArray<TransitionAudit["reason_class"]> = [
@@ -129,6 +134,7 @@ const validateTransitionOperationAuditBinding = (input: {
   readonly previousNetworks: ReadonlyArray<NetworkCapability>;
   readonly candidateNetworks: ReadonlyArray<NetworkCapability>;
   readonly audit: TransitionAudit;
+  readonly transitionKind: CapabilityRegistryTransition["kind"];
 }): Effect.Effect<void, CapabilityRegistryTransitionError> =>
   Effect.gen(function* () {
     const previousByKey = new Map<string, NetworkCapability>();
@@ -159,6 +165,7 @@ const validateTransitionOperationAuditBinding = (input: {
               candidateOp.reason_class,
               input.audit.reason_class,
               candidateOp.state,
+              input.transitionKind,
             )
           ) {
             return yield* Effect.fail(
@@ -186,6 +193,7 @@ const validateTransitionOperationAuditBinding = (input: {
               candidateOp.reason_class,
               input.audit.reason_class,
               candidateOp.state,
+              input.transitionKind,
             )
           ) {
             return yield* Effect.fail(
@@ -362,6 +370,7 @@ export const applyCapabilityRegistryTransition = (input: {
         previousNetworks: current.networks,
         candidateNetworks: transition.networks,
         audit,
+        transitionKind: transition.kind,
       });
 
       const advance = yield* advanceCapabilityRegistryVersion(
@@ -405,6 +414,7 @@ export const applyCapabilityRegistryTransition = (input: {
       previousNetworks: [],
       candidateNetworks: transition.networks,
       audit,
+      transitionKind: transition.kind,
     });
 
     const verifiedBaseline = yield* decodeCapabilityRegistryBaseline(

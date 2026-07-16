@@ -1399,6 +1399,30 @@ describe("CR-101 probe 7 — transition and Ordering audit fields", () => {
       /reason_class must bind/,
     );
 
+    const epochResetReasonOnSequenceAdvance = expectFailure(
+      applyCapabilityRegistryTransition({
+        current,
+        transition: {
+          kind: "sequence_advance",
+          from: current.version,
+          to: { ...current.version, registry_sequence: "2" },
+          networks: [
+            ethereumMainnetCapability(),
+            withInitialSourceSequences(robinhoodDisabledCapability()),
+          ],
+          reason_class: "epoch_reset",
+          effective_at: FIXTURE_EFFECTIVE_AT,
+          actor: audit.actor,
+        },
+      }),
+    );
+    expect(epochResetReasonOnSequenceAdvance._tag).toBe(
+      "CapabilityRegistryTransitionError",
+    );
+    expect(
+      String((epochResetReasonOnSequenceAdvance as { reason: string }).reason),
+    ).toMatch(/reason_class must bind/);
+
     const secretActor = expectFailure(
       applyCapabilityRegistryTransition({
         current,
