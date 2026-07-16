@@ -89,7 +89,7 @@ const requestFor = (input: {
   readonly address?: string;
   readonly abort?: AbortController;
   readonly deadline_at_ms?: number;
-  readonly clock?: MonotonicClock;
+  readonly clock?: MonotonicClock & { scheduleAt: (at_ms: number, cb: () => void) => () => void };
 }): AdapterProbeRequest => {
   const capability = input.capability ?? ethereumMainnetCapability();
   const abort = input.abort ?? makeAbort();
@@ -113,7 +113,7 @@ const makeAdapter = (input: {
   readonly indexStatus?: ReturnType<typeof createScriptedIndexStatusPort>;
   readonly metadata?: EvmMetadataEnrichPort;
   readonly metadata_budget?: EvmMetadataBudgetConfig;
-  readonly clock?: MonotonicClock;
+  readonly clock?: MonotonicClock & { scheduleAt: (at_ms: number, cb: () => void) => () => void };
   readonly observedAt?: () => string;
 }) => {
   const clock = input.clock ?? virtualClock();
@@ -328,6 +328,36 @@ describe("CR-103 EVM NFT probe adapter", () => {
     });
     const outcome = await runProbe(adapter, requestFor({ clock }));
     expect(outcome).toEqual({ kind: "miss" });
+  });
+
+  it("refuses malformed RPC bytecode before creating binding evidence", async () => {
+    const clock = virtualClock();
+    const script = scriptErc721();
+    const account = script.accounts[FIXTURE_ADDRESS_NORMALIZED]!;
+    const adapter = makeAdapter({
+      rpc: fixtureRpc(
+        {
+          "eip155:1": {
+            ...script,
+            accounts: {
+              ...script.accounts,
+              [FIXTURE_ADDRESS_NORMALIZED]: {
+                ...account,
+                code: "0x0g" as `0x${string}`,
+              },
+            },
+          },
+        },
+        clock,
+      ),
+      clock,
+    });
+    const outcome = await runProbe(adapter, requestFor({ clock }));
+    expect(outcome).toMatchObject({
+      kind: "unavailable",
+      safe_code: "rpc_invalid_response",
+    });
+    expect(JSON.stringify(outcome)).not.toContain("binding_evidence");
   });
 
   it("types transport failure as ProbeUnavailable with stable safe code/message", async () => {

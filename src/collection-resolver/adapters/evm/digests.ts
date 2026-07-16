@@ -13,9 +13,17 @@ export const sha256HexBytes = (bytes: Uint8Array): string =>
 export const sha256HexUtf8 = (value: string): string =>
   createHash("sha256").update(value, "utf8").digest("hex");
 
+export const isValidBytecodeHex = (bytecode: string): boolean => {
+  const body = strip0x(bytecode);
+  return body.length % 2 === 0 && /^[0-9a-fA-F]*$/.test(body);
+};
+
 /** Digest of contract bytecode for code_digest binding. */
 export const codeDigestFromBytecode = (bytecode: `0x${string}` | string): string => {
   const body = strip0x(bytecode);
+  if (!isValidBytecodeHex(bytecode)) {
+    throw new TypeError("bytecode must be even-length hexadecimal data");
+  }
   const bytes = Uint8Array.from(Buffer.from(body.length === 0 ? "" : body, "hex"));
   return sha256HexBytes(bytes);
 };

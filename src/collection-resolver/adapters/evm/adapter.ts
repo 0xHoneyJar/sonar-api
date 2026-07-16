@@ -13,7 +13,10 @@ import { Effect } from "effect";
 import { networkIdentityKey } from "../../capability-registry/keys.js";
 import type { EvmFinalityPolicy } from "../../capability-registry/schemas.js";
 import type { ProbeOutcome } from "../../candidate.js";
-import type { MonotonicClock } from "../../bounded-core/clock.js";
+import type {
+  DeadlineTimerPort,
+  MonotonicClock,
+} from "../../bounded-core/clock.js";
 import type { AdapterProbeRequest, NetworkAdapterPort } from "../../bounded-core/ports.js";
 import { BOUNDED_RESOLVER_ADAPTER_POLICY_VERSION } from "../../bounded-core/schemas.js";
 import {
@@ -37,6 +40,7 @@ import {
   EIP1967_IMPLEMENTATION_SLOT,
 } from "./constants.js";
 import { canonicalUnavailable, mapRpcFailure, timeoutOutcome } from "./diagnostics.js";
+import { isValidBytecodeHex } from "./digests.js";
 import { projectProbeHit, type ProxyObservation } from "./evidence.js";
 import { applyIndexSupportBound } from "./index-status.js";
 import {
@@ -62,7 +66,7 @@ export interface EvmNftProbeAdapterDeps {
    * Same monotonic clock domain as CR-102 (`deadline_at_ms` origin).
    * Required — never fall back to Date.now() for deadline comparison.
    */
-  readonly clock: MonotonicClock;
+  readonly clock: MonotonicClock & DeadlineTimerPort;
   /**
    * Optional remote-metadata sub-budget (cap + fraction + post-metadata reserve).
    * Defaults keep enrich ending materially before `request.deadline_at_ms`.
@@ -107,10 +111,9 @@ const enrichMetadataBounded = (input: {
   readonly enrich: EvmMetadataEnrichPort["enrich"];
   readonly uri: string;
   readonly metadata_deadline_at_ms: number;
-  readonly clock: MonotonicClock;
+  readonly clock: MonotonicClock & DeadlineTimerPort;
 }): Effect.Effect<MetadataEnrichResult, never> => {
-  const remainingMs = input.metadata_deadline_at_ms - input.clock.nowMs();
-  if (remainingMs <= 0) {
+  if (input.metadata_deadline_at_ms <= input.clock.nowMs()) {
     return Effect.succeed(degradedMetadata());
   }
 
@@ -118,15 +121,16 @@ const enrichMetadataBounded = (input: {
     try: () =>
       new Promise<MetadataEnrichResult>((resolve) => {
         let settled = false;
+        let cancelDeadline = (): void => undefined;
         const finish = (value: MetadataEnrichResult): void => {
           if (settled) return;
           settled = true;
-          clearTimeout(timer);
+          cancelDeadline();
           resolve(value);
         };
-        const timer = setTimeout(() => {
-          finish(degradedMetadata());
-        }, remainingMs);
+        cancelDeadline = input.clock.scheduleAt(input.metadata_deadline_at_ms, () =>
+          finish(degradedMetadata()),
+        );
         void input
           .enrich({ uri: input.uri, purpose: "collection_metadata" })
           .then(
@@ -229,6 +233,9 @@ export const createEvmNftProbeAdapter = (
         return mapRpcFailure(codeExit.left);
       }
       const bytecode = codeExit.right;
+      if (!isValidBytecodeHex(bytecode)) {
+        return canonicalUnavailable("rpc_invalid_response");
+      }
       if (isEmptyBytecode(bytecode)) {
         return { kind: "miss" } as const;
       }
@@ -302,6 +309,9 @@ export const createEvmNftProbeAdapter = (
             return mapRpcFailure(implCodeExit.left);
           }
           const implCode = implCodeExit.right;
+          if (!isValidBytecodeHex(implCode)) {
+            return canonicalUnavailable("rpc_invalid_response");
+          }
           if (isEmptyBytecode(implCode)) {
             proxy = {
               is_proxy: true,
