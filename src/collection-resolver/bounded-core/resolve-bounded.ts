@@ -974,6 +974,14 @@ export const resolveBounded = (input: {
       input.deps.metrics.recordLatency(input.deps.clock.nowMs() - started);
       const decodedCachedCandidates = yield* assertCandidatesDecode(cachedCandidates);
       const { candidates, ranking_evidence } = aggregateAndRank(decodedCachedCandidates);
+      terminal.finalize({
+        identifier_format,
+        terminal_outcome: "complete",
+        candidate_count: candidates.length,
+        cache_outcome: readinessHit ? "readiness_hit" : "positive_hit",
+        role: "leader",
+        adapter_attempts: 0,
+      });
       return cloneFreeze({
         schema_version: 1 as const,
         capability_snapshot_version: capabilitySnapshot.version,
@@ -1116,7 +1124,7 @@ export const resolveBounded = (input: {
       }
       terminal.finalize({
         identifier_format,
-        terminal_outcome: "failed",
+        terminal_outcome: "partial",
         candidate_count: 0,
         cache_outcome: "none",
         role: "follower",

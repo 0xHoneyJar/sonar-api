@@ -952,11 +952,111 @@ describe("CR-107 coalesce follower work accounting", () => {
     expect(followerTerminal?.adapter_attempts).toBe(0);
     expect(leaderTerminal?.adapter_attempts).toBe(1);
   });
+
+  it("classifies a follower deadline response as partial", async () => {
+    const processClock = createProcessMonotonicClock();
+    const ethOnly = expectSuccess(
+      decodeCapabilityRegistrySnapshot(withNetworks([ethereumMainnetCapability()], "3")),
+    );
+    const observer = createMemoryRecognitionObserver({
+      allowedNetworkKeys: networkKeysFromCapabilitySnapshot(ethOnly),
+    });
+    const leaderConfig = {
+      ...defaultBoundedResolverConfig(),
+      global_deadline_ms: 200,
+      per_network_deadline_ms: 150,
+      max_searched_networks: 1,
+      max_concurrent_probes: 1,
+    };
+    const followerConfig = {
+      ...leaderConfig,
+      global_deadline_ms: 15,
+      per_network_deadline_ms: 10,
+    };
+    const { deps } = createHermeticBoundedDeps({
+      processClock,
+      config: leaderConfig,
+      capabilitySnapshot: ethOnly,
+      observer,
+      script: SCRIPT_EVM_ERC721,
+      realSleepMsByNetwork: { "eip155:1": 80 },
+    });
+
+    const leader = Effect.runPromise(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "partial-leader"),
+        config: leaderConfig,
+        deps,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const follower = await Effect.runPromise(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "partial-follower"),
+        config: followerConfig,
+        deps,
+      }),
+    );
+
+    expect(follower.diagnostics.partial).toBe(true);
+    await leader;
+    const followerTerminals = observer
+      .events()
+      .filter((event) => event.kind === "resolver_terminal" && event.role === "follower");
+    expect(followerTerminals).toHaveLength(1);
+    expect(followerTerminals[0]).toMatchObject({
+      terminal_outcome: "partial",
+      candidate_count_bucket: "0",
+      adapter_attempts: 0,
+    });
+  });
 });
 
 describe("CR-107 terminal finalizer — exactly one resolver_terminal per exit", () => {
   const countTerminals = (observer: { events: () => ReadonlyArray<OperationalEvent> }) =>
     observer.events().filter((e) => e.kind === "resolver_terminal");
+
+  it("finalizes a warm positive/readiness cache hit as complete", () => {
+    const config = {
+      ...defaultBoundedResolverConfig(),
+      max_searched_networks: 1,
+      max_concurrent_probes: 1,
+    };
+    const { deps, observer } = createHermeticBoundedDeps({
+      config,
+      script: SCRIPT_EVM_ERC721,
+    });
+    expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "cache-cold"),
+        config,
+        deps,
+      }),
+    );
+    observer.clear();
+
+    const warm = expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "cache-warm"),
+        config,
+        deps,
+      }),
+    );
+
+    expect(warm.diagnostics.cache).toMatchObject({
+      positive_hit: true,
+      readiness_hit: true,
+    });
+    const terminals = countTerminals(observer);
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]).toMatchObject({
+      terminal_outcome: "complete",
+      candidate_count_bucket: "1",
+      cache_outcome: "readiness_hit",
+      role: "leader",
+      adapter_attempts: 0,
+    });
+  });
 
   it("emits rejected unclassified terminal for config decode failure (no demand)", () => {
     const { deps, observer } = createHermeticBoundedDeps({
