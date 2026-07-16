@@ -5,6 +5,7 @@
 | Task | `ACCEPT-SONAR` (`collection-report-coordinator-f09.40`) |
 | Repository | `0xHoneyJar/sonar-api` (this worktree; tracks `origin/main`) |
 | Audited revision | `a68bbae0bf04e281a9b6b46fc3812c9dbb471afa` (2026-07-14) |
+| PR delivery relationship | The audited implementation revision is the evidence boundary. Every path changed from that revision through this PR head is this acceptance document only. Reproduce with `git diff --name-only a68bbae0bf04e281a9b6b46fc3812c9dbb471afa..HEAD`; any additional path invalidates this acceptance pending re-audit. |
 | Master plan | coordinator `grimoires/loa/{prd,sdd,sprint}.md` v0.3 / 0.5 / 0.6 at `2c1be075e34f896704e0e8ff45500aeaddcd1a10` (file blobs `ef5847c06f880d99927a985a0ec7eaa3d216b4c0` / `5b431433954194ae181685f249caa42e772b2b6c` / `f76863bb2302bae660ad5a57a2a9ea4888be918d`) |
 | Date | 2026-07-16 |
 | Author role | Sonar boundary owner (KRANZ dispatch; no CR implementation) |
@@ -129,7 +130,11 @@ the system of record for multi-subscriber report orders.
 
 ---
 
-## 4. Capacity / headcount estimate
+## 4. Provisional capacity / headcount estimate
+
+**Status: provisional pending U-9 operator confirmation.** These values are
+planning inputs, not issue-ready commitments, until U-9 closes with an explicit
+acknowledgement or replacement estimate.
 
 Bottom-up estimate for Sonar-primary CRs only (sprint owner map). Assumes one
 senior engineer familiar with this repo; excludes Loa CR-001/009 wait time and
