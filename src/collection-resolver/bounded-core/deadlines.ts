@@ -166,11 +166,23 @@ export const raceSettlementAgainstDeadlines = <A>(input: {
       cancelExecution?.();
     };
 
+    const now = input.clock.nowMs();
+    const expiredDeadline = input.deadlines.reduce<
+      { readonly at_ms: number; readonly kind: DeadlineKind } | undefined
+    >((earliest, deadline) => {
+      if (!isPastDeadline(now, deadline.at_ms)) return earliest;
+      if (earliest === undefined || deadline.at_ms < earliest.at_ms) return deadline;
+      return earliest;
+    }, undefined);
+
+    // An already-expired absolute deadline is a pre-start boundary. Select the
+    // earliest expiry independent of caller ordering and never launch work.
+    if (expiredDeadline !== undefined) {
+      fireDeadline(expiredDeadline.kind);
+      return;
+    }
+
     for (const d of input.deadlines) {
-      if (isPastDeadline(input.clock.nowMs(), d.at_ms)) {
-        fireDeadline(d.kind);
-        break;
-      }
       cancels.push(
         input.timer.scheduleAt(d.at_ms, () => {
           fireDeadline(d.kind);

@@ -36,6 +36,8 @@ import {
 import { aggregateAndRank } from "./aggregate.js";
 import {
   digestNegativeBinding,
+  digestPositiveBinding,
+  digestReadinessBinding,
   sha256Canonical,
   structuralIdentifierDigest,
 } from "./caching/keys.js";
@@ -645,7 +647,7 @@ export const resolveBounded = (input: {
       authorization_scope: request.caller.authorization_scope,
       allowed_network_keys: allowedNetworkKeys,
     });
-    const cachedCandidates = positiveHits.map((entry) => entry.candidate);
+    const readyPositiveHits: typeof positiveHits[number][] = [];
     let readinessHit = positiveHits.length > 0;
     if (positiveHits.length > 0) {
       for (const entry of positiveHits) {
@@ -665,14 +667,21 @@ export const resolveBounded = (input: {
           adapter_policy_version: entry.binding.adapter_policy_version,
           authorization_scope: entry.binding.authorization_scope,
         };
-        const ready = yield* input.deps.cache.getReadiness(
-          sha256Canonical(JSON.stringify(readinessBinding)),
-        );
-        if (ready === undefined) readinessHit = false;
+        const readinessKey = yield* digestReadinessBinding(readinessBinding);
+        const ready = yield* input.deps.cache.getReadiness(readinessKey);
+        if (ready === undefined) {
+          readinessHit = false;
+        } else {
+          readyPositiveHits.push(entry);
+        }
       }
       input.deps.metrics.incr("cache_positive_hit", positiveHits.length);
       if (readinessHit) input.deps.metrics.incr("cache_readiness_hit", positiveHits.length);
     }
+
+    // Recognition may outlive report readiness. Only a positive entry with a
+    // live readiness binding covers its network; expired readiness must reprobe.
+    const cachedCandidates = readyPositiveHits.map((entry) => entry.candidate);
 
     const cachedNetworkKeys = new Set(
       cachedCandidates
@@ -1053,7 +1062,7 @@ export const resolveBounded = (input: {
             ),
           );
 
-          const posKey = sha256Canonical(JSON.stringify(positiveBinding));
+          const posKey = yield* digestPositiveBinding(positiveBinding);
           yield* input.deps.cache.setPositive(posKey, {
             binding: positiveBinding,
             candidate,
@@ -1082,7 +1091,7 @@ export const resolveBounded = (input: {
                 }),
             ),
           );
-          const readyKey = sha256Canonical(JSON.stringify(readinessBinding));
+          const readyKey = yield* digestReadinessBinding(readinessBinding);
           yield* input.deps.cache.setReadiness(readyKey, {
             binding: readinessBinding,
             stored_at_ms: input.deps.clock.nowMs(),

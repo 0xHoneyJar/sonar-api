@@ -13,6 +13,8 @@ import {
   createVirtualClock,
   decodeBoundedResolverConfig,
   defaultBoundedResolverConfig,
+  digestPositiveBinding,
+  digestReadinessBinding,
   hermeticResolveRequest,
   invalidateNegativeOnCoverageGrowth,
   loadHermeticCapabilitySnapshot,
@@ -593,6 +595,104 @@ describe("CR-102 cache separation and invalidation", () => {
     expect(warm.diagnostics.cache.readiness_hit).toBe(true);
     expect(adapter.calls().length).toBeGreaterThan(callsAfterColdResolve);
     expect(adapter.calls().length - callsAfterColdResolve).toBeLessThan(callsAfterColdResolve);
+  });
+
+  it("reprobes a warm positive entry after its shorter readiness binding expires", () => {
+    const clock = createVirtualClock({ originMs: 0 });
+    const config = {
+      ...defaultBoundedResolverConfig(),
+      positive_recognition_ttl_ms: 200,
+      report_readiness_ttl_ms: 50,
+      negative_cache_ttl_ms: 20,
+    };
+    const { deps, adapter } = createHermeticBoundedDeps({
+      clock,
+      config,
+      script: SCRIPT_EVM_ERC721,
+    });
+
+    const cold = expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "readiness-cold"),
+        config,
+        deps,
+      }),
+    );
+    expect(cold.candidates.length).toBeGreaterThan(0);
+    const coldCalls = adapter.calls().length;
+
+    clock.advanceMs(config.report_readiness_ttl_ms);
+    const refreshed = expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "readiness-refresh"),
+        config,
+        deps,
+      }),
+    );
+
+    expect(refreshed.candidates.length).toBeGreaterThan(0);
+    expect(refreshed.diagnostics.cache.positive_hit).toBe(true);
+    expect(refreshed.diagnostics.cache.readiness_hit).toBe(false);
+    expect(adapter.calls().length).toBeGreaterThan(coldCalls);
+  });
+
+  it("uses exported digest helpers for positive/readiness writes and readiness reads", () => {
+    const base = createHermeticBoundedDeps({ script: SCRIPT_EVM_ERC721 });
+    const positiveWrites: Array<{
+      readonly key: string;
+      readonly binding: Parameters<typeof digestPositiveBinding>[0];
+    }> = [];
+    const readinessWrites: Array<{
+      readonly key: string;
+      readonly binding: Parameters<typeof digestReadinessBinding>[0];
+    }> = [];
+    const readinessReads: string[] = [];
+    const deps = {
+      ...base.deps,
+      cache: {
+        ...base.deps.cache,
+        setPositive: (key: string, entry: Parameters<typeof base.deps.cache.setPositive>[1]) =>
+          Effect.gen(function* () {
+            positiveWrites.push({ key, binding: entry.binding });
+            yield* base.deps.cache.setPositive(key, entry);
+          }),
+        setReadiness: (key: string, entry: Parameters<typeof base.deps.cache.setReadiness>[1]) =>
+          Effect.gen(function* () {
+            readinessWrites.push({ key, binding: entry.binding });
+            yield* base.deps.cache.setReadiness(key, entry);
+          }),
+        getReadiness: (key: string) =>
+          Effect.gen(function* () {
+            readinessReads.push(key);
+            return yield* base.deps.cache.getReadiness(key);
+          }),
+      },
+    };
+
+    expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "digest-cold"),
+        config: base.config,
+        deps,
+      }),
+    );
+    expect(positiveWrites.length).toBeGreaterThan(0);
+    expect(readinessWrites.length).toBeGreaterThan(0);
+    for (const write of positiveWrites) {
+      expect(write.key).toBe(expectSuccess(digestPositiveBinding(write.binding)));
+    }
+    for (const write of readinessWrites) {
+      expect(write.key).toBe(expectSuccess(digestReadinessBinding(write.binding)));
+    }
+
+    expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "digest-warm"),
+        config: base.config,
+        deps,
+      }),
+    );
+    expect(readinessReads.sort()).toEqual(readinessWrites.map((write) => write.key).sort());
   });
 
   it("emits equivalence-revocation impact edge; eviction alone is insufficient", () => {
@@ -1405,6 +1505,32 @@ describe("CR-102 revision-2 cold rate-limit acceptance denial", () => {
 });
 
 describe("CR-102 single-execution deadline race", () => {
+  it("does not start work for expired absolute deadlines and selects the earliest expiry", () => {
+    const clock = createVirtualClock({ originMs: 100 });
+    let starts = 0;
+    const fired: string[] = [];
+    const value = expectSuccess(
+      raceSettlementAgainstDeadlines({
+        effect: Effect.sync(() => {
+          starts += 1;
+          return "started";
+        }),
+        clock,
+        timer: clock,
+        deadlines: [
+          { at_ms: 90, kind: "per_network_deadline" },
+          { at_ms: 80, kind: "global_deadline" },
+        ],
+        onDeadline: (kind) => fired.push(kind),
+        timeoutValue: "timeout",
+      }),
+    );
+
+    expect(value).toBe("timeout");
+    expect(fired).toEqual(["global_deadline"]);
+    expect(starts).toBe(0);
+  });
+
   it("one configured network under deadline invokes adapter once", async () => {
     const processClock = createProcessMonotonicClock();
     const config = {
