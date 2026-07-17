@@ -1480,7 +1480,9 @@ describe("CR-102 revision-2 real-timer non-cooperative adapters", () => {
     expect(elapsed).toBeGreaterThanOrEqual(20);
     expect(elapsed).toBeLessThan(55);
     expect(adapter.externalStarts()).toBe(2);
+    expect(adapter.calls()).toHaveLength(2);
     expect(adapter.peakExternalConcurrency()).toBeLessThanOrEqual(2);
+    expect(adapter.peakExternalConcurrency()).toBe(2);
   });
 });
 

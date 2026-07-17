@@ -620,8 +620,11 @@ const followerTimeoutResponse = (input: {
     ranking_evidence: [],
   });
 
-const markCoalesced = (response: BoundedResolveResponse): BoundedResolveResponse =>
-  cloneFreeze({
+const markCoalesced = (
+  response: BoundedResolveResponse,
+  expectedVersion: CapabilityRegistrySnapshot["version"],
+): Effect.Effect<BoundedResolveResponse, BoundedResolverDecodeError> =>
+  decodeCoalescedResponse(cloneFreeze({
     ...response,
     diagnostics: {
       ...response.diagnostics,
@@ -637,7 +640,7 @@ const markCoalesced = (response: BoundedResolveResponse): BoundedResolveResponse
         },
       ],
     },
-  });
+  }), expectedVersion);
 
 /**
  * Bounded collection resolve — the CR-102 orchestration entrypoint.
@@ -751,8 +754,10 @@ export const resolveBounded = (input: {
           readyPositiveHits.push(entry);
         }
       }
-      input.deps.metrics.incr("cache_positive_hit", positiveHits.length);
-      if (readinessHit) input.deps.metrics.incr("cache_readiness_hit", positiveHits.length);
+      input.deps.metrics.incr("cache_positive_hit", readyPositiveHits.length);
+      if (readinessHit) {
+        input.deps.metrics.incr("cache_readiness_hit", readyPositiveHits.length);
+      }
     }
 
     // Recognition may outlive report readiness. Only a positive entry with a
@@ -885,7 +890,10 @@ export const resolveBounded = (input: {
           sealed.response,
           input.deps.capabilitySnapshot.version,
         );
-        return markCoalesced(response);
+        return yield* markCoalesced(
+          response,
+          input.deps.capabilitySnapshot.version,
+        );
       }
       return followerTimeoutResponse({
         capability_snapshot_version: input.deps.capabilitySnapshot.version,
