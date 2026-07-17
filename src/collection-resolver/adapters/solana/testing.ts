@@ -1,0 +1,12 @@
+/** Test-only Solana adapter fixtures. Never import from runtime code. */
+export {
+  FIXTURE_CLASSIC_ITEMS,
+  FIXTURE_COMPRESSED_ITEMS,
+  FIXTURE_MIXED_ITEMS,
+  FIXTURE_PROGRAMMABLE_ITEMS,
+  FIXTURE_UNKNOWN_ITEMS,
+  FIXTURE_UNVERIFIED_ITEMS,
+  REGISTERED_COLLECTION_MINT,
+  WRONG_CASE_PYTHIANS_MINT,
+  sampleOutcome,
+} from "./fixtures.js";

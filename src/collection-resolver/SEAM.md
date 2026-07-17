@@ -38,10 +38,12 @@ Remove the vendor artifact once that pin lands. Do not copy schemas into Sonar.
 | `src/collection-resolver/protocol.ts` | Thin re-export + fixture-root helper |
 | `src/collection-resolver/capability-registry/` | CR-101 versioned mainnet capability registry + Ordering projection |
 | `src/collection-resolver/bounded-core/` | CR-102 bounded fanout/cache/rate-limit/circuit-breaker orchestration |
+| `src/collection-resolver/adapters/solana/` | CR-104 Solana DAS recognition adapter (`NetworkAdapterPort`) |
 | `src/collection-resolver/resolve.ts` | Hermetic `resolve-probe` core (CR-003) |
 | `src/collection-resolver/das-normalize.ts` | Adapts real `CollectionSnapshot` / `CollectionMember` + shared `toRows`/`NftRow` |
 | `src/svm/collection-nft-rows.ts` | Shared persistence projector used by the ownership indexer and DAS normalize |
 | `src/svm/nft-collection-source.ts` | DAS seam: `parseAsset` → `CollectionMember` (refuses missing owner) |
+| `src/svm/probe-collection.ts` | CLI onboarding probe — shares CR-104 sample classifier |
 | `src/metadata-egress/` | CR-004 sole metadata network boundary (resolver + report workers) |
 
 ## Capability registry (CR-101)
@@ -80,8 +82,16 @@ Remove the vendor artifact once that pin lands. Do not copy schemas into Sonar.
   evidence yields partial diagnostics without cache writes. Negative cache only
   for conclusive searched coverage. Equivalence revocation emit-then-evict is
   fail-closed (`eviction_alone_insufficient: true`).
-- Live EVM/Solana adapters and production metrics remain CR-103 / CR-104 / CR-107.
-  See `bounded-core/PROTOCOL.md`.
+- Live EVM adapters and production metrics remain CR-103 / CR-107.
+  Solana DAS recognition adapter: `adapters/solana/` (CR-104). Recognition
+  stays independent of prepare/index: capability is a ceiling only; CR-402
+  supplies collection-specific readiness observations.   Member NFT metadata is
+  provenance-only — collection identity uses exact registry and/or bounded
+  `getAsset(collection mint)` with `result.id` bound byte-for-byte to the
+  requested mint (never request-stamped). Conclusive miss requires explicit
+  empty `result.items`; incomplete/malformed/zero-valid samples are typed
+  unavailable (no authoritative negative cache). See
+  `adapters/solana/PROTOCOL.md` and `bounded-core/PROTOCOL.md`.
 
 Resolver outputs must always strict-decode through CR-001 `CollectionCandidate`
 before leaving Sonar. DAS normalize must not invent a parallel member/owner
