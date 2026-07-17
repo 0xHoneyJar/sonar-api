@@ -442,6 +442,7 @@ export const createEvmNftProbeAdapter = (
       const contractUri = callString(uriExit.right, decodeBoundedContractUri);
       let metaName: string | undefined;
       let metaSymbol: string | undefined;
+      let metaImage: string | undefined;
       const degradeRemoteQuality = (): typeof metadataQuality =>
         onchainName !== undefined || onchainSymbol !== undefined
           ? "onchain"
@@ -519,6 +520,7 @@ export const createEvmNftProbeAdapter = (
             if (!enrichDegraded) {
               metaName = enrichment.name;
               metaSymbol = enrichment.symbol;
+              metaImage = enrichment.image;
               if (enrichment.metadata_quality === "external_pointer") {
                 metadataQuality =
                   onchainName !== undefined || onchainSymbol !== undefined
@@ -565,6 +567,7 @@ export const createEvmNftProbeAdapter = (
           quality: metadataQuality,
           ...(metaName !== undefined ? { name: metaName } : {}),
           ...(metaSymbol !== undefined ? { symbol: metaSymbol } : {}),
+          ...(metaImage !== undefined ? { image: metaImage } : {}),
         },
         index_status,
         observed_at: observedAt(),

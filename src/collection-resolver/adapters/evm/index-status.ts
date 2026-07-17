@@ -121,6 +121,25 @@ export const createScriptedIndexStatusPort = (
 });
 
 /**
+ * Constant index status (Kitchen live resolve-probe cut).
+ *
+ * Used when recognition must admit Generate before full inventory/Kitchen
+ * indexed snapshots exist for arbitrary contracts. Honest readiness still
+ * requires recognition=recognized + this observed status.
+ */
+export const createConstantIndexStatusPort = (
+  status: CollectionCandidate["index_status"],
+): ChainQualifiedIndexStatusPort => ({
+  lookup: (input) =>
+    Effect.sync(() => {
+      if (input.abort.aborted || input.now_ms() >= input.deadline_at_ms) {
+        return "unknown";
+      }
+      return status;
+    }),
+});
+
+/**
  * Apply capability index_support bound: without support, never claim indexed /
  * indexing for readiness — report unsupported.
  */
