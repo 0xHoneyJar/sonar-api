@@ -129,7 +129,7 @@ export class SqdLivenessMonitor {
 }
 
 async function fetchSolanaSlot(): Promise<number> {
-  const res = await fetch(REFERENCE_RPC_URL, {
+  const res = await /* @non-metadata-fetch SQD liveness */ fetch(REFERENCE_RPC_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getSlot", params: [{ commitment: "finalized" }] }),

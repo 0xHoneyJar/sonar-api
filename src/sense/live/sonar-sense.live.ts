@@ -358,7 +358,7 @@ export function makeLiveSonarSense(opts: LiveOptions = {}): SonarSense {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeout);
     try {
-      const res = await fetch(url, {
+      const res = await /* @non-metadata-fetch Sonar sense probe */ fetch(url, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ query: "{ __typename }" }),

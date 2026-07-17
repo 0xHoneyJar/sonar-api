@@ -329,7 +329,7 @@ export class HeliusCollectionEventSource implements CollectionEventSource {
       // burning the walk unpersisted. Timeout = transient: fall through to retry, 30s max per hang.
       let res: Response;
       try {
-        res = await fetch(url.toString(), { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
+        res = await /* @non-metadata-fetch collection event source */ fetch(url.toString(), { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
       } catch (e) {
         if (attempt >= MAX_RETRIES) throw new Error(`helius address-history ${address}: ${(e as Error).name} after ${attempt} retries`);
         continue;
@@ -371,7 +371,7 @@ export class HeliusCollectionEventSource implements CollectionEventSource {
       const url = new URL(`${this.parseBase}/v0/addresses/${this.collectionMint}/transactions`);
       url.searchParams.set("api-key", this.apiKey);
       url.searchParams.set("limit", "1");
-      const res = await fetch(url.toString(), { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
+      const res = await /* @non-metadata-fetch collection event source */ fetch(url.toString(), { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
       if (!res.ok) return { ok: false, detail: `helius enhanced address-history unavailable: HTTP ${res.status}` };
       return { ok: true, detail: "das getAssetsByGroup + enhanced address-history reachable" };
     } catch (e) {

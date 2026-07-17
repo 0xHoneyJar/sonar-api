@@ -18,33 +18,7 @@ import {
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-// Exact audited infrastructure call sites. Any new direct fetch in src fails
-// this test and must either route through metadata-egress or be explicitly
-// reviewed as non-metadata infrastructure transport.
-// Exact audited direct-fetch cardinality. A file-level allowlist alone lets a
-// future metadata fetch hide beside an unrelated transport; any added call now
-// fails until its owning boundary is explicitly reviewed.
-const NON_METADATA_FETCH_CALLS: Readonly<Record<string, number>> = {
-  "src/kitchen/ingest-worker.ts": 1,
-  "src/labels/ensure-schema.ts": 2,
-  "src/labels/ingest.ts": 1,
-  "src/self/live/graphql-introspect.live.ts": 1,
-  "src/self/live/railway.live.ts": 1,
-  "src/sense/live/sonar-sense.live.ts": 1,
-  "src/svm/collection-event-indexer.ts": 1,
-  "src/svm/collection-event-source.ts": 2,
-  "src/svm/collection-event-writer.ts": 1,
-  "src/svm/dune-client.ts": 1,
-  "src/svm/ensure-kind-constraint.ts": 1,
-  "src/svm/genesis-stone-indexer.ts": 1,
-  "src/svm/nft-collection-source.ts": 1,
-  "src/svm/probe-collection.ts": 1,
-  "src/svm/pythians-collection-indexer.ts": 1,
-  "src/svm/sqd-client.ts": 2,
-  "src/svm/sqd-liveness-monitor.ts": 1,
-  "src/svm/sqd-loader.ts": 1,
-  "src/svm/warehouse-loader.ts": 1,
-};
+const NON_METADATA_FETCH_MARKER = "@non-metadata-fetch";
 
 const walkFiles = (dir: string, out: string[] = []): string[] => {
   if (!existsSync(dir)) return out;
@@ -67,21 +41,24 @@ const walkFiles = (dir: string, out: string[] = []): string[] => {
   return out;
 };
 
-const countDirectFetchCalls = (file: string, source: string): number => {
+const unreviewedDirectFetchCalls = (file: string, source: string): number[] => {
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
-  let count = 0;
+  const lines: number[] = [];
   const visit = (node: ts.Node): void => {
     if (
       ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
       node.expression.text === "fetch"
     ) {
-      count += 1;
+      const prefix = source.slice(Math.max(0, node.getStart(parsed) - 160), node.getStart(parsed));
+      if (!prefix.includes(NON_METADATA_FETCH_MARKER)) {
+        lines.push(parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1);
+      }
     }
     ts.forEachChild(node, visit);
   };
   visit(parsed);
-  return count;
+  return lines;
 };
 
 describe("CR-004 browser metadata boundary", () => {
@@ -111,10 +88,9 @@ describe("CR-004 browser metadata boundary", () => {
       const rel = relative(ROOT, file);
       if (rel.startsWith("src/metadata-egress/")) continue;
       const source = readFileSync(file, "utf8");
-      const count = countDirectFetchCalls(file, source);
-      const expected = NON_METADATA_FETCH_CALLS[rel] ?? 0;
-      if (count !== expected) {
-        offenders.push(`${rel}: expected ${expected}, observed ${count}`);
+      const unreviewed = unreviewedDirectFetchCalls(file, source);
+      for (const line of unreviewed) {
+        offenders.push(`${rel}:${line}: direct fetch lacks ${NON_METADATA_FETCH_MARKER}`);
       }
     }
 

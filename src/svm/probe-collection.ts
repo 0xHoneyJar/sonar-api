@@ -31,7 +31,7 @@ interface DasItem {
 }
 
 async function dasSample(mint: string, sample: number): Promise<DasItem[]> {
-  const res = await fetch(RPC, {
+  const res = await /* @non-metadata-fetch DAS probe */ fetch(RPC, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

@@ -22,10 +22,13 @@ import {
   PUBLIC_V6_LITERAL,
   RELAY_ANYCAST_V4,
   RELAY_ANYCAST_V4_6A44,
+  createHermeticPorts,
+  gzipBomb,
+} from "../src/metadata-egress/testing.js";
+import {
   assertNoInjectedSecrets,
   classifyIpAddress,
   classifyUntrustedImageRef,
-  createHermeticPorts,
   createMetadataEgressClient,
   createReportMetadataWorkerPort,
   createResolverMetadataPort,
@@ -34,7 +37,6 @@ import {
   evaluateContentType,
   evaluateRetrievedContent,
   formatHostAuthority,
-  gzipBomb,
   buildEgressRequestHeaders,
   isPublicSafePathSegment,
   isSafeTerminalFilename,
@@ -1615,6 +1617,58 @@ describe("CR-004 retrieveMetadata hostile fixtures", () => {
       expect(result.provenance.failure_reason).toBeUndefined();
       expect(Buffer.from(result.body).toString("utf8")).toBe(body);
     }
+  });
+
+  it("treats transport response header names case-insensitively", async () => {
+    const ports = createHermeticPorts({
+      dns: {
+        "case.example.test": [{ address: PUBLIC_V4, family: "ipv4" }],
+      },
+      transport: {
+        "https://case.example.test/meta.json": {
+          kind: "response",
+          status: 200,
+          headers: { "Content-Type": "application/json", "Content-Encoding": "identity" },
+          body: "{}",
+        },
+      },
+    });
+
+    const result = await retrieveMetadata(
+      {
+        uri: "https://case.example.test/meta.json",
+        purpose: "collection_metadata",
+        now: fixedNow,
+      },
+      { ports },
+    );
+    expect(result.outcome).toBe("ok");
+  });
+
+  it("rejects invalid JSON before returning a successful metadata result", async () => {
+    const ports = createHermeticPorts({
+      dns: {
+        "invalid-json.example.test": [{ address: PUBLIC_V4, family: "ipv4" }],
+      },
+      transport: {
+        "https://invalid-json.example.test/meta.json": {
+          kind: "response",
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+          body: "{not-json}",
+        },
+      },
+    });
+
+    const result = await retrieveMetadata(
+      {
+        uri: "https://invalid-json.example.test/meta.json",
+        purpose: "collection_metadata",
+        now: fixedNow,
+      },
+      { ports },
+    );
+    expect(result).toMatchObject({ outcome: "partial", reason: "hostile_content" });
   });
 
   it("pins the validated public address on the transport exchange", async () => {

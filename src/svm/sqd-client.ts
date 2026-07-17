@@ -88,7 +88,7 @@ export class SqdClient {
    */
   async currentHeight(): Promise<number> {
     const url = `${PORTAL_BASE}/datasets/${DATASET}/finalized-stream/height`;
-    const res = await fetch(url, { headers: this.headers() });
+    const res = await /* @non-metadata-fetch SQD query */ fetch(url, { headers: this.headers() });
     if (res.status === 401 || res.status === 403) {
       throw new SqdAuthRequiredError({ blockHeight: 0, timestamp: new Date().toISOString(), status: res.status, url });
     }
@@ -153,7 +153,7 @@ export class SqdClient {
 
       let res: Response | null = null;
       for (let attempt = 0; ; attempt++) {
-        res = await fetch(streamUrl, { method: "POST", headers: this.headers(), body });
+        res = await /* @non-metadata-fetch SQD stream */ fetch(streamUrl, { method: "POST", headers: this.headers(), body });
         // Auth guard (FR-6): 401/403 thrown immediately, NOT caught by retry loop
         if (res.status === 401 || res.status === 403) {
           throw new SqdAuthRequiredError({

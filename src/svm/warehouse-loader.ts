@@ -137,7 +137,7 @@ export function windowsBetween(fromIso: string, toIso: string, windowDays = WIND
 /** Resume cursor: latest ingested block_time for the collection (loader is idempotent, so overlap is safe). */
 async function fetchCursor(collectionKey: string): Promise<string | null> {
   if (!HASURA || !SECRET) return null;
-  const res = await fetch(`${HASURA}/v1/graphql`, {
+  const res = await /* @non-metadata-fetch warehouse load */ fetch(`${HASURA}/v1/graphql`, {
     method: "POST",
     headers: { "x-hasura-admin-secret": SECRET, "Content-Type": "application/json" },
     body: JSON.stringify({

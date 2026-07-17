@@ -116,34 +116,4 @@ export {
   METADATA_EGRESS_RUNTIME,
 } from "./browser-boundary.js";
 
-export {
-  createHermeticPorts,
-  createScriptedDnsPort,
-  createScriptedTransportPort,
-  gzipBomb,
-  FIXTURE_PNG,
-  FIXTURE_JPEG,
-  FIXTURE_JPEG_DENIED,
-  FIXTURE_GIF,
-  FIXTURE_GIF_DENIED,
-  FIXTURE_WEBP,
-  FIXTURE_WEBP_FRAMING_ONLY,
-  FIXTURE_AVIF,
-  FIXTURE_AVIF_FRAMING_ONLY,
-  PUBLIC_V4,
-  PUBLIC_V4_B,
-  PUBLIC_V6,
-  PUBLIC_V6_LITERAL,
-  PRIVATE_V4,
-  LOOPBACK_V4,
-  LINK_LOCAL_V4,
-  CGNAT_V4,
-  MAPPED_LOOPBACK,
-  RELAY_ANYCAST_V4,
-  RELAY_ANYCAST_V4_6A44,
-  type ScriptedDns,
-  type ScriptedHop,
-  type ScriptedTransport,
-} from "./hermetic-fixtures.js";
-
 export { createNodeDnsPort, createNodePinnedTransport } from "./node-ports.js";

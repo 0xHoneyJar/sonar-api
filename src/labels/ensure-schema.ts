@@ -15,7 +15,7 @@ const HASURA = (process.env.SVM_HASURA_ENDPOINT ?? "").replace(/\/$/, "");
 const SECRET = process.env.HASURA_GRAPHQL_ADMIN_SECRET ?? "";
 
 async function runSql<T = unknown>(sql: string, readOnly = false): Promise<T> {
-  const r = await fetch(`${HASURA}/v2/query`, {
+  const r = await /* @non-metadata-fetch Hasura schema */ fetch(`${HASURA}/v2/query`, {
     method: "POST",
     headers: { "x-hasura-admin-secret": SECRET, "content-type": "application/json" },
     body: JSON.stringify({ type: "run_sql", args: { source: "default", sql, read_only: readOnly } }),
@@ -30,7 +30,7 @@ async function runSql<T = unknown>(sql: string, readOnly = false): Promise<T> {
  *  `columns` restricts the anon-visible column set (NEW-3) — defaults to all for already-curated views. */
 async function trackSelectOnly(name: string, columns: string[] | "*" = "*"): Promise<void> {
   const meta = async (type: string, args: Record<string, unknown>) => {
-    const r = await fetch(`${HASURA}/v1/metadata`, {
+    const r = await /* @non-metadata-fetch Hasura schema */ fetch(`${HASURA}/v1/metadata`, {
       method: "POST",
       headers: { "x-hasura-admin-secret": SECRET, "content-type": "application/json" },
       body: JSON.stringify({ type, args }),

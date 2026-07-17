@@ -561,6 +561,32 @@ export const retrieveMetadata = async (
       });
     }
 
+    if (
+      (typeEval.content_type === "application/json" ||
+        typeEval.content_type === "application/ld+json") &&
+      (() => {
+        try {
+          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(decompressed.body));
+          return false;
+        } catch {
+          return true;
+        }
+      })()
+    ) {
+      return partial("hostile_content", "JSON metadata body is not valid UTF-8 JSON", {
+        ...baseProvenance,
+        final_url: final.safe_uri,
+        final_url_sha256: final.uri_sha256,
+        pinned_address: resolved.target.pinned_address,
+        address_family: resolved.target.address_family,
+        terminal_address_class: resolved.target.terminal_address_class,
+        redirect_count: redirectCount,
+        byte_size: decompressed.body.byteLength,
+        content_type: typeEval.content_type,
+        content_sha256: sha256Hex(decompressed.body),
+      });
+    }
+
     const contentDigest = sha256Hex(decompressed.body);
     const provenance: MetadataRetrievalProvenance = {
       requested_uri: baseProvenance.requested_uri,
