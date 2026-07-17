@@ -28,6 +28,8 @@ export interface CollectionReadinessObservation {
 export interface ProjectSolanaDasHitInput {
   readonly collection_mint: string;
   readonly items: ReadonlyArray<DasAsset>;
+  /** Requested DAS page limit, retained even when the returned page is short. */
+  readonly sample_limit: number;
   readonly classification: DasSampleClassification;
   readonly capability: NetworkCapability;
   readonly registry: CollectionConfig | undefined;
@@ -74,6 +76,7 @@ export const projectSolanaDasHit = (
   const {
     collection_mint,
     items,
+    sample_limit,
     classification,
     capability,
     registry,
@@ -167,7 +170,7 @@ export const projectSolanaDasHit = (
       compressed_count: classification.compressed_count,
       sample_size: classification.sample_size,
       sample_page: 1,
-      sample_limit: items.length,
+      sample_limit,
       index_support: capability.index_support,
       ...(sample !== undefined && sample !== null
         ? {

@@ -190,6 +190,20 @@ describe("CR-104 Solana DAS sample classifier (CLI parity)", () => {
     expect(classifyDasSampleItems(FIXTURE_UNKNOWN_ITEMS).token_standard).toBe("unknown");
   });
 
+  it("does not infer a supported standard from one known and one unknown interface", () => {
+    const unknown = FIXTURE_UNKNOWN_ITEMS[0]!;
+    const programmable = classifyDasSampleItems([
+      FIXTURE_PROGRAMMABLE_ITEMS[0]!,
+      unknown,
+    ]);
+    expect(programmable.coverage).toBe("mixed");
+    expect(programmable.token_standard).toBe("unknown");
+
+    const classic = classifyDasSampleItems([FIXTURE_CLASSIC_ITEMS[0]!, unknown]);
+    expect(classic.coverage).toBe("mixed");
+    expect(classic.token_standard).toBe("unknown");
+  });
+
   it("builds a single-page getAssetsByGroup body with exact-case groupValue", () => {
     const body = buildDasSampleRequestBody({
       collection_mint: PYTHIANS_COLLECTION_MINT,
@@ -484,6 +498,7 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
     const hit = projectSolanaDasHit({
       collection_mint: PYTHIANS_COLLECTION_MINT,
       items: [...FIXTURE_PROGRAMMABLE_ITEMS],
+      sample_limit: DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT,
       classification: classifyDasSampleItems(FIXTURE_PROGRAMMABLE_ITEMS),
       capability: prepareEnabled,
       registry: findCollectionByMintExact(PYTHIANS_COLLECTION_MINT),
@@ -734,12 +749,25 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
     const { adapter, port } = adapterFor(() =>
       sampleOutcome(PYTHIANS_COLLECTION_MINT, FIXTURE_PROGRAMMABLE_ITEMS, 8),
     );
-    await expectAsyncSuccess(adapter.probe(probeRequest(PYTHIANS_COLLECTION_MINT)));
+    const outcome = await expectAsyncSuccess(
+      adapter.probe(probeRequest(PYTHIANS_COLLECTION_MINT)),
+    );
     expect(port.calls()).toHaveLength(1);
     expect(port.calls()[0]!.page).toBe(1);
     expect(port.calls()[0]!.limit).toBeLessThanOrEqual(
       DEFAULT_DAS_RECOGNITION_SAMPLE_LIMIT,
     );
+    expect(outcome.kind).toBe("hit");
+    if (outcome.kind === "hit") {
+      const evidence = outcome.evidence_material as {
+        sample_limit: number;
+        sample_size: number;
+      };
+      expect(evidence.sample_limit).toBe(8);
+      expect(evidence.sample_size).toBe(
+        FIXTURE_PROGRAMMABLE_ITEMS.length,
+      );
+    }
   });
 
   it("clamps at the adapter boundary before any custom DAS port sees the limit", async () => {

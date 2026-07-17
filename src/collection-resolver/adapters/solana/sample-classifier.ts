@@ -359,7 +359,7 @@ export const classifyDasSampleItems = (
     };
   }
 
-  if (programmableCount > 0 && classicCount > 0) {
+  if (programmableCount > 0 || classicCount > 0) {
     return {
       coverage: "mixed",
       token_standard: "unknown",
@@ -368,66 +368,6 @@ export const classifyDasSampleItems = (
       sample_size,
       dominant_interface,
       standard_label: "mixed",
-    };
-  }
-
-  if (programmableCount > 0) {
-    // Dominant programmable with minor unknown interfaces — still programmable.
-    if (programmableCount >= Math.ceil(sample_size / 2)) {
-      return {
-        coverage: "programmable",
-        token_standard: "programmable_nft",
-        interfaces,
-        compressed_count: 0,
-        sample_size,
-        dominant_interface,
-        standard_label: dominant_interface,
-      };
-    }
-    return {
-      coverage: "mixed",
-      token_standard: "unknown",
-      interfaces,
-      compressed_count: 0,
-      sample_size,
-      dominant_interface,
-      standard_label: "mixed",
-    };
-  }
-
-  if (classicCount > 0 && classicCount >= Math.ceil(sample_size / 2)) {
-    return {
-      coverage: "classic",
-      token_standard: "metaplex_collection",
-      interfaces,
-      compressed_count: 0,
-      sample_size,
-      dominant_interface,
-      standard_label: dominant_interface,
-    };
-  }
-
-  if (/programmable/i.test(dominant_interface)) {
-    return {
-      coverage: "programmable",
-      token_standard: "programmable_nft",
-      interfaces,
-      compressed_count: 0,
-      sample_size,
-      dominant_interface,
-      standard_label: dominant_interface,
-    };
-  }
-
-  if (/^V1_NFT$/i.test(dominant_interface) || /^V1_PRINT$/i.test(dominant_interface)) {
-    return {
-      coverage: "classic",
-      token_standard: "metaplex_collection",
-      interfaces,
-      compressed_count: 0,
-      sample_size,
-      dominant_interface,
-      standard_label: dominant_interface,
     };
   }
 

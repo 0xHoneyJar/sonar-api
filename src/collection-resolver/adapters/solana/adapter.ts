@@ -201,6 +201,7 @@ export const createSolanaDasNetworkAdapter = (
         return projectSolanaDasHit({
           collection_mint: address,
           items: verified,
+          sample_limit: outcome.limit,
           classification,
           capability: request.network_capability,
           registry,
