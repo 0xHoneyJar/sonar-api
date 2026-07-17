@@ -34,6 +34,8 @@ export interface AdapterProbeRequest {
   readonly network_capability: NetworkCapability;
   readonly address: string;
   readonly abort: AdapterAbortHandle;
+  /** Resolver clock sharing the absolute coordinate of deadline_at_ms. */
+  readonly clock: Pick<MonotonicClock, "nowMs">;
   /** Per-network deadline in monotonic ms (absolute). */
   readonly deadline_at_ms: number;
 }

@@ -49,3 +49,6 @@ export {
   createResolverMetadataPort,
   type ResolverMetadataPort,
 } from "../metadata-egress/resolver-port.js";
+
+/** CR-104: Solana DAS recognition adapter behind NetworkAdapterPort. */
+export * from "./adapters/solana/index.js";
