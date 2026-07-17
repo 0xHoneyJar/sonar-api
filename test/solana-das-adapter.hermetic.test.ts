@@ -666,7 +666,12 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
   });
 
   it("uses the resolver monotonic clock with default adapter wiring", async () => {
-    const clock = createVirtualClock({ originMs: 1_000 });
+    const clock = {
+      value: 1_000,
+      nowMs() {
+        return this.value;
+      },
+    };
     let sampleCalls = 0;
     const port = createScriptedDasSamplePort({
       handler: () => {
@@ -691,6 +696,26 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
     expect(outcome.kind).toBe("hit");
     expect(sampleCalls).toBe(1);
     expect(port.calls()).toHaveLength(1);
+  });
+
+  it("fails a non-finite absolute deadline closed before transport work", async () => {
+    let sampleCalls = 0;
+    const port = createScriptedDasSamplePort({
+      handler: () => {
+        sampleCalls += 1;
+        return sampleOutcome(PYTHIANS_COLLECTION_MINT, FIXTURE_PROGRAMMABLE_ITEMS);
+      },
+    });
+    const adapter = createSolanaDasNetworkAdapter({ dasPort: port });
+    const outcome = await expectAsyncSuccess(
+      adapter.probe(
+        probeRequest(PYTHIANS_COLLECTION_MINT, {
+          deadline_at_ms: Number.NaN,
+        }),
+      ),
+    );
+    expect(outcome).toEqual({ kind: "timeout" });
+    expect(sampleCalls).toBe(0);
   });
 
   it("in-flight abort after probe start: prompt timeout, one op, no late mutation", async () => {

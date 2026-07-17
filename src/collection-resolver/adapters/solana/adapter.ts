@@ -114,7 +114,7 @@ export const createSolanaDasNetworkAdapter = (
           limit: sampleLimit,
           abort: request.abort.signal,
           deadline_at_ms: request.deadline_at_ms,
-          now_ms: request.clock.nowMs,
+          now_ms: () => request.clock.nowMs(),
         });
 
         // Honor abort/deadline after transport settlement — late success must
@@ -159,7 +159,7 @@ export const createSolanaDasNetworkAdapter = (
             limit: sampleLimit,
             abort: request.abort.signal,
             deadline_at_ms: request.deadline_at_ms,
-            now_ms: request.clock.nowMs,
+            now_ms: () => request.clock.nowMs(),
           });
           // Optional getAsset shares the probe deadline as best-effort only.
           // Caller/deadline abort still fails closed via sealIfAborted; a
@@ -183,7 +183,7 @@ export const createSolanaDasNetworkAdapter = (
             collection_mint: address,
             abort: request.abort.signal,
             deadline_at_ms: request.deadline_at_ms,
-            now_ms: request.clock.nowMs,
+            now_ms: () => request.clock.nowMs(),
           });
           const afterReady = sealIfAborted(request);
           if (afterReady !== undefined) return afterReady;

@@ -92,8 +92,10 @@ export const classifyHttpStatus = (status: number): DasTransportFailure => {
 const remainingMs = (request: DasSampleRequest): number =>
   request.deadline_at_ms - request.now_ms();
 
-const isAbortedOrExpired = (request: DasSampleRequest): boolean =>
-  request.abort.aborted || remainingMs(request) <= 0;
+const isAbortedOrExpired = (request: DasSampleRequest): boolean => {
+  const remaining = remainingMs(request);
+  return request.abort.aborted || !Number.isFinite(remaining) || remaining <= 0;
+};
 
 const interruptedOutcome = (
   request: DasSampleRequest,
