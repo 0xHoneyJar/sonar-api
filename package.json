@@ -13,6 +13,7 @@
     "test:hasura": "vitest run test/hasura-contract",
     "test:gate": "vitest run test/sqd-45-gate-integration.test.ts",
     "test:collection-resolver": "vitest run test/collection-resolver.hermetic.test.ts",
+    "test:capability-registry": "vitest run test/capability-registry.hermetic.test.ts",
     "test:metadata-egress": "vitest run test/metadata-egress.hermetic.test.ts test/metadata-egress.browser-boundary.test.ts",
     "pulse": "bash scripts/sonar-pulse.sh",
     "self": "tsx src/self/cli/sonar-self.ts emit",

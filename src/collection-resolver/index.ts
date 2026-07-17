@@ -38,6 +38,9 @@ export {
   type ResolveProbeResponse,
 } from "./resolve.js";
 
+/** CR-101: versioned resolver capability registry + Ordering projection. */
+export * from "./capability-registry/index.js";
+
 /** CR-004: resolver workers fetch remote metadata only through this port. */
 export {
   createResolverMetadataPort,
