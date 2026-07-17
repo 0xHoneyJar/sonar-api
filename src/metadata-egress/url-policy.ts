@@ -117,9 +117,17 @@ export const parseMetadataUrl = (
     };
   }
 
-  // Reject brackets-less IPv6 and other non-URL-parser-normalized forms by
-  // requiring the hostname to round-trip without spaces / control chars.
-  if (/[\s\\]/.test(url.hostname) || /[\u0000-\u001f\u007f]/.test(url.href)) {
+  // Reject hostnames with whitespace/backslash, and C0/DEL controls anywhere
+  // in the serialized URI. The control class is ONLY U+0000–U+001F and U+007F
+  // — not `@`–`^`, `_`, letters, or `[`/`]` — so bracketed IPv6, underscore
+  // paths, mixed-case paths, and query values containing `@` remain valid.
+  const hasControlChars = (value: string): boolean =>
+    /[\u0000-\u001f\u007f]/.test(value);
+  if (
+    /[\s\\]/.test(url.hostname) ||
+    hasControlChars(url.hostname) ||
+    hasControlChars(url.href)
+  ) {
     return {
       reason: "ambiguous_host",
       safe_message: "metadata URI host contains prohibited characters",

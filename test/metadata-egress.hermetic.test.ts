@@ -236,6 +236,18 @@ describe("CR-004 URL / port policy", () => {
     }
   });
 
+  it("does not treat IPv6 brackets, underscores, or mixed-case paths as prohibited hosts", () => {
+    for (const uri of [
+      `https://[${PUBLIC_V6_LITERAL}]/meta.json`,
+      "https://cdn.example.test/path_with_underscore/meta.json",
+      "https://cdn.example.test/MixedCase/Meta.json",
+      "https://cdn.example.test/meta.json?x=a@b",
+    ]) {
+      const parsed = parseMetadataUrl(uri);
+      expect(isUrlPolicyError(parsed), uri).toBe(false);
+    }
+  });
+
   it("denies non-allowlisted ports by default", () => {
     const parsed = parseMetadataUrl("https://cdn.example.test:8080/meta.json");
     expect(isUrlPolicyError(parsed)).toBe(true);
@@ -645,7 +657,8 @@ describe("CR-004 retrieveMetadata hostile fixtures", () => {
         "https://cdn.example.test/meta.json": {
           kind: "response",
           status: 302,
-          headers: { location: `http://${LINK_LOCAL_V4}/latest/meta-data` },
+          // Stay on https so address policy (not scheme downgrade) is the gate.
+          headers: { location: `https://${LINK_LOCAL_V4}/latest/meta-data` },
         },
       },
     });
@@ -660,6 +673,33 @@ describe("CR-004 retrieveMetadata hostile fixtures", () => {
     expect(result.outcome).toBe("partial");
     if (result.outcome === "partial") {
       expect(result.reason).toBe("denied_address");
+    }
+  });
+
+  it("rejects https to http redirect scheme downgrade", async () => {
+    const ports = createHermeticPorts({
+      dns: {
+        "cdn.example.test": [{ address: PUBLIC_V4, family: "ipv4" }],
+      },
+      transport: {
+        "https://cdn.example.test/meta.json": {
+          kind: "response",
+          status: 302,
+          headers: { location: "http://cdn.example.test/next" },
+        },
+      },
+    });
+    const result = await retrieveMetadata(
+      {
+        uri: "https://cdn.example.test/meta.json",
+        purpose: "collection_metadata",
+        now: fixedNow,
+      },
+      { ports },
+    );
+    expect(result.outcome).toBe("partial");
+    if (result.outcome === "partial") {
+      expect(result.reason).toBe("invalid_redirect");
     }
   });
 

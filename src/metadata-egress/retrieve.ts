@@ -144,6 +144,8 @@ const resolveTarget = async (input: {
   readonly dns_timeout_ms: number;
   readonly clock: MetadataEgressClock;
   readonly scheduler: MetadataEgressDeadlineScheduler;
+  /** Caller cancellation — linked into DNS so abort does not wait on DNS alone. */
+  readonly signal?: AbortSignal;
 }): Promise<
   | { readonly ok: true; readonly target: ValidatedTarget }
   | { readonly ok: false; readonly reason: MetadataFailureReason; readonly safe_message: string }
@@ -181,12 +183,14 @@ const resolveTarget = async (input: {
 
   const controller = new AbortController();
   const deadlineAt = input.clock.nowMs() + Math.max(0, input.dns_timeout_ms);
+  let dnsAbortReason: "dns_timeout" | "request_cancelled" | undefined;
   const answers = await new Promise<
     | { readonly ok: true; readonly answers: ReadonlyArray<{ address: string; family: AddressFamily }> }
     | { readonly ok: false; readonly reason: MetadataFailureReason; readonly safe_message: string }
   >((resolve) => {
     let settled = false;
     let cancelDeadline: () => void = () => undefined;
+    let detachCallerAbort: () => void = () => undefined;
     const finish = (
       result:
         | { readonly ok: true; readonly answers: ReadonlyArray<{ address: string; family: AddressFamily }> }
@@ -195,10 +199,12 @@ const resolveTarget = async (input: {
       if (settled) return;
       settled = true;
       cancelDeadline();
+      detachCallerAbort();
       resolve(result);
     };
 
     cancelDeadline = input.scheduler.scheduleAt(deadlineAt, () => {
+      dnsAbortReason = "dns_timeout";
       controller.abort("dns_timeout");
       finish({
         ok: false,
@@ -206,6 +212,28 @@ const resolveTarget = async (input: {
         safe_message: "DNS resolution deadline exceeded",
       });
     });
+    if (settled) return;
+
+    const callerSignal = input.signal;
+    if (callerSignal !== undefined) {
+      const onCallerAbort = (): void => {
+        dnsAbortReason = "request_cancelled";
+        controller.abort("request_cancelled");
+        finish({
+          ok: false,
+          reason: "request_cancelled",
+          safe_message: "metadata request cancelled",
+        });
+      };
+      if (callerSignal.aborted) {
+        onCallerAbort();
+        return;
+      }
+      callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+      detachCallerAbort = () => {
+        callerSignal.removeEventListener("abort", onCallerAbort);
+      };
+    }
     if (settled) return;
 
     let work: Promise<ReadonlyArray<{ address: string; family: AddressFamily }>>;
@@ -223,14 +251,23 @@ const resolveTarget = async (input: {
     }
     void work.then(
       (resolved) => finish({ ok: true, answers: resolved }),
-      () =>
+      () => {
+        if (dnsAbortReason === "request_cancelled") {
+          finish({
+            ok: false,
+            reason: "request_cancelled",
+            safe_message: "metadata request cancelled",
+          });
+          return;
+        }
         finish({
           ok: false,
           reason: controller.signal.aborted ? "dns_timeout" : "dns_resolution_failed",
           safe_message: controller.signal.aborted
             ? "DNS resolution deadline exceeded"
             : "DNS resolution failed",
-        }),
+        });
+      },
     );
   });
 
@@ -370,6 +407,7 @@ export const retrieveMetadata = async (
       dns_timeout_ms: limits.dns_timeout_ms,
       clock,
       scheduler,
+      signal: request.signal,
     });
     if (!resolved.ok) {
       const final = redactFinal(currentUrl);
@@ -479,6 +517,26 @@ export const retrieveMetadata = async (
           terminal_address_class: resolved.target.terminal_address_class,
           redirect_count: redirectCount,
         });
+      }
+      // Integrity: refuse https → http scheme downgrade on redirects.
+      if (
+        resolved.target.scheme === "https" &&
+        nextUrl.protocol.toLowerCase() === "http:"
+      ) {
+        const final = redactFinal(resolved.target.url.href);
+        return partial(
+          "invalid_redirect",
+          "https to http redirect downgrade is not permitted",
+          {
+            ...baseProvenance,
+            final_url: final.safe_uri,
+            final_url_sha256: final.uri_sha256,
+            pinned_address: resolved.target.pinned_address,
+            address_family: resolved.target.address_family,
+            terminal_address_class: resolved.target.terminal_address_class,
+            redirect_count: redirectCount,
+          },
+        );
       }
       currentUrl = nextUrl.href;
       continue;

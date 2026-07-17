@@ -27,6 +27,10 @@ const DIRECT_FETCH_ALLOWLIST: Readonly<Record<string, { maxCalls: number; destin
   "src/sense/live/sonar-sense.live.ts": { maxCalls: 1, destination: "operator probe URL" },
   "src/svm/collection-event-indexer.ts": { maxCalls: 1, destination: "Hasura GraphQL" },
   "src/svm/collection-event-source.ts": { maxCalls: 2, destination: "Helius webhook API" },
+  "src/svm/collection-event-webhook.ts": {
+    maxCalls: 0,
+    destination: "Helius webhook HTTP listener (node:http server, not metadata egress)",
+  },
   "src/svm/collection-event-writer.ts": { maxCalls: 1, destination: "Hasura GraphQL" },
   "src/svm/dune-client.ts": { maxCalls: 1, destination: "Dune API" },
   "src/svm/ensure-kind-constraint.ts": { maxCalls: 1, destination: "Hasura control plane" },
@@ -61,20 +65,74 @@ const walkFiles = (dir: string, out: string[] = []): string[] => {
   return out;
 };
 
+const isFetchCallee = (expression: ts.Expression): boolean => {
+  if (ts.isIdentifier(expression) && expression.text === "fetch") return true;
+  if (
+    ts.isPropertyAccessExpression(expression) &&
+    expression.name.text === "fetch"
+  ) {
+    return true;
+  }
+  if (
+    ts.isElementAccessExpression(expression) &&
+    ts.isStringLiteral(expression.argumentExpression) &&
+    expression.argumentExpression.text === "fetch"
+  ) {
+    return true;
+  }
+  return false;
+};
+
+const isHttpStackCallee = (expression: ts.Expression): boolean => {
+  // http.request / https.request / undici.request / undici.fetch
+  if (!ts.isPropertyAccessExpression(expression)) return false;
+  const method = expression.name.text;
+  if (method !== "request" && method !== "fetch" && method !== "get") {
+    return false;
+  }
+  if (!ts.isIdentifier(expression.expression)) return false;
+  return ["http", "https", "undici", "http2"].includes(
+    expression.expression.text,
+  );
+};
+
+/** Count direct network egress calls outside the metadata-egress boundary. */
 const directFetchCalls = (file: string, source: string): number[] => {
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const lines: number[] = [];
   const visit = (node: ts.Node): void => {
     if (
       ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "fetch"
+      (isFetchCallee(node.expression) || isHttpStackCallee(node.expression))
     ) {
       lines.push(parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1);
     }
     ts.forEachChild(node, visit);
   };
   visit(parsed);
+  return lines;
+};
+
+const NETWORK_STACK_IMPORT_SPECIFIERS = new Set([
+  "http",
+  "https",
+  "http2",
+  "node:http",
+  "node:https",
+  "node:http2",
+  "undici",
+  "node:undici",
+]);
+
+const networkStackImportLines = (file: string, source: string): number[] => {
+  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const lines: number[] = [];
+  for (const stmt of parsed.statements) {
+    if (!ts.isImportDeclaration(stmt)) continue;
+    if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    if (!NETWORK_STACK_IMPORT_SPECIFIERS.has(stmt.moduleSpecifier.text)) continue;
+    lines.push(parsed.getLineAndCharacterOfPosition(stmt.getStart(parsed)).line + 1);
+  }
   return lines;
 };
 
@@ -110,6 +168,16 @@ describe("CR-004 browser metadata boundary", () => {
       if (calls.length > (allowance?.maxCalls ?? 0)) {
         for (const line of calls.slice(allowance?.maxCalls ?? 0)) {
           offenders.push(`${rel}:${line}: direct fetch exceeds structural allowlist`);
+        }
+      }
+      // Network stacks outside metadata-egress must not be newly imported for
+      // metadata work. Declared SVM/Hasura/operator clients are allowlisted;
+      // unknown files fail closed on http/https/undici imports.
+      if (allowance === undefined) {
+        for (const line of networkStackImportLines(file, source)) {
+          offenders.push(
+            `${rel}:${line}: network stack import outside metadata-egress without fetch allowlist`,
+          );
         }
       }
     }

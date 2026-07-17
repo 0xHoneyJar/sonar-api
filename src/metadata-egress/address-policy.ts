@@ -427,11 +427,14 @@ export const terminalAddressClassOf = (
   classification: AddressClassification,
 ): TerminalAddressClass => classification.terminal_address_class;
 
-/** Hostnames that resolve to cloud instance metadata regardless of A/AAAA. */
+/**
+ * Hostnames that resolve to cloud instance metadata regardless of A/AAAA.
+ * Prefer multi-label FQDNs only — a bare `metadata` label would false-deny
+ * unrelated public single-label hosts.
+ */
 export const CLOUD_METADATA_HOSTNAMES = new Set([
   "metadata.google.internal",
   "metadata.goog",
-  "metadata",
   "instance-data",
 ]);
 
