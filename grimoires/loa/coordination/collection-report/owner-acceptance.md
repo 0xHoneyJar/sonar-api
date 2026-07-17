@@ -5,7 +5,8 @@
 | Task | `ACCEPT-SONAR` (`collection-report-coordinator-f09.40`) |
 | Repository | `0xHoneyJar/sonar-api` (canonical repository; the legacy `0xHoneyJar/freeside-sonar` URL redirects here; this worktree tracks its `origin/main`) |
 | Audited revision | `a68bbae0bf04e281a9b6b46fc3812c9dbb471afa` (2026-07-14) |
-| PR delivery relationship | The audited implementation revision and this PR are in the same canonical repository. From that revision through this PR head, the only allowed paths are this acceptance document and its adjacent `baseline-audit.md` transcript. Reproduce in the PR checkout with `git cat-file -e a68bbae0bf04e281a9b6b46fc3812c9dbb471afa^{commit}` and `git diff --name-only a68bbae0bf04e281a9b6b46fc3812c9dbb471afa..HEAD`; any additional path invalidates this acceptance pending re-audit. |
+| Reviewed PR head | `980804706920005ad5c1e74e19c4636c427b9836` |
+| PR delivery relationship | The audited implementation revision and reviewed PR head are in the same canonical repository. The recorded probe `git diff --name-only a68bbae0bf04e281a9b6b46fc3812c9dbb471afa..980804706920005ad5c1e74e19c4636c427b9836` produced only this acceptance document and its adjacent `baseline-audit.md` transcript. A later head must be re-audited with its exact commit; any additional path invalidates this acceptance pending re-audit. |
 | Master plan | coordinator `grimoires/loa/{prd,sdd,sprint}.md` v0.3 / 0.5 / 0.6 at `2c1be075e34f896704e0e8ff45500aeaddcd1a10` (file blobs `ef5847c06f880d99927a985a0ec7eaa3d216b4c0` / `5b431433954194ae181685f249caa42e772b2b6c` / `f76863bb2302bae660ad5a57a2a9ea4888be918d`) |
 | Date | 2026-07-16 |
 | Author role | Sonar boundary owner (KRANZ dispatch; no CR implementation) |
@@ -58,11 +59,13 @@ implementation issues must not be marked ready until the closure conditions in
 | Optional events pillar | NATS + Ed25519 | Mint-detection envelopes; fail-soft when unset | `src/lib/events-publisher.ts`, README |
 
 EVM belt networks present in `config.yaml` at audit: **1, 42161, 7777777, 10,
-8453, 80094**. **Robinhood mainnet chain ID
-[`4663`](https://docs.robinhood.com/chain/connecting/) is absent.** The
-external Robinhood reference was accessed on 2026-07-16; it is a mutable live
-source, so future acceptance must reverify the chain ID rather than inherit
-this observation.
+8453, 80094**. **Robinhood mainnet chain ID `4663` is absent.** Chain identity
+evidence was retrieved on 2026-07-16 from Robinhood's authoritative live page,
+[_Connecting to Robinhood Chain_](https://docs.robinhood.com/chain/connecting/):
+its “Network Configuration” table reported `Chain ID 4663` for Robinhood Chain
+mainnet and `46630` for testnet. The page is mutable, so future acceptance must
+reverify the current value and retrieval date rather than inherit this
+observation.
 
 ### 2.2 Required by plan; not present on `main`
 
