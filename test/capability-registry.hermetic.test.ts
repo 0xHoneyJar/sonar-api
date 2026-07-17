@@ -6,11 +6,9 @@ import {
   INITIAL_SOURCE_SEQUENCE,
   SolanaFinalityPolicy,
   UINT64_MAX,
-  UINT64_ZERO,
   applyCapabilityRegistryTransition,
   assertFrozen,
   buildBaselineMaterial,
-  compareDecimalUint64,
   compareSnapshotIdentities,
   createHermeticBaselineSignatureVerifier,
   decodeCapabilityRegistrySnapshot,
@@ -571,10 +569,6 @@ describe("CR-101 validation refusals", () => {
 
 describe("CR-101 probe 1 — contiguous registry sequences", () => {
   it("compares uint64 sequences exactly without floating numbers", () => {
-    expect(compareDecimalUint64("9", "10")).toBe(-1);
-    expect(compareDecimalUint64(UINT64_MAX, UINT64_MAX)).toBe(0);
-    expect(compareDecimalUint64(UINT64_ZERO, "1")).toBe(-1);
-
     const overflow = expectFailure(
       decodeCapabilityRegistrySnapshot(
         withNetworks([ethereumMainnetCapability()], "18446744073709551616"),
@@ -905,7 +899,10 @@ describe("CR-101 probe 3 — epoch reset binding signatures", () => {
       registry_epoch: "22222222-2222-4222-8222-222222222222",
       registry_sequence: "0",
     };
-    const candidateNetworks = current.networks.map(withInitialSourceSequences);
+    const resetAt = "2026-07-16T13:00:00Z";
+    const candidateNetworks = current.networks.map((network) =>
+      withInitialSourceSequences(network, resetAt),
+    );
 
     const robinhood = candidateNetworks.find(
       (network) => network.network.network_reference === "4663",
@@ -916,6 +913,7 @@ describe("CR-101 probe 3 — epoch reset binding signatures", () => {
     expect(robinhood.operations.read_evidence.reason_class).toBe("kill_switch");
     for (const operation of Object.values(robinhood.operations)) {
       expect(operation.source_sequence).toBe(INITIAL_SOURCE_SEQUENCE);
+      expect(operation.effective_at).toBe(resetAt);
     }
 
     const solana = candidateNetworks.find(
@@ -963,7 +961,7 @@ describe("CR-101 probe 3 — epoch reset binding signatures", () => {
             ),
           },
           reason_class: "epoch_reset",
-          effective_at: FIXTURE_EFFECTIVE_AT,
+          effective_at: resetAt,
           actor: audit.actor,
         },
         signatureVerifier: createHermeticBaselineSignatureVerifier(),
@@ -995,7 +993,12 @@ describe("CR-101 probe 3 — epoch reset binding signatures", () => {
           kind: "epoch_reset",
           from: current.version,
           to: nextVersion,
-          networks: [withInitialSourceSequences(ethereumMainnetCapability())],
+          networks: [
+            withInitialSourceSequences(
+              ethereumMainnetCapability(),
+              FIXTURE_EFFECTIVE_AT,
+            ),
+          ],
           reason_class: "epoch_reset",
           effective_at: FIXTURE_EFFECTIVE_AT,
           actor: audit.actor,
@@ -1014,7 +1017,9 @@ describe("CR-101 probe 3 — epoch reset binding signatures", () => {
         next: nextVersion,
       }),
     );
-    const candidateNetworks = [withInitialSourceSequences(ethereumMainnetCapability())];
+    const candidateNetworks = [
+      withInitialSourceSequences(ethereumMainnetCapability(), FIXTURE_EFFECTIVE_AT),
+    ];
     const candidate = expectSuccess(
       decodeCapabilityRegistrySnapshot(
         withNetworks(
@@ -1199,6 +1204,27 @@ describe("CR-101 probe 5 — default healthy search vs diagnostic opt-in", () =>
 });
 
 describe("CR-101 probe 6 — family-specific finality schemas", () => {
+  it("rejects zero-depth finality on an active EVM capability", () => {
+    const ethereum = ethereumMainnetCapability();
+    if (ethereum.finality_policy.family !== "evm") {
+      throw new Error("fixture must use EVM finality");
+    }
+    const bad: NetworkCapability = {
+      ...ethereum,
+      finality_policy: {
+        ...ethereum.finality_policy,
+        family: "evm",
+        confirmation: { kind: "block_depth", min_depth: 0 },
+        reorg: { invalidation_depth: 0 },
+      },
+    };
+    const error = expectFailure(
+      decodeCapabilityRegistrySnapshot(withNetworks([bad])),
+    );
+    expect(error._tag).toBe("CapabilityRegistryValidationError");
+    expect(String((error as { reason: string }).reason)).toMatch(/positive/);
+  });
+
   it("rejects hybrid confirmation fields and wrong-family freshness clocks", () => {
     const strict = { errors: "all" as const, onExcessProperty: "error" as const };
     const decodeEvm = Schema.decodeUnknown(EvmFinalityPolicy, strict);
@@ -1408,7 +1434,10 @@ describe("CR-101 probe 7 — transition and Ordering audit fields", () => {
           to: { ...current.version, registry_sequence: "2" },
           networks: [
             ethereumMainnetCapability(),
-            withInitialSourceSequences(robinhoodDisabledCapability()),
+            withInitialSourceSequences(
+              robinhoodDisabledCapability(),
+              FIXTURE_EFFECTIVE_AT,
+            ),
           ],
           reason_class: "epoch_reset",
           effective_at: FIXTURE_EFFECTIVE_AT,
@@ -1477,6 +1506,22 @@ describe("CR-101 probe 7 — transition and Ordering audit fields", () => {
       }),
     );
     expect(invalidTimestamp._tag).toBe("CapabilityRegistryDecodeError");
+
+    const impossibleTimestamp = expectFailure(
+      applyCapabilityRegistryTransition({
+        current,
+        transition: {
+          kind: "sequence_advance",
+          from: current.version,
+          to: { ...current.version, registry_sequence: "2" },
+          networks: [ethereumMainnetCapability()],
+          reason_class: "catalog_update",
+          effective_at: "2026-02-31T12:00:00Z",
+          actor: audit.actor,
+        },
+      }),
+    );
+    expect(impossibleTimestamp._tag).toBe("CapabilityRegistryDecodeError");
 
     const invalidReason = expectFailure(
       applyCapabilityRegistryTransition({
@@ -1552,7 +1597,9 @@ describe("CR-101 probe 7 — transition and Ordering audit fields", () => {
         next: nextVersion,
       }),
     );
-    const candidateNetworks = [withInitialSourceSequences(ethereumMainnetCapability())];
+    const candidateNetworks = [
+      withInitialSourceSequences(ethereumMainnetCapability(), FIXTURE_EFFECTIVE_AT),
+    ];
     const candidate = expectSuccess(
       decodeCapabilityRegistrySnapshot(
         withNetworks(

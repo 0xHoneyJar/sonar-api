@@ -396,6 +396,31 @@ const validateNetworkInvariants = (
       );
     }
 
+    if (
+      network.finality_policy.family === "evm" &&
+      operationKinds.some((kind) => isOperationEnabledAndActive(network.operations[kind]))
+    ) {
+      if (
+        network.finality_policy.confirmation.kind === "block_depth" &&
+        network.finality_policy.confirmation.min_depth === 0
+      ) {
+        return yield* Effect.fail(
+          new CapabilityRegistryValidationError({
+            path: pathFor(network.network, "finality_policy.confirmation.min_depth"),
+            reason: "active EVM capability requires a positive block confirmation depth",
+          }),
+        );
+      }
+      if (network.finality_policy.reorg.invalidation_depth === 0) {
+        return yield* Effect.fail(
+          new CapabilityRegistryValidationError({
+            path: pathFor(network.network, "finality_policy.reorg.invalidation_depth"),
+            reason: "active EVM capability requires a positive reorg invalidation depth",
+          }),
+        );
+      }
+    }
+
     if (network.kill_switch) {
       for (const kind of operationKinds) {
         const op = network.operations[kind];

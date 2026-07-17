@@ -27,8 +27,26 @@ export const INITIAL_SOURCE_SEQUENCE = "1" as const;
 
 const SchemaVersion = Schema.Literal(CAPABILITY_REGISTRY_SCHEMA_VERSION);
 const NonEmptyString = Schema.String.pipe(Schema.minLength(1));
+const isRealIsoTimestamp = (value: string): boolean => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?Z$/.exec(
+    value,
+  );
+  if (match === null) return false;
+  const [, year, month, day, hour, minute, second] = match.map(Number);
+  if (second! > 59) return false;
+  const instant = new Date(Date.UTC(year!, month! - 1, day!, hour!, minute!, second!));
+  return (
+    instant.getUTCFullYear() === year &&
+    instant.getUTCMonth() === month! - 1 &&
+    instant.getUTCDate() === day &&
+    instant.getUTCHours() === hour &&
+    instant.getUTCMinutes() === minute &&
+    instant.getUTCSeconds() === second
+  );
+};
 const IsoTimestamp = Schema.String.pipe(
   Schema.pattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/),
+  Schema.filter((value) => isRealIsoTimestamp(value) || "invalid UTC calendar timestamp"),
 ).annotations({ identifier: "CapabilityRegistryIsoTimestamp" });
 
 const DECIMAL_UINT64_MAX = 18_446_744_073_709_551_615n;

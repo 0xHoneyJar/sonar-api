@@ -539,12 +539,14 @@ export const makeEpochResetBaseline = (input: {
 /** Remap every operation source_sequence to INITIAL for epoch-reset candidates. */
 export const withInitialSourceSequences = (
   network: NetworkCapability,
+  effectiveAt: string,
 ): NetworkCapability => ({
   ...network,
   operations: {
     recognize: {
       ...network.operations.recognize,
       source_sequence: "1",
+      effective_at: effectiveAt,
       reason_class:
         network.operations.recognize.state === "disabled"
           ? network.operations.recognize.reason_class
@@ -553,6 +555,7 @@ export const withInitialSourceSequences = (
     prepare: {
       ...network.operations.prepare,
       source_sequence: "1",
+      effective_at: effectiveAt,
       reason_class:
         network.operations.prepare.state === "disabled"
           ? network.operations.prepare.reason_class
@@ -561,6 +564,7 @@ export const withInitialSourceSequences = (
     read_evidence: {
       ...network.operations.read_evidence,
       source_sequence: "1",
+      effective_at: effectiveAt,
       reason_class:
         network.operations.read_evidence.state === "disabled"
           ? network.operations.read_evidence.reason_class

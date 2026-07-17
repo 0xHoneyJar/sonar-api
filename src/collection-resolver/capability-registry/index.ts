@@ -70,7 +70,6 @@ export {
 export {
   networkIdentityKey,
   adapterOperationKey,
-  compareDecimalUint64,
   UINT64_MAX,
   UINT64_ZERO,
   isOperationEnabledAndActive,
