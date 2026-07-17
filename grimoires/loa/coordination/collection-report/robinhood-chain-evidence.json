@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-07-16T18:13:00-07:00",
+  "captured_at": "2026-07-17T01:18:34Z",
   "source_url": "https://docs.robinhood.com/chain/connecting/",
   "source_section": "Network Configuration",
   "observation": {
@@ -9,5 +9,7 @@
   },
   "normalized_payload": "{\"mainnet_chain_id\":4663,\"network_name\":\"Robinhood Chain\",\"source_url\":\"https://docs.robinhood.com/chain/connecting/\",\"testnet_chain_id\":46630}",
   "normalized_payload_sha256": "6d7e76d2c6f04600f30a862cdb1e73f5c8a5f375a74d5045702873d4e8e9c98b",
+  "source_capture_path": "grimoires/loa/coordination/collection-report/robinhood-chain-source-capture.txt",
+  "source_capture_sha256": "3b823b7fe71e6348c35cd8f0094cc32eb8bafccd8d11bbcca98dac7834506bb5",
   "freshness_note": "This capture preserves what was observed for this acceptance. Reverify the live authoritative page for future enablement decisions."
 }

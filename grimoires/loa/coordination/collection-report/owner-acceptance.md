@@ -6,7 +6,7 @@
 | Repository | `0xHoneyJar/sonar-api` (canonical repository; the legacy `0xHoneyJar/freeside-sonar` URL redirects here; this worktree tracks its `origin/main`) |
 | Audited revision | `a68bbae0bf04e281a9b6b46fc3812c9dbb471afa` (2026-07-14) |
 | Review binding | The exact submitted head is bound by the external Bridgebuilder review marker. It is intentionally not embedded here: changing a commit to write its own hash necessarily changes that hash. |
-| PR delivery relationship | The audited implementation revision and submitted acceptance are in the same canonical repository. The rerunnable `git diff --name-only a68bbae0bf04e281a9b6b46fc3812c9dbb471afa..HEAD` probe must produce exactly the three evidence paths recorded in `baseline-audit.md`; any additional path invalidates this acceptance pending re-audit. |
+| PR delivery relationship | The audited implementation revision and submitted acceptance are in the same canonical repository. The rerunnable `git diff --name-only a68bbae0bf04e281a9b6b46fc3812c9dbb471afa..HEAD` probe must produce exactly the four evidence paths recorded in `baseline-audit.md`; any additional path invalidates this acceptance pending re-audit. |
 | Master plan | coordinator `grimoires/loa/{prd,sdd,sprint}.md` v0.3 / 0.5 / 0.6 at `2c1be075e34f896704e0e8ff45500aeaddcd1a10` (file blobs `ef5847c06f880d99927a985a0ec7eaa3d216b4c0` / `5b431433954194ae181685f249caa42e772b2b6c` / `f76863bb2302bae660ad5a57a2a9ea4888be918d`) |
 | Date | 2026-07-16 |
 | Author role | Sonar boundary owner (KRANZ dispatch; no CR implementation) |
@@ -65,8 +65,9 @@ evidence was retrieved on 2026-07-16 from Robinhood's authoritative live page,
 its “Network Configuration” table reported `Chain ID 4663` for Robinhood Chain
 mainnet and `46630` for testnet. The page is mutable, so future acceptance must
 reverify the current value and retrieval date rather than inherit this
-observation. This acceptance preserves the normalized observation and SHA-256
-in `robinhood-chain-evidence.json`.
+observation. This acceptance preserves the source excerpt bytes (including URL
+and capture time) plus their SHA-256 in `robinhood-chain-source-capture.txt`
+and `robinhood-chain-evidence.json`.
 
 ### 2.2 Required by plan; not present on `main`
 

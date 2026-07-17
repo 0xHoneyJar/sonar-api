@@ -18,6 +18,7 @@ $ git diff --name-only a68bbae0bf04e281a9b6b46fc3812c9dbb471afa..HEAD
 grimoires/loa/coordination/collection-report/baseline-audit.md
 grimoires/loa/coordination/collection-report/owner-acceptance.md
 grimoires/loa/coordination/collection-report/robinhood-chain-evidence.json
+grimoires/loa/coordination/collection-report/robinhood-chain-source-capture.txt
 ```
 
 The recorded delivery-boundary probe is content-scoped rather than
@@ -37,6 +38,7 @@ Its allowed output set is exactly:
 grimoires/loa/coordination/collection-report/baseline-audit.md
 grimoires/loa/coordination/collection-report/owner-acceptance.md
 grimoires/loa/coordination/collection-report/robinhood-chain-evidence.json
+grimoires/loa/coordination/collection-report/robinhood-chain-source-capture.txt
 ```
 
 Any additional path invalidates the acceptance pending re-audit.
