@@ -407,16 +407,6 @@ export const applyCapabilityRegistryTransition = (input: {
     }
 
     // epoch_reset — baseline + signature already required by the envelope schema.
-    yield* validateEpochResetSourceSequences(transition.networks);
-
-    // Epoch reset treats every operation as newly introduced relative to the new epoch.
-    yield* validateTransitionOperationAuditBinding({
-      previousNetworks: [],
-      candidateNetworks: transition.networks,
-      audit,
-      transitionKind: transition.kind,
-    });
-
     const verifiedBaseline = yield* decodeCapabilityRegistryBaseline(
       transition.baseline,
     ).pipe(
@@ -428,6 +418,29 @@ export const applyCapabilityRegistryTransition = (input: {
           }),
       ),
     );
+
+    if (
+      verifiedBaseline.previous_registry_epoch !== current.version.registry_epoch ||
+      verifiedBaseline.version.registry_epoch !== transition.to.registry_epoch ||
+      verifiedBaseline.version.registry_sequence !== transition.to.registry_sequence
+    ) {
+      return yield* Effect.fail(
+        new CapabilityRegistryTransitionError({
+          path: "transition.baseline",
+          reason: "baseline does not authorize this exact epoch reset identity",
+        }),
+      );
+    }
+
+    yield* validateEpochResetSourceSequences(transition.networks);
+
+    // Epoch reset treats every operation as newly introduced relative to the new epoch.
+    yield* validateTransitionOperationAuditBinding({
+      previousNetworks: [],
+      candidateNetworks: transition.networks,
+      audit,
+      transitionKind: transition.kind,
+    });
 
     const next = yield* decodeCapabilityRegistrySnapshot({
       schema_version: CAPABILITY_REGISTRY_SCHEMA_VERSION,
@@ -471,19 +484,6 @@ export const applyCapabilityRegistryTransition = (input: {
         new CapabilityRegistryTransitionError({
           path: "transition.baseline_material",
           reason: "baseline material must bind the exact predecessor snapshot identity",
-        }),
-      );
-    }
-
-    if (
-      verifiedBaseline.previous_registry_epoch !== current.version.registry_epoch ||
-      verifiedBaseline.version.registry_epoch !== transition.to.registry_epoch ||
-      verifiedBaseline.version.registry_sequence !== transition.to.registry_sequence
-    ) {
-      return yield* Effect.fail(
-        new CapabilityRegistryTransitionError({
-          path: "transition.baseline",
-          reason: "baseline does not authorize this exact epoch reset identity",
         }),
       );
     }

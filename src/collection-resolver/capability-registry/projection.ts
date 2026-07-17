@@ -40,7 +40,21 @@ const FORBIDDEN_PROJECTION_KEYS = [
   "probe_adapter",
 ] as const;
 
+const FORBIDDEN_PROJECTION_VALUES = [
+  /https?:\/\//i,
+  /\b(?:authorization|bearer)\b/i,
+  /api[_-]?key/i,
+  /\b(?:password|secret|credential)\b/i,
+  /\b(?:sk|ghp|github_pat)_[a-z0-9_-]+/i,
+] as const;
+
 const assertNoLeakage = (value: unknown, path: string): void => {
+  if (typeof value === "string") {
+    if (FORBIDDEN_PROJECTION_VALUES.some((pattern) => pattern.test(value))) {
+      throw new Error(`Ordering projection secret-like value at ${path}`);
+    }
+    return;
+  }
   if (value === null || typeof value !== "object") return;
   if (Array.isArray(value)) {
     value.forEach((item, index) => assertNoLeakage(item, `${path}[${index}]`));

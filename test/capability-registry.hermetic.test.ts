@@ -1797,6 +1797,17 @@ describe("CR-101 Ordering projection + immutability", () => {
     ).toBe(true);
   });
 
+  it("rejects secret-like values even when they occupy allowed projection fields", () => {
+    const input = structuredClone(hermeticResolverRegistryInput()) as unknown as {
+      networks: Array<{ supported_standards: string[] }>;
+    };
+    input.networks[0]!.supported_standards = ["api_key-leaked-value"];
+    const snapshot = expectSuccess(decodeCapabilityRegistrySnapshot(input));
+    const failure = expectFailure(projectOrderingCapabilityViews(snapshot));
+    expect(failure._tag).toBe("CapabilityRegistryDecodeError");
+    expect(String((failure as { reason: string }).reason)).toMatch(/leakage guard/i);
+  });
+
   it("is deterministic and mutation-isolated", () => {
     const snapshot = expectSuccess(
       decodeCapabilityRegistrySnapshot(hermeticResolverRegistryInput()),
