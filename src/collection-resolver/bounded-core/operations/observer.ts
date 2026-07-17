@@ -155,7 +155,10 @@ export const assertNoIdentityLeakInEvent = (
         if (pattern.test(value)) {
           // Network keys like eip155:1 are allowlisted via network_key field only
           // AND must still pass the registry allowlist at record time.
-          if (path.endsWith(".network_key") && /^[a-z0-9]+:/i.test(value)) {
+          if (
+            path.endsWith(".network_key") &&
+            /^(?:eip155:[1-9][0-9]*|solana:[a-z0-9]+(?:-[a-z0-9]+)*)$/.test(value)
+          ) {
             continue;
           }
           throw new Error(`identity-like value leaked at ${path}: ${value.slice(0, 32)}`);

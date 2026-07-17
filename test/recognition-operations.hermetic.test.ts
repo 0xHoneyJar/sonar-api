@@ -313,6 +313,16 @@ describe("CR-107 operational event matrix and redaction", () => {
         adapter_attempted: true,
       }),
     ).toThrow(/identity/i);
+
+    expect(() =>
+      assertNoIdentityLeakInEvent({
+        kind: "network_outcome",
+        identifier_format: "evm_address",
+        network_key: "https://evil.example",
+        network_outcome: "hit",
+        adapter_attempted: true,
+      }),
+    ).toThrow(/identity/i);
   });
 
   it("observer.record drops forged/hostile payloads without throwing", () => {

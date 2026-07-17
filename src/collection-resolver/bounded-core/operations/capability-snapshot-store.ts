@@ -17,12 +17,6 @@ import {
 import type { CapabilityRegistryTransition } from "../../capability-registry/schemas.js";
 import type { CapabilityRegistrySnapshot } from "../../capability-registry/snapshot.js";
 import type { CapabilityRegistrySignatureVerifier } from "../../capability-registry/signature-port.js";
-import type {
-  CapabilityRegistryDecodeError,
-  CapabilityRegistrySignatureError,
-  CapabilityRegistryTransitionError,
-  CapabilityRegistryValidationError,
-} from "../../capability-registry/errors.js";
 import { cloneFreeze } from "../../capability-registry/immutable.js";
 
 /**
@@ -46,12 +40,7 @@ export class CapabilitySnapshotStoreError extends Data.TaggedError(
     | "unexpected";
 }> {}
 
-export type CapabilitySnapshotApplyError =
-  | CapabilitySnapshotStoreError
-  | CapabilityRegistryTransitionError
-  | CapabilityRegistryDecodeError
-  | CapabilityRegistryValidationError
-  | CapabilityRegistrySignatureError;
+export type CapabilitySnapshotApplyError = CapabilitySnapshotStoreError;
 
 export interface CapabilitySnapshotRuntimeStore extends CapabilitySnapshotProviderPort {
   /**
