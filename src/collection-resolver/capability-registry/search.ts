@@ -97,7 +97,6 @@ export const selectDiagnosticRecognizeNetworks = (
     const recognize = network.operations.recognize;
     if (!recognize.enabled) continue;
     if (recognize.state === "disabled") continue;
-    if (recognize.state === "degraded" && !options.include_degraded) continue;
     if (!matchesIdentifier(network, options.identifier)) continue;
 
     hits.push({

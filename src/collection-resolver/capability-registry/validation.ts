@@ -541,7 +541,6 @@ export const validateNetworkSet = (
   Effect.gen(function* () {
     const seenNetworks = new Set<string>();
     const seenAdapterOps = new Set<string>();
-    const seenSourceSequences = new Map<string, string>();
 
     for (const network of networks) {
       const netKey = networkIdentityKey(network.network);
@@ -571,17 +570,6 @@ export const validateNetworkSet = (
         }
         seenAdapterOps.add(opKey);
 
-        const sourceSeq = network.operations[kind].source_sequence;
-        const seqKey = `${netKey}:${kind}:${sourceSeq}`;
-        if (seenSourceSequences.has(seqKey)) {
-          return yield* Effect.fail(
-            new CapabilityRegistryValidationError({
-              path: `networks[${netKey}].operations.${kind}.source_sequence`,
-              reason: "duplicate source sequence for network operation",
-            }),
-          );
-        }
-        seenSourceSequences.set(seqKey, sourceSeq);
       }
 
       yield* validateNetworkInvariants(network);

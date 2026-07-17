@@ -437,6 +437,23 @@ export const applyCapabilityRegistryTransition = (input: {
 
     const material = yield* buildBaselineMaterial(next, current.version);
 
+    const expectedBaseline = yield* makeEpochResetBaseline({
+      previousEpoch: current.version.registry_epoch,
+      next: transition.to,
+    });
+    if (
+      verifiedBaseline.baseline_digest.digest !==
+      expectedBaseline.baseline_digest.digest
+    ) {
+      return yield* Effect.fail(
+        new CapabilityRegistryTransitionError({
+          path: "transition.baseline.baseline_digest",
+          reason:
+            "baseline digest is not the canonical digest for the signed predecessor and candidate identities",
+        }),
+      );
+    }
+
     if (material.snapshot_digest.digest !== next.snapshot_digest.digest) {
       return yield* Effect.fail(
         new CapabilityRegistryTransitionError({
