@@ -39,7 +39,6 @@ Remove the vendor artifact once that pin lands. Do not copy schemas into Sonar.
 | `src/collection-resolver/capability-registry/` | CR-101 versioned mainnet capability registry + Ordering projection |
 | `src/collection-resolver/bounded-core/` | CR-102 bounded fanout/cache/rate-limit/circuit-breaker orchestration |
 | `src/collection-resolver/adapters/solana/` | CR-104 Solana DAS recognition adapter (`NetworkAdapterPort`) |
-||||||| 4f486437
 | `src/collection-resolver/adapters/evm/` | CR-103 EVM NFT probe adapter behind `NetworkAdapterPort` |
 | `src/collection-resolver/resolve.ts` | Hermetic `resolve-probe` core (CR-003) |
 | `src/collection-resolver/das-normalize.ts` | Adapts real `CollectionSnapshot` / `CollectionMember` + shared `toRows`/`NftRow` |
@@ -94,11 +93,6 @@ Remove the vendor artifact once that pin lands. Do not copy schemas into Sonar.
   empty `result.items`; incomplete/malformed/zero-valid samples are typed
   unavailable (no authoritative negative cache). See
   `adapters/solana/PROTOCOL.md` and `bounded-core/PROTOCOL.md`.
-||||||| 4f486437
-- Live EVM/Solana adapters and production metrics remain CR-103 / CR-104 / CR-107.
-  See `bounded-core/PROTOCOL.md`.
-- Live Solana adapters and production metrics remain CR-104 / CR-107.
-  See `bounded-core/PROTOCOL.md`.
 - CR-103 EVM NFT probe (`adapters/evm`) implements `NetworkAdapterPort` with an
   injected abort-aware RPC port, Kitchen index-status wrap, and CR-004 metadata
   enrich for `contractURI` only. It shares CR-102's `MonotonicClock` for
