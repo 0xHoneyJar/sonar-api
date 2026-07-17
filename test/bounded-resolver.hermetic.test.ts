@@ -36,6 +36,7 @@ import {
   SCRIPT_ZERO_CANDIDATES,
   sha256Canonical,
   StructuralPreflightError,
+  structuralIdentifierDigest,
   structuralPreflight,
 } from "../src/collection-resolver/index.js";
 import type { CollectionCandidate } from "../src/collection-resolver/protocol.js";
@@ -502,6 +503,33 @@ describe("CR-102 rate limit and coalescing", () => {
     );
     expect(adapter.calls().length).toBe(callsAfterFirst);
   });
+
+  it("reprobes after a negative entry expires instead of trusting the fixture hint", () => {
+    const clock = createVirtualClock({ originMs: 0 });
+    const { deps, config, adapter } = createHermeticBoundedDeps({
+      clock,
+      script: SCRIPT_ZERO_CANDIDATES,
+    });
+    expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "negative-expiry-cold"),
+        config,
+        deps,
+      }),
+    );
+    const coldCalls = adapter.calls().length;
+    clock.advanceMs(config.negative_cache_ttl_ms);
+
+    const refreshed = expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "negative-expiry-warm"),
+        config,
+        deps,
+      }),
+    );
+    expect(refreshed.diagnostics.cache.negative_hit).toBe(false);
+    expect(adapter.calls().length).toBeGreaterThan(coldCalls);
+  });
 });
 
 describe("CR-102 negative cache conclusive coverage", () => {
@@ -852,6 +880,13 @@ describe("CR-102 cache separation and invalidation", () => {
     expect(readinessWrites.length).toBeGreaterThan(0);
     for (const write of positiveWrites) {
       expect(write.key).toBe(expectSuccess(digestPositiveBinding(write.binding)));
+      expect(write.binding.identifier_format).toBe("evm_address");
+      expect(write.binding.identifier_structural_digest).toBe(
+        structuralIdentifierDigest({
+          format: "evm_address",
+          raw: MULTI_CHAIN_EVM_ADDRESS,
+        }),
+      );
     }
     for (const write of readinessWrites) {
       expect(write.key).toBe(expectSuccess(digestReadinessBinding(write.binding)));
@@ -877,6 +912,11 @@ describe("CR-102 cache separation and invalidation", () => {
     const positiveBinding = (deployment_id: string) => ({
       schema_version: 1 as const,
       namespace: "positive_recognition" as const,
+      identifier_format: "evm_address" as const,
+      identifier_structural_digest: structuralIdentifierDigest({
+        format: "evm_address",
+        raw: MULTI_CHAIN_EVM_ADDRESS,
+      }),
       capability_snapshot_version: deps.capabilitySnapshot.version,
       capability_source_sequence: "1",
       deployment_id,
@@ -948,6 +988,11 @@ describe("CR-102 cache separation and invalidation", () => {
         binding: {
           schema_version: 1,
           namespace: "positive_recognition",
+          identifier_format: "evm_address",
+          identifier_structural_digest: structuralIdentifierDigest({
+            format: "evm_address",
+            raw: MULTI_CHAIN_EVM_ADDRESS,
+          }),
           capability_snapshot_version: loadHermeticCapabilitySnapshot().version,
           capability_source_sequence: "1",
           deployment_id: sha256Canonical("dep-keep"),
@@ -1516,6 +1561,33 @@ describe("CR-102 revision-2 slow Inventory under global deadline", () => {
 });
 
 describe("CR-102 revision-2 concurrent leader/follower coalesce", () => {
+  it("strict-decodes a leader response before returning it to a follower", async () => {
+    const base = createHermeticBoundedDeps({ script: SCRIPT_EVM_ERC721 });
+    const deps = {
+      ...base.deps,
+      coalesce: {
+        begin: () =>
+          Effect.succeed({
+            kind: "follower" as const,
+            wait_for_leader: true as const,
+            shared: Promise.resolve({
+              kind: "response" as const,
+              response: { schema_version: 1, candidates: "not-an-array" },
+            }),
+          }),
+        complete: () => Effect.void,
+      },
+    };
+    const exit = await Effect.runPromiseExit(
+      resolveBounded({
+        request: hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "malformed-follower"),
+        config: base.config,
+        deps,
+      }),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+  });
+
   it("does not coalesce identical identifiers across authorization scopes", async () => {
     const processClock = createProcessMonotonicClock();
     const config = {

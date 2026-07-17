@@ -113,6 +113,8 @@ export interface NegativeCacheEntry {
 export interface ResolverCachePort {
   readonly findPositive: (input: {
     readonly normalized_address: string;
+    readonly identifier_format: PositiveCacheBinding["identifier_format"];
+    readonly identifier_structural_digest: PositiveCacheBinding["identifier_structural_digest"];
     readonly capability_snapshot_version: PositiveCacheBinding["capability_snapshot_version"];
     readonly authorization_scope: PositiveCacheBinding["authorization_scope"];
     readonly adapter_policy_version: PositiveCacheBinding["adapter_policy_version"];

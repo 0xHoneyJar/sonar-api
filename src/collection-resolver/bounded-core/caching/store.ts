@@ -51,6 +51,8 @@ export const createMemoryResolverCache = (input: {
           if (
             deployment !== undefined &&
             deployment.normalized_address === query.normalized_address &&
+            entry.binding.identifier_format === query.identifier_format &&
+            entry.binding.identifier_structural_digest === query.identifier_structural_digest &&
             networks.has(`${deployment.network.network_namespace}:${deployment.network.network_reference}`) &&
             JSON.stringify(entry.binding.capability_snapshot_version) === snapshot &&
             JSON.stringify(entry.binding.authorization_scope) === scope &&

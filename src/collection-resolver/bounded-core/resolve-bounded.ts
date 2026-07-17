@@ -28,6 +28,7 @@ import type { CapabilityRegistrySnapshot } from "../capability-registry/snapshot
 import { cloneFreeze } from "../capability-registry/immutable.js";
 import type { RecognizeCapability } from "../identifier.js";
 import {
+  CapabilityRegistryVersion,
   decodeCollectionCandidate,
   type CollectionCandidate,
   type CollectionIdentifier,
@@ -69,6 +70,7 @@ import { structuralPreflight } from "./preflight.js";
 import { redactSafeMessage, safeErrorLabel } from "./redaction.js";
 import {
   BoundedResolveRequest,
+  BoundedResolveDiagnostics as BoundedResolveDiagnosticsSchema,
   PositiveCacheBinding,
   ReadinessCacheBinding,
   SafeDiagnosticEntry,
@@ -88,6 +90,70 @@ const decodeRequest = Schema.decodeUnknown(BoundedResolveRequest, strictOptions)
 const decodePositiveBinding = Schema.decodeUnknown(PositiveCacheBinding, strictOptions);
 const decodeReadinessBinding = Schema.decodeUnknown(ReadinessCacheBinding, strictOptions);
 const decodeSafeDiagnostic = Schema.decodeUnknown(SafeDiagnosticEntry, strictOptions);
+const CoalescedResponseEnvelope = Schema.Struct({
+  schema_version: Schema.Literal(1),
+  capability_snapshot_version: CapabilityRegistryVersion,
+  candidates: Schema.Array(Schema.Unknown),
+  diagnostics: BoundedResolveDiagnosticsSchema,
+  ranking_evidence: Schema.Array(
+    Schema.Struct({
+      deployment_key: Schema.String.pipe(Schema.minLength(1)),
+      score: Schema.Number.pipe(
+        Schema.filter((value) => Number.isFinite(value) || "score must be finite"),
+      ),
+      evidence_quality: Schema.Literal("high", "medium", "low"),
+      ranking_reasons: Schema.Array(Schema.String),
+    }),
+  ),
+});
+const decodeCoalescedEnvelope = Schema.decodeUnknown(
+  CoalescedResponseEnvelope,
+  strictOptions,
+);
+
+const decodeCoalescedResponse = (
+  value: unknown,
+  expectedVersion: CapabilityRegistrySnapshot["version"],
+): Effect.Effect<BoundedResolveResponse, BoundedResolverDecodeError> =>
+  Effect.gen(function* () {
+    const envelope = yield* decodeCoalescedEnvelope(value).pipe(
+      Effect.mapError(
+        (cause) =>
+          new BoundedResolverDecodeError({
+            reason: "coalesced leader response failed strict envelope decode",
+            safe_cause: safeErrorLabel(cause),
+            cause_digest: sha256Canonical(safeErrorLabel(cause)),
+          }),
+      ),
+    );
+    if (
+      envelope.capability_snapshot_version.registry_epoch !==
+        expectedVersion.registry_epoch ||
+      envelope.capability_snapshot_version.registry_sequence !==
+        expectedVersion.registry_sequence
+    ) {
+      return yield* Effect.fail(
+        new BoundedResolverDecodeError({
+          reason: "coalesced leader response capability snapshot mismatch",
+          safe_cause: "snapshot_mismatch",
+          cause_digest: sha256Canonical("snapshot_mismatch"),
+        }),
+      );
+    }
+    const candidates = yield* Effect.forEach(envelope.candidates, (candidate) =>
+      decodeCollectionCandidate(candidate).pipe(
+        Effect.mapError(
+          (cause) =>
+            new BoundedResolverDecodeError({
+              reason: "coalesced leader candidate failed strict decode",
+              safe_cause: safeErrorLabel(cause),
+              cause_digest: sha256Canonical(safeErrorLabel(cause)),
+            }),
+        ),
+      ),
+    );
+    return cloneFreeze({ ...envelope, candidates });
+  });
 
 export interface BoundedResolveResponse {
   readonly schema_version: 1;
@@ -638,11 +704,17 @@ export const resolveBounded = (input: {
     const allowedNetworkKeys = selectedTargets.map((t) =>
       networkIdentityKey(t.network.network),
     );
+    const structuralDigest = structuralIdentifierDigest({
+      format: identifier.format,
+      raw: identifier.raw,
+    });
     const positiveHits = yield* input.deps.cache.findPositive({
       normalized_address:
         identifier.format === "evm_address"
           ? identifier.raw.toLowerCase()
           : identifier.raw,
+      identifier_format: identifier.format,
+      identifier_structural_digest: structuralDigest,
       capability_snapshot_version: input.deps.capabilitySnapshot.version,
       authorization_scope: request.caller.authorization_scope,
       adapter_policy_version: config.adapter_policy_version,
@@ -727,11 +799,6 @@ export const resolveBounded = (input: {
     }
 
     const coverage = allowedNetworkKeys;
-    const structuralDigest = structuralIdentifierDigest({
-      format: identifier.format,
-      raw: identifier.raw,
-    });
-
     const negativeBinding: NegativeCacheBinding = {
       schema_version: 1,
       namespace: "negative_probe",
@@ -813,7 +880,11 @@ export const resolveBounded = (input: {
       });
       input.deps.metrics.recordLatency(input.deps.clock.nowMs() - started);
       if (sealed.kind === "response") {
-        return markCoalesced(sealed.response as BoundedResolveResponse);
+        const response = yield* decodeCoalescedResponse(
+          sealed.response,
+          input.deps.capabilitySnapshot.version,
+        );
+        return markCoalesced(response);
       }
       return followerTimeoutResponse({
         capability_snapshot_version: input.deps.capabilitySnapshot.version,
@@ -894,7 +965,7 @@ export const resolveBounded = (input: {
         config.inventory_enrichment_budget_ms > 0
       ) {
         const invController = createDeadlineController();
-        linkAbort(globalController.signal, invController);
+        const unlinkInventoryAbort = linkAbort(globalController.signal, invController);
         const invBudgetDeadline =
           input.deps.clock.nowMs() + config.inventory_enrichment_budget_ms;
         const invDeadline = Math.min(invBudgetDeadline, globalDeadlineAt);
@@ -944,7 +1015,7 @@ export const resolveBounded = (input: {
                 safe_message: "inventory enrichment deadline exceeded",
               },
             ],
-          });
+          }).pipe(Effect.ensuring(Effect.sync(unlinkInventoryAbort)));
 
           // Late Inventory settlement after deadline cannot mutate cache/candidates.
           if (
@@ -1040,6 +1111,8 @@ export const resolveBounded = (input: {
           const positiveBindingInput = {
             schema_version: 1 as const,
             namespace: "positive_recognition" as const,
+            identifier_format: identifier.format,
+            identifier_structural_digest: structuralDigest,
             capability_snapshot_version: input.deps.capabilitySnapshot.version,
             capability_source_sequence: networkCap.operations.recognize.source_sequence,
             deployment_id: deployment.deployment_id.digest,

@@ -241,6 +241,8 @@ export type AuthorizationScope = Schema.Schema.Type<typeof AuthorizationScope>;
 export const PositiveCacheBinding = Schema.Struct({
   schema_version: SchemaVersion,
   namespace: Schema.Literal("positive_recognition"),
+  identifier_format: Schema.Literal("evm_address", "solana_public_key"),
+  identifier_structural_digest: Sha256Hex,
   capability_snapshot_version: CapabilityRegistryVersion,
   capability_source_sequence: DecimalUint64,
   deployment_id: Sha256Hex,

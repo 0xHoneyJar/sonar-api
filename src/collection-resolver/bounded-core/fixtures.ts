@@ -95,7 +95,18 @@ export const createHermeticBoundedDeps = (
       Effect.gen(function* () {
         const entry = yield* cache.getNegative(key);
         if (entry !== undefined) negativeKeys.add(key);
+        else negativeKeys.delete(key);
         return entry;
+      }),
+    invalidate: (input) =>
+      Effect.gen(function* () {
+        const result = yield* cache.invalidate(input);
+        if (input.namespace === undefined || input.namespace === "negative_probe") {
+          // The fixture's Set is only a synchronous coalesce hint. Clear it
+          // conservatively whenever negative entries may have been evicted.
+          negativeKeys.clear();
+        }
+        return result;
       }),
   };
 
