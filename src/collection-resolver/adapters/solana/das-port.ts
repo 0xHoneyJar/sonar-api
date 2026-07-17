@@ -319,27 +319,40 @@ export const createFetchDasSamplePort = (
           () => undefined,
         );
 
-        if (response === undefined) return { kind: "timeout" } as const;
+        if (response === undefined) {
+          timeoutController.abort("deadline");
+          return { kind: "timeout" } as const;
+        }
 
         if (isAbortedOrExpired(request)) {
           return { kind: "timeout" } as const;
         }
 
         if (!response.ok) {
-          // Drain body without retaining it.
-          await response.text().catch(() => "");
+          await response.body?.cancel().catch(() => undefined);
           return {
             kind: "unavailable",
             failure: classifyHttpStatus(response.status),
           } as const;
         }
 
-        let json: unknown;
-        try {
-          json = await response.json();
-        } catch {
+        const jsonResult = await raceAgainstAbort(
+          request,
+          response
+            .json()
+            .then((value) => ({ ok: true as const, value }))
+            .catch(() => ({ ok: false as const })),
+          () => undefined,
+        );
+        if (jsonResult === undefined) {
+          timeoutController.abort("deadline");
+          await response.body?.cancel().catch(() => undefined);
+          return { kind: "timeout" } as const;
+        }
+        if (!jsonResult.ok) {
           return { kind: "unavailable", failure: "malformed" } as const;
         }
+        const json: unknown = jsonResult.value;
 
         if (isAbortedOrExpired(request)) {
           return { kind: "timeout" } as const;
@@ -409,26 +422,40 @@ export const createFetchDasSamplePort = (
           () => undefined,
         );
 
-        if (response === undefined) return { kind: "timeout" } as const;
+        if (response === undefined) {
+          timeoutController.abort("deadline");
+          return { kind: "timeout" } as const;
+        }
 
         if (isAbortedOrExpired(request)) {
           return { kind: "timeout" } as const;
         }
 
         if (!response.ok) {
-          await response.text().catch(() => "");
+          await response.body?.cancel().catch(() => undefined);
           return {
             kind: "unavailable",
             failure: classifyHttpStatus(response.status),
           } as const;
         }
 
-        let json: unknown;
-        try {
-          json = await response.json();
-        } catch {
+        const jsonResult = await raceAgainstAbort(
+          request,
+          response
+            .json()
+            .then((value) => ({ ok: true as const, value }))
+            .catch(() => ({ ok: false as const })),
+          () => undefined,
+        );
+        if (jsonResult === undefined) {
+          timeoutController.abort("deadline");
+          await response.body?.cancel().catch(() => undefined);
+          return { kind: "timeout" } as const;
+        }
+        if (!jsonResult.ok) {
           return { kind: "unavailable", failure: "malformed" } as const;
         }
+        const json: unknown = jsonResult.value;
 
         if (isAbortedOrExpired(request)) {
           return { kind: "timeout" } as const;

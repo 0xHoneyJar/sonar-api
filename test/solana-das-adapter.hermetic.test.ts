@@ -19,12 +19,6 @@ import {
   defaultBoundedResolverConfig,
   deriveIndexAndReadiness,
   findCollectionByMintExact,
-  FIXTURE_CLASSIC_ITEMS,
-  FIXTURE_COMPRESSED_ITEMS,
-  FIXTURE_MIXED_ITEMS,
-  FIXTURE_PROGRAMMABLE_ITEMS,
-  FIXTURE_UNKNOWN_ITEMS,
-  FIXTURE_UNVERIFIED_ITEMS,
   hermeticResolveRequest,
   loadHermeticCapabilitySnapshot,
   normalizeDasCollectionProbe,
@@ -35,12 +29,9 @@ import {
   parseDasSampleLimitArgument,
   projectSolanaDasHit,
   PYTHIANS_COLLECTION_MINT,
-  REGISTERED_COLLECTION_MINT,
   resolveBounded,
-  sampleOutcome,
   solanaMainnetCapability,
   solanaRecognizeCapability,
-  WRONG_CASE_PYTHIANS_MINT,
   buildDasGetAssetRequestBody,
   buildDasSampleRequestBody,
   classifyDasSampleItems,
@@ -50,6 +41,17 @@ import {
   type NetworkAdapterPort,
   type NetworkCapability,
 } from "../src/collection-resolver/index.js";
+import {
+  FIXTURE_CLASSIC_ITEMS,
+  FIXTURE_COMPRESSED_ITEMS,
+  FIXTURE_MIXED_ITEMS,
+  FIXTURE_PROGRAMMABLE_ITEMS,
+  FIXTURE_UNKNOWN_ITEMS,
+  FIXTURE_UNVERIFIED_ITEMS,
+  REGISTERED_COLLECTION_MINT,
+  WRONG_CASE_PYTHIANS_MINT,
+  sampleOutcome,
+} from "../src/collection-resolver/adapters/solana/testing.js";
 import type {
   CollectionSnapshot,
   DasAsset,
@@ -1446,7 +1448,11 @@ describe("CR-104 createFetchDasSamplePort — getAsset identity binding", () => 
   });
 
   it("returns at the deadline even when an injected fetch ignores AbortSignal", async () => {
-    const neverSettles: typeof fetch = () => new Promise<Response>(() => undefined);
+    let transportSignal: AbortSignal | undefined;
+    const neverSettles: typeof fetch = (_url, init) => {
+      transportSignal = init?.signal ?? undefined;
+      return new Promise<Response>(() => undefined);
+    };
     const port = createFetchDasSamplePort({
       endpoint: "https://das.example.test",
       clock: { nowMs: () => Date.now() },
@@ -1464,5 +1470,37 @@ describe("CR-104 createFetchDasSamplePort — getAsset identity binding", () => 
     );
     expect(outcome).toEqual({ kind: "timeout" });
     expect(Date.now() - started).toBeLessThan(100);
+    expect(transportSignal?.aborted).toBe(true);
+  });
+
+  it("bounds a response body that stalls after headers", async () => {
+    let cancelled = false;
+    const stalledBody: typeof fetch = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: () => new Promise<unknown>(() => undefined),
+        body: {
+          cancel: async () => {
+            cancelled = true;
+          },
+        },
+      }) as unknown as Response;
+    const port = createFetchDasSamplePort({
+      endpoint: "https://das.example.test",
+      clock: { nowMs: () => Date.now() },
+      fetchImpl: stalledBody,
+    });
+    const outcome = await expectAsyncSuccess(
+      port.sampleCollection({
+        collection_mint: UNREGISTERED_COLLECTION_MINT,
+        limit: 1,
+        abort: new AbortController().signal,
+        deadline_at_ms: Date.now() + 20,
+        now_ms: () => Date.now(),
+      }),
+    );
+    expect(outcome).toEqual({ kind: "timeout" });
+    expect(cancelled).toBe(true);
   });
 });
