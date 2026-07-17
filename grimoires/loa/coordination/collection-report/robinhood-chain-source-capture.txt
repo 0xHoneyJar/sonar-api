@@ -1,0 +1,6 @@
+Source URL: https://docs.robinhood.com/chain/connecting/
+Captured at: 2026-07-17T01:18:34Z
+Source section: Network Configuration
+
+Property | Robinhood Chain | Robinhood Chain Testnet
+Chain ID | 4663 | 46630
