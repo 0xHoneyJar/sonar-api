@@ -56,6 +56,19 @@ export const FIXTURE_BLOCK_BASE: EvmObservationBlock = {
   finality: "finalized",
 };
 
+/** Robinhood Chain (eip155:4663) — Arbitrum L2 fixture block. */
+export const FIXTURE_BLOCK_ROBINHOOD: EvmObservationBlock = {
+  block_number: 4_663_000_001n,
+  block_hash: `0x${"rh".repeat(32)}` as `0x${string}`,
+  finality: "finalized",
+};
+
+/** Controlled CR-401 collection deployment (hermetic; not a live mainnet claim). */
+export const ROBINHOOD_FIXTURE_COLLECTION =
+  "0x4663c01100000000000000000000000000000001" as `0x${string}`;
+export const ROBINHOOD_FIXTURE_COLLECTION_NORMALIZED =
+  "0x4663c01100000000000000000000000000000001" as `0x${string}`;
+
 /** Minimal contract-like bytecode (non-empty). */
 export const FIXTURE_BYTECODE = "0x608060405234801561001057600080fd5b50" as `0x${string}`;
 export const FIXTURE_IMPL_BYTECODE =
@@ -521,6 +534,24 @@ export const multiNetworkScripts = (
           symbol: "SHR",
         }),
       },
+    },
+  },
+});
+
+/** CR-401 Robinhood Chain ERC-721 probe fixture (controlled deployment). */
+export const robinhoodChainScript = (
+  address = ROBINHOOD_FIXTURE_COLLECTION_NORMALIZED,
+): NetworkFixtureScript => ({
+  block: FIXTURE_BLOCK_ROBINHOOD,
+  accounts: {
+    [address]: {
+      code: FIXTURE_BYTECODE,
+      calls: nftCalls({
+        erc721: true,
+        erc1155: false,
+        name: "Robinhood Fixture Collection",
+        symbol: "RHFC",
+      }),
     },
   },
 });

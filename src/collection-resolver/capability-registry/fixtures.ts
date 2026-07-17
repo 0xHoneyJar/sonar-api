@@ -2,7 +2,8 @@
  * CR-101 mainnet capability fixtures.
  *
  * Only networks with current Sonar adapter/indexer evidence are marked live.
- * Robinhood Chain (EIP-155 4663) is recognize-disabled / kill-switched until CR-401.
+ * Robinhood Chain (EIP-155 4663) ships disabled in the default catalog; CR-401
+ * proven fixtures (`robinhoodMainnetCapability`) exercise enable/disable paths.
  * Testnets are omitted from the default catalog.
  */
 import {
@@ -214,6 +215,24 @@ const evmFinality = (input: {
   },
   freshness: { max_age_ms: 30_000, clock: "block_time" as const },
 });
+
+/** Robinhood Chain mainnet — Arbitrum L2; block-depth confirmation, not Ethereum defaults. */
+const robinhoodFinality = (input: {
+  policyVersion: string;
+  providerSetId: string;
+  minDepth: number;
+  invalidationDepth: number;
+}) =>
+  evmFinality({
+    policyVersion: input.policyVersion,
+    providerSetId: input.providerSetId,
+    confirmation: { kind: "block_depth", min_depth: input.minDepth },
+    invalidationDepth: input.invalidationDepth,
+  });
+
+export const ROBINHOOD_MAINNET_CHAIN_ID = "4663" as const;
+export const ROBINHOOD_CHAIN_EVIDENCE_REFERENCE =
+  "grimoires/loa/coordination/collection-report/robinhood-chain-evidence.json";
 
 const solanaFinality = {
   family: "solana" as const,
@@ -442,12 +461,49 @@ export const solanaMainnetCapability = (): NetworkCapability => ({
 });
 
 /**
- * Robinhood Chain mainnet (EIP-155 4663) — disabled until CR-401 proves probe,
- * index, finality, and disable paths. Honest placeholder; not inventing live support.
+ * CR-401 proven Robinhood mainnet capability — hermetic enable-path fixture.
+ *
+ * Not in the default live catalog until operator registry transition + config.yaml
+ * index wiring; proves recognize/index/finality/probe paths without faking Gate Leak.
+ */
+export const robinhoodMainnetCapability = (): NetworkCapability => ({
+  schema_version: CAPABILITY_REGISTRY_SCHEMA_VERSION,
+  network: eip155(ROBINHOOD_MAINNET_CHAIN_ID),
+  environment: "mainnet",
+  display: {
+    display_name: "Robinhood Chain",
+    icon_identity: "network-mark.robinhood.v1",
+  },
+  probe_adapter: { adapter_id: "evm_rpc", adapter_version: "evm-nft-probe.v0" },
+  supported_standards: ["erc721"],
+  operations: {
+    recognize: availableOp("220"),
+    prepare: availableOp("221"),
+    read_evidence: availableOp("222"),
+  },
+  index_support: true,
+  finality_policy: robinhoodFinality({
+    policyVersion: "robinhood-finalized.v1",
+    providerSetId: "robinhood-source-head.v1",
+    minDepth: 32,
+    invalidationDepth: 32,
+  }),
+  kill_switch: false,
+  network_priority: 55,
+  source_provenance: {
+    kind: "operator_ratified",
+    reference: `${ROBINHOOD_CHAIN_EVIDENCE_REFERENCE}#CR-401-capability-proof`,
+    attested_at: FIXTURE_EFFECTIVE_AT,
+  },
+});
+
+/**
+ * Robinhood Chain mainnet (EIP-155 4663) — default-catalog disabled placeholder.
+ * Operator registry transition can flip to `robinhoodMainnetCapability` without deploy.
  */
 export const robinhoodDisabledCapability = (): NetworkCapability => ({
   schema_version: CAPABILITY_REGISTRY_SCHEMA_VERSION,
-  network: eip155("4663"),
+  network: eip155(ROBINHOOD_MAINNET_CHAIN_ID),
   environment: "mainnet",
   display: {
     display_name: "Robinhood Chain",
@@ -470,10 +526,10 @@ export const robinhoodDisabledCapability = (): NetworkCapability => ({
     ),
   },
   index_support: false,
-  finality_policy: evmFinality({
+  finality_policy: robinhoodFinality({
     policyVersion: "robinhood-placeholder.v0",
     providerSetId: "robinhood-source-head.unproven.v0",
-    confirmation: { kind: "block_depth", min_depth: 0 },
+    minDepth: 0,
     invalidationDepth: 0,
   }),
   kill_switch: true,
@@ -491,7 +547,7 @@ export const robinhoodDisabledCapability = (): NetworkCapability => ({
  */
 export const robinhoodRecognizeOnlyCapability = (): NetworkCapability => ({
   schema_version: CAPABILITY_REGISTRY_SCHEMA_VERSION,
-  network: eip155("4663"),
+  network: eip155(ROBINHOOD_MAINNET_CHAIN_ID),
   environment: "mainnet",
   display: {
     display_name: "Robinhood Chain",
@@ -511,10 +567,10 @@ export const robinhoodRecognizeOnlyCapability = (): NetworkCapability => ({
     ),
   },
   index_support: false,
-  finality_policy: evmFinality({
+  finality_policy: robinhoodFinality({
     policyVersion: "robinhood-recognize-only.v0",
     providerSetId: "robinhood-source-head.unproven.v0",
-    confirmation: { kind: "block_depth", min_depth: 12 },
+    minDepth: 12,
     invalidationDepth: 12,
   }),
   kill_switch: false,

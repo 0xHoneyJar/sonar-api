@@ -122,6 +122,6 @@ without display/icon, RPC/config, credentials, or provenance internals.
 ## Honest downstream blockers
 
 - **Production signing / live baseline keys** — port only; hermetic verifier for tests.
-- **CR-401** — Robinhood Chain mainnet capability proof.
+- **CR-401** — Robinhood Chain mainnet capability proof (fixtures + hermetic tests; default catalog kill-switched).
 - **CR-103 / CR-104** — downstream Ordering / report consumers of this projection.
 - **CR-402** — Solana ownership_index prepare/read_evidence parity.
