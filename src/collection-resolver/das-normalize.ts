@@ -118,12 +118,20 @@ export const assertSolanaKeyCaseRetained = (input: {
 }): Effect.Effect<void, DasCaseRetentionError> => {
   const { original, surfaces } = input;
   const folded = original.toLowerCase();
-  if (folded === original) return Effect.void;
 
   for (const surface of surfaces) {
+    if (!surface.includes(original)) {
+      return Effect.fail(
+        new DasCaseRetentionError({
+          original,
+          surface,
+          reason: "Solana key is missing from required projected surface output",
+        }),
+      );
+    }
     // A surface containing both the exact key and a lowercased copy is still
     // corrupt; exact presence must not mask a bad duplicate.
-    if (surface.includes(folded)) {
+    if (folded !== original && surface.includes(folded)) {
       return Effect.fail(
         new DasCaseRetentionError({
           original,

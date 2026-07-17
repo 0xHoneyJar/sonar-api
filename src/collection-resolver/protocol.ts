@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Data, Effect } from "effect";
 
 export {
   COLLECTION_PROTOCOL_SCHEMA_VERSION,
@@ -33,26 +34,52 @@ export {
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
 
+export class VendoredProtocolDigestError extends Data.TaggedError(
+  "VendoredProtocolDigestError",
+)<{
+  readonly stage: "read_pin" | "validate_pin" | "read_tarball" | "compare_digest";
+  readonly reason: string;
+}> {}
+
+const errorMessage = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
 /** Verify the executable vendored package bytes against the committed pin. */
-export function verifyVendoredCollectionProtocolDigest(
-  root = process.cwd(),
-): { readonly expected: string; readonly actual: string } {
+export const verifyVendoredCollectionProtocolDigest = Effect.fn(
+  "verifyVendoredCollectionProtocolDigest",
+)(function* (root = process.cwd()) {
   const vendor = join(root, "vendor/collection-protocol");
   const tarball = "freeside-collection-protocol-1.0.0.tgz";
-  const checksum = readFileSync(join(vendor, "SHA256SUMS"), "utf8")
+  const checksumFile = yield* Effect.try({
+    try: () => readFileSync(join(vendor, "SHA256SUMS"), "utf8"),
+    catch: (cause) =>
+      new VendoredProtocolDigestError({ stage: "read_pin", reason: errorMessage(cause) }),
+  });
+  const checksum = checksumFile
     .trim()
     .split(/\s+/)[0];
   if (checksum === undefined || !/^[0-9a-f]{64}$/.test(checksum)) {
-    throw new Error("invalid vendored collection protocol SHA256SUMS pin");
+    return yield* new VendoredProtocolDigestError({
+      stage: "validate_pin",
+      reason: "invalid vendored collection protocol SHA256SUMS pin",
+    });
   }
-  const actual = createHash("sha256")
-    .update(Uint8Array.from(readFileSync(join(vendor, tarball))))
-    .digest("hex");
+  const actual = yield* Effect.try({
+    try: () =>
+      createHash("sha256")
+        .update(Uint8Array.from(readFileSync(join(vendor, tarball))))
+        .digest("hex"),
+    catch: (cause) =>
+      new VendoredProtocolDigestError({ stage: "read_tarball", reason: errorMessage(cause) }),
+  });
   if (actual !== checksum) {
-    throw new Error(`vendored collection protocol digest mismatch: expected ${checksum}, got ${actual}`);
+    return yield* new VendoredProtocolDigestError({
+      stage: "compare_digest",
+      reason: `vendored collection protocol digest mismatch: expected ${checksum}, got ${actual}`,
+    });
   }
   return { expected: checksum, actual };
-}
+});
 
 /**
  * Absolute path to the CR-001 package fixtures directory (conformance pin).

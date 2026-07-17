@@ -417,7 +417,7 @@ describe("CR-003 DAS / SVM probe normalization projection", () => {
 
 describe("CR-003 protocol conformance", () => {
   it("verifies the executable vendored protocol tarball against its committed digest", () => {
-    const verified = verifyVendoredCollectionProtocolDigest();
+    const verified = expectSuccess(verifyVendoredCollectionProtocolDigest());
     expect(verified.actual).toBe(verified.expected);
   });
 
@@ -430,6 +430,28 @@ describe("CR-003 protocol conformance", () => {
       }),
     );
     expect(error._tag).toBe("DasCaseRetentionError");
+  });
+
+  it("rejects a required surface that drops the exact Solana key", () => {
+    const key = "OwnerKeyABCDEFGHJKLMNPQRSTUVWXYZabcdefghijk";
+    const error = expectFailure(
+      assertSolanaKeyCaseRetained({
+        original: key,
+        surfaces: ["owner_key=missing"],
+      }),
+    );
+    expect(error._tag).toBe("DasCaseRetentionError");
+    expect(error.reason).toMatch(/missing/);
+  });
+
+  it("returns a typed failure when the vendored protocol pin cannot be read", () => {
+    const error = expectFailure(
+      verifyVendoredCollectionProtocolDigest(
+        join(process.cwd(), ".missing-vendored-protocol-test-root"),
+      ),
+    );
+    expect(error._tag).toBe("VendoredProtocolDigestError");
+    expect(error.stage).toBe("read_pin");
   });
 
   it("strict-decodes CR-001 committed candidate fixtures through the Sonar adapter", () => {

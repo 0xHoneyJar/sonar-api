@@ -34,6 +34,7 @@ export {
 export {
   collectionProtocolFixturesRoot,
   verifyVendoredCollectionProtocolDigest,
+  VendoredProtocolDigestError,
   decodeCollectionCandidate,
   decodeCollectionDeploymentRef,
   makeCollectionDeploymentRef,
