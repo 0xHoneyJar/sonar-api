@@ -98,7 +98,9 @@ export const projectDasObservationToLog = (input: {
     collection_mint: observation.snapshot.collectionMint,
     network_namespace: capability.network.network_namespace,
     network_reference: capability.network.network_reference,
-    slot: String(observation.snapshot.slot),
+    ...(Number.isFinite(observation.snapshot.slot)
+      ? { slot: String(observation.snapshot.slot) }
+      : {}),
     ...(sample !== undefined ? { sample_member_mint: sample.nftMint } : {}),
     ...(sample !== undefined ? { sample_owner: sample.owner } : {}),
     ...(sample !== undefined && sample.delegate !== null
@@ -157,8 +159,6 @@ export const normalizeDasCollectionProbe = (input: {
   const sample = snapshot.members[0];
 
   const logProjection = projectDasObservationToLog({ capability, observation });
-  log?.info(logProjection.event, logProjection.fields);
-
   // Real shared persistence projection (same function the indexer upserts with).
   const storage = toRows(snapshot, collectionKey, observation.observedAt);
 
@@ -203,6 +203,11 @@ export const normalizeDasCollectionProbe = (input: {
     address: collectionMint,
     hit,
   }).pipe(
+    Effect.tap(() =>
+      Effect.sync(() => {
+        log?.info(logProjection.event, logProjection.fields);
+      }),
+    ),
     Effect.map((response) => ({
       storage,
       log: logProjection,

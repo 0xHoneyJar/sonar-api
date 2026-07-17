@@ -11,6 +11,18 @@ import { join } from "node:path";
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  ProbeAddressMismatchError,
+  assertSolanaKeyCaseRetained,
+  collectionProtocolFixturesRoot,
+  decodeCollectionCandidate,
+  EXPECTED_COLLECTION_PROTOCOL_TARBALL_SHA256,
+  normalizeDasCollectionProbe,
+  normalizeSolanaAddress,
+  projectDasObservationToLog,
+  resolveProbe,
+  verifyVendoredCollectionProtocolDigest,
+} from "../src/collection-resolver/index.js";
+import {
   HERMETIC_CAPABILITY_SNAPSHOT,
   MULTI_CHAIN_EVM_ADDRESS,
   PYTHIANS_COLLECTION_MINT,
@@ -19,18 +31,9 @@ import {
   SCRIPT_PARTIAL_TIMEOUT,
   SCRIPT_SOLANA_COLLECTION,
   SCRIPT_ZERO_CANDIDATES,
-  ProbeAddressMismatchError,
-  assertSolanaKeyCaseRetained,
-  collectionProtocolFixturesRoot,
   createHermeticProbePort,
-  decodeCollectionCandidate,
-  EXPECTED_COLLECTION_PROTOCOL_TARBALL_SHA256,
-  normalizeDasCollectionProbe,
-  normalizeSolanaAddress,
-  resolveProbe,
   solanaRecognizeCapability,
-  verifyVendoredCollectionProtocolDigest,
-} from "../src/collection-resolver/index.js";
+} from "../src/collection-resolver/testing.js";
 import { toRows } from "../src/svm/collection-nft-rows.js";
 import {
   parseAsset,
@@ -421,6 +424,50 @@ describe("CR-003 DAS / SVM probe normalization projection", () => {
     expect(storageJson).not.toContain(memberMint.toLowerCase());
     expect(storageJson).not.toContain(owner.toLowerCase());
     expect(storageJson).not.toContain(delegate.toLowerCase());
+  });
+
+  it("emits normalization logs only after candidate validation succeeds", () => {
+    const emitted: string[] = [];
+    const snapshot: CollectionSnapshot = {
+      collectionMint: "not-a-solana-public-key",
+      slot: 342_178_901,
+      source: "das",
+      members: [],
+    };
+
+    expectFailure(
+      normalizeDasCollectionProbe({
+        capability: solanaRecognizeCapability(),
+        observation: {
+          snapshot,
+          observedAt: "2026-07-16T08:00:00Z",
+          indexStatus: "missing",
+          reportReadiness: "preparation_required",
+        },
+        log: { info: (message) => emitted.push(message) },
+      }),
+    );
+
+    expect(emitted).toEqual([]);
+  });
+
+  it("omits an invalid runtime slot from structured logs", () => {
+    const projection = projectDasObservationToLog({
+      capability: solanaRecognizeCapability(),
+      observation: {
+        snapshot: {
+          collectionMint: PYTHIANS_COLLECTION_MINT,
+          slot: undefined,
+          source: "das",
+          members: [],
+        } as unknown as CollectionSnapshot,
+        observedAt: "2026-07-16T08:00:00Z",
+        indexStatus: "missing",
+        reportReadiness: "preparation_required",
+      },
+    });
+
+    expect(projection.fields).not.toHaveProperty("slot");
   });
 });
 
