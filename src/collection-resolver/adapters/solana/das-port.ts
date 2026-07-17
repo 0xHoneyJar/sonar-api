@@ -95,6 +95,16 @@ const remainingMs = (request: DasSampleRequest): number =>
 const isAbortedOrExpired = (request: DasSampleRequest): boolean =>
   request.abort.aborted || remainingMs(request) <= 0;
 
+const interruptedOutcome = (
+  request: DasSampleRequest,
+): { readonly kind: "timeout" } | {
+  readonly kind: "unavailable";
+  readonly failure: "aborted";
+} =>
+  request.abort.aborted
+    ? { kind: "unavailable", failure: "aborted" }
+    : { kind: "timeout" };
+
 /**
  * Race an async DAS settlement against abort/deadline so in-flight work
  * terminates promptly without awaiting a late handler resolve.
@@ -290,9 +300,12 @@ export const createFetchDasSamplePort = (
   ): Effect.Effect<DasSampleOutcome, never> =>
     Effect.promise(async () => {
       if (isAbortedOrExpired(request)) {
-        return { kind: "timeout" } as const;
+        return interruptedOutcome(request);
       }
       const budget = remainingMs(request);
+      if (!Number.isFinite(budget) || budget <= 0) {
+        return { kind: "unavailable", failure: "malformed" } as const;
+      }
       const timeoutController = new AbortController();
       const timer = setTimeout(() => timeoutController.abort("deadline"), budget);
       const onParentAbort = () => timeoutController.abort("parent");
@@ -321,11 +334,11 @@ export const createFetchDasSamplePort = (
 
         if (response === undefined) {
           timeoutController.abort("deadline");
-          return { kind: "timeout" } as const;
+          return interruptedOutcome(request);
         }
 
         if (isAbortedOrExpired(request)) {
-          return { kind: "timeout" } as const;
+          return interruptedOutcome(request);
         }
 
         if (!response.ok) {
@@ -347,7 +360,7 @@ export const createFetchDasSamplePort = (
         if (jsonResult === undefined) {
           timeoutController.abort("deadline");
           await response.body?.cancel().catch(() => undefined);
-          return { kind: "timeout" } as const;
+          return interruptedOutcome(request);
         }
         if (!jsonResult.ok) {
           return { kind: "unavailable", failure: "malformed" } as const;
@@ -355,7 +368,7 @@ export const createFetchDasSamplePort = (
         const json: unknown = jsonResult.value;
 
         if (isAbortedOrExpired(request)) {
-          return { kind: "timeout" } as const;
+          return interruptedOutcome(request);
         }
 
         const parsed = parseDasSampleRpcResponse(json);
@@ -381,7 +394,9 @@ export const createFetchDasSamplePort = (
           isAbortedOrExpired(request) ||
           (cause instanceof Error && cause.name === "AbortError")
         ) {
-          return { kind: "timeout" } as const;
+          return request.abort.aborted || timeoutController.signal.reason === "parent"
+            ? ({ kind: "unavailable", failure: "aborted" } as const)
+            : ({ kind: "timeout" } as const);
         }
         return { kind: "unavailable", failure: "network" } as const;
       } finally {
@@ -395,9 +410,12 @@ export const createFetchDasSamplePort = (
   ): Effect.Effect<DasCollectionAssetOutcome, never> =>
     Effect.promise(async () => {
       if (isAbortedOrExpired(request)) {
-        return { kind: "timeout" } as const;
+        return interruptedOutcome(request);
       }
       const budget = remainingMs(request);
+      if (!Number.isFinite(budget) || budget <= 0) {
+        return { kind: "unavailable", failure: "malformed" } as const;
+      }
       const timeoutController = new AbortController();
       const timer = setTimeout(() => timeoutController.abort("deadline"), budget);
       const onParentAbort = () => timeoutController.abort("parent");
@@ -424,11 +442,11 @@ export const createFetchDasSamplePort = (
 
         if (response === undefined) {
           timeoutController.abort("deadline");
-          return { kind: "timeout" } as const;
+          return interruptedOutcome(request);
         }
 
         if (isAbortedOrExpired(request)) {
-          return { kind: "timeout" } as const;
+          return interruptedOutcome(request);
         }
 
         if (!response.ok) {
@@ -450,7 +468,7 @@ export const createFetchDasSamplePort = (
         if (jsonResult === undefined) {
           timeoutController.abort("deadline");
           await response.body?.cancel().catch(() => undefined);
-          return { kind: "timeout" } as const;
+          return interruptedOutcome(request);
         }
         if (!jsonResult.ok) {
           return { kind: "unavailable", failure: "malformed" } as const;
@@ -458,7 +476,7 @@ export const createFetchDasSamplePort = (
         const json: unknown = jsonResult.value;
 
         if (isAbortedOrExpired(request)) {
-          return { kind: "timeout" } as const;
+          return interruptedOutcome(request);
         }
 
         const parsed = parseDasGetAssetRpcResponse(json);
@@ -494,7 +512,9 @@ export const createFetchDasSamplePort = (
           isAbortedOrExpired(request) ||
           (cause instanceof Error && cause.name === "AbortError")
         ) {
-          return { kind: "timeout" } as const;
+          return request.abort.aborted || timeoutController.signal.reason === "parent"
+            ? ({ kind: "unavailable", failure: "aborted" } as const)
+            : ({ kind: "timeout" } as const);
         }
         return { kind: "unavailable", failure: "network" } as const;
       } finally {

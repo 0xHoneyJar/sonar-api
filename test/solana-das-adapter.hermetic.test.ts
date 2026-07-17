@@ -28,10 +28,8 @@ import {
   parseDasSampleRpcResponse,
   parseDasSampleLimitArgument,
   projectSolanaDasHit,
-  PYTHIANS_COLLECTION_MINT,
   resolveBounded,
   solanaMainnetCapability,
-  solanaRecognizeCapability,
   buildDasGetAssetRequestBody,
   buildDasSampleRequestBody,
   classifyDasSampleItems,
@@ -41,6 +39,10 @@ import {
   type NetworkAdapterPort,
   type NetworkCapability,
 } from "../src/collection-resolver/index.js";
+import {
+  PYTHIANS_COLLECTION_MINT,
+  solanaRecognizeCapability,
+} from "../src/collection-resolver/testing.js";
 import {
   FIXTURE_CLASSIC_ITEMS,
   FIXTURE_COMPRESSED_ITEMS,
@@ -1426,13 +1428,19 @@ describe("CR-104 createFetchDasSamplePort — getAsset identity binding", () => 
   });
 
   it("production factory wires the sealed fetch port into the network adapter", async () => {
+    let getAssetCalls = 0;
     const fetchImpl: typeof fetch = async (_url, init) => {
       const body = JSON.parse(String((init as RequestInit).body)) as {
-        params: { groupValue: string };
+        method: string;
+        params: { groupValue?: string; id?: string };
       };
+      if (body.method === "getAsset") {
+        getAssetCalls += 1;
+        return jsonResponse({ jsonrpc: "2.0", result: { id: body.params.id } });
+      }
       return jsonResponse({
         jsonrpc: "2.0",
-        result: { items: sampleItemsFor(body.params.groupValue) },
+        result: { items: sampleItemsFor(body.params.groupValue ?? "") },
       });
     };
     const adapter = createProductionSolanaDasNetworkAdapter({
@@ -1445,6 +1453,69 @@ describe("CR-104 createFetchDasSamplePort — getAsset identity binding", () => 
       adapter.probe(probeRequest(UNREGISTERED_COLLECTION_MINT)),
     );
     expect(outcome.kind).toBe("hit");
+    expect(getAssetCalls).toBe(1);
+  });
+
+  it("preserves caller abort separately from a DAS deadline", async () => {
+    const controller = new AbortController();
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const neverSettles: typeof fetch = (_url, init) => {
+      markStarted?.();
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            const error = new Error("aborted");
+            error.name = "AbortError";
+            reject(error);
+          },
+          { once: true },
+        );
+      });
+    };
+    const port = createFetchDasSamplePort({
+      endpoint: "https://das.example.test",
+      clock: { nowMs: () => Date.now() },
+      fetchImpl: neverSettles,
+    });
+    const outcomePromise = expectAsyncSuccess(
+      port.sampleCollection({
+        collection_mint: UNREGISTERED_COLLECTION_MINT,
+        limit: 1,
+        abort: controller.signal,
+        deadline_at_ms: Date.now() + 5_000,
+        now_ms: () => Date.now(),
+      }),
+    );
+    await started;
+    controller.abort("caller");
+    await expect(outcomePromise).resolves.toEqual({
+      kind: "unavailable",
+      failure: "aborted",
+    });
+  });
+
+  it("rejects non-finite fetch budgets before creating a timer", async () => {
+    const port = createFetchDasSamplePort({
+      endpoint: "https://das.example.test",
+      clock: { nowMs: () => 0 },
+      fetchImpl: async () => {
+        throw new Error("fetch must not start");
+      },
+    });
+    const outcome = await expectAsyncSuccess(
+      port.sampleCollection({
+        collection_mint: UNREGISTERED_COLLECTION_MINT,
+        limit: 1,
+        abort: new AbortController().signal,
+        deadline_at_ms: Number.POSITIVE_INFINITY,
+        now_ms: () => 0,
+      }),
+    );
+    expect(outcome).toEqual({ kind: "unavailable", failure: "malformed" });
   });
 
   it("returns at the deadline even when an injected fetch ignores AbortSignal", async () => {

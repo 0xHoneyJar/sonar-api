@@ -226,5 +226,8 @@ export const createProductionSolanaDasNetworkAdapter = (
 ): NetworkAdapterPort =>
   createSolanaDasNetworkAdapter({
     ...options,
-    dasPort: createFetchDasSamplePort(options),
+    dasPort: createFetchDasSamplePort({
+      ...options,
+      observeCollectionAsset: options.observeCollectionAsset ?? true,
+    }),
   });

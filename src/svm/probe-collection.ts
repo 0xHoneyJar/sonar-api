@@ -67,6 +67,11 @@ async function main(): Promise<void> {
   const rawItems = await dasSample(mint, sample);
   const items = filterVerifiedDasSampleMembers(rawItems);
   if (items.length === 0) {
+    if (rawItems.length > 0) {
+      throw new Error(
+        "DAS returned members, but none passed identity/owner validation; provider response is malformed or incomplete",
+      );
+    }
     console.log(`  ⛔ DAS returned 0 verified members — not a Metaplex certified collection mint, or empty. Nothing to index.`);
     process.exit(2);
   }
