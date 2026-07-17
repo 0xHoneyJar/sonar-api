@@ -3,9 +3,9 @@
 | Field | Value |
 |---|---|
 | Task | `ACCEPT-SONAR` (`collection-report-coordinator-f09.40`) |
-| Repository | `0xHoneyJar/sonar-api` (this worktree; tracks `origin/main`) |
+| Repository | `0xHoneyJar/sonar-api` (canonical repository; the legacy `0xHoneyJar/freeside-sonar` URL redirects here; this worktree tracks its `origin/main`) |
 | Audited revision | `a68bbae0bf04e281a9b6b46fc3812c9dbb471afa` (2026-07-14) |
-| PR delivery relationship | The audited implementation revision is the evidence boundary. Every path changed from that revision through this PR head is this acceptance document only. Reproduce with `git diff --name-only a68bbae0bf04e281a9b6b46fc3812c9dbb471afa..HEAD`; any additional path invalidates this acceptance pending re-audit. |
+| PR delivery relationship | The audited implementation revision and this PR are in the same canonical repository. From that revision through this PR head, the only allowed paths are this acceptance document and its adjacent `baseline-audit.md` transcript. Reproduce in the PR checkout with `git cat-file -e a68bbae0bf04e281a9b6b46fc3812c9dbb471afa^{commit}` and `git diff --name-only a68bbae0bf04e281a9b6b46fc3812c9dbb471afa..HEAD`; any additional path invalidates this acceptance pending re-audit. |
 | Master plan | coordinator `grimoires/loa/{prd,sdd,sprint}.md` v0.3 / 0.5 / 0.6 at `2c1be075e34f896704e0e8ff45500aeaddcd1a10` (file blobs `ef5847c06f880d99927a985a0ec7eaa3d216b4c0` / `5b431433954194ae181685f249caa42e772b2b6c` / `f76863bb2302bae660ad5a57a2a9ea4888be918d`) |
 | Date | 2026-07-16 |
 | Author role | Sonar boundary owner (KRANZ dispatch; no CR implementation) |
@@ -237,7 +237,7 @@ Kitchen dual-read divergence and trust-stream producer failure.
 
 | Claim | Path / proof |
 |---|---|
-| Audited worktree revision = sprint baseline sonar-api | At the audit checkout, `git rev-parse HEAD` → `a68bbae0bf04e281a9b6b46fc3812c9dbb471afa`; the pinned revision and invalidation probe are recorded at `grimoires/loa/coordination/collection-report/owner-acceptance.md:6-8`. Reproduce the delivery boundary with `git diff --name-only a68bbae0bf04e281a9b6b46fc3812c9dbb471afa..HEAD`. |
+| Audited worktree revision = sprint baseline sonar-api | The author-recorded command transcript is `grimoires/loa/coordination/collection-report/baseline-audit.md`. Independently rerun its repository-identity, commit-existence, baseline-inspection, and delivery-boundary commands; the transcript is advisory evidence, not a CI attestation. |
 | Kitchen EVM-only key + `order_id` | The request requires `order_id` and the key is numeric `chainId` plus an EVM-shaped `0x` contract (`src/kitchen/types.ts:11-16`, `src/kitchen/types.ts:29-40`). The durable table stores `order_id` and uses `(chain_id, contract)` as its primary key (`migrations/kitchen_ingest_jobs.sql:4-16`). |
 | Unconditional `TrackedErc721` patch | `appendTrackedErc721ToChainBlock` inserts the address into an existing `TrackedErc721` block or creates that block when absent (`src/kitchen/config-patcher.ts:51-94`); the ingest patch path calls it without a token-standard probe (`src/kitchen/config-patcher.ts:96-113`). |
 | No collection resolver package | Negative structural probe: `test -z "$(find src -maxdepth 2 \( -type d -o -type f \) -path '*resolver*' -print)"`; protocol inventory probe: `find packages/protocol -maxdepth 2 -type f -print` returns only `packages/protocol/beacon.yaml`. The sole protocol artifact declares the existing GraphQL schema as the public protocol surface (`packages/protocol/beacon.yaml:86-94`), not a collection resolver. |
