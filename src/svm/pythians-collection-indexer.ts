@@ -24,12 +24,15 @@
  */
 
 import { fileURLToPath } from "node:url";
+import { toRows } from "./collection-nft-rows";
 import { installMeterExitLog } from "./helius-meter";
 import {
   DasNftCollectionSource,
-  type CollectionSnapshot,
   type NftCollectionSource,
 } from "./nft-collection-source";
+
+/** Re-export the shared persistence projector (exact prior public surface). */
+export { toRows, type NftRow } from "./collection-nft-rows";
 
 // ── CONFIG (the only collection-specific surface) ───────────────────────────
 export const PYTHIANS_COLLECTION = "pyTh2UtBKfuDW6KCdT3swospYeoLmmKaGujWA91Moru";
@@ -61,22 +64,6 @@ const COUNT = `query Cnt($ck: String!) {
   svm_collection_nft_aggregate(where: { collection_key: { _eq: $ck } }) { aggregate { count } }
 }`;
 
-type NftRow = {
-  id: string; // nft mint
-  collection_key: string;
-  collection_mint: string;
-  nft_mint: string;
-  owner: string;
-  delegate: string | null;
-  name: string | null;
-  image: string | null;
-  uri: string | null;
-  compressed: boolean;
-  slot: number;
-  source: string;
-  updated_at: string;
-};
-
 async function hasura<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   const res = await fetch(`${HASURA}/v1/graphql`, {
     method: "POST",
@@ -90,25 +77,6 @@ async function hasura<T>(query: string, variables: Record<string, unknown>): Pro
   const d = (await res.json()) as { data?: T; errors?: unknown };
   if (d.errors) throw new Error(`hasura: ${JSON.stringify(d.errors)}`);
   return d.data as T;
-}
-
-/** Map an ownership snapshot to Hasura rows (keyed on the NFT mint). Exported for tests. */
-export function toRows(snap: CollectionSnapshot, collectionKey: string, nowIso: string): NftRow[] {
-  return snap.members.map((m) => ({
-    id: m.nftMint,
-    collection_key: collectionKey,
-    collection_mint: snap.collectionMint,
-    nft_mint: m.nftMint,
-    owner: m.owner,
-    delegate: m.delegate,
-    name: m.name,
-    image: m.image,
-    uri: m.uri,
-    compressed: m.compressed,
-    slot: snap.slot,
-    source: snap.source,
-    updated_at: nowIso,
-  }));
 }
 
 function chunk<T>(arr: readonly T[], size: number): T[][] {

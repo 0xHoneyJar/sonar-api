@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": [
+    "src/collection-resolver/**/*.ts",
+    "src/svm/collection-nft-rows.ts",
+    "src/svm/nft-collection-source.ts",
+    "src/svm/helius-meter.ts",
+    "test/collection-resolver.hermetic.test.ts"
+  ]
+}

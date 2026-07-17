@@ -11,6 +11,9 @@ importers:
       '@effect/schema':
         specifier: ^0.75.0
         version: 0.75.5(effect@3.21.2)
+      '@freeside/collection-protocol':
+        specifier: file:./vendor/collection-protocol/freeside-collection-protocol-1.0.0.tgz
+        version: file:vendor/collection-protocol/freeside-collection-protocol-1.0.0.tgz(effect@3.21.2)
       '@hono/node-server':
         specifier: ^1.14.4
         version: 1.19.5(hono@4.12.23)
@@ -27,7 +30,7 @@ importers:
         specifier: ^2.0.0
         version: 2.1.0
       effect:
-        specifier: ^3.10.0
+        specifier: ^3.21.0
         version: 3.21.2
       envio:
         specifier: 3.2.1
@@ -451,6 +454,12 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@freeside/collection-protocol@file:vendor/collection-protocol/freeside-collection-protocol-1.0.0.tgz':
+    resolution: {integrity: sha512-/QqAf4qeVpsVyGRvxUVDUOS7TQuLWUVy5+5KfZB91BG+qBLKEn2MqXbueZ6CV0un1glJERH/EnuMMkBKTRHCrw==, tarball: file:vendor/collection-protocol/freeside-collection-protocol-1.0.0.tgz}
+    version: 1.0.0
+    peerDependencies:
+      effect: ^3.21.0
 
   '@fuel-ts/crypto@0.96.1':
     resolution: {integrity: sha512-OrAZPZtm8HQouzip621/ci47PeTS06QegGdz7MeN6wK4yeCbJmlRQ1WE9S3iclb3p+VLF0RtbecEbHQfsNgsnA==}
@@ -2393,6 +2402,10 @@ snapshots:
 
   '@esbuild/win32-x64@0.27.7':
     optional: true
+
+  '@freeside/collection-protocol@file:vendor/collection-protocol/freeside-collection-protocol-1.0.0.tgz(effect@3.21.2)':
+    dependencies:
+      effect: 3.21.2
 
   '@fuel-ts/crypto@0.96.1':
     dependencies:
