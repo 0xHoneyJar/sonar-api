@@ -301,12 +301,12 @@ export const createFetchDasSamplePort = (
     request: DasSampleRequest,
   ): Effect.Effect<DasSampleOutcome, never> =>
     Effect.promise(async () => {
+      const budget = remainingMs(request);
+      if (!Number.isFinite(budget)) {
+        return { kind: "unavailable", failure: "malformed" } as const;
+      }
       if (isAbortedOrExpired(request)) {
         return interruptedOutcome(request);
-      }
-      const budget = remainingMs(request);
-      if (!Number.isFinite(budget) || budget <= 0) {
-        return { kind: "unavailable", failure: "malformed" } as const;
       }
       const timeoutController = new AbortController();
       const timer = setTimeout(() => timeoutController.abort("deadline"), budget);
@@ -411,12 +411,12 @@ export const createFetchDasSamplePort = (
     request: DasSampleRequest,
   ): Effect.Effect<DasCollectionAssetOutcome, never> =>
     Effect.promise(async () => {
+      const budget = remainingMs(request);
+      if (!Number.isFinite(budget)) {
+        return { kind: "unavailable", failure: "malformed" } as const;
+      }
       if (isAbortedOrExpired(request)) {
         return interruptedOutcome(request);
-      }
-      const budget = remainingMs(request);
-      if (!Number.isFinite(budget) || budget <= 0) {
-        return { kind: "unavailable", failure: "malformed" } as const;
       }
       const timeoutController = new AbortController();
       const timer = setTimeout(() => timeoutController.abort("deadline"), budget);
