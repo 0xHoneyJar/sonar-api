@@ -398,12 +398,22 @@ export type CapabilityRegistryBaselineMaterial = Schema.Schema.Type<
 /**
  * Epoch-reset signature envelope — algorithm + hex material only.
  * Excess credential/metadata keys are refused at decode.
+ *
+ * Production epoch resets use ed25519. Hermetic test fixtures use
+ * `hermetic_sha512_v1` (see capability-registry/testing.ts).
  */
-export const BaselineSignatureEnvelope = Schema.Struct({
-  algorithm: Schema.Literal("ed25519"),
-  signature_hex: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{128}$/)),
-  public_key_hex: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/)),
-}).annotations({ identifier: "BaselineSignatureEnvelope" });
+export const BaselineSignatureEnvelope = Schema.Union(
+  Schema.Struct({
+    algorithm: Schema.Literal("ed25519"),
+    signature_hex: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{128}$/)),
+    public_key_hex: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/)),
+  }),
+  Schema.Struct({
+    algorithm: Schema.Literal("hermetic_sha512_v1"),
+    signature_hex: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{128}$/)),
+    public_key_hex: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/)),
+  }),
+).annotations({ identifier: "BaselineSignatureEnvelope" });
 export type BaselineSignatureEnvelope = Schema.Schema.Type<
   typeof BaselineSignatureEnvelope
 >;

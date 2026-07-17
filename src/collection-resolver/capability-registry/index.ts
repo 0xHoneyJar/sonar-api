@@ -118,35 +118,5 @@ export {
 
 export {
   rejectAllBaselineSignatures,
-  createHermeticBaselineSignatureVerifier,
-  hermeticBaselineSignatureHex,
   type CapabilityRegistrySignatureVerifier,
 } from "./signature-port.js";
-
-export {
-  defaultMainnetRegistryInput,
-  defaultMainnetNetworkCapabilities,
-  hermeticResolverRegistryInput,
-  hermeticResolverNetworkCapabilities,
-  ethereumMainnetCapability,
-  baseMainnetCapability,
-  optimismMainnetCapability,
-  arbitrumMainnetCapability,
-  berachainMainnetCapability,
-  zoraMainnetCapability,
-  solanaMainnetCapability,
-  robinhoodDisabledCapability,
-  robinhoodRecognizeOnlyCapability,
-  DEFAULT_REGISTRY_EPOCH,
-  DEFAULT_REGISTRY_SEQUENCE,
-  availableOp,
-  disabledOp,
-  disabledPrepareOp,
-  degradedRecognizeOp,
-  degradedPrepareOp,
-  integrityDisabledRecognizeOp,
-  integrityDisabledPrepareOp,
-  eip155,
-  solanaMainnet,
-  FIXTURE_EFFECTIVE_AT,
-} from "./fixtures.js";

@@ -35,8 +35,6 @@ import {
   validateEpochResetSourceSequences,
 } from "./sequencing.js";
 import {
-  createHermeticBaselineSignatureVerifier,
-  hermeticBaselineSignatureHex,
   rejectAllBaselineSignatures,
   type CapabilityRegistrySignatureVerifier,
 } from "./signature-port.js";
@@ -517,11 +515,7 @@ export const compareSnapshotIdentities = (
   right: CapabilityRegistryVersion,
 ) => compareCapabilityRegistryVersions(left, right);
 
-export {
-  createHermeticBaselineSignatureVerifier,
-  hermeticBaselineSignatureHex,
-  rejectAllBaselineSignatures,
-};
+export { rejectAllBaselineSignatures };
 
 /** Helper for tests: build a CR-001 baseline for an epoch reset candidate. */
 export const makeEpochResetBaseline = (input: {

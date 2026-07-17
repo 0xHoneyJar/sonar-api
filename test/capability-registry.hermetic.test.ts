@@ -10,32 +10,34 @@ import {
   assertFrozen,
   buildBaselineMaterial,
   compareSnapshotIdentities,
-  createHermeticBaselineSignatureVerifier,
   decodeCapabilityRegistrySnapshot,
-  defaultMainnetRegistryInput,
-  degradedPrepareOp,
-  degradedRecognizeOp,
-  ethereumMainnetCapability,
   getSnapshotIdentity,
-  hermeticBaselineSignatureHex,
-  hermeticResolverRegistryInput,
   lookupNetwork,
   makeEpochResetBaseline,
   projectOrderingCapabilityViews,
   rejectAllBaselineSignatures,
-  robinhoodDisabledCapability,
-  robinhoodRecognizeOnlyCapability,
   selectDefaultRecognizeNetworks,
   selectDiagnosticRecognizeNetworks,
-  solanaMainnetCapability,
   toRecognizeCapabilitySnapshot,
-  availableOp,
-  disabledPrepareOp,
-  baseMainnetCapability,
   withInitialSourceSequences,
-  FIXTURE_EFFECTIVE_AT,
   type NetworkCapability,
 } from "../src/collection-resolver/capability-registry/index.js";
+import {
+  availableOp,
+  baseMainnetCapability,
+  createHermeticBaselineSignatureVerifier,
+  defaultMainnetRegistryInput,
+  degradedPrepareOp,
+  degradedRecognizeOp,
+  disabledPrepareOp,
+  ethereumMainnetCapability,
+  hermeticBaselineSignatureHex,
+  hermeticResolverRegistryInput,
+  robinhoodDisabledCapability,
+  robinhoodRecognizeOnlyCapability,
+  solanaMainnetCapability,
+  FIXTURE_EFFECTIVE_AT,
+} from "../src/collection-resolver/capability-registry/testing.js";
 import { classifyCollectionIdentifier } from "../src/collection-resolver/identifier.js";
 
 const expectSuccess = <A, E>(effect: Effect.Effect<A, E>): A => {
@@ -953,7 +955,7 @@ describe("CR-101 probe 3 — epoch reset binding signatures", () => {
           networks: candidateNetworks,
           baseline,
           signature: {
-            algorithm: "ed25519",
+            algorithm: "hermetic_sha512_v1",
             public_key_hex: publicKey,
             signature_hex: hermeticBaselineSignatureHex(
               material.binding_digest.digest,
@@ -1047,7 +1049,7 @@ describe("CR-101 probe 3 — epoch reset binding signatures", () => {
           networks: candidateNetworks,
           baseline,
           signature: {
-            algorithm: "ed25519",
+            algorithm: "hermetic_sha512_v1",
             public_key_hex: publicKey,
             signature_hex: hermeticBaselineSignatureHex(
               material.binding_digest.digest,
@@ -1088,7 +1090,7 @@ describe("CR-101 probe 3 — epoch reset binding signatures", () => {
             }),
           ),
           signature: {
-            algorithm: "ed25519",
+            algorithm: "hermetic_sha512_v1",
             public_key_hex: publicKey,
             signature_hex: hermeticBaselineSignatureHex(
               material.binding_digest.digest,
@@ -1613,7 +1615,7 @@ describe("CR-101 probe 7 — transition and Ordering audit fields", () => {
     const verifier = createHermeticBaselineSignatureVerifier();
     const publicKey = "aa".repeat(32);
     const validSignature = {
-      algorithm: "ed25519" as const,
+      algorithm: "hermetic_sha512_v1" as const,
       public_key_hex: publicKey,
       signature_hex: hermeticBaselineSignatureHex(
         material.binding_digest.digest,
