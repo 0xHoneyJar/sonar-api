@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS kitchen_job_correlations (
 
 CREATE TABLE IF NOT EXISTS kitchen_job_identity_migration_state (
   singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
-  phase text NOT NULL,
+  phase text NOT NULL CHECK (phase IN ('legacy', 'dual_write', 'parity', 'canonical', 'constrained')),
   divergence boolean NOT NULL DEFAULT false,
   reason text,
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -304,7 +304,7 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
     const result = await this.pool.query<JobRow>(
       `SELECT ${JOB_COLUMNS} FROM kitchen_ingest_jobs
        WHERE chain_id = $1 AND lower(contract) = lower($2)
-       ORDER BY created_at DESC LIMIT 1`,
+       ORDER BY created_at ASC LIMIT 1`,
       [key.chainId, key.contract],
     );
     return result.rows[0] ? rowToRecord(result.rows[0]) : undefined;

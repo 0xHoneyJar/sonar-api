@@ -5,7 +5,6 @@ import { deploymentFromCollectionKey, physicalJobKey } from "../src/kitchen/norm
 
 const connectionString = process.env.KITCHEN_DATABASE_URL?.trim();
 if (!connectionString) throw new Error("KITCHEN_DATABASE_URL is required");
-const pool = new pg.Pool({ connectionString });
 const lockTimeoutMs = (() => {
   const raw = process.env.KITCHEN_BACKFILL_LOCK_TIMEOUT_MS?.trim() ?? "5000";
   const parsed = Number(raw);
@@ -14,6 +13,13 @@ const lockTimeoutMs = (() => {
   }
   return parsed;
 })();
+// Apply bounds at connection startup so authority and batch reads are covered,
+// not only the later per-row transaction.
+const pool = new pg.Pool({
+  connectionString,
+  connectionTimeoutMillis: lockTimeoutMs,
+  options: `-c lock_timeout=${lockTimeoutMs}ms -c statement_timeout=${lockTimeoutMs}ms`,
+});
 
 type CanonicalIdentityRow = {
   job_id: string | null;
