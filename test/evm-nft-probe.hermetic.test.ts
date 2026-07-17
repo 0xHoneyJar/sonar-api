@@ -37,6 +37,7 @@ import {
 } from "../src/collection-resolver/adapters/evm/index.js";
 import {
   decodeAbiBool,
+  decodeAbiString,
   encodeSupportsInterface,
   ERC721_SUPPORTS_CALLDATA,
 } from "../src/collection-resolver/adapters/evm/abi.js";
@@ -183,6 +184,14 @@ describe("CR-103 EVM NFT probe adapter", () => {
     expect(decodeAbiBool(`0x${"0".repeat(63)}1`)).toBe(true);
     expect(decodeAbiBool(`0x${"0".repeat(63)}2`)).toBeUndefined();
     expect(decodeAbiBool(`0x1${"0".repeat(63)}`)).toBeUndefined();
+  });
+
+  it("rejects ABI strings containing embedded NUL bytes", () => {
+    const text = Buffer.from("safe\u0000evil", "utf8");
+    const offset = `${"0".repeat(62)}20`;
+    const length = text.byteLength.toString(16).padStart(64, "0");
+    const data = text.toString("hex").padEnd(64, "0");
+    expect(decodeAbiString(`0x${offset}${length}${data}`, 64)).toBeUndefined();
   });
 
   it("treats a non-canonical RPC bool word as absent interface evidence", async () => {
@@ -588,7 +597,7 @@ describe("CR-103 EVM NFT probe adapter", () => {
     expect(outcome.token_standard).toBe("erc721");
     expect(outcome.recognition).toBe("recognized");
     expect(outcome.name).toBe("Meta");
-    expect(outcome.metadata_quality).toBe("partial");
+    expect(outcome.metadata_quality).toBe("onchain");
   });
 
   it("degrades metadata on Promise rejection without erasing recognition", async () => {
@@ -614,14 +623,22 @@ describe("CR-103 EVM NFT probe adapter", () => {
     expect(outcome.recognition).toBe("recognized");
     expect(outcome.token_standard).toBe("erc721");
     expect(outcome.name).toBe("Meta");
-    expect(outcome.metadata_quality).toBe("partial");
+    expect(outcome.metadata_quality).toBe("onchain");
     assertNoProviderLeak(outcome);
   });
 
   it("degrades metadata on enrich timeout without erasing recognition", async () => {
     const clock = createProcessMonotonicClock();
+    let metadataAbortObserved = false;
     const metadata: EvmMetadataEnrichPort = {
-      enrich: async () => {
+      enrich: async ({ abort }) => {
+        abort.addEventListener(
+          "abort",
+          () => {
+            metadataAbortObserved = true;
+          },
+          { once: true },
+        );
         await new Promise((r) => setTimeout(r, 250));
         return {
           metadata_quality: "external_pointer",
@@ -644,14 +661,15 @@ describe("CR-103 EVM NFT probe adapter", () => {
     });
     const outcome = await runProbe(
       adapter,
-      requestFor({ clock, deadline_at_ms: clock.nowMs() + 40 }),
+      requestFor({ clock, deadline_at_ms: clock.nowMs() + 200 }),
     );
     expect(outcome.kind).toBe("hit");
     if (outcome.kind !== "hit") return;
     expect(outcome.recognition).toBe("recognized");
     expect(outcome.token_standard).toBe("erc721");
     expect(outcome.name).toBe("Meta");
-    expect(outcome.metadata_quality).toBe("partial");
+    expect(outcome.metadata_quality).toBe("onchain");
+    expect(metadataAbortObserved).toBe(true);
     expect(JSON.stringify(outcome)).not.toContain("LateFromUri");
   });
 
@@ -685,19 +703,24 @@ describe("CR-103 EVM NFT probe adapter", () => {
     const clock = virtualClock();
     const controller = makeAbort();
     let enrichStarted = false;
-    let enrichFinished = false;
+    let enrichCancelled = false;
     const metadata: EvmMetadataEnrichPort = {
-      enrich: async () => {
+      enrich: ({ abort }) => {
         enrichStarted = true;
         controller.abort("during-enrich");
-        await new Promise((r) => setTimeout(r, 20));
-        enrichFinished = true;
-        return {
-          metadata_quality: "external_pointer",
-          name: "LateName",
-          symbol: "LATE",
-          image: undefined,
-        };
+        return new Promise((resolve) => {
+          const cancel = () => {
+            enrichCancelled = true;
+            resolve({
+              metadata_quality: "partial",
+              name: undefined,
+              symbol: undefined,
+              image: undefined,
+            });
+          };
+          if (abort.aborted) cancel();
+          else abort.addEventListener("abort", cancel, { once: true });
+        });
       },
     };
     const adapter = makeAdapter({
@@ -719,7 +742,7 @@ describe("CR-103 EVM NFT probe adapter", () => {
       ),
     );
     expect(enrichStarted).toBe(true);
-    expect(enrichFinished).toBe(true);
+    expect(enrichCancelled).toBe(true);
     expect(outcome.kind).toBe("unavailable");
     if (outcome.kind === "unavailable") {
       expect(outcome.safe_code).toBe("rpc_aborted");
@@ -947,7 +970,7 @@ describe("CR-103 EVM NFT probe adapter", () => {
     expect(outcome.kind).toBe("hit");
     if (outcome.kind !== "hit") return;
     expect(outcome.recognition).toBe("recognized");
-    expect(outcome.metadata_quality).toBe("partial");
+    expect(outcome.metadata_quality).toBe("onchain");
     expect(elapsed).toBeLessThan(80);
     expect(JSON.stringify(outcome)).not.toContain("ShouldNotApply");
   });
@@ -1267,7 +1290,7 @@ describe("CR-103 ↔ CR-102 metadata sub-budget under controlling race", () => {
   }) => {
     const recognized = input.response.candidates.filter((c) => c.recognition === "recognized");
     expect(recognized).toHaveLength(1);
-    expect(recognized[0]?.metadata_quality).toBe("partial");
+    expect(recognized[0]?.metadata_quality).toBe("onchain");
     expect(recognized[0]?.identity.name).toBe("Meta");
     expect(JSON.stringify(input.response)).not.toContain("LateRemote");
     // Prompt completion before the configured outer deadline (CR-102 race included).

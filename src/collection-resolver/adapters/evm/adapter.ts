@@ -113,6 +113,7 @@ const enrichMetadataBounded = (input: {
   readonly uri: string;
   readonly metadata_deadline_at_ms: number;
   readonly clock: MonotonicClock & DeadlineTimerPort;
+  readonly parent_abort: AbortSignal;
 }): Effect.Effect<MetadataEnrichResult, never> => {
   if (input.metadata_deadline_at_ms <= input.clock.nowMs()) {
     return Effect.succeed(degradedMetadata());
@@ -123,17 +124,33 @@ const enrichMetadataBounded = (input: {
       new Promise<MetadataEnrichResult>((resolve) => {
         let settled = false;
         let cancelDeadline = (): void => undefined;
+        const controller = new AbortController();
+        const onParentAbort = (): void => {
+          controller.abort("parent_abort");
+          finish(degradedMetadata());
+        };
         const finish = (value: MetadataEnrichResult): void => {
           if (settled) return;
           settled = true;
           cancelDeadline();
+          input.parent_abort.removeEventListener("abort", onParentAbort);
           resolve(value);
         };
-        cancelDeadline = input.clock.scheduleAt(input.metadata_deadline_at_ms, () =>
-          finish(degradedMetadata()),
-        );
+        if (input.parent_abort.aborted) {
+          onParentAbort();
+          return;
+        }
+        input.parent_abort.addEventListener("abort", onParentAbort, { once: true });
+        cancelDeadline = input.clock.scheduleAt(input.metadata_deadline_at_ms, () => {
+          controller.abort("metadata_deadline");
+          finish(degradedMetadata());
+        });
         void input
-          .enrich({ uri: input.uri, purpose: "collection_metadata" })
+          .enrich({
+            uri: input.uri,
+            purpose: "collection_metadata",
+            abort: controller.signal,
+          })
           .then(
             (value) => finish(value),
             () => finish(degradedMetadata()),
@@ -395,6 +412,10 @@ export const createEvmNftProbeAdapter = (
       const contractUri = callString(uriExit.right, decodeBoundedContractUri);
       let metaName: string | undefined;
       let metaSymbol: string | undefined;
+      const degradeRemoteQuality = (): typeof metadataQuality =>
+        onchainName !== undefined || onchainSymbol !== undefined
+          ? "onchain"
+          : "partial";
 
       // Index evidence before optional remote metadata — recognition must not wait on enrich.
       const chainId = Number(request.network.network_reference);
@@ -432,7 +453,7 @@ export const createEvmNftProbeAdapter = (
         if (metaGate === "aborted") return canonicalUnavailable("rpc_aborted");
         if (metaGate === "deadline") {
           // Outer budget exhausted — degrade quality; keep recognition.
-          metadataQuality = "partial";
+          metadataQuality = degradeRemoteQuality();
         } else {
           const metadataDeadline = metadataSubDeadlineAtMs({
             now_ms: clock.nowMs(),
@@ -441,13 +462,14 @@ export const createEvmNftProbeAdapter = (
           });
           if (metadataDeadline === undefined) {
             // Insufficient reserve for post-metadata return — skip enrich immediately.
-            metadataQuality = "partial";
+            metadataQuality = degradeRemoteQuality();
           } else {
             const enrichment = yield* enrichMetadataBounded({
               enrich: deps.metadata.enrich.bind(deps.metadata),
               uri: contractUri,
               metadata_deadline_at_ms: metadataDeadline,
               clock,
+              parent_abort: request.abort.signal,
             });
 
             // Post-abort: do not apply late metadata mutation.
@@ -481,7 +503,7 @@ export const createEvmNftProbeAdapter = (
               }
             } else {
               // Degrade metadata quality without erasing recognition / on-chain name.
-              metadataQuality = "partial";
+              metadataQuality = degradeRemoteQuality();
             }
           }
         }

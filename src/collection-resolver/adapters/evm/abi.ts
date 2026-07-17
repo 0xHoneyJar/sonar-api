@@ -64,7 +64,11 @@ export const decodeAbiString = (
     const hexLen = length * 2;
     if (body.length < dataStart + hexLen) return undefined;
     const bytes = Buffer.from(body.slice(dataStart, dataStart + hexLen), "hex");
-    const text = bytes.toString("utf8").replace(/\u0000/g, "").trim();
+    const decoded = bytes.toString("utf8");
+    // Embedded NUL is not harmless padding inside the ABI-declared byte
+    // length. Reject instead of concatenating attacker-controlled segments.
+    if (decoded.includes("\u0000")) return undefined;
+    const text = decoded.trim();
     if (text.length === 0) return undefined;
     return text.length > maxChars ? text.slice(0, maxChars) : text;
   } catch {

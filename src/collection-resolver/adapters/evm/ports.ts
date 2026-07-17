@@ -100,6 +100,8 @@ export interface EvmMetadataEnrichPort {
   readonly enrich: (input: {
     readonly uri: string;
     readonly purpose?: "collection_metadata";
+    /** Adapter sub-deadline / parent abort propagated into CR-004 retrieval. */
+    readonly abort: AbortSignal;
   }) => Promise<{
     readonly metadata_quality:
       | "onchain"
