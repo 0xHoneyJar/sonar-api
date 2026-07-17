@@ -56,7 +56,7 @@ import {
 } from "../src/metadata-egress/index.js";
 import { DEFAULT_METADATA_EGRESS_LIMITS } from "../src/metadata-egress/limits.js";
 import { isUrlPolicyError } from "../src/metadata-egress/url-policy.js";
-import { deflateSync } from "node:zlib";
+import { deflateSync, gzipSync } from "node:zlib";
 
 const fixedNow = () => new Date("2026-07-16T12:00:00.000Z");
 
@@ -421,6 +421,88 @@ describe("CR-004 retrieveMetadata hostile fixtures", () => {
     expect(dnsAborted).toBe(true);
     expect(dnsActive).toBe(false);
     expect(transportCalls).toBe(0);
+  });
+
+  it("cancels the DNS deadline after an immediately resolved lookup", async () => {
+    let deadline: (() => void) | undefined;
+    let cancelled = false;
+    const result = await retrieveMetadata(
+      {
+        uri: "https://sync-dns.example.test/meta.json",
+        purpose: "collection_metadata",
+        now: fixedNow,
+      },
+      {
+        ports: {
+          dns: {
+            lookup: () => Promise.resolve([{ address: PUBLIC_V4, family: "ipv4" }]),
+          },
+          transport: {
+            exchange: async () => ({
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: new Uint8Array(Buffer.from("{}")),
+            }),
+          },
+        },
+        clock: { nowMs: () => 1_000 },
+        scheduler: {
+          scheduleAt: (_at, callback) => {
+            deadline = callback;
+            return () => {
+              cancelled = true;
+              deadline = undefined;
+            };
+          },
+        },
+      },
+    );
+
+    expect(result.outcome).toBe("ok");
+    expect(cancelled).toBe(true);
+    expect(deadline).toBeUndefined();
+  });
+
+  it("propagates caller cancellation through the pinned transport", async () => {
+    const controller = new AbortController();
+    let observedSignal: AbortSignal | undefined;
+    let markTransportStarted: (() => void) | undefined;
+    const transportStarted = new Promise<void>((resolve) => {
+      markTransportStarted = resolve;
+    });
+    const resultPromise = retrieveMetadata(
+      {
+        uri: "https://cancel.example.test/meta.json",
+        purpose: "collection_metadata",
+        now: fixedNow,
+        signal: controller.signal,
+      },
+      {
+        ports: {
+          dns: {
+            lookup: async () => [{ address: PUBLIC_V4, family: "ipv4" }],
+          },
+          transport: {
+            exchange: (request) => {
+              observedSignal = request.signal;
+              markTransportStarted?.();
+              return new Promise((_resolve, reject) => {
+                request.signal?.addEventListener(
+                  "abort",
+                  () => reject(new Error("request aborted")),
+                  { once: true },
+                );
+              });
+            },
+          },
+        },
+      },
+    );
+    await transportStarted;
+    controller.abort();
+    const result = await resultPromise;
+    expect(observedSignal).toBe(controller.signal);
+    expect(result).toMatchObject({ outcome: "partial", reason: "request_cancelled" });
   });
 
   it("never calls transport for 6to4 relay anycast resolutions", async () => {
@@ -1637,6 +1719,36 @@ describe("CR-004 retrieveMetadata hostile fixtures", () => {
     const result = await retrieveMetadata(
       {
         uri: "https://case.example.test/meta.json",
+        purpose: "collection_metadata",
+        now: fixedNow,
+      },
+      { ports },
+    );
+    expect(result.outcome).toBe("ok");
+  });
+
+  it("normalizes a supported Content-Encoding token with parameters", async () => {
+    const body = new Uint8Array(Buffer.from("{}"));
+    const ports = createHermeticPorts({
+      dns: {
+        "encoding.example.test": [{ address: PUBLIC_V4, family: "ipv4" }],
+      },
+      transport: {
+        "https://encoding.example.test/meta.json": {
+          kind: "response",
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "content-encoding": "GZip; level=9",
+          },
+          body: new Uint8Array(gzipSync(body)),
+        },
+      },
+    });
+
+    const result = await retrieveMetadata(
+      {
+        uri: "https://encoding.example.test/meta.json",
         purpose: "collection_metadata",
         now: fixedNow,
       },

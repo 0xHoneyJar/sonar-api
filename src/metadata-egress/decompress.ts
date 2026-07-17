@@ -18,7 +18,9 @@ export const decompressBounded = (input: {
   readonly content_encoding: string | undefined;
   readonly max_decompressed_bytes: number;
 }): DecompressResult => {
-  const encoding = (input.content_encoding ?? "identity").toLowerCase().trim();
+  const encodingHeader = (input.content_encoding ?? "identity").toLowerCase().trim();
+  const encodings = encodingHeader.split(",").map((value) => value.trim()).filter(Boolean);
+  const encoding = (encodings[0] ?? "identity").split(";", 1)[0]!.trim();
   if (encoding === "" || encoding === "identity") {
     if (input.body.byteLength > input.max_decompressed_bytes) {
       return {
@@ -30,11 +32,14 @@ export const decompressBounded = (input: {
     return { ok: true, body: input.body };
   }
 
-  if (encoding !== "gzip" && encoding !== "deflate" && encoding !== "x-gzip") {
+  if (
+    encodings.length > 1 ||
+    (encoding !== "gzip" && encoding !== "deflate" && encoding !== "x-gzip")
+  ) {
     return {
       ok: false,
       reason: "content_type_denied",
-      safe_message: `unsupported Content-Encoding "${encoding}"`,
+      safe_message: `unsupported Content-Encoding "${encodingHeader}"`,
     };
   }
 

@@ -25,6 +25,7 @@ export type MetadataFailureReason =
   | "connect_timeout"
   | "header_timeout"
   | "body_timeout"
+  | "request_cancelled"
   | "compressed_size_exceeded"
   | "decompressed_size_exceeded"
   | "content_type_denied"
@@ -93,6 +94,8 @@ export interface MetadataRetrievalRequest {
   readonly purpose: MetadataRetrievalPurpose;
   /** Deterministic clock for hermetic fixtures. */
   readonly now?: () => Date;
+  /** Optional caller cancellation propagated through the pinned transport. */
+  readonly signal?: AbortSignal;
 }
 
 /** Headers the egress boundary is willing to send (deny-by-default). */
@@ -123,6 +126,7 @@ export interface TransportRequest {
   readonly header_timeout_ms: number;
   readonly body_timeout_ms: number;
   readonly max_compressed_bytes: number;
+  readonly signal?: AbortSignal;
 }
 
 export interface TransportResponse {

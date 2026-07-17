@@ -198,6 +198,16 @@ const resolveTarget = async (input: {
       resolve(result);
     };
 
+    cancelDeadline = input.scheduler.scheduleAt(deadlineAt, () => {
+      controller.abort("dns_timeout");
+      finish({
+        ok: false,
+        reason: "dns_timeout",
+        safe_message: "DNS resolution deadline exceeded",
+      });
+    });
+    if (settled) return;
+
     let work: Promise<ReadonlyArray<{ address: string; family: AddressFamily }>>;
     try {
       work = input.ports.dns.lookup(parsed.hostname, {
@@ -211,14 +221,6 @@ const resolveTarget = async (input: {
       });
       return;
     }
-    cancelDeadline = input.scheduler.scheduleAt(deadlineAt, () => {
-      controller.abort("dns_timeout");
-      finish({
-        ok: false,
-        reason: "dns_timeout",
-        safe_message: "DNS resolution deadline exceeded",
-      });
-    });
     void work.then(
       (resolved) => finish({ ok: true, answers: resolved }),
       () =>
@@ -277,6 +279,9 @@ const mapTransportError = (
   }
   if (/body.?timeout/i.test(message)) {
     return { reason: "body_timeout", safe_message: "body deadline exceeded" };
+  }
+  if (/request.?cancel|request.?abort/i.test(message)) {
+    return { reason: "request_cancelled", safe_message: "metadata request cancelled" };
   }
   if (/compressed.?size/i.test(message)) {
     return {
@@ -396,6 +401,7 @@ export const retrieveMetadata = async (
         header_timeout_ms: limits.header_timeout_ms,
         body_timeout_ms: limits.body_timeout_ms,
         max_compressed_bytes: limits.max_compressed_bytes,
+        signal: request.signal,
       });
     } catch (cause) {
       const mapped = mapTransportError(cause);

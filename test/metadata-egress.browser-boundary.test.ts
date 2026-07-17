@@ -18,7 +18,27 @@ import {
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-const NON_METADATA_FETCH_MARKER = "@non-metadata-fetch";
+const DIRECT_FETCH_ALLOWLIST: Readonly<Record<string, { maxCalls: number; destination: string }>> = {
+  "src/kitchen/ingest-worker.ts": { maxCalls: 1, destination: "operator restart webhook" },
+  "src/labels/ensure-schema.ts": { maxCalls: 2, destination: "Hasura control plane" },
+  "src/labels/ingest.ts": { maxCalls: 1, destination: "Hasura control plane" },
+  "src/self/live/graphql-introspect.live.ts": { maxCalls: 1, destination: "operator GraphQL endpoint" },
+  "src/self/live/railway.live.ts": { maxCalls: 1, destination: "Railway API" },
+  "src/sense/live/sonar-sense.live.ts": { maxCalls: 1, destination: "operator probe URL" },
+  "src/svm/collection-event-indexer.ts": { maxCalls: 1, destination: "Hasura GraphQL" },
+  "src/svm/collection-event-source.ts": { maxCalls: 2, destination: "Helius webhook API" },
+  "src/svm/collection-event-writer.ts": { maxCalls: 1, destination: "Hasura GraphQL" },
+  "src/svm/dune-client.ts": { maxCalls: 1, destination: "Dune API" },
+  "src/svm/ensure-kind-constraint.ts": { maxCalls: 1, destination: "Hasura control plane" },
+  "src/svm/genesis-stone-indexer.ts": { maxCalls: 1, destination: "Hasura GraphQL" },
+  "src/svm/nft-collection-source.ts": { maxCalls: 1, destination: "declared Solana RPC" },
+  "src/svm/probe-collection.ts": { maxCalls: 1, destination: "declared DAS RPC" },
+  "src/svm/pythians-collection-indexer.ts": { maxCalls: 1, destination: "Hasura GraphQL" },
+  "src/svm/sqd-client.ts": { maxCalls: 2, destination: "SQD API" },
+  "src/svm/sqd-liveness-monitor.ts": { maxCalls: 1, destination: "SQD reference RPC" },
+  "src/svm/sqd-loader.ts": { maxCalls: 1, destination: "Hasura GraphQL" },
+  "src/svm/warehouse-loader.ts": { maxCalls: 1, destination: "Hasura GraphQL" },
+};
 
 const walkFiles = (dir: string, out: string[] = []): string[] => {
   if (!existsSync(dir)) return out;
@@ -41,7 +61,7 @@ const walkFiles = (dir: string, out: string[] = []): string[] => {
   return out;
 };
 
-const unreviewedDirectFetchCalls = (file: string, source: string): number[] => {
+const directFetchCalls = (file: string, source: string): number[] => {
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const lines: number[] = [];
   const visit = (node: ts.Node): void => {
@@ -50,10 +70,7 @@ const unreviewedDirectFetchCalls = (file: string, source: string): number[] => {
       ts.isIdentifier(node.expression) &&
       node.expression.text === "fetch"
     ) {
-      const prefix = source.slice(Math.max(0, node.getStart(parsed) - 160), node.getStart(parsed));
-      if (!prefix.includes(NON_METADATA_FETCH_MARKER)) {
-        lines.push(parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1);
-      }
+      lines.push(parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1);
     }
     ts.forEachChild(node, visit);
   };
@@ -88,9 +105,12 @@ describe("CR-004 browser metadata boundary", () => {
       const rel = relative(ROOT, file);
       if (rel.startsWith("src/metadata-egress/")) continue;
       const source = readFileSync(file, "utf8");
-      const unreviewed = unreviewedDirectFetchCalls(file, source);
-      for (const line of unreviewed) {
-        offenders.push(`${rel}:${line}: direct fetch lacks ${NON_METADATA_FETCH_MARKER}`);
+      const calls = directFetchCalls(file, source);
+      const allowance = DIRECT_FETCH_ALLOWLIST[rel];
+      if (calls.length > (allowance?.maxCalls ?? 0)) {
+        for (const line of calls.slice(allowance?.maxCalls ?? 0)) {
+          offenders.push(`${rel}:${line}: direct fetch exceeds structural allowlist`);
+        }
       }
     }
 

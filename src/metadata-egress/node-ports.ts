@@ -66,12 +66,14 @@ export const createNodePinnedTransport = (): PinnedTransportPort => ({
       let settled = false;
       let headersReceived = false;
       let bodyTimer: ReturnType<typeof setTimeout> | undefined;
+      let removeAbortListener: () => void = () => undefined;
       const fail = (error: Error) => {
         if (settled) return;
         settled = true;
         clearTimeout(connectTimer);
         clearTimeout(headerTimer);
         if (bodyTimer !== undefined) clearTimeout(bodyTimer);
+        removeAbortListener();
         reject(error);
       };
 
@@ -133,6 +135,7 @@ export const createNodePinnedTransport = (): PinnedTransportPort => ({
             if (settled) return;
             settled = true;
             if (bodyTimer !== undefined) clearTimeout(bodyTimer);
+            removeAbortListener();
             const headerMap: Record<string, string> = {};
             for (const [key, value] of Object.entries(res.headers)) {
               if (typeof value === "string") headerMap[key] = value;
@@ -156,6 +159,17 @@ export const createNodePinnedTransport = (): PinnedTransportPort => ({
           });
         },
       );
+
+      const onAbort = () => {
+        fail(new Error("request cancelled"));
+        req.destroy();
+      };
+      request.signal?.addEventListener("abort", onAbort, { once: true });
+      removeAbortListener = () => request.signal?.removeEventListener("abort", onAbort);
+      if (request.signal?.aborted) {
+        onAbort();
+        return;
+      }
 
       req.on("socket", (socket) => {
         socket.once("connect", () => {
