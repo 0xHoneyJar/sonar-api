@@ -49,6 +49,15 @@ export const createNodeDnsPort = (): DnsPort => ({
   },
 });
 
+/** Hostname option for Node http(s).request against a pinned address. */
+export const pinnedConnectHostname = (target: {
+  readonly pinned_address: string;
+  readonly address_family: "ipv4" | "ipv6";
+}): string =>
+  target.address_family === "ipv6"
+    ? `[${target.pinned_address}]`
+    : target.pinned_address;
+
 export const createNodePinnedTransport = (): PinnedTransportPort => ({
   exchange: (request: TransportRequest): Promise<TransportResponse> =>
     new Promise((resolve, reject) => {
@@ -89,9 +98,11 @@ export const createNodePinnedTransport = (): PinnedTransportPort => ({
         }
       }, request.header_timeout_ms);
 
+      // Node requires IPv6 peers via `hostname` with brackets; the `host`
+      // alias is IPv4-oriented and can mis-bind unbracketed hextet pins.
       const req = lib.request(
         {
-          host: request.target.pinned_address,
+          hostname: pinnedConnectHostname(request.target),
           port: request.target.port,
           path: `${request.target.url.pathname}${request.target.url.search}`,
           method: request.method,

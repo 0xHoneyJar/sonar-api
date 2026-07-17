@@ -25,6 +25,7 @@ import {
   createHermeticPorts,
   gzipBomb,
 } from "../src/metadata-egress/testing.js";
+import { pinnedConnectHostname } from "../src/metadata-egress/node-ports.js";
 import {
   assertNoInjectedSecrets,
   classifyIpAddress,
@@ -2383,5 +2384,22 @@ describe("CR-004 resolver and report worker ports", () => {
       expect(a.provenance.content_sha256).toBeDefined();
       expect(a.provenance.terminal_address_class).toBe("public_ipv4");
     }
+  });
+});
+
+describe("CR-004 Node pinned transport connect host", () => {
+  it("brackets IPv6 pins and leaves IPv4 unbracketed", () => {
+    expect(
+      pinnedConnectHostname({
+        pinned_address: PUBLIC_V6_LITERAL,
+        address_family: "ipv6",
+      }),
+    ).toBe(`[${PUBLIC_V6_LITERAL}]`);
+    expect(
+      pinnedConnectHostname({
+        pinned_address: PUBLIC_V4,
+        address_family: "ipv4",
+      }),
+    ).toBe(PUBLIC_V4);
   });
 });
