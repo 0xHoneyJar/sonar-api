@@ -100,7 +100,13 @@ export const createHermeticBoundedDeps = (
     (options.observer as ReturnType<typeof createMemoryRecognitionObserver> | undefined) ??
     createMemoryRecognitionObserver({
       metrics,
-      allowedNetworkKeys: liveAllowedNetworkKeys(snapshotCurrent),
+      allowedNetworkKeys: liveAllowedNetworkKeys(snapshotCurrent, {
+        nowMs: () => clock.nowMs(),
+        snapshotChangedAtMs:
+          options.capabilitySnapshotProvider?.changedAtMs === undefined
+            ? undefined
+            : () => options.capabilitySnapshotProvider!.changedAtMs!(),
+      }),
     });
 
   const wrappedCache: typeof cache = {

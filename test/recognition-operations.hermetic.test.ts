@@ -416,6 +416,7 @@ describe("CR-107 operational event matrix and redaction", () => {
 
   it("expires network keys removed from the live capability snapshot", () => {
     let now = 1_000;
+    let snapshotChangedAt = now;
     let liveSnapshot = expectSuccess(
       decodeCapabilityRegistrySnapshot(withNetworks([ethereumMainnetCapability()], "3")),
     );
@@ -423,9 +424,11 @@ describe("CR-107 operational event matrix and redaction", () => {
       allowedNetworkKeys: liveAllowedNetworkKeys(() => liveSnapshot, {
         retentionMs: 100,
         nowMs: () => now,
+        snapshotChangedAtMs: () => snapshotChangedAt,
       }),
     });
 
+    snapshotChangedAt = now;
     liveSnapshot = expectSuccess(
       decodeCapabilityRegistrySnapshot(withNetworks([solanaMainnetCapability()], "4")),
     );
@@ -455,6 +458,36 @@ describe("CR-107 operational event matrix and redaction", () => {
         circuit_to: "open",
       }),
     ).toMatchObject({ kind: "accepted" });
+  });
+
+  it("does not start a removed-key grace window on a later observer touch", () => {
+    let now = 1_000;
+    let snapshotChangedAt = now;
+    let liveSnapshot = expectSuccess(
+      decodeCapabilityRegistrySnapshot(withNetworks([ethereumMainnetCapability()], "3")),
+    );
+    const observer = createMemoryRecognitionObserver({
+      allowedNetworkKeys: liveAllowedNetworkKeys(() => liveSnapshot, {
+        retentionMs: 100,
+        nowMs: () => now,
+        snapshotChangedAtMs: () => snapshotChangedAt,
+      }),
+    });
+
+    snapshotChangedAt = now;
+    liveSnapshot = expectSuccess(
+      decodeCapabilityRegistrySnapshot(withNetworks([solanaMainnetCapability()], "4")),
+    );
+    now += 1_000;
+
+    expect(
+      observer.record({
+        kind: "circuit_transition",
+        network_key: "eip155:1",
+        circuit_from: "closed",
+        circuit_to: "open",
+      }),
+    ).toMatchObject({ kind: "dropped", reason: "network_key_refused" });
   });
 
   it("does not invoke transition callbacks for closed-state successes", () => {
@@ -726,8 +759,12 @@ describe("CR-107 live capability snapshot disable", () => {
 
   it("applies valid CR-101 disable without dep reconstruction; next request skips adapter", () => {
     const initial = loadHermeticCapabilitySnapshot();
-    const store = createMemoryCapabilitySnapshotStore(initial);
+    const clock = createVirtualClock({ originMs: 1_000 });
+    const store = createMemoryCapabilitySnapshotStore(initial, {
+      nowMs: () => clock.nowMs(),
+    });
     const { deps, adapter, observer } = createHermeticBoundedDeps({
+      clock,
       capabilitySnapshot: initial,
       capabilitySnapshotProvider: store,
       script: SCRIPT_EVM_ERC721,
@@ -818,9 +855,12 @@ describe("CR-107 live capability snapshot disable", () => {
     const ethOnly = expectSuccess(
       decodeCapabilityRegistrySnapshot(withNetworks([ethereumMainnetCapability()], "3")),
     );
-    // Bootstrap with validated snapshot only — no public replace API.
-    const store = createMemoryCapabilitySnapshotStore(ethOnly);
     const processClock = createProcessMonotonicClock();
+    // Bootstrap with validated snapshot only — no public replace API. The
+    // transition timestamp shares the observer's monotonic clock domain.
+    const store = createMemoryCapabilitySnapshotStore(ethOnly, {
+      nowMs: () => processClock.nowMs(),
+    });
     const config = {
       ...defaultBoundedResolverConfig(),
       global_deadline_ms: 400,

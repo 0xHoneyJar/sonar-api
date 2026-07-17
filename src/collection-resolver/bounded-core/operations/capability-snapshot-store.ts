@@ -25,6 +25,8 @@ import { cloneFreeze } from "../../capability-registry/immutable.js";
  */
 export interface CapabilitySnapshotProviderPort {
   readonly current: () => CapabilityRegistrySnapshot;
+  /** Monotonic time at which current() last advanced, when available. */
+  readonly changedAtMs?: () => number;
 }
 
 export class CapabilitySnapshotStoreError extends Data.TaggedError(
@@ -55,6 +57,7 @@ export interface CapabilitySnapshotRuntimeStore extends CapabilitySnapshotProvid
     CapabilitySnapshotApplyError
   >;
   readonly version: () => CapabilityRegistrySnapshot["version"];
+  readonly changedAtMs: () => number;
 }
 
 /**
@@ -117,12 +120,16 @@ const toStoreError = (cause: unknown): CapabilitySnapshotStoreError => {
  */
 export const createMemoryCapabilitySnapshotStore = (
   initial: CapabilityRegistrySnapshot,
+  options: { readonly nowMs?: () => number } = {},
 ): CapabilitySnapshotRuntimeStore => {
   let lkg: CapabilityRegistrySnapshot = cloneFreeze(initial);
+  const nowMs = options.nowMs ?? Date.now;
+  let changedAt = nowMs();
 
   return {
     current: () => lkg,
     version: () => lkg.version,
+    changedAtMs: () => changedAt,
     applyTransition: Effect.fn("recognition.capabilitySnapshot.applyTransition")(
       function* (input: {
         readonly transition: unknown;
@@ -136,6 +143,7 @@ export const createMemoryCapabilitySnapshotStore = (
 
         // Atomic publish only after a valid transition result.
         lkg = result.snapshot;
+        changedAt = nowMs();
         return result;
       },
     ),

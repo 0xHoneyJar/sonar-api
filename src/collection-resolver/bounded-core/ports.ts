@@ -287,6 +287,8 @@ export interface MetricsPort {
  */
 export interface CapabilitySnapshotProviderPort {
   readonly current: () => CapabilityRegistrySnapshot;
+  /** Monotonic time at which current() last advanced, when available. */
+  readonly changedAtMs?: () => number;
 }
 
 /** CR-107 global admission — open | full_stop (not rate-limit overload). */

@@ -68,6 +68,12 @@ export const liveAllowedNetworkKeys = (
   options: {
     readonly retentionMs?: number;
     readonly nowMs?: () => number;
+    /**
+     * Monotonic time at which the currently returned snapshot became live.
+     * Without this causal timestamp, removed keys fail closed immediately;
+     * a lazy observer read must never start a fresh grace window.
+     */
+    readonly snapshotChangedAtMs?: () => number;
   } = {},
 ): AllowedNetworkKeySource => {
   // Retain keys from the immediately preceding live view for a bounded grace
@@ -83,7 +89,12 @@ export const liveAllowedNetworkKeys = (
       const next = new Set<string>(networkKeysFromCapabilitySnapshot(current()));
       for (const key of active) {
         if (!next.has(key)) {
-          retainedUntil.set(key, now + retentionMs);
+          const changedAt = options.snapshotChangedAtMs?.();
+          if (changedAt !== undefined && Number.isFinite(changedAt)) {
+            retainedUntil.set(key, changedAt + retentionMs);
+          } else {
+            retainedUntil.delete(key);
+          }
         }
       }
       for (const key of next) {
