@@ -1,0 +1,13 @@
+{
+  "captured_at": "2026-07-16T18:13:00-07:00",
+  "source_url": "https://docs.robinhood.com/chain/connecting/",
+  "source_section": "Network Configuration",
+  "observation": {
+    "network_name": "Robinhood Chain",
+    "mainnet_chain_id": 4663,
+    "testnet_chain_id": 46630
+  },
+  "normalized_payload": "{\"mainnet_chain_id\":4663,\"network_name\":\"Robinhood Chain\",\"source_url\":\"https://docs.robinhood.com/chain/connecting/\",\"testnet_chain_id\":46630}",
+  "normalized_payload_sha256": "6d7e76d2c6f04600f30a862cdb1e73f5c8a5f375a74d5045702873d4e8e9c98b",
+  "freshness_note": "This capture preserves what was observed for this acceptance. Reverify the live authoritative page for future enablement decisions."
+}
