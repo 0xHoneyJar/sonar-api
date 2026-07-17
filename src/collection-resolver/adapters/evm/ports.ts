@@ -113,6 +113,10 @@ export interface EvmMetadataEnrichPort {
       | "unavailable";
     readonly name: string | undefined;
     readonly symbol: string | undefined;
-    readonly image: undefined;
+    /**
+     * Optional display pointer (HTTPS). Not CR-004 trusted image bytes —
+     * consumers must still admit hosts before rendering.
+     */
+    readonly image: string | undefined;
   }>;
 }

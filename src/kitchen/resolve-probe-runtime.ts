@@ -1,9 +1,12 @@
 /**
  * Kitchen resolve-probe composition — service-auth only.
  *
- * Default mode: catalog-backed scripted adapter for known mainnet collections
- * (honest recognition for Gate Leak demos / empty-user production cut).
- * Set RESOLVER_MODE=live later to swap in EVM RPC adapters without route changes.
+ * Modes:
+ * - catalog — hardcoded mainnet demo allowlist (no RPC)
+ * - live — CR-103 EVM NFT probe over operator-configured HTTP RPC
+ * - unavailable — explicit disable
+ *
+ * Set RESOLVER_MODE=live and optionally ETH_RPC_URL / BASE_RPC_URL.
  */
 import { Effect, Exit } from "effect";
 
@@ -12,15 +15,28 @@ import { Effect, Exit } from "effect";
 import {
   createHermeticBoundedDeps,
   createProcessMonotonicClock,
-  defaultBoundedResolverConfig,
   hermeticResolveRequest,
   resolveBounded,
   type BoundedResolveResponse,
   type BoundedResolverDeps,
+  type BoundedResolverConfig,
 } from "../collection-resolver/bounded-core/index.js";
+import {
+  createConstantIndexStatusPort,
+  createEvmNftProbeAdapter,
+} from "../collection-resolver/adapters/evm/index.js";
+import {
+  ethereumMainnetCapability,
+  DEFAULT_REGISTRY_EPOCH,
+} from "../collection-resolver/capability-registry/fixtures.js";
+import { CAPABILITY_REGISTRY_SCHEMA_VERSION } from "../collection-resolver/capability-registry/schemas.js";
+import { decodeCapabilityRegistrySnapshot } from "../collection-resolver/capability-registry/snapshot.js";
 import type { ProbeOutcome } from "../collection-resolver/candidate.js";
 import type { AdapterProbeRequest } from "../collection-resolver/bounded-core/ports.js";
-export type ResolveProbeRuntimeMode = "catalog" | "unavailable";
+import { createKitchenContractUriEnrichPort } from "./contract-uri-enrich.js";
+import { createHttpEvmRpcPort } from "./http-evm-rpc.js";
+
+export type ResolveProbeRuntimeMode = "catalog" | "live" | "unavailable";
 
 export interface ResolveProbeRuntime {
   readonly mode: ResolveProbeRuntimeMode;
@@ -191,7 +207,7 @@ function toPublicBody(response: BoundedResolveResponse): ResolveProbePublicBody 
 
 function createCatalogDeps(): {
   readonly deps: BoundedResolverDeps;
-  readonly config: ReturnType<typeof defaultBoundedResolverConfig>;
+  readonly config: BoundedResolverConfig;
 } {
   const clock = createProcessMonotonicClock();
   const { deps, config } = createHermeticBoundedDeps({
@@ -204,6 +220,106 @@ function createCatalogDeps(): {
     } as never,
   });
   return { deps, config };
+}
+
+function loadLiveEthereumCapabilitySnapshot() {
+  const exit = Effect.runSyncExit(
+    decodeCapabilityRegistrySnapshot({
+      schema_version: CAPABILITY_REGISTRY_SCHEMA_VERSION,
+      version: {
+        registry_epoch: DEFAULT_REGISTRY_EPOCH,
+        registry_sequence: "4",
+      },
+      networks: [ethereumMainnetCapability()],
+    }),
+  );
+  if (exit._tag === "Failure") {
+    throw new Error("live ethereum capability snapshot failed to decode");
+  }
+  return exit.value;
+}
+
+function operatorRpcUrls(
+  env: NodeJS.ProcessEnv,
+  primaryEnv: string,
+  fallbacks: readonly string[],
+): readonly string[] {
+  const primary = env[primaryEnv]?.trim();
+  const urls = [primary, ...fallbacks].filter(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+  return [...new Set(urls)];
+}
+
+function createLiveDeps(env: NodeJS.ProcessEnv): {
+  readonly deps: BoundedResolverDeps;
+  readonly config: BoundedResolverConfig;
+} {
+  const clock = createProcessMonotonicClock();
+  const rpc = createHttpEvmRpcPort({
+    clock,
+    urlsByNetwork: {
+      // Live cut: Ethereum mainnet only (keeps per-network budget for RPC fan-in).
+      "eip155:1": operatorRpcUrls(env, "ETH_RPC_URL", [
+        "https://ethereum-rpc.publicnode.com",
+        "https://eth.drpc.org",
+      ]),
+    },
+  });
+  // Lenient indexed so recognized ERC-721/1155 can admit Generate before
+  // Kitchen inventory snapshots cover arbitrary contracts.
+  const indexStatus = createConstantIndexStatusPort("indexed");
+  const metadata = createKitchenContractUriEnrichPort();
+  const adapter = createEvmNftProbeAdapter({
+    rpc,
+    indexStatus,
+    metadata,
+    clock,
+  });
+  const hermetic = createHermeticBoundedDeps({
+    processClock: clock,
+    capabilitySnapshot: loadLiveEthereumCapabilitySnapshot(),
+  });
+  return {
+    deps: { ...hermetic.deps, adapter },
+    config: hermetic.config,
+  };
+}
+
+function bindResolve(
+  deps: BoundedResolverDeps,
+  config: BoundedResolverConfig,
+): ResolveProbeRuntime["resolve"] {
+  return async (identifier) => {
+    const exit = await Effect.runPromiseExit(
+      resolveBounded({
+        request: hermeticResolveRequest(identifier, "ordering-service"),
+        config,
+        deps,
+      }),
+    );
+    if (Exit.isSuccess(exit)) {
+      return { ok: true, body: toPublicBody(exit.value) };
+    }
+    const label = String(exit.cause);
+    const invalid =
+      label.includes("StructuralPreflight") ||
+      label.includes("Decode") ||
+      label.includes("InvalidCollectionIdentifier");
+    return {
+      ok: false,
+      status: invalid ? 400 : 503,
+      body: {
+        schema_version: 1,
+        error: {
+          code: invalid ? "invalid_request" : "unavailable",
+          message: invalid
+            ? "identifier failed structural preflight"
+            : "collection resolve-probe failed",
+        },
+      },
+    };
+  };
 }
 
 export function resolveProbeRuntimeFromEnv(
@@ -227,40 +343,18 @@ export function resolveProbeRuntimeFromEnv(
     };
   }
 
+  if (modeRaw === "live") {
+    const { deps, config } = createLiveDeps(env);
+    return {
+      mode: "live",
+      resolve: bindResolve(deps, config),
+    };
+  }
+
   // Default catalog mode — production-safe with no RPC credentials required.
   const { deps, config } = createCatalogDeps();
-
   return {
     mode: "catalog",
-    resolve: async (identifier) => {
-      const exit = await Effect.runPromiseExit(
-        resolveBounded({
-          request: hermeticResolveRequest(identifier, "ordering-service"),
-          config,
-          deps,
-        }),
-      );
-      if (Exit.isSuccess(exit)) {
-        return { ok: true, body: toPublicBody(exit.value) };
-      }
-      const label = String(exit.cause);
-      const invalid =
-        label.includes("StructuralPreflight") ||
-        label.includes("Decode") ||
-        label.includes("InvalidCollectionIdentifier");
-      return {
-        ok: false,
-        status: invalid ? 400 : 503,
-        body: {
-          schema_version: 1,
-          error: {
-            code: invalid ? "invalid_request" : "unavailable",
-            message: invalid
-              ? "identifier failed structural preflight"
-              : "collection resolve-probe failed",
-          },
-        },
-      };
-    },
+    resolve: bindResolve(deps, config),
   };
 }

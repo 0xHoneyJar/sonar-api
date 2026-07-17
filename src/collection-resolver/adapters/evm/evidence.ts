@@ -35,6 +35,7 @@ export interface MetadataObservation {
   readonly quality: CollectionCandidate["metadata_quality"];
   readonly name?: string;
   readonly symbol?: string;
+  readonly image?: string;
 }
 
 export interface ProjectHitInput {
@@ -186,6 +187,9 @@ export const projectProbeHit = (input: ProjectHitInput): ProbeHitEvidence => {
     token_standard: classified.standard,
     ...(name !== undefined ? { name } : {}),
     ...(symbol !== undefined ? { symbol } : {}),
+    ...(input.metadata.image !== undefined && input.metadata.image !== ""
+      ? { image: input.metadata.image }
+      : {}),
     recognition: classified.recognition,
     index_status: input.index_status,
     report_readiness: readiness,

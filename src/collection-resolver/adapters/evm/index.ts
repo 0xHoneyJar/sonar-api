@@ -46,6 +46,7 @@ export { evmRpcFailure } from "./ports.js";
 export {
   createKitchenIndexStatusPort,
   createScriptedIndexStatusPort,
+  createConstantIndexStatusPort,
   applyIndexSupportBound,
 } from "./index-status.js";
 
