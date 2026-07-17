@@ -6,6 +6,7 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
 
 describe("Kitchen physical-job migration artifacts", () => {
   it("encodes expand, authority, and constrain as separate ordered gates", () => {
+    const compatibility = read("migrations/kitchen_ingest_jobs.sql");
     const expand = read("migrations/kitchen/001_expand_physical_job_identity.sql");
     const dualWrite = read("migrations/kitchen/001b_enable_dual_write.sql");
     const authority = read("migrations/kitchen/002_new_key_authority.sql");
@@ -25,6 +26,10 @@ describe("Kitchen physical-job migration artifacts", () => {
     expect(constrain).toContain("ALTER COLUMN physical_job_id SET NOT NULL");
     expect(constrain).toContain("DROP INDEX IF EXISTS kitchen_ingest_jobs_legacy_key_uq");
     expect(expand).toContain("phase IN ('legacy', 'dual_write', 'parity')");
+    expect(compatibility).toContain("BEGIN;");
+    expect(compatibility).toContain("kitchen_ingest_jobs_physical_identity_uq");
+    expect(compatibility).not.toMatch(/^\\/m);
+    expect(compatibility.split("\n").slice(2).join("\n")).toBe(expand);
   });
 
   it("backfills with the shared deployment constructor and marks divergence fail closed", () => {
@@ -50,5 +55,6 @@ describe("Kitchen physical-job migration artifacts", () => {
     expect(parity).toContain("lifecycle_status");
     expect(parity).toContain("job_reference");
     expect(parity).toContain("phase = $1, divergence = $2");
+    expect(parity).toContain('authority.rows[0]?.divergence !== false');
   });
 });

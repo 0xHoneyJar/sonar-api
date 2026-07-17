@@ -8,8 +8,13 @@ try {
   const authority = await pool.query<{ phase: string; divergence: boolean }>(
     `SELECT phase, divergence FROM kitchen_job_identity_migration_state WHERE singleton = true`,
   );
-  if (authority.rows[0]?.phase !== "dual_write") {
-    throw new Error("parity verification refused: dual_write phase is required");
+  if (
+    authority.rows[0]?.phase !== "dual_write" ||
+    authority.rows[0]?.divergence !== false
+  ) {
+    throw new Error(
+      "parity verification refused: clean dual_write authority is required",
+    );
   }
   const gaps = await pool.query<{ count: string }>(
     `SELECT count(*)::text AS count FROM kitchen_ingest_jobs
