@@ -4,7 +4,9 @@
  */
 import {
   INTERFACE_ID_ERC1155,
+  INTERFACE_ID_ERC165,
   INTERFACE_ID_ERC721,
+  INTERFACE_ID_INVALID,
   MAX_CONTRACT_URI_CHARS,
   MAX_ONCHAIN_STRING_CHARS,
   SELECTOR_CONTRACT_URI,
@@ -31,6 +33,8 @@ export const encodeContractUriCall = (): `0x${string}` => SELECTOR_CONTRACT_URI;
 
 export const ERC721_SUPPORTS_CALLDATA = encodeSupportsInterface(INTERFACE_ID_ERC721);
 export const ERC1155_SUPPORTS_CALLDATA = encodeSupportsInterface(INTERFACE_ID_ERC1155);
+export const ERC165_SUPPORTS_CALLDATA = encodeSupportsInterface(INTERFACE_ID_ERC165);
+export const INVALID_INTERFACE_SUPPORTS_CALLDATA = encodeSupportsInterface(INTERFACE_ID_INVALID);
 
 /**
  * Decode ABI bool from eth_call success data. Malformed → undefined (absent).

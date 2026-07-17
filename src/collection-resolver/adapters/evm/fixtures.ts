@@ -10,7 +10,9 @@ import { networkIdentityKey } from "../../capability-registry/keys.js";
 import type { NetworkRef } from "../../protocol.js";
 import {
   ERC1155_SUPPORTS_CALLDATA,
+  ERC165_SUPPORTS_CALLDATA,
   ERC721_SUPPORTS_CALLDATA,
+  INVALID_INTERFACE_SUPPORTS_CALLDATA,
   encodeContractUriCall,
   encodeNameCall,
   encodeSymbolCall,
@@ -91,6 +93,35 @@ const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+
+const sleepAbortAware = (
+  ms: number,
+  input: { readonly abort: AbortSignal; readonly deadline_at_ms: number },
+  clock: MonotonicClock,
+  ignoreAbort: boolean | undefined,
+): Promise<void> => {
+  if (ignoreAbort) return sleep(ms);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (failure?: EvmRpcFailure) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(delayTimer);
+      clearTimeout(deadlineTimer);
+      input.abort.removeEventListener("abort", onAbort);
+      failure === undefined ? resolve() : reject(failure);
+    };
+    const onAbort = () => finish(evmRpcFailure("rpc_aborted", SAFE_MESSAGES.rpc_aborted));
+    const delayTimer = setTimeout(() => finish(), ms);
+    const remaining = Math.max(0, input.deadline_at_ms - clock.nowMs());
+    const deadlineTimer = setTimeout(
+      () => finish(evmRpcFailure("rpc_timeout", SAFE_MESSAGES.rpc_timeout)),
+      remaining,
+    );
+    input.abort.addEventListener("abort", onAbort, { once: true });
+    if (input.abort.aborted) onAbort();
+  });
+};
 
 const guardAbort = (input: {
   readonly abort: AbortSignal;
@@ -180,7 +211,7 @@ export const createFixtureEvmRpcPort = (
 
     return Effect.tryPromise({
       try: async () => {
-        await sleep(script.delayMs!);
+        await sleepAbortAware(script.delayMs!, input, clock, script.ignoreAbort);
         return executeSync();
       },
       catch: (cause) => {
@@ -246,6 +277,8 @@ const nftCalls = (input: {
   };
 
   const calls: Record<string, EthCallResult> = {
+    [ERC165_SUPPORTS_CALLDATA.toLowerCase()]: boolResult(true),
+    [INVALID_INTERFACE_SUPPORTS_CALLDATA.toLowerCase()]: boolResult(false),
     [ERC721_SUPPORTS_CALLDATA.toLowerCase()]: boolResult(input.erc721),
     [ERC1155_SUPPORTS_CALLDATA.toLowerCase()]: boolResult(input.erc1155),
   };

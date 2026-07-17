@@ -40,6 +40,7 @@ import {
   decodeAbiString,
   encodeSupportsInterface,
   ERC721_SUPPORTS_CALLDATA,
+  INVALID_INTERFACE_SUPPORTS_CALLDATA,
 } from "../src/collection-resolver/adapters/evm/abi.js";
 import { ethereumMainnetCapability, baseMainnetCapability } from "../src/collection-resolver/capability-registry/fixtures.js";
 import type { AdapterProbeRequest } from "../src/collection-resolver/bounded-core/ports.js";
@@ -255,6 +256,44 @@ describe("CR-103 EVM NFT probe adapter", () => {
     expect(outcome.binding_evidence?.standard_evidence.interface_bits).not.toContain(
       "erc165:0x80ac58cd",
     );
+  });
+
+  it("does not trust NFT interface claims from an invalid ERC-165 responder", async () => {
+    const clock = virtualClock();
+    const script = scriptErc721();
+    const account = script.accounts[FIXTURE_ADDRESS_NORMALIZED]!;
+    const adapter = makeAdapter({
+      rpc: fixtureRpc(
+        {
+          "eip155:1": {
+            ...script,
+            accounts: {
+              ...script.accounts,
+              [FIXTURE_ADDRESS_NORMALIZED]: {
+                ...account,
+                calls: {
+                  ...account.calls,
+                  [INVALID_INTERFACE_SUPPORTS_CALLDATA.toLowerCase()]: {
+                    kind: "success",
+                    data: `0x${"0".repeat(63)}1`,
+                  },
+                },
+              },
+            },
+          },
+        },
+        clock,
+      ),
+      clock,
+    });
+
+    const outcome = await runProbe(adapter, requestFor({ clock }));
+
+    expect(outcome.kind).toBe("hit");
+    if (outcome.kind !== "hit") return;
+    expect(outcome.token_standard).toBe("unknown");
+    expect(outcome.recognition).toBe("ambiguous");
+    expect(outcome.binding_evidence?.standard_evidence.interface_bits).toEqual([]);
   });
 
   it("recognizes ERC-721 with binding evidence and one boundary normalization", async () => {

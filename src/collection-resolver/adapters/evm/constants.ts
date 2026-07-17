@@ -11,6 +11,7 @@ export const EVM_NFT_PROBE_ADAPTER_POLICY_VERSION = "resolver-adapter-policy.v1"
 
 /** ERC-165 / ERC-721 / ERC-1155 interface ids (bytes4). */
 export const INTERFACE_ID_ERC165 = "0x01ffc9a7" as const;
+export const INTERFACE_ID_INVALID = "0xffffffff" as const;
 export const INTERFACE_ID_ERC721 = "0x80ac58cd" as const;
 export const INTERFACE_ID_ERC1155 = "0xd9b67a26" as const;
 

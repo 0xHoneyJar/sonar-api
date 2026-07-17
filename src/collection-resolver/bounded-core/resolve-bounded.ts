@@ -276,6 +276,7 @@ const runFanout = (input: {
       readonly code: string;
       readonly safe_message: string;
     }> = [];
+    const unavailableDiagnosticKeys = new Set<string>();
     const cancelled: NetworkRef[] = [];
     const circuit_open: NetworkRef[] = [];
     const searched: NetworkRef[] = [];
@@ -470,15 +471,20 @@ const runFanout = (input: {
             ) {
               const knownMessage =
                 ADAPTER_UNAVAILABLE_MESSAGES[outcome.safe_code];
-              unavailable_diagnostics.push({
-                network: hit.network.network,
-                code:
-                  knownMessage === undefined
-                    ? "adapter_unavailable"
-                    : outcome.safe_code,
-                safe_message:
-                  knownMessage ?? "adapter unavailable without a recognized diagnostic code",
-              });
+              const code =
+                knownMessage === undefined
+                  ? "adapter_unavailable"
+                  : outcome.safe_code;
+              const diagnosticKey = `${networkKey}:${code}`;
+              if (!unavailableDiagnosticKeys.has(diagnosticKey)) {
+                unavailableDiagnosticKeys.add(diagnosticKey);
+                unavailable_diagnostics.push({
+                  network: hit.network.network,
+                  code,
+                  safe_message:
+                    knownMessage ?? "adapter unavailable without a recognized diagnostic code",
+                });
+              }
             }
             break;
         }

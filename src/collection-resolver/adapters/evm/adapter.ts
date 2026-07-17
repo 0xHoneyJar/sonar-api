@@ -29,7 +29,9 @@ import {
   encodeNameCall,
   encodeSymbolCall,
   ERC1155_SUPPORTS_CALLDATA,
+  ERC165_SUPPORTS_CALLDATA,
   ERC721_SUPPORTS_CALLDATA,
+  INVALID_INTERFACE_SUPPORTS_CALLDATA,
   isEmptyBytecode,
   isValidStorageWord,
   isZeroStorageWord,
@@ -258,6 +260,32 @@ export const createEvmNftProbeAdapter = (
         return { kind: "miss" } as const;
       }
 
+      // Establish ERC-165 itself before trusting any claimed NFT interface.
+      const erc165Exit = yield* deps.rpc.ethCall({
+        network: request.network,
+        to: normalized,
+        data: ERC165_SUPPORTS_CALLDATA,
+        block,
+        abort: request.abort.signal,
+        deadline_at_ms: request.deadline_at_ms,
+      }).pipe(Effect.either);
+      if (erc165Exit._tag === "Left") return mapRpcFailure(erc165Exit.left);
+
+      const invalidInterfaceExit = yield* deps.rpc.ethCall({
+        network: request.network,
+        to: normalized,
+        data: INVALID_INTERFACE_SUPPORTS_CALLDATA,
+        block,
+        abort: request.abort.signal,
+        deadline_at_ms: request.deadline_at_ms,
+      }).pipe(Effect.either);
+      if (invalidInterfaceExit._tag === "Left") {
+        return mapRpcFailure(invalidInterfaceExit.left);
+      }
+      const erc165Valid =
+        callBool(erc165Exit.right) === true &&
+        callBool(invalidInterfaceExit.right) === false;
+
       // Interface probes — healthy reverts → absent (undefined), not unavailable.
       const erc721Exit = yield* deps.rpc
         .ethCall({
@@ -284,8 +312,8 @@ export const createEvmNftProbeAdapter = (
       if (erc1155Exit._tag === "Left") return mapRpcFailure(erc1155Exit.left);
 
       const interfaces = {
-        erc721: callBool(erc721Exit.right),
-        erc1155: callBool(erc1155Exit.right),
+        erc721: erc165Valid ? callBool(erc721Exit.right) : undefined,
+        erc1155: erc165Valid ? callBool(erc1155Exit.right) : undefined,
       };
 
       // Proxy evidence (EIP-1967) — complete binding or none.
