@@ -55,13 +55,16 @@ export const verifyVendoredCollectionProtocolDigest = Effect.fn(
     catch: (cause) =>
       new VendoredProtocolDigestError({ stage: "read_pin", reason: errorMessage(cause) }),
   });
-  const checksum = checksumFile
-    .trim()
-    .split(/\s+/)[0];
-  if (checksum === undefined || !/^[0-9a-f]{64}$/.test(checksum)) {
+  const checksumLine = checksumFile.trim();
+  const checksumMatch = /^([0-9a-f]{64}) {2}freeside-collection-protocol-1\.0\.0\.tgz$/.exec(
+    checksumLine,
+  );
+  const checksum = checksumMatch?.[1];
+  if (checksum === undefined) {
     return yield* new VendoredProtocolDigestError({
       stage: "validate_pin",
-      reason: "invalid vendored collection protocol SHA256SUMS pin",
+      reason:
+        "invalid vendored collection protocol SHA256SUMS pin: expected exactly one sha256sum line for freeside-collection-protocol-1.0.0.tgz",
     });
   }
   const actual = yield* Effect.try({

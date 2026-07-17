@@ -1,4 +1,12 @@
-import { readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
@@ -452,6 +460,29 @@ describe("CR-003 protocol conformance", () => {
     );
     expect(error._tag).toBe("VendoredProtocolDigestError");
     expect(error.stage).toBe("read_pin");
+  });
+
+  it("rejects a digest pin that does not name the executable vendored tarball", () => {
+    const root = mkdtempSync(join(tmpdir(), "sonar-protocol-pin-"));
+    const vendor = join(root, "vendor/collection-protocol");
+    mkdirSync(vendor, { recursive: true });
+    copyFileSync(
+      join(process.cwd(), "vendor/collection-protocol/freeside-collection-protocol-1.0.0.tgz"),
+      join(vendor, "freeside-collection-protocol-1.0.0.tgz"),
+    );
+    writeFileSync(
+      join(vendor, "SHA256SUMS"),
+      `${"0".repeat(64)}  unrelated-artifact.tgz\n`,
+      "utf8",
+    );
+
+    try {
+      const error = expectFailure(verifyVendoredCollectionProtocolDigest(root));
+      expect(error._tag).toBe("VendoredProtocolDigestError");
+      expect(error.stage).toBe("validate_pin");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("strict-decodes CR-001 committed candidate fixtures through the Sonar adapter", () => {
