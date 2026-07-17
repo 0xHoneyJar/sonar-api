@@ -169,10 +169,11 @@ export const createSolanaDasNetworkAdapter = (
           // unavailable / omit / timeout → proceed without collection-level
           // identity fields (registry may still enrich name/symbol/key).
           if (assetOutcome.kind === "observed") {
-            if (assetOutcome.observation.collection_mint !== address) {
-              return { kind: "unavailable" } as const;
+            // Mint mismatch is treated as omit enrichment — do not erase the
+            // already-recognized sample hit.
+            if (assetOutcome.observation.collection_mint === address) {
+              collection_asset = assetOutcome.observation;
             }
-            collection_asset = assetOutcome.observation;
           }
         }
 
