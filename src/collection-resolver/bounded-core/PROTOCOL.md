@@ -105,7 +105,7 @@ fanout.
 
 ## Honest downstream blockers
 
-- **CR-103** — live EVM NFT probe adapter behind `NetworkAdapterPort`
+- **CR-103** — EVM NFT probe adapter (`adapters/evm`) lands behind `NetworkAdapterPort`; production provider-set/quorum client wiring remains deployment work
 - **CR-104** — live Solana DAS adapter behind `NetworkAdapterPort`
 - **CR-105 / Inventory** — production enrichment contract behind the port
 - **CR-106** — Dashboard BFF consumes Ordering's session API (not this core)

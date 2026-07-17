@@ -82,8 +82,15 @@ export interface ProbeTimeout {
   readonly kind: "timeout";
 }
 
+/**
+ * Per-network transport/quorum outage. Optional safe_code / safe_message are
+ * stable, redacted labels for CR-102 diagnostics — never a raw RPC cause,
+ * provider URL, credential, or response body.
+ */
 export interface ProbeUnavailable {
   readonly kind: "unavailable";
+  readonly safe_code?: string;
+  readonly safe_message?: string;
 }
 
 export type ProbeOutcome = ProbeHitEvidence | ProbeMiss | ProbeTimeout | ProbeUnavailable;

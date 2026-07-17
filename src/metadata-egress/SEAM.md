@@ -53,7 +53,8 @@ Sonar fetches untrusted collection metadata **only** through this module.
 
 ## Future producers (CR-102+)
 
-EVM tokenURI / contractURI adapters (CR-103) and report enrichment workers import
-`retrieveMetadata` (or `enrichCandidateFromRemoteMetadata`) from this package
-path. The CR-102 bounded resolver core must not add parallel HTTP clients for
-metadata — adapters call this boundary only.
+EVM `contractURI` adapters (CR-103 `adapters/evm`) and report enrichment workers
+import `retrieveMetadata` / `enrichCandidateFromRemoteMetadata` (or
+`ResolverMetadataPort.enrich`) from this package path. The CR-102 bounded
+resolver core must not add parallel HTTP clients for metadata — adapters call
+this boundary only. CR-103 does not sample `tokenURI(0)`.

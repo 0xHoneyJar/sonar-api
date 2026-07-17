@@ -7,6 +7,8 @@
   "include": [
     "src/collection-resolver/**/*.ts",
     "src/metadata-egress/**/*.ts",
+    "src/kitchen/status.ts",
+    "src/kitchen/types.ts",
     "src/svm/collection-nft-rows.ts",
     "src/svm/nft-collection-source.ts",
     "src/svm/collection-registry.ts",
@@ -16,6 +18,7 @@
     "test/capability-registry.hermetic.test.ts",
     "test/bounded-resolver.hermetic.test.ts",
     "test/solana-das-adapter.hermetic.test.ts",
+    "test/evm-nft-probe.hermetic.test.ts",
     "test/metadata-egress.hermetic.test.ts",
     "test/metadata-egress.browser-boundary.test.ts"
   ]

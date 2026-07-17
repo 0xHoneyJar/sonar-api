@@ -44,6 +44,9 @@ export * from "./capability-registry/index.js";
 /** CR-102: bounded resolver orchestration core + ports/reference impls. */
 export * from "./bounded-core/index.js";
 
+/** CR-103: production-shaped EVM NFT probe adapter behind NetworkAdapterPort. */
+export * from "./adapters/evm/index.js";
+
 /** CR-004: resolver workers fetch remote metadata only through this port. */
 export {
   createResolverMetadataPort,

@@ -155,6 +155,16 @@ const decodeCoalescedResponse = (
     return cloneFreeze({ ...envelope, candidates });
   });
 
+const ADAPTER_UNAVAILABLE_MESSAGES: Readonly<Record<string, string>> = {
+  rpc_transport_failed: "EVM RPC transport failed for configured network",
+  rpc_quorum_failed: "EVM source-head quorum could not be established",
+  rpc_aborted: "EVM RPC probe aborted",
+  rpc_finality_unavailable: "EVM finality-qualified observation block unavailable",
+  rpc_unsupported_network: "network is not a configured EVM probe target",
+  rpc_invalid_response: "EVM RPC returned an invalid response",
+  rpc_capability_mismatch: "capability probe adapter is not the EVM NFT probe",
+};
+
 export interface BoundedResolveResponse {
   readonly schema_version: 1;
   readonly capability_snapshot_version: CapabilityRegistrySnapshot["version"];
@@ -215,6 +225,12 @@ interface FanoutResult {
   readonly conclusive_misses: NetworkRef[];
   readonly timed_out: NetworkRef[];
   readonly unavailable: NetworkRef[];
+  /** Narrow typed per-network transport diagnostics from ProbeUnavailable. */
+  readonly unavailable_diagnostics: ReadonlyArray<{
+    readonly network: NetworkRef;
+    readonly code: string;
+    readonly safe_message: string;
+  }>;
   readonly cancelled: NetworkRef[];
   readonly circuit_open: NetworkRef[];
   readonly searched: NetworkRef[];
@@ -255,6 +271,12 @@ const runFanout = (input: {
 
     const timed_out: NetworkRef[] = [];
     const unavailable: NetworkRef[] = [];
+    const unavailable_diagnostics: Array<{
+      readonly network: NetworkRef;
+      readonly code: string;
+      readonly safe_message: string;
+    }> = [];
+    const unavailableDiagnosticKeys = new Set<string>();
     const cancelled: NetworkRef[] = [];
     const circuit_open: NetworkRef[] = [];
     const searched: NetworkRef[] = [];
@@ -442,6 +464,29 @@ const runFanout = (input: {
               now_ms: deps.clock.nowMs(),
             });
             pushUnique(unavailable, hit.network.network);
+            if (
+              typeof outcome.safe_code === "string" &&
+              outcome.safe_code.length > 0 &&
+              typeof outcome.safe_message === "string" &&
+              outcome.safe_message.length > 0
+            ) {
+              const knownMessage =
+                ADAPTER_UNAVAILABLE_MESSAGES[outcome.safe_code];
+              const code =
+                knownMessage === undefined
+                  ? "adapter_unavailable"
+                  : outcome.safe_code;
+              const diagnosticKey = `${networkKey}:${code}`;
+              if (!unavailableDiagnosticKeys.has(diagnosticKey)) {
+                unavailableDiagnosticKeys.add(diagnosticKey);
+                unavailable_diagnostics.push({
+                  network: hit.network.network,
+                  code,
+                  safe_message:
+                    knownMessage ?? "adapter unavailable without a recognized diagnostic code",
+                });
+              }
+            }
             break;
         }
       });
@@ -521,6 +566,7 @@ const runFanout = (input: {
       conclusive_misses: sortNetworkRefs(conclusive_misses),
       timed_out: sortNetworkRefs(timed_out),
       unavailable: sortNetworkRefs(unavailable),
+      unavailable_diagnostics,
       cancelled: sortNetworkRefs(cancelled),
       circuit_open: sortNetworkRefs(circuit_open),
       searched: sortNetworkRefs(searched),
@@ -939,6 +985,14 @@ export const resolveBounded = (input: {
       let missingBindingEvidence = false;
       /** Required enrichment/binding arrived after seal — forbid positive/readiness writes. */
       let lateEnrichmentOrBinding = false;
+
+      for (const diag of fanout.unavailable_diagnostics) {
+        yield* pushDiagnostic(diagnosticEntries, {
+          code: diag.code,
+          network: diag.network,
+          safe_message: redactSafeMessage(diag.safe_message),
+        });
+      }
 
       for (const { network, outcome } of fanout.hits) {
         const capability = toRecognizeCapability(network);

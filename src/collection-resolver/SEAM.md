@@ -39,6 +39,8 @@ Remove the vendor artifact once that pin lands. Do not copy schemas into Sonar.
 | `src/collection-resolver/capability-registry/` | CR-101 versioned mainnet capability registry + Ordering projection |
 | `src/collection-resolver/bounded-core/` | CR-102 bounded fanout/cache/rate-limit/circuit-breaker orchestration |
 | `src/collection-resolver/adapters/solana/` | CR-104 Solana DAS recognition adapter (`NetworkAdapterPort`) |
+||||||| 4f486437
+| `src/collection-resolver/adapters/evm/` | CR-103 EVM NFT probe adapter behind `NetworkAdapterPort` |
 | `src/collection-resolver/resolve.ts` | Hermetic `resolve-probe` core (CR-003) |
 | `src/collection-resolver/das-normalize.ts` | Adapts real `CollectionSnapshot` / `CollectionMember` + shared `toRows`/`NftRow` |
 | `src/svm/collection-nft-rows.ts` | Shared persistence projector used by the ownership indexer and DAS normalize |
@@ -92,6 +94,24 @@ Remove the vendor artifact once that pin lands. Do not copy schemas into Sonar.
   empty `result.items`; incomplete/malformed/zero-valid samples are typed
   unavailable (no authoritative negative cache). See
   `adapters/solana/PROTOCOL.md` and `bounded-core/PROTOCOL.md`.
+||||||| 4f486437
+- Live EVM/Solana adapters and production metrics remain CR-103 / CR-104 / CR-107.
+  See `bounded-core/PROTOCOL.md`.
+- Live Solana adapters and production metrics remain CR-104 / CR-107.
+  See `bounded-core/PROTOCOL.md`.
+- CR-103 EVM NFT probe (`adapters/evm`) implements `NetworkAdapterPort` with an
+  injected abort-aware RPC port, Kitchen index-status wrap, and CR-004 metadata
+  enrich for `contractURI` only. It shares CR-102's `MonotonicClock` for
+  `deadline_at_ms` (no wall-clock fallback), maps RPC failures to canonical
+  safe diagnostics only, and omits `binding_evidence` when EIP-1967 proxy
+  proof is incomplete.   Optional remote metadata uses a strict sub-budget
+  (configurable cap/fraction + post-metadata reserve with an immutable
+  safety floor operators cannot reduce) that ends materially before the
+  per-network deadline so CR-102's controlling race can still accept an
+  already-recognized degraded hit; index evidence runs before enrich.
+  It does not accept user RPC URLs or chain defs.
+  Production provider/quorum wiring and Robinhood Chain enablement remain
+  deployment / CR-401 work.
 
 Resolver outputs must always strict-decode through CR-001 `CollectionCandidate`
 before leaving Sonar. DAS normalize must not invent a parallel member/owner
