@@ -102,17 +102,23 @@ export const resolveProbe = (input: {
       readonly outcome: Extract<ProbeOutcome, { kind: "hit" }>;
     }> = [];
 
-    for (const capability of selected) {
-      if (capability.health === "degraded") {
-        unavailable.push(capability.network);
-        continue;
-      }
+    const outcomes = yield* Effect.forEach(
+      selected,
+      (capability) =>
+        capability.health === "degraded"
+          ? Effect.succeed({ capability, outcome: { kind: "unavailable" } as ProbeOutcome })
+          : input.probePort
+              .probe({
+                network: capability.network,
+                address: identifier.raw,
+              })
+              .pipe(Effect.map((outcome) => ({ capability, outcome }))),
+      { concurrency: "unbounded" },
+    );
 
-      const outcome = yield* input.probePort.probe({
-        network: capability.network,
-        address: identifier.raw,
-      });
-
+    // Effect.forEach preserves input order, so diagnostics remain deterministic
+    // while independent network I/O is bounded by the slowest probe, not their sum.
+    for (const { capability, outcome } of outcomes) {
       switch (outcome.kind) {
         case "hit":
           hits.push({ capability, outcome });

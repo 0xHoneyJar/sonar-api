@@ -33,6 +33,7 @@ export {
 } from "./candidate.js";
 export {
   collectionProtocolFixturesRoot,
+  EXPECTED_COLLECTION_PROTOCOL_TARBALL_SHA256,
   verifyVendoredCollectionProtocolDigest,
   VendoredProtocolDigestError,
   decodeCollectionCandidate,

@@ -33,6 +33,9 @@ export {
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
+/** Independent executable pin: changing vendor bytes requires a reviewed code change. */
+export const EXPECTED_COLLECTION_PROTOCOL_TARBALL_SHA256 =
+  "b0d0666867988bc67094d9189048f7bca0b89ea1140a7705d6953528f7d5298c";
 
 export class VendoredProtocolDigestError extends Data.TaggedError(
   "VendoredProtocolDigestError",
@@ -65,6 +68,13 @@ export const verifyVendoredCollectionProtocolDigest = Effect.fn(
       stage: "validate_pin",
       reason:
         "invalid vendored collection protocol SHA256SUMS pin: expected exactly one sha256sum line for freeside-collection-protocol-1.0.0.tgz",
+    });
+  }
+  if (checksum !== EXPECTED_COLLECTION_PROTOCOL_TARBALL_SHA256) {
+    return yield* new VendoredProtocolDigestError({
+      stage: "validate_pin",
+      reason:
+        "vendored collection protocol SHA256SUMS does not match the independently reviewed executable pin",
     });
   }
   const actual = yield* Effect.try({

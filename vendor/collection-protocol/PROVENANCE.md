@@ -11,6 +11,13 @@ package** via `pnpm pack`. Sonar must not fork or hand-copy schemas.
 - Source worktree: `../cr-001/packages/protocol/collection` (coordinator layout)
 - Source commit (at pack time): `a688e516e886d29a6aaa1c90fa76c80c0a84d8c1`
 - Packed at: `2026-07-16T09:58:14Z`
+- Reviewable package manifest: `PACKAGE-MANIFEST.json` (source revision,
+  tarball digest, package metadata digest, runtime entrypoint digests, and full
+  packaged path inventory)
+
+The executable digest is also pinned independently in
+`src/collection-resolver/protocol.ts`; updating `SHA256SUMS` alone cannot make
+replacement bytes pass verification.
 
 ## Refresh
 

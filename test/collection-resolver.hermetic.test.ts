@@ -24,6 +24,7 @@ import {
   collectionProtocolFixturesRoot,
   createHermeticProbePort,
   decodeCollectionCandidate,
+  EXPECTED_COLLECTION_PROTOCOL_TARBALL_SHA256,
   normalizeDasCollectionProbe,
   normalizeSolanaAddress,
   resolveProbe,
@@ -427,6 +428,17 @@ describe("CR-003 protocol conformance", () => {
   it("verifies the executable vendored protocol tarball against its committed digest", () => {
     const verified = expectSuccess(verifyVendoredCollectionProtocolDigest());
     expect(verified.actual).toBe(verified.expected);
+    expect(verified.actual).toBe(EXPECTED_COLLECTION_PROTOCOL_TARBALL_SHA256);
+    const manifest = JSON.parse(
+      readFileSync(
+        join(process.cwd(), "vendor/collection-protocol/PACKAGE-MANIFEST.json"),
+        "utf8",
+      ),
+    ) as { tarball_sha256: string; source_commit: string; paths: string[] };
+    expect(manifest.tarball_sha256).toBe(EXPECTED_COLLECTION_PROTOCOL_TARBALL_SHA256);
+    expect(manifest.source_commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(manifest.paths).toContain("dist/index.js");
+    expect(manifest.paths).toContain("package.json");
   });
 
   it("rejects a mixed surface containing both exact and lowercased Solana keys", () => {
