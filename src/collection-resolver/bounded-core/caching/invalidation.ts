@@ -21,6 +21,20 @@ const strictOptions: ParseOptions = {
 
 const decodeImpact = Schema.decodeUnknown(EquivalenceRevocationImpact, strictOptions);
 
+const isInvalidationScoped = (input: {
+  readonly namespace?: "positive_recognition" | "report_readiness" | "negative_probe";
+  readonly keyDigest?: string;
+  readonly deployment_id?: string;
+  readonly predicate?: (entry: {
+    readonly namespace: string;
+    readonly binding: unknown;
+  }) => boolean;
+}): boolean =>
+  input.namespace !== undefined ||
+  input.keyDigest !== undefined ||
+  input.deployment_id !== undefined ||
+  input.predicate !== undefined;
+
 export const createMemoryInvalidationEdgePort = (options?: {
   /** When true, persist/ack fails after successful decode (fail-closed probe). */
   readonly failStore?: boolean;
@@ -114,6 +128,16 @@ export const applyInvalidation = (input: {
         namespace: input.namespace,
       });
       return { evicted, edge_emitted: true };
+    }
+
+    if (
+      !isInvalidationScoped({
+        namespace: input.namespace,
+        keyDigest: input.keyDigest,
+        deployment_id: input.deployment_id,
+      })
+    ) {
+      return { evicted: 0, edge_emitted: false };
     }
 
     const { evicted } = yield* input.cache.invalidate({

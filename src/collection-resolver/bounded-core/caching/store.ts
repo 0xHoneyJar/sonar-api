@@ -114,6 +114,16 @@ export const createMemoryResolverCache = (input: {
 
     invalidate: ({ cause, namespace, keyDigest, deployment_id, predicate }) =>
       Effect.sync(() => {
+        const scoped =
+          namespace !== undefined ||
+          keyDigest !== undefined ||
+          deployment_id !== undefined ||
+          predicate !== undefined;
+        if (!scoped) {
+          void cause;
+          return { evicted: 0 };
+        }
+
         let evicted = 0;
         const match = (
           ns: "positive_recognition" | "report_readiness" | "negative_probe",

@@ -821,7 +821,7 @@ export const resolveBounded = (input: {
     const coalesceKey = `demand:${negativeKey}:auth:${scopeDigest}:config:${configDigest}`;
     const globalDeadlineAt = started + config.global_deadline_ms;
 
-    const coalesce = yield* input.deps.coalesce.begin(coalesceKey);
+    let coalesce = yield* input.deps.coalesce.begin(coalesceKey);
     if (coalesce.kind === "negative_cached") {
       input.deps.metrics.incr("coalesced");
       const neg = yield* input.deps.cache.getNegative(negativeKey);
@@ -867,6 +867,9 @@ export const resolveBounded = (input: {
           ranking_evidence: [],
         });
       }
+      // Stale negative_cached hint — reconcile with cache and re-begin rather than
+      // falling through into leaderBody with a forged empty-result path.
+      coalesce = yield* input.deps.coalesce.begin(coalesceKey);
     }
 
     if (coalesce.kind === "follower") {

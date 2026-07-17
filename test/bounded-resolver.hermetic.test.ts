@@ -1114,8 +1114,81 @@ describe("CR-102 cache separation and invalidation", () => {
       const result = expectSuccess(
         applyInvalidation({ cache, edges, cause }),
       );
+      expect(result.evicted).toBe(0);
       expect(result.edge_emitted).toBe(false);
     }
+  });
+
+  it("refuses unscoped invalidation that would wipe unrelated cache entries", () => {
+    const clock = createVirtualClock({ originMs: 0 });
+    const cache = createMemoryResolverCache({ nowMs: () => clock.nowMs() });
+    const edges = createMemoryInvalidationEdgePort();
+    const deployment_id = sha256Canonical("unrelated-deployment");
+    Effect.runSync(
+      cache.setPositive("positive-keep", {
+        binding: {
+          schema_version: 1,
+          namespace: "positive_recognition",
+          identifier_format: "evm_address",
+          identifier_structural_digest: sha256Canonical("id"),
+          capability_snapshot_version: loadHermeticCapabilitySnapshot().version,
+          capability_source_sequence: "1",
+          deployment_id,
+          account_digest: "22".repeat(32),
+          code_digest: "11".repeat(32),
+          observed_position: {
+            family: "evm",
+            block_number: "1",
+            block_hash: "33".repeat(32),
+          },
+          standard_evidence: { token_standard: "erc721", evidence_quality: "confirmed" },
+          proxy_evidence: { is_proxy: false },
+          authorization_scope: { scope_class: "authenticated" },
+          adapter_policy_version: "resolver-adapter-policy.v1",
+          finality_policy_version: "ethereum-finalized.v1",
+        },
+        candidate: {} as CollectionCandidate,
+        stored_at_ms: 0,
+        expires_at_ms: 60_000,
+      }),
+    );
+    Effect.runSync(
+      cache.setNegative("negative-keep", {
+        binding: {
+          schema_version: 1,
+          namespace: "negative_probe",
+          identifier_format: "evm_address",
+          identifier_structural_digest: sha256Canonical("neg-id"),
+          capability_snapshot_version: loadHermeticCapabilitySnapshot().version,
+          adapter_policy_version: "resolver-adapter-policy.v1",
+          authorization_scope: { scope_class: "anonymous" },
+          searched_coverage: ["eip155:1"],
+          claims_beyond_coverage: false,
+        },
+        stored_at_ms: 0,
+        expires_at_ms: 60_000,
+      }),
+    );
+
+    const bare = expectSuccess(
+      applyInvalidation({ cache, edges, cause: "ttl_expiry" }),
+    );
+    expect(bare.evicted).toBe(0);
+    expect(cache.__debug().positive).toBe(1);
+    expect(cache.__debug().negative).toBe(1);
+
+    const scoped = expectSuccess(
+      applyInvalidation({
+        cache,
+        edges,
+        cause: "ttl_expiry",
+        keyDigest: "positive-keep",
+        namespace: "positive_recognition",
+      }),
+    );
+    expect(scoped.evicted).toBe(1);
+    expect(cache.__debug().positive).toBe(0);
+    expect(cache.__debug().negative).toBe(1);
   });
 });
 
