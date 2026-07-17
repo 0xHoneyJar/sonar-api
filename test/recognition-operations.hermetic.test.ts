@@ -385,6 +385,12 @@ describe("CR-107 operational event matrix and redaction", () => {
 
     expect(observer.events()).toHaveLength(0);
     expect(observer.dropped().length).toBeGreaterThan(0);
+    const dropped = JSON.stringify(observer.dropped());
+    expect(dropped).not.toContain(MULTI_CHAIN_EVM_ADDRESS);
+    expect(dropped).not.toContain("community-42");
+    expect(dropped).not.toContain("https://evil.example/rpc");
+    expect(dropped).not.toContain("coalesce_key");
+    expect(observer.dropped().every((entry) => !("raw" in entry))).toBe(true);
 
     expect(
       observer.record({

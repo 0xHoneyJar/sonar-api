@@ -44,7 +44,6 @@ export interface MemoryRecognitionObserver extends RecognitionObserverPort {
   readonly events: () => ReadonlyArray<OperationalEvent>;
   readonly dropped: () => ReadonlyArray<{
     readonly reason: ObserverDropReason;
-    readonly raw: unknown;
   }>;
   readonly metrics: MetricsPort;
   readonly clear: () => void;
@@ -179,10 +178,12 @@ export const createMemoryRecognitionObserver = (options: {
 }): MemoryRecognitionObserver => {
   const metrics = options.metrics ?? createMemoryMetrics();
   const recorded: OperationalEvent[] = [];
-  const dropped: Array<{ reason: ObserverDropReason; raw: unknown }> = [];
+  const dropped: Array<{ reason: ObserverDropReason }> = [];
 
-  const drop = (reason: ObserverDropReason, raw: unknown): ObserverRecordResult => {
-    dropped.push({ reason, raw });
+  const drop = (reason: ObserverDropReason): ObserverRecordResult => {
+    // Never retain the rejected payload: decode failures are exactly where raw
+    // identifiers, auth material, and arbitrary user fields can be present.
+    dropped.push({ reason });
     return { kind: "dropped", reason };
   };
 
@@ -200,16 +201,16 @@ export const createMemoryRecognitionObserver = (options: {
         if (Either.isLeft(decodedEither)) {
           const msg = String(decodedEither.left);
           if (/excess|unexpected|must not have/i.test(msg)) {
-            return drop("excess_property", raw);
+            return drop("excess_property");
           }
-          return drop("decode_failed", raw);
+          return drop("decode_failed");
         }
         const event = decodedEither.right;
 
         try {
           assertNoIdentityLeakInEvent(event);
         } catch {
-          return drop("identity_leak", raw);
+          return drop("identity_leak");
         }
 
         // Demand must never claim an unclassified identifier format.
@@ -217,13 +218,13 @@ export const createMemoryRecognitionObserver = (options: {
           event.kind === "resolver_demand" &&
           event.identifier_format === "unclassified"
         ) {
-          return drop("unclassified_demand", raw);
+          return drop("unclassified_demand");
         }
 
         if ("network_key" in event) {
           const allow = resolveAllowlist(options.allowedNetworkKeys);
           if (allow === undefined || !allow.has(event.network_key)) {
-            return drop("network_key_refused", raw);
+            return drop("network_key_refused");
           }
         }
 
@@ -231,7 +232,7 @@ export const createMemoryRecognitionObserver = (options: {
         return { kind: "accepted", event };
       } catch {
         // Absolute safety: never throw into resolveBounded / circuit breaker.
-        return drop("decode_failed", raw);
+        return drop("decode_failed");
       }
     },
   };
