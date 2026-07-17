@@ -38,6 +38,7 @@ export interface ResolveProbePublicBody {
   readonly capability_snapshot_version: BoundedResolveResponse["capability_snapshot_version"];
   readonly candidates: BoundedResolveResponse["candidates"];
   readonly diagnostics: {
+    readonly schema_version: 1;
     readonly searched: BoundedResolveResponse["diagnostics"]["searched"];
     readonly timed_out: BoundedResolveResponse["diagnostics"]["timed_out"];
     readonly unavailable: BoundedResolveResponse["diagnostics"]["unavailable"];
@@ -180,6 +181,7 @@ function toPublicBody(response: BoundedResolveResponse): ResolveProbePublicBody 
     capability_snapshot_version: response.capability_snapshot_version,
     candidates: response.candidates,
     diagnostics: {
+      schema_version: 1,
       searched: response.diagnostics.searched,
       timed_out: response.diagnostics.timed_out,
       unavailable: response.diagnostics.unavailable,
