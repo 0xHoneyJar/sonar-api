@@ -51,7 +51,7 @@ export const createKitchenIndexStatusPort = (deps: {
 }): ChainQualifiedIndexStatusPort => ({
   lookup: (input) =>
     Effect.promise(async () => {
-      if (input.abort.aborted || deps.clock.nowMs() >= input.deadline_at_ms) {
+      if (input.abort.aborted || input.now_ms() >= input.deadline_at_ms) {
         return "unknown";
       }
       const key: CollectionKey = {
@@ -79,10 +79,7 @@ export const createKitchenIndexStatusPort = (deps: {
           try {
             const indexed: IndexedSnapshot =
               await deps.reader.readIndexedSnapshot(key);
-            if (
-              input.abort.aborted ||
-              deps.clock.nowMs() >= input.deadline_at_ms
-            ) {
+            if (input.abort.aborted || input.now_ms() >= input.deadline_at_ms) {
               finish("unknown");
               return;
             }
@@ -96,10 +93,7 @@ export const createKitchenIndexStatusPort = (deps: {
                 job = undefined;
               }
             }
-            if (
-              input.abort.aborted ||
-              deps.clock.nowMs() >= input.deadline_at_ms
-            ) {
+            if (input.abort.aborted || input.now_ms() >= input.deadline_at_ms) {
               finish("unknown");
               return;
             }
@@ -118,7 +112,9 @@ export const createScriptedIndexStatusPort = (
 ): ChainQualifiedIndexStatusPort => ({
   lookup: (input) =>
     Effect.sync(() => {
-      if (input.abort.aborted) return "unknown";
+      if (input.abort.aborted || input.now_ms() >= input.deadline_at_ms) {
+        return "unknown";
+      }
       const key = `${input.chain_id}:${input.normalized_address}`;
       return script[key] ?? "missing";
     }),

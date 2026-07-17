@@ -114,10 +114,11 @@ const enrichMetadataBounded = (input: {
   readonly enrich: EvmMetadataEnrichPort["enrich"];
   readonly uri: string;
   readonly metadata_deadline_at_ms: number;
-  readonly clock: MonotonicClock & DeadlineTimerPort;
+  readonly now_ms: () => number;
+  readonly timer: DeadlineTimerPort;
   readonly parent_abort: AbortSignal;
 }): Effect.Effect<MetadataEnrichResult, never> => {
-  if (input.metadata_deadline_at_ms <= input.clock.nowMs()) {
+  if (input.metadata_deadline_at_ms <= input.now_ms()) {
     return Effect.succeed(degradedMetadata());
   }
 
@@ -143,7 +144,7 @@ const enrichMetadataBounded = (input: {
           return;
         }
         input.parent_abort.addEventListener("abort", onParentAbort, { once: true });
-        cancelDeadline = input.clock.scheduleAt(input.metadata_deadline_at_ms, () => {
+        cancelDeadline = input.timer.scheduleAt(input.metadata_deadline_at_ms, () => {
           controller.abort("metadata_deadline");
           finish(degradedMetadata());
         });
@@ -175,8 +176,8 @@ export const createEvmNftProbeAdapter = (
   readonly normalizationCount: () => number;
 } => {
   let normalizationCount = 0;
-  const clock = deps.clock;
-  const observedAt = deps.observedAt ?? (() => clock.nowIso());
+  const timer = deps.clock;
+  const observedAt = deps.observedAt ?? (() => timer.nowIso());
   const metadataBudget = resolveMetadataBudgetConfig(deps.metadata_budget);
 
   // Policy version must stay aligned with CR-102 cache binding.
@@ -186,10 +187,11 @@ export const createEvmNftProbeAdapter = (
 
   const probeOne = (request: AdapterProbeRequest): Effect.Effect<ProbeOutcome, never> =>
     Effect.gen(function* () {
+      const nowMs = () => request.clock.nowMs();
       const gate = abortOrDeadline({
         abort: request.abort.signal,
         deadline_at_ms: request.deadline_at_ms,
-        now_ms: clock.nowMs(),
+        now_ms: nowMs(),
       });
       if (gate === "aborted") return canonicalUnavailable("rpc_aborted");
       if (gate === "deadline") return timeoutOutcome();
@@ -234,7 +236,7 @@ export const createEvmNftProbeAdapter = (
       const postBlockGate = abortOrDeadline({
         abort: request.abort.signal,
         deadline_at_ms: request.deadline_at_ms,
-        now_ms: clock.nowMs(),
+        now_ms: nowMs(),
       });
       if (postBlockGate === "aborted") return canonicalUnavailable("rpc_aborted");
       if (postBlockGate === "deadline") return timeoutOutcome();
@@ -383,7 +385,7 @@ export const createEvmNftProbeAdapter = (
       const midGate = abortOrDeadline({
         abort: request.abort.signal,
         deadline_at_ms: request.deadline_at_ms,
-        now_ms: clock.nowMs(),
+        now_ms: nowMs(),
       });
       if (midGate === "aborted") return canonicalUnavailable("rpc_aborted");
       if (midGate === "deadline") return timeoutOutcome();
@@ -456,13 +458,14 @@ export const createEvmNftProbeAdapter = (
         normalized_address: normalized,
         abort: request.abort.signal,
         deadline_at_ms: request.deadline_at_ms,
+        now_ms: nowMs,
       });
 
       // A dependency may complete at the boundary; never project a late success.
       const postIndexGate = abortOrDeadline({
         abort: request.abort.signal,
         deadline_at_ms: request.deadline_at_ms,
-        now_ms: clock.nowMs(),
+        now_ms: nowMs(),
       });
       if (postIndexGate === "aborted") return canonicalUnavailable("rpc_aborted");
       if (postIndexGate === "deadline") return timeoutOutcome();
@@ -476,7 +479,7 @@ export const createEvmNftProbeAdapter = (
         const metaGate = abortOrDeadline({
           abort: request.abort.signal,
           deadline_at_ms: request.deadline_at_ms,
-          now_ms: clock.nowMs(),
+          now_ms: nowMs(),
         });
         if (metaGate === "aborted") return canonicalUnavailable("rpc_aborted");
         if (metaGate === "deadline") {
@@ -484,7 +487,7 @@ export const createEvmNftProbeAdapter = (
           metadataQuality = degradeRemoteQuality();
         } else {
           const metadataDeadline = metadataSubDeadlineAtMs({
-            now_ms: clock.nowMs(),
+            now_ms: nowMs(),
             request_deadline_at_ms: request.deadline_at_ms,
             config: metadataBudget,
           });
@@ -496,7 +499,8 @@ export const createEvmNftProbeAdapter = (
               enrich: deps.metadata.enrich.bind(deps.metadata),
               uri: contractUri,
               metadata_deadline_at_ms: metadataDeadline,
-              clock,
+              now_ms: nowMs,
+              timer,
               parent_abort: request.abort.signal,
             });
 
@@ -506,7 +510,7 @@ export const createEvmNftProbeAdapter = (
             }
 
             // Sub-budget / reject / timeout during enrich: skip remote fields; keep hit.
-            const pastOuterDeadline = clock.nowMs() >= request.deadline_at_ms;
+            const pastOuterDeadline = nowMs() >= request.deadline_at_ms;
             const enrichDegraded =
               pastOuterDeadline ||
               enrichment.metadata_quality === "partial" ||

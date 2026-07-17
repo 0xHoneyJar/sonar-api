@@ -92,6 +92,8 @@ export interface ChainQualifiedIndexStatusPort {
     readonly normalized_address: `0x${string}`;
     readonly abort: AbortSignal;
     readonly deadline_at_ms: number;
+    /** Same monotonic clock domain as CR-102 / AdapterProbeRequest.clock. */
+    readonly now_ms: () => number;
   }) => Effect.Effect<CollectionCandidate["index_status"], never>;
 }
 

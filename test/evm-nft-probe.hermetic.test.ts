@@ -195,6 +195,7 @@ describe("CR-103 EVM NFT probe adapter", () => {
         normalized_address: FIXTURE_ADDRESS_NORMALIZED,
         abort: makeAbort().signal,
         deadline_at_ms: clock.nowMs() + 50,
+        now_ms: () => clock.nowMs(),
       }),
     );
     expect(status).toBe("indexed");
@@ -601,6 +602,7 @@ describe("CR-103 EVM NFT probe adapter", () => {
         normalized_address: FIXTURE_ADDRESS_NORMALIZED,
         abort: makeAbort().signal,
         deadline_at_ms: clock.nowMs() + 25,
+        now_ms: () => clock.nowMs(),
       }),
     );
     clock.advanceMs(25);
@@ -612,9 +614,10 @@ describe("CR-103 EVM NFT probe adapter", () => {
     const adapter = createEvmNftProbeAdapter({
       rpc: fixtureRpc({ "eip155:1": scriptErc721() }, clock),
       indexStatus: {
-        lookup: () =>
+        lookup: (input) =>
           Effect.sync(() => {
             clock.advanceMs(50);
+            void input.now_ms();
             return "indexed" as const;
           }),
       },
@@ -848,6 +851,35 @@ describe("CR-103 EVM NFT probe adapter", () => {
       requestFor({ clock, deadline_at_ms: 1_000 }),
     );
     expect(outcome.kind).toBe("timeout");
+  });
+
+  it("uses AdapterProbeRequest.clock for deadline decisions when deps clock diverges", async () => {
+    const depsClock = virtualClock(0);
+    const requestClock = {
+      value: 10_000,
+      nowMs() {
+        return this.value;
+      },
+    };
+    const rpc = fixtureRpc({ "eip155:1": scriptErc721() }, depsClock);
+    const adapter = makeAdapter({
+      rpc,
+      indexStatus: createScriptedIndexStatusPort({
+        [`1:${FIXTURE_ADDRESS_NORMALIZED}`]: "indexed",
+      }),
+      clock: depsClock,
+    });
+
+    const outcome = await runProbe(
+      adapter,
+      requestFor({
+        clock: requestClock,
+        deadline_at_ms: 9_000,
+      }),
+    );
+
+    expect(outcome.kind).toBe("timeout");
+    expect(rpc.callLog()).toHaveLength(0);
   });
 
   it("preserves chain-qualified identity for the same address on two networks", async () => {
