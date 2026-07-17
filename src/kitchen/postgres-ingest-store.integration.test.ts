@@ -566,7 +566,12 @@ describePostgres("Postgres physical-job mixed-version integration", () => {
         "backfill did not honor lock timeout",
       );
       expect(result.code).not.toBe(0);
-      expect(result.stderr).toContain("canceling statement due to lock timeout");
+      // PG may surface lock wait as lock timeout or statement timeout depending on
+      // which GUC fires first; both prove the backfill aborted on contention.
+      expect(
+        result.stderr.includes("canceling statement due to lock timeout") ||
+          result.stderr.includes("canceling statement due to statement timeout"),
+      ).toBe(true);
       const authority = await pool!.query(
         `SELECT phase, divergence, reason
          FROM kitchen_job_identity_migration_state WHERE singleton = true`,
@@ -574,7 +579,7 @@ describePostgres("Postgres physical-job mixed-version integration", () => {
       expect(authority.rows[0]).toMatchObject({
         phase: "parity",
         divergence: true,
-        reason: expect.stringContaining("lock timeout"),
+        reason: expect.stringMatching(/lock timeout|statement timeout/),
       });
     } finally {
       if (blockerOpen) await blocker.query("ROLLBACK").catch(() => undefined);
