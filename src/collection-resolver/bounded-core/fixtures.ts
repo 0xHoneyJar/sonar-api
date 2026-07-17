@@ -25,6 +25,10 @@ import { createMemoryMetrics } from "./metrics.js";
 import { createMemoryRateLimiter } from "./rate-limit.js";
 import { createMemoryInvalidationEdgePort } from "./caching/invalidation.js";
 import { createMemoryResolverCache } from "./caching/store.js";
+import {
+  createMemoryRecognitionObserver,
+  liveAllowedNetworkKeys,
+} from "./operations/observer.js";
 import type { BoundedResolverDeps } from "./ports.js";
 import type { BoundedResolverConfig } from "./schemas.js";
 import { createScriptedNetworkAdapter } from "./reference/scripted-adapter.js";
@@ -59,6 +63,9 @@ export interface HermeticBoundedDepsOptions {
   readonly ignoreAbort?: boolean;
   readonly inventory?: ReturnType<typeof createScriptedInventoryPort>;
   readonly capabilitySnapshot?: CapabilityRegistrySnapshot;
+  readonly capabilitySnapshotProvider?: import("./ports.js").CapabilitySnapshotProviderPort;
+  readonly admissionControl?: import("./ports.js").AdmissionControlPort;
+  readonly observer?: import("./ports.js").RecognitionObserverPort;
   readonly failImpactStore?: boolean;
   /** Override clock/timer (e.g. process monotonic for real-timer probes). */
   readonly processClock?: import("./clock.js").MonotonicClock &
@@ -74,6 +81,7 @@ export const createHermeticBoundedDeps = (
   readonly cache: ReturnType<typeof createMemoryResolverCache>;
   readonly edges: ReturnType<typeof createMemoryInvalidationEdgePort>;
   readonly adapter: ReturnType<typeof createScriptedNetworkAdapter>;
+  readonly observer: ReturnType<typeof createMemoryRecognitionObserver>;
 } => {
   const virtual = options.clock ?? createVirtualClock({ originMs: 0 });
   const clock = options.processClock ?? virtual;
@@ -83,6 +91,23 @@ export const createHermeticBoundedDeps = (
     failStore: options.failImpactStore === true,
   });
   const negativeKeys = new Set<string>();
+  const metrics = createMemoryMetrics();
+  const capabilitySnapshot =
+    options.capabilitySnapshot ?? loadHermeticCapabilitySnapshot();
+  const snapshotCurrent = () =>
+    options.capabilitySnapshotProvider?.current() ?? capabilitySnapshot;
+  const observer =
+    (options.observer as ReturnType<typeof createMemoryRecognitionObserver> | undefined) ??
+    createMemoryRecognitionObserver({
+      metrics,
+      allowedNetworkKeys: liveAllowedNetworkKeys(snapshotCurrent, {
+        nowMs: () => clock.nowMs(),
+        snapshotChangedAtMs:
+          options.capabilitySnapshotProvider?.changedAtMs === undefined
+            ? undefined
+            : () => options.capabilitySnapshotProvider!.changedAtMs!(),
+      }),
+    });
 
   const wrappedCache: typeof cache = {
     ...cache,
@@ -125,7 +150,9 @@ export const createHermeticBoundedDeps = (
     inventory: options.inventory,
     cache: wrappedCache,
     invalidationEdges: edges,
-    circuitBreaker: createMemoryCircuitBreaker(config.circuit_breaker),
+    circuitBreaker: createMemoryCircuitBreaker(config.circuit_breaker, {
+      observer,
+    }),
     rateLimiter: createMemoryRateLimiter({
       caller: config.caller_rate_limit,
       global: config.global_rate_limit,
@@ -137,8 +164,15 @@ export const createHermeticBoundedDeps = (
         return negativeKeys.has(digest);
       },
     }),
-    metrics: createMemoryMetrics(),
-    capabilitySnapshot: options.capabilitySnapshot ?? loadHermeticCapabilitySnapshot(),
+    metrics,
+    capabilitySnapshot,
+    ...(options.capabilitySnapshotProvider !== undefined
+      ? { capabilitySnapshotProvider: options.capabilitySnapshotProvider }
+      : {}),
+    ...(options.admissionControl !== undefined
+      ? { admissionControl: options.admissionControl }
+      : {}),
+    observer,
   };
 
   return {
@@ -148,6 +182,7 @@ export const createHermeticBoundedDeps = (
     cache: wrappedCache,
     edges,
     adapter,
+    observer,
   };
 };
 

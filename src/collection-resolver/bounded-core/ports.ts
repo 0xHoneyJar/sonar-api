@@ -23,6 +23,8 @@ import type {
 } from "./schemas.js";
 import type { BoundedResolverDecodeError, InvalidationEdgeStoreError } from "./errors.js";
 import type { ProbeHitEvidence, ProbeOutcome } from "../candidate.js";
+import type { ObserverRecordResult } from "./operations/observer.js";
+import type { ResolverAdmissionFullStopError } from "./operations/admission-control.js";
 
 export interface AdapterAbortHandle {
   readonly signal: AbortSignal;
@@ -279,6 +281,33 @@ export interface MetricsPort {
   readonly observeConcurrency: (current: number) => void;
 }
 
+/**
+ * CR-107 live capability snapshot provider (optional).
+ * When present, resolveBounded snapshots once at request start.
+ */
+export interface CapabilitySnapshotProviderPort {
+  readonly current: () => CapabilityRegistrySnapshot;
+  /** Monotonic time at which current() last advanced, when available. */
+  readonly changedAtMs?: () => number;
+}
+
+/** CR-107 global admission — open | full_stop (not rate-limit overload). */
+export type AdmissionState = "open" | "full_stop";
+
+export interface AdmissionControlPort {
+  readonly state: () => AdmissionState;
+  readonly assertOpen: () => Effect.Effect<void, ResolverAdmissionFullStopError>;
+}
+
+/**
+ * CR-107 typed operational observer.
+ * Implementations MUST strict-decode + identity/allowlist-check and never throw
+ * into the resolve path — return a typed accept/drop result instead.
+ */
+export interface RecognitionObserverPort {
+  readonly record: (event: unknown) => ObserverRecordResult;
+}
+
 export interface BoundedResolverDeps {
   readonly clock: MonotonicClock;
   /** Injected deadline timer (usually the same virtual/process clock). */
@@ -291,7 +320,20 @@ export interface BoundedResolverDeps {
   readonly rateLimiter: RateLimiterPort;
   readonly coalesce: CoalescePort;
   readonly metrics: MetricsPort;
+  /**
+   * Static CR-101 snapshot (compatibility). Used when
+   * `capabilitySnapshotProvider` is absent.
+   */
   readonly capabilitySnapshot: CapabilityRegistrySnapshot;
+  /**
+   * Live snapshot provider — preferred when present. Captured once per request
+   * so mid-flight store updates cannot change the request's catalog version.
+   */
+  readonly capabilitySnapshotProvider?: CapabilitySnapshotProviderPort;
+  /** Global admission control. Absent ⇒ treated as open. */
+  readonly admissionControl?: AdmissionControlPort;
+  /** Typed low-cardinality operational events (CR-107). */
+  readonly observer?: RecognitionObserverPort;
 }
 
 export type {

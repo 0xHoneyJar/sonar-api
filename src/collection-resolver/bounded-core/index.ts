@@ -5,6 +5,7 @@
  * Live EVM/Solana adapters and production metrics remain CR-103 / CR-104 / CR-107.
  *
  * See PROTOCOL.md for budgets, cache binding, invalidation, and port contracts.
+ * See ../OPERATIONS.md for CR-107 degraded / full-stop runbooks.
  */
 export {
   BoundedResolverDecodeError,
@@ -17,6 +18,8 @@ export {
   InvalidationEdgeStoreError,
   type BoundedResolverError,
 } from "./errors.js";
+
+export { ResolverAdmissionFullStopError } from "./operations/admission-control.js";
 
 export {
   BOUNDED_RESOLVER_SCHEMA_VERSION,
@@ -63,6 +66,39 @@ export { createMemoryRateLimiter } from "./rate-limit.js";
 export { createMemoryCoalesce } from "./coalesce.js";
 
 export { createMemoryMetrics, percentile } from "./metrics.js";
+
+export {
+  createMemoryRecognitionObserver,
+  assertOperationalEventAllowlist,
+  assertNoIdentityLeakInEvent,
+  networkKeysFromCapabilitySnapshot,
+  allowedNetworkKeysFromSnapshot,
+  liveAllowedNetworkKeys,
+  createMemoryAdmissionControl,
+  alwaysOpenAdmissionControl,
+  staticCapabilitySnapshotProvider,
+  createMemoryCapabilitySnapshotStore,
+  resolveRequestCapabilitySnapshot,
+  CapabilitySnapshotStoreError,
+  bucketCandidateCount,
+  classifyTerminalOutcome,
+  OPERATIONAL_EVENT_LABEL_ALLOWLIST,
+  OPERATIONAL_EVENT_VALUE_ALLOWLIST,
+  IdentifierFormatDimension,
+  NetworkOutcomeDimension,
+  TerminalOutcomeDimension,
+  CandidateCountBucket,
+  CacheOutcomeDimension,
+  CircuitStateDimension,
+  RecognitionOperationalEvent,
+  type MemoryRecognitionObserver,
+  type MemoryAdmissionControl,
+  type CapabilitySnapshotRuntimeStore,
+  type CapabilitySnapshotApplyError,
+  type ObserverRecordResult,
+  type ObserverDropReason,
+  type AllowedNetworkKeySource,
+} from "./operations/index.js";
 
 export {
   createMemoryResolverCache,
@@ -156,4 +192,10 @@ export type {
   InventoryEnrichmentHit,
   InventoryEnrichmentResult,
   AdapterProbeRequest,
+  CapabilitySnapshotProviderPort,
+  AdmissionControlPort,
+  AdmissionState,
+  RecognitionObserverPort,
 } from "./ports.js";
+
+export type { CircuitBreakerOptions } from "./circuit-breaker.js";
