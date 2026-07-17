@@ -37,3 +37,9 @@ export {
   type ResolveProbeRequest,
   type ResolveProbeResponse,
 } from "./resolve.js";
+
+/** CR-004: resolver workers fetch remote metadata only through this port. */
+export {
+  createResolverMetadataPort,
+  type ResolverMetadataPort,
+} from "../metadata-egress/resolver-port.js";

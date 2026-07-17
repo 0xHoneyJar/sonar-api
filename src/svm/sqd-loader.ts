@@ -25,7 +25,7 @@ const SECRET = process.env.HASURA_GRAPHQL_ADMIN_SECRET ?? "";
 const RPC = process.env.SOLANA_RPC_URL ?? (process.env.HELIUS_API_KEY ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}` : "");
 
 async function hasura<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`${HASURA}/v1/graphql`, {
+  const res = await /* @non-metadata-fetch SQD load */ fetch(`${HASURA}/v1/graphql`, {
     method: "POST",
     headers: { "x-hasura-admin-secret": SECRET, "Content-Type": "application/json" },
     body: JSON.stringify({ query, variables }),

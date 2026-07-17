@@ -53,7 +53,7 @@ export function applyBeltConfigPatch(args: {
 async function notifyIndexerRestart(): Promise<void> {
   const webhook = process.env.KITCHEN_INDEXER_RESTART_WEBHOOK?.trim();
   if (!webhook) return;
-  const response = await fetch(webhook, { method: "POST" });
+  const response = await /* @non-metadata-fetch kitchen webhook */ fetch(webhook, { method: "POST" });
   if (!response.ok) {
     throw new Error(`indexer restart webhook HTTP ${response.status}`);
   }

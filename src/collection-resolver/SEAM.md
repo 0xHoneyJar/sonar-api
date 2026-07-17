@@ -40,7 +40,12 @@ Remove the vendor artifact once that pin lands. Do not copy schemas into Sonar.
 | `src/collection-resolver/das-normalize.ts` | Adapts real `CollectionSnapshot` / `CollectionMember` + shared `toRows`/`NftRow` |
 | `src/svm/collection-nft-rows.ts` | Shared persistence projector used by the ownership indexer and DAS normalize |
 | `src/svm/nft-collection-source.ts` | DAS seam: `parseAsset` → `CollectionMember` (refuses missing owner) |
+| `src/metadata-egress/` | CR-004 sole metadata network boundary (resolver + report workers) |
 
 Resolver outputs must always strict-decode through CR-001 `CollectionCandidate`
 before leaving Sonar. DAS normalize must not invent a parallel member/owner
 array or a fake storage row — storage is always `toRows(snapshot, …)`.
+
+Remote token/collection metadata URIs are fetched only via
+`createResolverMetadataPort` / `retrieveMetadata` (CR-004). Do not add parallel
+`fetch` paths for user- or collection-supplied metadata URLs.

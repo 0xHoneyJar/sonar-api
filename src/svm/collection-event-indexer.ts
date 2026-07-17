@@ -109,7 +109,7 @@ export function selectDriftedMints(
 // owned by parallel work this sprint). Env read at call time so injected-deps tests never touch it.
 async function hasura<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   const endpoint = (process.env.SVM_HASURA_ENDPOINT ?? "").replace(/\/$/, "");
-  const res = await fetch(`${endpoint}/v1/graphql`, {
+  const res = await /* @non-metadata-fetch collection event index */ fetch(`${endpoint}/v1/graphql`, {
     method: "POST",
     headers: { "x-hasura-admin-secret": process.env.HASURA_GRAPHQL_ADMIN_SECRET ?? "", "Content-Type": "application/json" },
     body: JSON.stringify({ query, variables }),

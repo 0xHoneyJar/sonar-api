@@ -102,7 +102,7 @@ export class DasNftCollectionSource implements NftCollectionSource {
 
   private async rpc<T>(method: string, params: unknown): Promise<T> {
     meter(classifyRpcMethod(method), method); // count the attempt even when it goes on to fail — KF-018 runs burn credits, then die
-    const res = await fetch(this.rpcUrl, {
+    const res = await /* @non-metadata-fetch collection RPC */ fetch(this.rpcUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: "sonar", method, params }),

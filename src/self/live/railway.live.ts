@@ -102,7 +102,7 @@ export async function fetchRailwayDeployment(): Promise<DeployModelBlock> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
   try {
-    const res = await fetch(RAILWAY_GQL, {
+    const res = await /* @non-metadata-fetch Railway API */ fetch(RAILWAY_GQL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
