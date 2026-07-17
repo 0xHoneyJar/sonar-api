@@ -244,17 +244,15 @@ export const parseDasGetAssetRpcResponse = (
     return { kind: "malformed", safe_reason: "das_get_asset_id_malformed" };
   }
   const content = asset.content as DasAsset["content"] | undefined;
+  const nameRaw = content?.metadata?.name;
   const name =
-    content?.metadata?.name !== undefined && content.metadata.name !== ""
-      ? content.metadata.name
-      : undefined;
+    typeof nameRaw === "string" && nameRaw !== "" ? nameRaw : undefined;
   const symbolRaw = (content?.metadata as { symbol?: string } | undefined)?.symbol;
   const symbol =
     typeof symbolRaw === "string" && symbolRaw !== "" ? symbolRaw : undefined;
+  const imageRaw = content?.links?.image;
   const image =
-    content?.links?.image !== undefined && content.links.image !== ""
-      ? content.links.image
-      : undefined;
+    typeof imageRaw === "string" && imageRaw !== "" ? imageRaw : undefined;
   return {
     kind: "ok",
     id: rawId,

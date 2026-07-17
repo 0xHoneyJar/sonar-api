@@ -91,11 +91,13 @@ export const projectSolanaDasHit = (
   const memberImage = sample?.image ?? undefined;
 
   // Identity: exact registry first, else explicit collection-mint getAsset, else omit.
+  // Empty registry displayName is missing (?? does not treat "" as absent).
   const name =
-    registry?.displayName ??
-    (collection_asset?.name !== undefined && collection_asset.name !== ""
-      ? collection_asset.name
-      : undefined);
+    registry !== undefined && registry.displayName !== ""
+      ? registry.displayName
+      : collection_asset?.name !== undefined && collection_asset.name !== ""
+        ? collection_asset.name
+        : undefined;
   const symbol =
     registry !== undefined && registry.symbol !== ""
       ? registry.symbol

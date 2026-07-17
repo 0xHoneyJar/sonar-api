@@ -588,6 +588,29 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
     expect(outcome.report_readiness).toBe("preparation_required");
   });
 
+  it("preserves DAS recognition when optional getAsset or readiness times out", async () => {
+    const { adapter } = adapterFor(
+      () => sampleOutcome(PYTHIANS_COLLECTION_MINT, FIXTURE_PROGRAMMABLE_ITEMS),
+      undefined,
+      {
+        collectionAssetHandler: async () => ({ kind: "timeout" as const }),
+        readinessPort: {
+          observe: () => Effect.succeed({ kind: "timeout" as const }),
+        },
+      },
+    );
+
+    const outcome = await expectAsyncSuccess(
+      adapter.probe(probeRequest(PYTHIANS_COLLECTION_MINT)),
+    );
+
+    expect(outcome.kind).toBe("hit");
+    if (outcome.kind !== "hit") return;
+    expect(outcome.recognition).toBe("recognized");
+    expect(outcome.index_status).toBe("missing");
+    expect(outcome.report_readiness).toBe("preparation_required");
+  });
+
   it("honors abort/deadline and does not mutate state after abort", async () => {
     const sharedState = { mutations: 0 };
     const controller = new AbortController();
@@ -1133,6 +1156,23 @@ describe("CR-104 parseDasGetAssetRpcResponse — result.id identity gate", () =>
         result: { id: "not-a-solana-key!!!", content: { metadata: { name: "X" } } },
       }).kind,
     ).toBe("malformed");
+  });
+
+  it("omits non-string getAsset name and image fields", () => {
+    const parsed = parseDasGetAssetRpcResponse({
+      result: {
+        id: PYTHIANS_COLLECTION_MINT,
+        content: {
+          metadata: { name: 123, symbol: "$PTN" },
+          links: { image: { url: "https://cdn.example.test/x.png" } },
+        },
+      },
+    });
+    expect(parsed.kind).toBe("ok");
+    if (parsed.kind !== "ok") return;
+    expect(parsed.name).toBeUndefined();
+    expect(parsed.symbol).toBe("$PTN");
+    expect(parsed.image).toBeUndefined();
   });
 });
 

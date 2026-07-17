@@ -161,13 +161,13 @@ export const createSolanaDasNetworkAdapter = (
             deadline_at_ms: request.deadline_at_ms,
             now_ms: request.clock.nowMs,
           });
+          // Optional getAsset shares the probe deadline as best-effort only.
+          // Caller/deadline abort still fails closed via sealIfAborted; a
+          // transport timeout/unavailable/omit must not erase a recognized hit.
           const afterAsset = sealIfAborted(request);
           if (afterAsset !== undefined) return afterAsset;
-          if (assetOutcome.kind === "timeout") {
-            return { kind: "timeout" } as const;
-          }
-          // unavailable / omit → proceed without collection-level identity fields
-          // (registry may still enrich name/symbol/key).
+          // unavailable / omit / timeout → proceed without collection-level
+          // identity fields (registry may still enrich name/symbol/key).
           if (assetOutcome.kind === "observed") {
             if (assetOutcome.observation.collection_mint !== address) {
               return { kind: "unavailable" } as const;
@@ -186,12 +186,9 @@ export const createSolanaDasNetworkAdapter = (
           });
           const afterReady = sealIfAborted(request);
           if (afterReady !== undefined) return afterReady;
-          if (readinessOutcome.kind === "timeout") {
-            return { kind: "timeout" } as const;
-          }
           // Readiness is optional enrichment after DAS has already recognized
-          // the collection. An outage degrades to the honest default rather
-          // than erasing the recognized candidate.
+          // the collection. Timeout/outage degrades to the honest default
+          // rather than erasing the recognized candidate.
           if (readinessOutcome.kind === "observed") {
             readiness = readinessOutcome.readiness;
           }
