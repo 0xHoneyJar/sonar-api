@@ -242,8 +242,20 @@ export function createKitchenApp(deps: {
     service: "kitchen-api",
   }, 200));
   app.get("/ready", async (c) => {
-    const migration = await deps.store.getMigrationAuthority();
     const preparationRuntime = deps.preparationRuntime ?? UNAVAILABLE_PREPARATION_RUNTIME;
+    let migration: Awaited<ReturnType<IngestJobStorePort["getMigrationAuthority"]>>;
+    try {
+      migration = await deps.store.getMigrationAuthority();
+    } catch {
+      return c.json({
+        ok: false,
+        service: "kitchen-api",
+        preparation_admission: "disabled",
+        preparation_runtime: preparationRuntime.mode,
+        reason: "migration authority unavailable",
+        migration_phase: "unknown",
+      }, 503);
+    }
     const available = !migration.divergence && preparationRuntime.available;
     return c.json({
       ok: available,

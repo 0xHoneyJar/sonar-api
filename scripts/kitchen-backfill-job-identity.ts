@@ -184,13 +184,13 @@ try {
         }
         await client.query("COMMIT");
       } catch (error) {
-        await client.query("ROLLBACK");
+        await client.query("ROLLBACK").catch(() => undefined);
         await pool.query(
           `UPDATE kitchen_job_identity_migration_state
            SET phase = 'parity', divergence = true, reason = $1, updated_at = now()
            WHERE singleton = true`,
           [error instanceof Error ? error.message : String(error)],
-        );
+        ).catch(() => undefined);
         throw error;
       } finally {
         client.release();
@@ -203,7 +203,7 @@ try {
      SET phase = 'parity', divergence = true, reason = $1, updated_at = now()
      WHERE singleton = true`,
     [error instanceof Error ? error.message : String(error)],
-  );
+  ).catch(() => undefined);
   throw error;
 } finally {
   await pool.end();

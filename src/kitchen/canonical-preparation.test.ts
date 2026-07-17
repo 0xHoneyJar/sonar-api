@@ -281,6 +281,35 @@ describe("canonical collection preparation", () => {
     });
   });
 
+  it("fails readiness closed with a structured response when authority is unavailable", async () => {
+    const unavailableStore = new Proxy(store, {
+      get(target, property, receiver) {
+        if (property === "getMigrationAuthority") {
+          return async () => {
+            throw new Error("database unavailable");
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const app = createKitchenApp({
+      store: unavailableStore,
+      reader,
+      preparationRuntime: INJECTED_PREPARATION_RUNTIME,
+    });
+
+    const ready = await app.request("/ready");
+    expect(ready.status).toBe(503);
+    await expect(ready.json()).resolves.toEqual({
+      ok: false,
+      service: "kitchen-api",
+      preparation_admission: "disabled",
+      preparation_runtime: "injected",
+      reason: "migration authority unavailable",
+      migration_phase: "unknown",
+    });
+  });
+
   it("enables local_config only when the non-production worker is also enabled", () => {
     expect(preparationRuntimeFromEnv({
       NODE_ENV: "development",

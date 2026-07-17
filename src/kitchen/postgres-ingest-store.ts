@@ -301,6 +301,10 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
   constructor(private readonly pool: pg.Pool) {}
 
   async get(key: CollectionKey): Promise<IngestJobRecord | undefined> {
+    // Legacy v1 status semantics are intentionally the first admitted job for
+    // this collection key. Version-aware/current-capability callers must use
+    // the v2 physical-job route and getByPhysicalJobId; do not silently turn
+    // this compatibility read into a moving "latest" pointer during migration.
     const result = await this.pool.query<JobRow>(
       `SELECT ${JOB_COLUMNS} FROM kitchen_ingest_jobs
        WHERE chain_id = $1 AND lower(contract) = lower($2)
