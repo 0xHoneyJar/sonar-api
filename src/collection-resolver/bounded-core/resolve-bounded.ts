@@ -798,7 +798,7 @@ export const resolveBounded = (input: {
       });
     }
 
-    const coverage = allowedNetworkKeys;
+    const coverage = [...allowedNetworkKeys].sort();
     const negativeBinding: NegativeCacheBinding = {
       schema_version: 1,
       namespace: "negative_probe",
@@ -806,6 +806,7 @@ export const resolveBounded = (input: {
       identifier_structural_digest: structuralDigest,
       capability_snapshot_version: input.deps.capabilitySnapshot.version,
       adapter_policy_version: config.adapter_policy_version,
+      authorization_scope: request.caller.authorization_scope,
       searched_coverage: coverage,
       claims_beyond_coverage: false,
     };

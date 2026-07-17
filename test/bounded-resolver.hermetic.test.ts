@@ -504,6 +504,26 @@ describe("CR-102 rate limit and coalescing", () => {
     expect(adapter.calls().length).toBe(callsAfterFirst);
   });
 
+  it("does not reuse negative evidence across authorization scopes", () => {
+    const { deps, config, adapter } = createHermeticBoundedDeps({
+      script: SCRIPT_ZERO_CANDIDATES,
+    });
+    const authenticated = hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "scope-auth");
+    expectSuccess(resolveBounded({ request: authenticated, config, deps }));
+    const authenticatedCalls = adapter.calls().length;
+
+    const anonymous = {
+      ...hermeticResolveRequest(MULTI_CHAIN_EVM_ADDRESS, "scope-anon"),
+      caller: {
+        bucket_id: "scope-anon",
+        authorization_scope: { scope_class: "anonymous" as const },
+      },
+    };
+    const isolated = expectSuccess(resolveBounded({ request: anonymous, config, deps }));
+    expect(isolated.diagnostics.cache.negative_hit).toBe(false);
+    expect(adapter.calls().length).toBeGreaterThan(authenticatedCalls);
+  });
+
   it("reprobes after a negative entry expires instead of trusting the fixture hint", () => {
     const clock = createVirtualClock({ originMs: 0 });
     const { deps, config, adapter } = createHermeticBoundedDeps({
@@ -1056,6 +1076,7 @@ describe("CR-102 cache separation and invalidation", () => {
           identifier_structural_digest: sha256Canonical("id"),
           capability_snapshot_version: loadHermeticCapabilitySnapshot().version,
           adapter_policy_version: "resolver-adapter-policy.v1",
+          authorization_scope: { scope_class: "anonymous" },
           searched_coverage: ["eip155:1"],
           claims_beyond_coverage: false,
         },

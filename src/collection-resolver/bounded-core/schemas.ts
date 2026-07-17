@@ -292,6 +292,7 @@ export const NegativeCacheBinding = Schema.Struct({
   identifier_structural_digest: Sha256Hex,
   capability_snapshot_version: CapabilityRegistryVersion,
   adapter_policy_version: NonEmptyString.pipe(Schema.maxLength(128)),
+  authorization_scope: AuthorizationScope,
   /** Sorted network keys actually searched while healthy. */
   searched_coverage: Schema.Array(NonEmptyString.pipe(Schema.maxLength(128))).pipe(
     Schema.maxItems(8),
