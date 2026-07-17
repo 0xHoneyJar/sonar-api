@@ -1886,6 +1886,10 @@ describe("CR-004 provenance redaction helpers", () => {
       expect(redacted.safe_uri).not.toContain("<svg");
       expect(redacted.safe_uri).not.toContain("fetch");
       expect(redacted.uri_sha256).toMatch(/^[0-9a-f]{64}$/);
+      const protocol = new URL(raw).protocol;
+      expect(redacted.safe_uri).toBe(
+        `${protocol}[redacted:${sha256Hex(raw.slice(protocol.length)).slice(0, 12)}]`,
+      );
     }
   });
 

@@ -65,11 +65,13 @@ export const createNodePinnedTransport = (): PinnedTransportPort => ({
 
       let settled = false;
       let headersReceived = false;
+      let bodyTimer: ReturnType<typeof setTimeout> | undefined;
       const fail = (error: Error) => {
         if (settled) return;
         settled = true;
         clearTimeout(connectTimer);
         clearTimeout(headerTimer);
+        if (bodyTimer !== undefined) clearTimeout(bodyTimer);
         reject(error);
       };
 
@@ -112,7 +114,7 @@ export const createNodePinnedTransport = (): PinnedTransportPort => ({
           const chunks: Uint8Array[] = [];
           let total = 0;
 
-          const bodyTimer = setTimeout(() => {
+          bodyTimer = setTimeout(() => {
             fail(new Error("body timeout"));
             req.destroy();
           }, request.body_timeout_ms);
@@ -120,7 +122,6 @@ export const createNodePinnedTransport = (): PinnedTransportPort => ({
           res.on("data", (chunk: Buffer) => {
             total += chunk.byteLength;
             if (total > request.max_compressed_bytes) {
-              clearTimeout(bodyTimer);
               fail(new Error("compressed size exceeded"));
               req.destroy();
               return;
@@ -131,7 +132,7 @@ export const createNodePinnedTransport = (): PinnedTransportPort => ({
           res.on("end", () => {
             if (settled) return;
             settled = true;
-            clearTimeout(bodyTimer);
+            if (bodyTimer !== undefined) clearTimeout(bodyTimer);
             const headerMap: Record<string, string> = {};
             for (const [key, value] of Object.entries(res.headers)) {
               if (typeof value === "string") headerMap[key] = value;
@@ -151,7 +152,6 @@ export const createNodePinnedTransport = (): PinnedTransportPort => ({
           });
 
           res.on("error", (error) => {
-            clearTimeout(bodyTimer);
             fail(error instanceof Error ? error : new Error(String(error)));
           });
         },

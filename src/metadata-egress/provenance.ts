@@ -221,7 +221,7 @@ export const redactUri = (raw: string): RedactedUri => {
   const afterScheme = raw.slice(url.protocol.length);
   if (url.host === "" && !afterScheme.startsWith("//")) {
     return {
-      safe_uri: `${url.protocol}${redactedStub(url.pathname)}`,
+      safe_uri: `${url.protocol}${redactedStub(afterScheme)}`,
       uri_sha256: sha256Hex(correlationForm(url)),
     };
   }
