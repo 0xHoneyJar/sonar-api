@@ -65,18 +65,41 @@ export const allowedNetworkKeysFromSnapshot = (
 
 export const liveAllowedNetworkKeys = (
   current: () => CapabilityRegistrySnapshot,
+  options: {
+    readonly retentionMs?: number;
+    readonly nowMs?: () => number;
+  } = {},
 ): AllowedNetworkKeySource => {
-  // Retain registry-authorized keys observed by in-flight requests across a
-  // live transition so their terminal network events remain attributable.
-  // Seed synchronously: the first network event may arrive only after that
-  // network has been removed from the live snapshot.
-  const observed = new Set<string>(networkKeysFromCapabilitySnapshot(current()));
+  // Retain keys from the immediately preceding live view for a bounded grace
+  // period so in-flight requests can finish emitting attributable events. A
+  // removed key must not remain authorized for the lifetime of the process.
+  const retentionMs = Math.max(0, options.retentionMs ?? 60_000);
+  const nowMs = options.nowMs ?? Date.now;
+  let active = new Set<string>(networkKeysFromCapabilitySnapshot(current()));
+  const retainedUntil = new Map<string, number>();
   return {
     currentKeys: () => {
-      for (const key of networkKeysFromCapabilitySnapshot(current())) {
-        observed.add(key);
+      const now = nowMs();
+      const next = new Set<string>(networkKeysFromCapabilitySnapshot(current()));
+      for (const key of active) {
+        if (!next.has(key)) {
+          retainedUntil.set(key, now + retentionMs);
+        }
       }
-      return new Set(observed);
+      for (const key of next) {
+        retainedUntil.delete(key);
+      }
+      active = next;
+
+      const allowed = new Set(next);
+      for (const [key, expiry] of retainedUntil) {
+        if (expiry > now) {
+          allowed.add(key);
+        } else {
+          retainedUntil.delete(key);
+        }
+      }
+      return allowed;
     },
   };
 };

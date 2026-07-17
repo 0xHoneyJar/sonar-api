@@ -118,7 +118,9 @@ export const createMemoryCircuitBreaker = (
         bucket.state = "closed";
         bucket.failures = 0;
         bucket.half_open_probes = 0;
-        emitTransition(network_key, from, "closed");
+        if (from !== "closed") {
+          emitTransition(network_key, from, "closed");
+        }
       }),
 
     recordFailure: ({ network_key, operation, now_ms }) =>

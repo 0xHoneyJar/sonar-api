@@ -22,6 +22,7 @@ import {
   FIXTURE_EFFECTIVE_AT,
   hermeticResolveRequest,
   loadHermeticCapabilitySnapshot,
+  liveAllowedNetworkKeys,
   MULTI_CHAIN_EVM_ADDRESS,
   networkKeysFromCapabilitySnapshot,
   OPERATIONAL_EVENT_LABEL_ALLOWLIST,
@@ -401,6 +402,66 @@ describe("CR-107 operational event matrix and redaction", () => {
       }),
     ).toMatchObject({ kind: "accepted" });
     expect(observer.events()).toHaveLength(1);
+  });
+
+  it("expires network keys removed from the live capability snapshot", () => {
+    let now = 1_000;
+    let liveSnapshot = expectSuccess(
+      decodeCapabilityRegistrySnapshot(withNetworks([ethereumMainnetCapability()], "3")),
+    );
+    const observer = createMemoryRecognitionObserver({
+      allowedNetworkKeys: liveAllowedNetworkKeys(() => liveSnapshot, {
+        retentionMs: 100,
+        nowMs: () => now,
+      }),
+    });
+
+    liveSnapshot = expectSuccess(
+      decodeCapabilityRegistrySnapshot(withNetworks([solanaMainnetCapability()], "4")),
+    );
+    expect(
+      observer.record({
+        kind: "circuit_transition",
+        network_key: "eip155:1",
+        circuit_from: "closed",
+        circuit_to: "open",
+      }),
+    ).toMatchObject({ kind: "accepted" });
+
+    now += 101;
+    expect(
+      observer.record({
+        kind: "circuit_transition",
+        network_key: "eip155:1",
+        circuit_from: "open",
+        circuit_to: "half_open",
+      }),
+    ).toMatchObject({ kind: "dropped", reason: "network_key_refused" });
+    expect(
+      observer.record({
+        kind: "circuit_transition",
+        network_key: "solana:mainnet-beta",
+        circuit_from: "closed",
+        circuit_to: "open",
+      }),
+    ).toMatchObject({ kind: "accepted" });
+  });
+
+  it("does not invoke transition callbacks for closed-state successes", () => {
+    const transitions: Array<{ from: string; to: string }> = [];
+    const breaker = createMemoryCircuitBreaker(
+      { failure_threshold: 1, open_ms: 100, half_open_max_probes: 1 },
+      { onTransition: ({ from, to }) => transitions.push({ from, to }) },
+    );
+
+    expectSuccess(
+      breaker.recordSuccess({
+        network_key: "eip155:1",
+        operation: "recognize",
+        now_ms: 0,
+      }),
+    );
+    expect(transitions).toEqual([]);
   });
 
   it("circuit breaker transitions go through the same observer enforcement", () => {
