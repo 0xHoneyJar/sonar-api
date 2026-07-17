@@ -109,6 +109,7 @@ const requestFor = (input: {
         return abort.signal.aborted;
       },
     },
+    clock,
     deadline_at_ms: input.deadline_at_ms ?? clock.nowMs() + 5_000,
   };
 };
