@@ -64,11 +64,15 @@ export {
   scriptQuorumFailure,
   scriptWithContractUri,
   multiNetworkScripts,
+  robinhoodChainScript,
   FIXTURE_ADDRESS,
   FIXTURE_ADDRESS_NORMALIZED,
   FIXTURE_BLOCK,
+  FIXTURE_BLOCK_ROBINHOOD,
   FIXTURE_BYTECODE,
   FIXTURE_IMPL_ADDRESS,
+  ROBINHOOD_FIXTURE_COLLECTION,
+  ROBINHOOD_FIXTURE_COLLECTION_NORMALIZED,
   secretLeakSentinel,
 } from "./fixtures.js";
 

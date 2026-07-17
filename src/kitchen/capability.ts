@@ -79,7 +79,8 @@ export async function resolvePreparationCapability(args: {
       health: "disabled",
       enabled: false,
       reasonClass: "kill_switch",
-      reason: "Robinhood Chain preparation is disabled until CR-401 capability proof",
+      reason:
+        "Robinhood Chain preparation remains registry-disabled until config.yaml index wiring",
       sourceSequence: "201",
       finalityPolicyVersion: "robinhood-unproven.v1",
       prepareAdapterId: "unsupported",

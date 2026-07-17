@@ -4,3 +4,11 @@ Source section: Network Configuration
 
 Property | Robinhood Chain | Robinhood Chain Testnet
 Chain ID | 4663 | 46630
+Currency Symbol | ETH | ETH
+Block Explorer | robinhoodchain.blockscout.com | explorer.testnet.chain.robinhood.com
+
+Developer RPC (Alchemy template) | https://robinhood-mainnet.g.alchemy.com/v2/{API_KEY} | https://robinhood-testnet.g.alchemy.com/v2/{API_KEY}
+Public RPC (rate-limited) | https://rpc.mainnet.chain.robinhood.com | https://rpc.testnet.chain.robinhood.com
+
+Architecture note: Arbitrum Layer-2 on Ethereum; ETH native gas; blobs for DA.
+Testnet chain ID 46630 is excluded from Sonar default mainnet catalog (CR-401).
