@@ -31,6 +31,18 @@ CR-005 publishes `@freeside/collection-protocol` (npm or monorepo workspace)
 and replaces this vendored tarball with the ratified semver/registry pin.
 Remove the vendor artifact once that pin lands. Do not copy schemas into Sonar.
 
+## Trust envelope (CR-009 / CR-011A)
+
+Until CR-009 publishes to a registry pin, Sonar vendors
+`@freeside/trust-envelope-protocol` the same way:
+
+```text
+vendor/trust-envelope-protocol/freeside-trust-envelope-protocol-1.0.0.tgz
+```
+
+See `vendor/trust-envelope-protocol/PROVENANCE.md`. Production signing-key
+custody is CR-013; this worktree uses fixture keys only.
+
 ## Adapter surface in this repo
 
 | Path | Role |
@@ -46,6 +58,8 @@ Remove the vendor artifact once that pin lands. Do not copy schemas into Sonar.
 | `src/svm/nft-collection-source.ts` | DAS seam: `parseAsset` → `CollectionMember` (refuses missing owner) |
 | `src/svm/probe-collection.ts` | CLI onboarding probe — shares CR-104 sample classifier |
 | `src/metadata-egress/` | CR-004 sole metadata network boundary (resolver + report workers) |
+| `src/collection-resolver/trust-stream-producer/` | CR-011A public capability/ownership trust-stream producer |
+| `src/collection-resolver/trust-protocol.ts` | CR-009 `@freeside/trust-envelope-protocol` adapter + vendor pin |
 
 ## Capability registry (CR-101)
 

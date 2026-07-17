@@ -14,6 +14,9 @@ importers:
       '@freeside/collection-protocol':
         specifier: file:./vendor/collection-protocol/freeside-collection-protocol-1.0.0.tgz
         version: file:vendor/collection-protocol/freeside-collection-protocol-1.0.0.tgz(effect@3.21.2)
+      '@freeside/trust-envelope-protocol':
+        specifier: file:./vendor/trust-envelope-protocol/freeside-trust-envelope-protocol-1.0.0.tgz
+        version: file:vendor/trust-envelope-protocol/freeside-trust-envelope-protocol-1.0.0.tgz(effect@3.21.2)
       '@hono/node-server':
         specifier: ^1.14.4
         version: 1.19.5(hono@4.12.23)
@@ -53,10 +56,6 @@ importers:
       viem:
         specifier: ^2.21.0
         version: 2.47.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76)
-    optionalDependencies:
-      generated:
-        specifier: ./generated
-        version: link:generated
     devDependencies:
       '@types/node':
         specifier: 20.8.8
@@ -79,6 +78,10 @@ importers:
       zod:
         specifier: ^3.25.76
         version: 3.25.76
+    optionalDependencies:
+      generated:
+        specifier: ./generated
+        version: link:generated
 
 packages:
 
@@ -457,6 +460,12 @@ packages:
 
   '@freeside/collection-protocol@file:vendor/collection-protocol/freeside-collection-protocol-1.0.0.tgz':
     resolution: {integrity: sha512-/QqAf4qeVpsVyGRvxUVDUOS7TQuLWUVy5+5KfZB91BG+qBLKEn2MqXbueZ6CV0un1glJERH/EnuMMkBKTRHCrw==, tarball: file:vendor/collection-protocol/freeside-collection-protocol-1.0.0.tgz}
+    version: 1.0.0
+    peerDependencies:
+      effect: ^3.21.0
+
+  '@freeside/trust-envelope-protocol@file:vendor/trust-envelope-protocol/freeside-trust-envelope-protocol-1.0.0.tgz':
+    resolution: {integrity: sha512-Y0YvJB+cNVlWzEqTQFUAUcqhNl/mPPfCJMNykZbbKLYzurpolFOk1g8ypqb89sK0aXFL70LAA8CopnI4jLFQ8A==, tarball: file:vendor/trust-envelope-protocol/freeside-trust-envelope-protocol-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       effect: ^3.21.0
@@ -2405,6 +2414,13 @@ snapshots:
 
   '@freeside/collection-protocol@file:vendor/collection-protocol/freeside-collection-protocol-1.0.0.tgz(effect@3.21.2)':
     dependencies:
+      effect: 3.21.2
+
+  '@freeside/trust-envelope-protocol@file:vendor/trust-envelope-protocol/freeside-trust-envelope-protocol-1.0.0.tgz(effect@3.21.2)':
+    dependencies:
+      '@noble/curves': 1.9.1
+      '@noble/hashes': 1.8.0
+      canonicalize: 2.1.0
       effect: 3.21.2
 
   '@fuel-ts/crypto@0.96.1':
