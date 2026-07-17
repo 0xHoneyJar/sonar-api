@@ -269,6 +269,7 @@ describe("canonical collection preparation", () => {
     await expect(health.json()).resolves.toEqual({
       ok: true,
       service: "kitchen-api",
+      resolve_probe: "catalog",
     });
 
     const ready = await app.request("/ready");

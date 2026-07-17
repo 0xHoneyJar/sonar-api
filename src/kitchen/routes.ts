@@ -14,6 +14,10 @@ import {
   decodeLegacyIngestRequest,
 } from "./protocol.js";
 import { UNAVAILABLE_PREPARATION_RUNTIME } from "./preparation-runtime.js";
+import {
+  resolveProbeRuntimeFromEnv,
+  type ResolveProbeRuntime,
+} from "./resolve-probe-runtime.js";
 import { isIndexedSnapshotReady, resolveCollectionStatus, toStatusResponse, type CollectionStatusReader } from "./status.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
 import type {
@@ -97,12 +101,55 @@ export function createCollectionRoutes(deps: {
   store: IngestJobStorePort;
   capabilityResolver?: PreparationCapabilityResolver;
   preparationRuntime?: PreparationRuntimeState;
+  resolveProbeRuntime?: ResolveProbeRuntime;
 }): Hono {
   const { reader, store } = deps;
   const capabilityResolver = deps.capabilityResolver ?? resolvePreparationCapability;
   const preparationRuntime = deps.preparationRuntime ?? UNAVAILABLE_PREPARATION_RUNTIME;
+  const resolveProbeRuntime = deps.resolveProbeRuntime ?? resolveProbeRuntimeFromEnv();
   const routes = new Hono();
   routes.use("*", requireServiceToken);
+
+  // Static path BEFORE /:chain_id/... so it is not captured as a chain id.
+  routes.post("/resolve-probe", async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json(
+        { schema_version: 1, error: { code: "invalid_request", message: "request body must be JSON" } },
+        400,
+      );
+    }
+    if (!raw || typeof raw !== "object") {
+      return c.json(
+        { schema_version: 1, error: { code: "invalid_request", message: "request body must be an object" } },
+        400,
+      );
+    }
+    const body = raw as Record<string, unknown>;
+    if (body.schema_version !== 1) {
+      return c.json(
+        { schema_version: 1, error: { code: "invalid_request", message: "schema_version must be 1" } },
+        400,
+      );
+    }
+    if (typeof body.identifier !== "string" || body.identifier.trim() === "") {
+      return c.json(
+        { schema_version: 1, error: { code: "invalid_request", message: "identifier is required" } },
+        400,
+      );
+    }
+    if (body.environment !== "mainnet") {
+      return c.json(
+        { schema_version: 1, error: { code: "invalid_request", message: "environment must be mainnet" } },
+        400,
+      );
+    }
+    const settled = await resolveProbeRuntime.resolve(body.identifier.trim());
+    if (!settled.ok) return c.json(settled.body, settled.status);
+    return c.json(settled.body, 200);
+  });
 
   routes.get("/:chain_id/:contract_address/status", async (c) => {
     const key = collectionKeyFromParams(c.req.param("chain_id"), c.req.param("contract_address"));
@@ -235,11 +282,13 @@ export function createKitchenApp(deps: {
   store: IngestJobStorePort;
   capabilityResolver?: PreparationCapabilityResolver;
   preparationRuntime?: PreparationRuntimeState;
+  resolveProbeRuntime?: ResolveProbeRuntime;
 }): Hono {
   const app = new Hono();
   app.get("/health", (c) => c.json({
     ok: true,
     service: "kitchen-api",
+    resolve_probe: (deps.resolveProbeRuntime ?? resolveProbeRuntimeFromEnv()).mode,
   }, 200));
   app.get("/ready", async (c) => {
     const preparationRuntime = deps.preparationRuntime ?? UNAVAILABLE_PREPARATION_RUNTIME;
