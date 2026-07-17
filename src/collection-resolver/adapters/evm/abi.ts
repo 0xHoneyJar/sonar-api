@@ -18,6 +18,9 @@ const strip0x = (hex: string): string =>
 
 /** Encode supportsInterface(bytes4); fixed-size bytes are ABI right-padded. */
 export const encodeSupportsInterface = (interfaceId: `0x${string}`): `0x${string}` => {
+  if (!/^0x[0-9a-fA-F]{8}$/.test(interfaceId)) {
+    throw new RangeError("ERC-165 interface id must be exactly four hex bytes");
+  }
   const id = strip0x(interfaceId).toLowerCase().padEnd(64, "0");
   return `${SELECTOR_SUPPORTS_INTERFACE}${id}` as `0x${string}`;
 };
@@ -49,9 +52,9 @@ export const decodeAbiString = (
   data: `0x${string}`,
   maxChars: number,
 ): string | undefined => {
-  const body = strip0x(data).toLowerCase();
+  const body = strip0x(data);
   if (body.length < 128) return undefined;
-  if (!/^[0-9a-f]+$/.test(body)) return undefined;
+  if (!/^[0-9a-f]+$/i.test(body)) return undefined;
 
   try {
     const offset = Number(BigInt(`0x${body.slice(0, 64)}`));

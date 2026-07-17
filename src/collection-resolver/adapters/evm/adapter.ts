@@ -209,7 +209,7 @@ export const createEvmNftProbeAdapter = (
         normalizationCount += once.normalization_count;
         normalized = once.normalized;
       } catch {
-        return { kind: "miss" } as const;
+        return canonicalUnavailable("rpc_invalid_response");
       }
 
       const finalityPolicy = request.network_capability.finality_policy as EvmFinalityPolicy;

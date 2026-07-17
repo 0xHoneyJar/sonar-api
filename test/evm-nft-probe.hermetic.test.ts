@@ -170,6 +170,12 @@ describe("CR-103 EVM NFT probe adapter", () => {
     });
   });
 
+  it("does not turn malformed addresses into conclusive misses", async () => {
+    const adapter = makeAdapter({ rpc: fixtureRpc({}) });
+    const outcome = await runProbe(adapter, requestFor({ address: "0x1234" }));
+    expect(outcome).toMatchObject({ kind: "unavailable", safe_code: "rpc_invalid_response" });
+  });
+
   it("ABI-encodes ERC-165 bytes4 arguments with right padding", () => {
     expect(encodeSupportsInterface("0x80ac58cd")).toBe(
       "0x01ffc9a780ac58cd00000000000000000000000000000000000000000000000000000000",
@@ -177,6 +183,8 @@ describe("CR-103 EVM NFT probe adapter", () => {
     expect(encodeSupportsInterface("0xd9b67a26")).toBe(
       "0x01ffc9a7d9b67a2600000000000000000000000000000000000000000000000000000000",
     );
+    expect(() => encodeSupportsInterface("0x1234")).toThrow(/four hex bytes/);
+    expect(() => encodeSupportsInterface("0xzzzzzzzz")).toThrow(/four hex bytes/);
   });
 
   it("decodes only canonical ABI bool words", () => {
@@ -192,6 +200,17 @@ describe("CR-103 EVM NFT probe adapter", () => {
     const length = text.byteLength.toString(16).padStart(64, "0");
     const data = text.toString("hex").padEnd(64, "0");
     expect(decodeAbiString(`0x${offset}${length}${data}`, 64)).toBeUndefined();
+    expect([...text]).toContain(0);
+  });
+
+  it("preserves case-sensitive ABI string bytes", () => {
+    const text = Buffer.from("ipfs://CaseSensitiveCID/Meta.JSON", "utf8");
+    const offset = `${"0".repeat(62)}20`;
+    const length = text.byteLength.toString(16).padStart(64, "0");
+    const data = text.toString("hex").padEnd(Math.ceil(text.byteLength / 32) * 64, "0");
+    expect(decodeAbiString(`0x${offset}${length}${data}`, 128)).toBe(
+      "ipfs://CaseSensitiveCID/Meta.JSON",
+    );
   });
 
   it("treats a non-canonical RPC bool word as absent interface evidence", async () => {
