@@ -6,7 +6,9 @@
  */
 export {
   createSolanaDasNetworkAdapter,
+  createProductionSolanaDasNetworkAdapter,
   type SolanaDasAdapterOptions,
+  type ProductionSolanaDasAdapterOptions,
 } from "./adapter.js";
 export {
   classifyHttpStatus,

@@ -17,6 +17,7 @@ export type DasTransportFailure =
   | "http_429"
   | "http_5xx"
   | "http_auth"
+  | "http_4xx"
   | "rpc_error"
   | "malformed"
   | "incomplete"
@@ -84,7 +85,7 @@ export const classifyHttpStatus = (status: number): DasTransportFailure => {
   if (status === 401 || status === 403) return "http_auth";
   if (status === 429) return "http_429";
   if (status >= 500 && status <= 599) return "http_5xx";
-  if (status >= 400 && status <= 499) return "http_auth";
+  if (status >= 400 && status <= 499) return "http_4xx";
   return "network";
 };
 
@@ -307,12 +308,18 @@ export const createFetchDasSamplePort = (
           return { kind: "unavailable", failure: "malformed" } as const;
         }
 
-        const response = await fetchImpl(config.endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: timeoutController.signal,
-        });
+        const response = await raceAgainstAbort(
+          request,
+          fetchImpl(config.endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: timeoutController.signal,
+          }),
+          () => undefined,
+        );
+
+        if (response === undefined) return { kind: "timeout" } as const;
 
         if (isAbortedOrExpired(request)) {
           return { kind: "timeout" } as const;
@@ -391,12 +398,18 @@ export const createFetchDasSamplePort = (
           return { kind: "unavailable", failure: "malformed" } as const;
         }
 
-        const response = await fetchImpl(config.endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: timeoutController.signal,
-        });
+        const response = await raceAgainstAbort(
+          request,
+          fetchImpl(config.endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: timeoutController.signal,
+          }),
+          () => undefined,
+        );
+
+        if (response === undefined) return { kind: "timeout" } as const;
 
         if (isAbortedOrExpired(request)) {
           return { kind: "timeout" } as const;

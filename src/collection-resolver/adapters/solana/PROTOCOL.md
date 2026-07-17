@@ -9,6 +9,7 @@ Wraps the existing Sonar SVM DAS recognition path behind CR-102
 | Surface | Role |
 |---|---|
 | `createSolanaDasNetworkAdapter` | `NetworkAdapterPort` implementation |
+| `createProductionSolanaDasNetworkAdapter` | Operator-sealed fetch transport wired into the live adapter |
 | `DasSamplePort` | Injected abort-aware DAS transport (no user RPC URLs) |
 | `classifyDasSampleItems` | Shared with `src/svm/probe-collection.ts` |
 | `findCollectionByMintExact` | Exact-case SVM registry enrichment only |
@@ -58,7 +59,7 @@ interface as programmable/classic.
 
 ## Downstream blockers
 
-- Operator-sealed DAS endpoint wiring into production `resolveBounded` deps
+- Application route wiring from the production adapter into the future public resolver BFF
 - Solana prepare / ownership_index parity (CR-402) via injected readiness port
 - Complete ProbeHitEvidence binding once a truthful Solana code/account /
   slot+blockhash observation path exists

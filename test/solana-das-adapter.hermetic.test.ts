@@ -10,6 +10,7 @@ import {
   createHermeticBoundedDeps,
   createProcessMonotonicClock,
   createFetchDasSamplePort,
+  createProductionSolanaDasNetworkAdapter,
   createSolanaDasNetworkAdapter,
   createScriptedDasSamplePort,
   createVirtualClock,
@@ -113,6 +114,7 @@ const adapterFor = (
           | "http_429"
           | "http_5xx"
           | "http_auth"
+          | "http_4xx"
           | "rpc_error"
           | "malformed"
           | "incomplete"
@@ -281,7 +283,7 @@ describe("CR-104 exact-case registry lookup", () => {
 describe("CR-104 Solana DAS NetworkAdapterPort", () => {
   it("recognizes classic coverage with preparation_required", async () => {
     const mint = "ClassicCollectionMint111111111111111111111";
-    const { adapter, port } = adapterFor(() =>
+    const { adapter, port, sharedState } = adapterFor(() =>
       sampleOutcome(mint, FIXTURE_CLASSIC_ITEMS),
     );
     const outcome = await expectAsyncSuccess(adapter.probe(probeRequest(mint)));
@@ -296,6 +298,7 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
     expect(port.calls()).toHaveLength(1);
     expect(port.calls()[0]!.page).toBe(1);
     expect(port.calls()[0]!.collection_mint).toBe(mint);
+    expect(sharedState.mutations).toBe(1);
   });
 
   it("recognizes programmable coverage separately from index readiness", async () => {
@@ -425,6 +428,7 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
       "http_429",
       "http_5xx",
       "http_auth",
+      "http_4xx",
     ] as const) {
       const { adapter } = adapterFor(() => ({ kind: "unavailable", failure }));
       const outcome = await expectAsyncSuccess(
@@ -436,6 +440,7 @@ describe("CR-104 Solana DAS NetworkAdapterPort", () => {
     expect(classifyHttpStatus(429)).toBe("http_429");
     expect(classifyHttpStatus(503)).toBe("http_5xx");
     expect(classifyHttpStatus(401)).toBe("http_auth");
+    expect(classifyHttpStatus(404)).toBe("http_4xx");
   });
 
   it("parseDasSampleRpcResponse never returns raw provider bodies", () => {
@@ -1416,5 +1421,48 @@ describe("CR-104 createFetchDasSamplePort — getAsset identity binding", () => 
       collection_asset_id: UNREGISTERED_COLLECTION_MINT,
       collection_asset_name: "Observed Collection",
     });
+  });
+
+  it("production factory wires the sealed fetch port into the network adapter", async () => {
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      const body = JSON.parse(String((init as RequestInit).body)) as {
+        params: { groupValue: string };
+      };
+      return jsonResponse({
+        jsonrpc: "2.0",
+        result: { items: sampleItemsFor(body.params.groupValue) },
+      });
+    };
+    const adapter = createProductionSolanaDasNetworkAdapter({
+      endpoint: "https://das.example.test/?api-key=SEALED",
+      clock: { nowMs: () => 0 },
+      fetchImpl,
+      observedAt: "2026-07-16T12:00:00.000Z",
+    });
+    const outcome = await expectAsyncSuccess(
+      adapter.probe(probeRequest(UNREGISTERED_COLLECTION_MINT)),
+    );
+    expect(outcome.kind).toBe("hit");
+  });
+
+  it("returns at the deadline even when an injected fetch ignores AbortSignal", async () => {
+    const neverSettles: typeof fetch = () => new Promise<Response>(() => undefined);
+    const port = createFetchDasSamplePort({
+      endpoint: "https://das.example.test",
+      clock: { nowMs: () => Date.now() },
+      fetchImpl: neverSettles,
+    });
+    const started = Date.now();
+    const outcome = await expectAsyncSuccess(
+      port.sampleCollection({
+        collection_mint: UNREGISTERED_COLLECTION_MINT,
+        limit: 1,
+        abort: new AbortController().signal,
+        deadline_at_ms: Date.now() + 20,
+        now_ms: () => Date.now(),
+      }),
+    );
+    expect(outcome).toEqual({ kind: "timeout" });
+    expect(Date.now() - started).toBeLessThan(100);
   });
 });

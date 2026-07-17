@@ -15,7 +15,9 @@ import { normalizeSolanaAddress } from "../../protocol.js";
 import type {
   DasCollectionAssetObservation,
   DasSamplePort,
+  FetchDasSamplePortConfig,
 } from "./das-port.js";
+import { createFetchDasSamplePort } from "./das-port.js";
 import type { CollectionReadinessObservation } from "./project-hit.js";
 import { findCollectionByMintExact } from "./registry-lookup.js";
 import { projectSolanaDasHit } from "./project-hit.js";
@@ -35,8 +37,9 @@ export interface SolanaDasAdapterOptions {
   /** ISO observed_at override for hermetic fixtures. */
   readonly observedAt?: string;
   /**
-   * Optional mutation bag — when abort fires, the adapter must not write here
-   * after sealing a timeout (hermetic late-work proof).
+   * Legacy observer bag retained for fixture compatibility. Transport ports
+   * own mutation accounting; the adapter deliberately does not increment the
+   * same bag again after a successful sample.
    */
   readonly sharedState?: { mutations: number };
   /**
@@ -194,10 +197,6 @@ export const createSolanaDasNetworkAdapter = (
           }
         }
 
-        if (options.sharedState !== undefined) {
-          options.sharedState.mutations += 1;
-        }
-
         return projectSolanaDasHit({
           collection_mint: address,
           items: verified,
@@ -212,3 +211,20 @@ export const createSolanaDasNetworkAdapter = (
       }),
   };
 };
+
+export interface ProductionSolanaDasAdapterOptions
+  extends Omit<SolanaDasAdapterOptions, "dasPort">,
+    FetchDasSamplePortConfig {}
+
+/**
+ * Operator-sealed production wiring: the bounded fetch transport and Solana
+ * adapter are constructed as one NetworkAdapterPort, so production callers
+ * cannot accidentally export the adapter while leaving it on a scripted port.
+ */
+export const createProductionSolanaDasNetworkAdapter = (
+  options: ProductionSolanaDasAdapterOptions,
+): NetworkAdapterPort =>
+  createSolanaDasNetworkAdapter({
+    ...options,
+    dasPort: createFetchDasSamplePort(options),
+  });
