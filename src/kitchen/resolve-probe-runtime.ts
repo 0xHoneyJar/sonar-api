@@ -7,6 +7,8 @@
  */
 import { Effect, Exit } from "effect";
 
+// Import bounded-core directly — kitchen Docker does not ship metadata-egress /
+// the full collection-resolver barrel (index.ts re-exports CR-004 ports).
 import {
   createHermeticBoundedDeps,
   createProcessMonotonicClock,
@@ -15,10 +17,9 @@ import {
   resolveBounded,
   type BoundedResolveResponse,
   type BoundedResolverDeps,
-} from "../collection-resolver/index.js";
+} from "../collection-resolver/bounded-core/index.js";
 import type { ProbeOutcome } from "../collection-resolver/candidate.js";
 import type { AdapterProbeRequest } from "../collection-resolver/bounded-core/ports.js";
-
 export type ResolveProbeRuntimeMode = "catalog" | "unavailable";
 
 export interface ResolveProbeRuntime {
