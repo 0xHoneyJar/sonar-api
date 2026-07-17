@@ -1,5 +1,3 @@
--- Compatibility entrypoint for migration runners that execute plain SQL.
--- Keep this semantically identical to 001_expand_physical_job_identity.sql.
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS kitchen_ingest_jobs (

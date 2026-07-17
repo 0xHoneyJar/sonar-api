@@ -37,7 +37,7 @@
 	}
 
 	# Kitchen upstream API — ordering-service probe + ingest (Envio belt, not Hasura GraphQL).
-	@kitchen path /v1/collections/*
+	@kitchen path /v1/collections/* /v2/collection-preparations*
 	handle @kitchen {
 		reverse_proxy {$KITCHEN_UPSTREAM} {
 			header_up Host {upstream_hostport}

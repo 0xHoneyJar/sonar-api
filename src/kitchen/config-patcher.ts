@@ -52,41 +52,45 @@ export function appendTrackedErc721ToChainBlock(
   chainBlock: string,
   contract: `0x${string}`,
   label: string,
+  contractName = "TrackedErc721",
 ): string {
   const addressLine = `          - ${normalizeAddress(contract)} # ${label}`;
-  const trackedHeader = "      - name: TrackedErc721";
+  const trackedHeader = `      - name: ${contractName}`;
 
   if (chainBlock.includes(trackedHeader)) {
     const lines = chainBlock.split("\n");
-    let insertAt = lines.length;
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes(trackedHeader)) {
+      if (lines[i].trimEnd() === trackedHeader) {
+        let contractEnd = lines.length;
         for (let j = i + 1; j < lines.length; j++) {
-          if (/^      - name: /.test(lines[j]) && !lines[j].includes("TrackedErc721")) {
-            insertAt = j;
-            break;
-          }
-          if (/^  - id: /.test(lines[j])) {
-            insertAt = j;
+          if (/^      - name: /.test(lines[j]) || /^  - id: /.test(lines[j])) {
+            contractEnd = j;
             break;
           }
         }
-        if (insertAt === lines.length) {
-          insertAt = i + 1;
-          while (insertAt < lines.length && /^\s+- 0x/i.test(lines[insertAt])) {
-            insertAt++;
-          }
+
+        const addressIndex = lines.findIndex(
+          (line, index) =>
+            index > i && index < contractEnd && /^        address:\s*$/.test(line),
+        );
+        if (addressIndex < 0) {
+          lines.splice(i + 1, 0, "        address:", addressLine);
+          return lines.join("\n");
         }
-        break;
+
+        let insertAt = addressIndex + 1;
+        while (insertAt < contractEnd && /^          -\s+/.test(lines[insertAt])) {
+          insertAt += 1;
+        }
+        lines.splice(insertAt, 0, addressLine);
+        return lines.join("\n");
       }
     }
-    lines.splice(insertAt, 0, addressLine);
-    return lines.join("\n");
   }
 
   const block = [
     "      # Kitchen ingest — community onboarding ERC-721 holder tracking",
-    "      - name: TrackedErc721",
+    `      - name: ${contractName}`,
     "        address:",
     addressLine,
   ].join("\n");
@@ -97,6 +101,7 @@ export function patchConfigForKitchenIngest(args: {
   configYaml: string;
   key: CollectionKey;
   label?: string;
+  contractName?: "EthTrackedErc721" | "TrackedErc721";
 }): { changed: boolean; configYaml: string } {
   const chainBlock = extractChainBlock(args.configYaml, args.key.chainId);
   if (!chainBlock) {
@@ -110,7 +115,13 @@ export function patchConfigForKitchenIngest(args: {
     args.label?.trim() ||
       `kitchen_${args.key.chainId}_${args.key.contract.slice(2, 10)}`,
   );
-  const patchedBlock = appendTrackedErc721ToChainBlock(chainBlock, args.key.contract, label);
+  const contractName = args.contractName ?? (args.key.chainId === 1 ? "EthTrackedErc721" : "TrackedErc721");
+  const patchedBlock = appendTrackedErc721ToChainBlock(
+    chainBlock,
+    args.key.contract,
+    label,
+    contractName,
+  );
   const lines = args.configYaml.split("\n");
   let start = -1;
   let end = lines.length;

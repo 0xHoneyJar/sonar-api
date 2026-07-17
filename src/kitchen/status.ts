@@ -5,16 +5,27 @@ import type {
   IngestJobRecord,
 } from "./types.js";
 
+export interface IndexReadinessEvidence {
+  state: "ready";
+  kind: "indexed_rows" | "registration_marker" | "sync_marker";
+  observedAtMs: number;
+}
+
 export interface IndexedSnapshot {
   holderCount: number;
   indexedAtMs: number | null;
+  readiness?: IndexReadinessEvidence;
+}
+
+export function isIndexedSnapshotReady(snapshot: IndexedSnapshot): boolean {
+  return snapshot.readiness?.state === "ready";
 }
 
 export function resolveCollectionStatus(args: {
   indexed: IndexedSnapshot;
   job?: IngestJobRecord;
 }): CollectionIndexStatus {
-  if (args.indexed.holderCount > 0) return "indexed";
+  if (isIndexedSnapshotReady(args.indexed) || args.job?.status === "completed") return "indexed";
   if (args.job?.status === "failed") return "failed";
   if (args.job?.status === "queued" || args.job?.status === "indexing") return "indexing";
   return "missing";
