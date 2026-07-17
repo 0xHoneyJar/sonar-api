@@ -174,10 +174,14 @@ export async function runKitchenIngestWorkerTick(args: {
   readFile?: (path: string) => string;
   writeFile?: (path: string, contents: string) => void;
   restart?: () => Promise<void>;
+  nowMs?: number;
 }): Promise<void> {
+  const nowMs = args.nowMs ?? Date.now();
+  await args.store.reconcileUnbackfilledActiveJobs(nowMs);
   const queued = await args.store.claimQueued({
     workerId: args.workerId ?? `kitchen-${randomUUID()}`,
     limit: 10,
+    nowMs,
   });
   for (const job of queued) {
     await processQueuedIngestJob({
@@ -187,9 +191,10 @@ export async function runKitchenIngestWorkerTick(args: {
       readFile: args.readFile,
       writeFile: args.writeFile,
       restart: args.restart,
+      nowMs,
     });
   }
-  await advanceIndexingJobs({ store: args.store, reader: args.reader });
+  await advanceIndexingJobs({ store: args.store, reader: args.reader, nowMs });
 }
 
 export function startKitchenIngestWorker(args: {

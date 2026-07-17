@@ -668,6 +668,30 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
       createdAtMs: row.created_at.getTime(),
     }));
   }
+
+  async reconcileUnbackfilledActiveJobs(nowMs = Date.now()): Promise<number> {
+    const result = await this.pool.query<{ job_id: string }>(
+      `UPDATE kitchen_ingest_jobs SET
+         status = 'failed',
+         error_code = 'identity_unbackfilled',
+         error_message = 'physical job identity requires kitchen-backfill-job-identity before worker drain',
+         lease_owner = NULL,
+         lease_until = NULL,
+         updated_at = to_timestamp($1 / 1000.0)
+       WHERE physical_job_id IS NULL
+         AND job_id IS NOT NULL
+         AND status IN ('queued', 'indexing')
+         AND EXISTS (
+           SELECT 1 FROM kitchen_job_identity_migration_state
+           WHERE singleton = true
+             AND divergence = false
+             AND phase IN ('parity', 'canonical', 'constrained')
+         )
+       RETURNING job_id`,
+      [nowMs],
+    );
+    return result.rowCount ?? 0;
+  }
 }
 
 export function kitchenDatabaseUrlFromEnv(): string | undefined {

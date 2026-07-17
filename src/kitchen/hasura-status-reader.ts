@@ -91,13 +91,19 @@ export function createHasuraCollectionStatusReader(args?: {
           ? toNumber(lastTransfer) * 1000
           : null;
 
+      if (indexedAtMs === null) {
+        // Holder aggregates alone are not explicit readiness evidence — index
+        // activity must be observed before the worker may complete preparation.
+        return { holderCount, indexedAtMs: null };
+      }
+
       return {
         holderCount,
         indexedAtMs,
         readiness: {
           state: "ready",
           kind: "indexed_rows",
-          observedAtMs: indexedAtMs ?? Date.now(),
+          observedAtMs: indexedAtMs,
         },
       };
     },

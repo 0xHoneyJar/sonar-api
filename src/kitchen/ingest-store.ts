@@ -49,6 +49,12 @@ export interface IngestJobStorePort {
   ): Promise<IngestJobRecord | undefined>;
   getMigrationAuthority(): Promise<MigrationAuthorityState>;
   listCorrelations(physicalJobId: string): Promise<JobCorrelation[]>;
+  /**
+   * Fail closed on active drain candidates that still lack canonical physical
+   * identity once parity proof is expected. Legacy/dual_write rows remain
+   * owned by admission/backfill — not silently skipped by the worker.
+   */
+  reconcileUnbackfilledActiveJobs(nowMs?: number): Promise<number>;
 }
 
 function cloneJob(job: IngestJobRecord): IngestJobRecord {
@@ -318,6 +324,10 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
     return [...this.correlations.values()]
       .filter((correlation) => correlation.physicalJobId === physicalJobId)
       .map((correlation) => ({ ...correlation }));
+  }
+
+  async reconcileUnbackfilledActiveJobs(_nowMs?: number): Promise<number> {
+    return 0;
   }
 
   setMigrationDivergenceForTests(reason?: string): void {

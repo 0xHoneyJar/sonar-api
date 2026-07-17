@@ -55,8 +55,8 @@ describe("createHasuraCollectionStatusReader", () => {
     expect(snapshot).toMatchObject({
       holderCount: 3,
       indexedAtMs: null,
-      readiness: { state: "ready", kind: "indexed_rows" },
     });
+    expect(snapshot.readiness).toBeUndefined();
   });
 
   it("does not infer readiness from an empty aggregate", async () => {

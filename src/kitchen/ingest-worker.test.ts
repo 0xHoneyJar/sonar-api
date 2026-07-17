@@ -99,6 +99,29 @@ describe("ingest-worker", () => {
     expect((await store.get(job.key!))?.status).toBe("completed");
   });
 
+  it("reconciles unbackfilled active jobs before claiming queue", async () => {
+    const store = new MemoryIngestJobStore();
+    let reconciled = false;
+    const wrapped = Object.assign(store, {
+      reconcileUnbackfilledActiveJobs: async () => {
+        reconciled = true;
+        return 0;
+      },
+    });
+    const reader: CollectionStatusReader = {
+      readIndexedSnapshot: vi.fn().mockResolvedValue({ holderCount: 0, indexedAtMs: null }),
+    };
+    await runKitchenIngestWorkerTick({
+      store: wrapped,
+      reader,
+      workerId: "worker-a",
+      readFile: () => BERA_CONFIG,
+      writeFile: () => {},
+      restart: async () => {},
+    });
+    expect(reconciled).toBe(true);
+  });
+
   it("claims and processes a queued job once", async () => {
     const store = new MemoryIngestJobStore();
     const key = { chainId: 80094, contract: "0x4b08a069381efbb9f08c73d6b2e975c9be3c4684" as const };
