@@ -28,19 +28,19 @@ const assertBudgetOrdering = (
       }),
     );
   }
-  if (config.report_readiness_ttl_ms > config.positive_recognition_ttl_ms) {
+  if (config.report_readiness_ttl_ms >= config.positive_recognition_ttl_ms) {
     return Effect.fail(
       new BoundedResolverConfigError({
         reason:
-          "report_readiness_ttl_ms must be <= positive_recognition_ttl_ms (readiness shorter-lived)",
+          "report_readiness_ttl_ms must be < positive_recognition_ttl_ms (readiness shorter-lived)",
         path: "report_readiness_ttl_ms",
       }),
     );
   }
-  if (config.negative_cache_ttl_ms > config.report_readiness_ttl_ms) {
+  if (config.negative_cache_ttl_ms >= config.report_readiness_ttl_ms) {
     return Effect.fail(
       new BoundedResolverConfigError({
-        reason: "negative_cache_ttl_ms must be <= report_readiness_ttl_ms",
+        reason: "negative_cache_ttl_ms must be < report_readiness_ttl_ms",
         path: "negative_cache_ttl_ms",
       }),
     );

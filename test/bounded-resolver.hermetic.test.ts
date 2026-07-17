@@ -1,7 +1,8 @@
-import { Effect, Exit } from "effect";
+import { Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   applyInvalidation,
+  AuthorizationScope,
   assertNoSecretLeak,
   createHermeticBoundedDeps,
   createMemoryCircuitBreaker,
@@ -88,6 +89,33 @@ describe("CR-102 structural preflight", () => {
     const sol = expectSuccess(structuralPreflight(PYTHIANS_COLLECTION_MINT));
     expect(sol.identifier.format).toBe("solana_public_key");
     expect(sol.identifier.raw).toBe(PYTHIANS_COLLECTION_MINT);
+  });
+});
+
+describe("CR-102 authorization scope isolation", () => {
+  const decodeAuthorizationScope = Schema.decodeUnknown(AuthorizationScope, {
+    errors: "all",
+    onExcessProperty: "error",
+  });
+
+  it("requires the community discriminator digest", () => {
+    expectFailure(decodeAuthorizationScope({ scope_class: "community" }));
+    expectSuccess(
+      decodeAuthorizationScope({
+        scope_class: "community",
+        community_ref_digest: sha256Canonical("community-a"),
+      }),
+    );
+  });
+
+  it("rejects community digests on non-community scopes", () => {
+    const community_ref_digest = sha256Canonical("community-a");
+    expectFailure(
+      decodeAuthorizationScope({ scope_class: "anonymous", community_ref_digest }),
+    );
+    expectFailure(
+      decodeAuthorizationScope({ scope_class: "authenticated", community_ref_digest }),
+    );
   });
 });
 
@@ -315,6 +343,25 @@ describe("CR-102 concurrency and deterministic ordering", () => {
     const ok = expectSuccess(decodeBoundedResolverConfig(defaultBoundedResolverConfig()));
     expect(ok.max_concurrent_probes).toBe(6);
     expect(ok.max_searched_networks).toBe(8);
+  });
+
+  it("rejects equality at both strict TTL ordering boundaries", () => {
+    const defaults = defaultBoundedResolverConfig();
+    const readinessEqualsPositive = expectFailure(
+      decodeBoundedResolverConfig({
+        ...defaults,
+        report_readiness_ttl_ms: defaults.positive_recognition_ttl_ms,
+      }),
+    );
+    expect(readinessEqualsPositive._tag).toBe("BoundedResolverConfigError");
+
+    const negativeEqualsReadiness = expectFailure(
+      decodeBoundedResolverConfig({
+        ...defaults,
+        negative_cache_ttl_ms: defaults.report_readiness_ttl_ms,
+      }),
+    );
+    expect(negativeEqualsReadiness._tag).toBe("BoundedResolverConfigError");
   });
 
   it("max_concurrent_probes: 0 fails preflight and cannot write cache", () => {

@@ -221,11 +221,21 @@ export const EquivalenceRevocationImpact = Schema.Struct({
 export interface EquivalenceRevocationImpact
   extends Schema.Schema.Type<typeof EquivalenceRevocationImpact> {}
 
-export const AuthorizationScope = Schema.Struct({
-  /** Opaque, low-cardinality community/scope class — never raw user identity. */
-  scope_class: Schema.Literal("anonymous", "authenticated", "community"),
-  community_ref_digest: Schema.optional(Sha256Hex),
-}).annotations({ identifier: "AuthorizationScope" });
+export const AuthorizationScope = Schema.Union(
+  Schema.Struct({
+    /** Opaque, low-cardinality scope class — never raw user identity. */
+    scope_class: Schema.Literal("anonymous"),
+  }),
+  Schema.Struct({
+    /** Opaque, low-cardinality scope class — never raw user identity. */
+    scope_class: Schema.Literal("authenticated"),
+  }),
+  Schema.Struct({
+    /** Community scopes are isolated by an opaque, non-user digest. */
+    scope_class: Schema.Literal("community"),
+    community_ref_digest: Sha256Hex,
+  }),
+).annotations({ identifier: "AuthorizationScope" });
 export type AuthorizationScope = Schema.Schema.Type<typeof AuthorizationScope>;
 
 export const PositiveCacheBinding = Schema.Struct({
