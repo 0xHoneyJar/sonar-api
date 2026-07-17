@@ -55,3 +55,12 @@ export {
 
 /** CR-104: Solana DAS recognition adapter behind NetworkAdapterPort. */
 export * from "./adapters/solana/index.js";
+
+/** CR-011A: public capability/ownership trust-stream producer (CR-009 wire). */
+export * from "./trust-stream-producer/index.js";
+export {
+  EXPECTED_TRUST_ENVELOPE_PROTOCOL_TARBALL_SHA256,
+  trustEnvelopeFixturesRoot,
+  verifyVendoredTrustEnvelopeProtocolDigest,
+  VendoredTrustProtocolDigestError,
+} from "./trust-protocol.js";
