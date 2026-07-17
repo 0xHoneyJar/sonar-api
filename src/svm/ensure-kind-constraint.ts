@@ -56,7 +56,7 @@ export async function ensureKindConstraint(opts: EnsureOpts = {}): Promise<{ wid
       if (!endpoint || !secret) {
         throw new Error("ensureKindConstraint: SVM_HASURA_ENDPOINT + HASURA_GRAPHQL_ADMIN_SECRET required");
       }
-      const res = await fetch(`${endpoint}/v2/query`, {
+      const res = await /* @non-metadata-fetch Hasura constraint */ fetch(`${endpoint}/v2/query`, {
         method: "POST",
         headers: { "x-hasura-admin-secret": secret, "Content-Type": "application/json" },
         body: JSON.stringify({ type: "run_sql", args: { source: "default", sql, read_only: false } }),

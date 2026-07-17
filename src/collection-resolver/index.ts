@@ -37,3 +37,21 @@ export {
   type ResolveProbeRequest,
   type ResolveProbeResponse,
 } from "./resolve.js";
+
+/** CR-101: versioned resolver capability registry + Ordering projection. */
+export * from "./capability-registry/index.js";
+
+/** CR-102: bounded resolver orchestration core + ports/reference impls. */
+export * from "./bounded-core/index.js";
+
+/** CR-103: production-shaped EVM NFT probe adapter behind NetworkAdapterPort. */
+export * from "./adapters/evm/index.js";
+
+/** CR-004: resolver workers fetch remote metadata only through this port. */
+export {
+  createResolverMetadataPort,
+  type ResolverMetadataPort,
+} from "../metadata-egress/resolver-port.js";
+
+/** CR-104: Solana DAS recognition adapter behind NetworkAdapterPort. */
+export * from "./adapters/solana/index.js";

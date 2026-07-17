@@ -65,7 +65,7 @@ const COUNT = `query Cnt($ck: String!) {
 }`;
 
 async function hasura<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`${HASURA}/v1/graphql`, {
+  const res = await /* @non-metadata-fetch Pythians index */ fetch(`${HASURA}/v1/graphql`, {
     method: "POST",
     headers: { "x-hasura-admin-secret": SECRET, "Content-Type": "application/json" },
     body: JSON.stringify({ query, variables }),

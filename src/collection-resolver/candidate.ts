@@ -15,6 +15,41 @@ import { networkKey, type RecognizeCapability } from "./identifier.js";
 
 export type ProbeOutcomeKind = "hit" | "miss" | "timeout" | "unavailable";
 
+/**
+ * Observed binding evidence returned by the adapter from the actual source.
+ * Optional on ProbeHitEvidence so CR-003 hermetic probes remain valid; CR-102
+ * positive/readiness cache writes REQUIRE this and refuse fabrication.
+ */
+export interface ProbeBindingEvidence {
+  readonly code_digest: string;
+  readonly account_digest: string;
+  readonly observed_position:
+    | {
+        readonly family: "evm";
+        readonly block_number: string;
+        readonly block_hash: string;
+        readonly finality?: string;
+      }
+    | {
+        readonly family: "solana";
+        readonly slot: string;
+        readonly blockhash: string;
+        readonly finality?: string;
+      };
+  readonly standard_evidence: {
+    readonly token_standard: string;
+    readonly evidence_quality: "confirmed" | "heuristic" | "unknown";
+    readonly interface_bits?: ReadonlyArray<string>;
+  };
+  readonly proxy_evidence: {
+    readonly is_proxy: boolean;
+    readonly implementation_digest?: string;
+    readonly proxy_kind?: "eip1967" | "eip1822" | "transparent" | "metaplex" | "unknown";
+  };
+  readonly adapter_policy_version: string;
+  readonly adapter_version?: string;
+}
+
 export interface ProbeHitEvidence {
   readonly kind: "hit";
   readonly address: string;
@@ -22,6 +57,11 @@ export interface ProbeHitEvidence {
   readonly name?: string;
   readonly symbol?: string;
   readonly image?: string;
+  /**
+   * Stable local registry key (e.g. SVM collection-registry) on exact mint match.
+   * Display enrichment only — never invents cross-deployment equivalence.
+   */
+  readonly collection_key?: string;
   readonly recognition: "recognized" | "ambiguous";
   readonly index_status: CollectionCandidate["index_status"];
   readonly report_readiness: CollectionCandidate["report_readiness"];
@@ -30,6 +70,8 @@ export interface ProbeHitEvidence {
   readonly ranking_reasons: ReadonlyArray<string>;
   /** Opaque evidence bytes for provenance digest — never a network call. */
   readonly evidence_material: unknown;
+  /** Observed source binding for positive cache — never fabricated by the core. */
+  readonly binding_evidence?: ProbeBindingEvidence;
 }
 
 export interface ProbeMiss {
@@ -40,8 +82,15 @@ export interface ProbeTimeout {
   readonly kind: "timeout";
 }
 
+/**
+ * Per-network transport/quorum outage. Optional safe_code / safe_message are
+ * stable, redacted labels for CR-102 diagnostics — never a raw RPC cause,
+ * provider URL, credential, or response body.
+ */
 export interface ProbeUnavailable {
   readonly kind: "unavailable";
+  readonly safe_code?: string;
+  readonly safe_message?: string;
 }
 
 export type ProbeOutcome = ProbeHitEvidence | ProbeMiss | ProbeTimeout | ProbeUnavailable;
@@ -159,6 +208,9 @@ export const buildCandidateFromHit = (input: {
             ...(hit.name !== undefined ? { name: hit.name } : {}),
             ...(hit.symbol !== undefined ? { symbol: hit.symbol } : {}),
             ...(hit.image !== undefined ? { image: hit.image } : {}),
+            ...(hit.collection_key !== undefined
+              ? { collection_key: hit.collection_key }
+              : {}),
             deployments: [deployment],
             equivalence_basis: {
               schema_version: COLLECTION_PROTOCOL_SCHEMA_VERSION,

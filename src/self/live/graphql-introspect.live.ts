@@ -16,7 +16,7 @@ export async function introspectQueryRoot(endpoint: string): Promise<QueryRootIn
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
   try {
-    const res = await fetch(endpoint, {
+    const res = await /* @non-metadata-fetch GraphQL introspection */ fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ query: QUERY_ROOT_INTROSPECT }),

@@ -78,6 +78,58 @@ export const MULTI_CHAIN_EVM_ADDRESS = "0xAbCdEf0123456789aBcDeF0123456789AbCdEf
 /** Pythenians collection mint — mixed-case SVM fixture parity. */
 export const PYTHIANS_COLLECTION_MINT = "pyTh2UtBKfuDW6KCdT3swospYeoLmmKaGujWA91Moru";
 
+/** Fixed digests for observed binding evidence (not deployment/address hashes). */
+const EVM_CODE_DIGEST = "11".repeat(32);
+const EVM_ACCOUNT_DIGEST = "22".repeat(32);
+const EVM_BLOCK_HASH = "33".repeat(32);
+const SOL_CODE_DIGEST = "44".repeat(32);
+const SOL_ACCOUNT_DIGEST = "55".repeat(32);
+
+const evmBinding = (networkRef: string) => ({
+  code_digest: EVM_CODE_DIGEST,
+  account_digest: EVM_ACCOUNT_DIGEST,
+  observed_position: {
+    family: "evm" as const,
+    block_number: networkRef === "8453" ? "20000001" : "19000001",
+    block_hash: EVM_BLOCK_HASH,
+    finality: "finalized",
+  },
+  standard_evidence: {
+    token_standard: "erc721",
+    evidence_quality: "confirmed" as const,
+    interface_bits: ["erc165", "erc721"],
+  },
+  proxy_evidence: {
+    is_proxy: networkRef === "8453",
+    ...(networkRef === "8453"
+      ? {
+          implementation_digest: "66".repeat(32),
+          proxy_kind: "eip1967" as const,
+        }
+      : {}),
+  },
+  adapter_policy_version: "resolver-adapter-policy.v1",
+  adapter_version: "scripted-evm.v1",
+});
+
+const solBinding = () => ({
+  code_digest: SOL_CODE_DIGEST,
+  account_digest: SOL_ACCOUNT_DIGEST,
+  observed_position: {
+    family: "solana" as const,
+    slot: "250000001",
+    blockhash: "SoLanaBlockhashFixture1111111111111111111",
+    finality: "finalized",
+  },
+  standard_evidence: {
+    token_standard: "metaplex_collection",
+    evidence_quality: "confirmed" as const,
+  },
+  proxy_evidence: { is_proxy: false },
+  adapter_policy_version: "resolver-adapter-policy.v1",
+  adapter_version: "scripted-solana.v1",
+});
+
 const evmHit = (overrides: Partial<Extract<ProbeOutcome, { kind: "hit" }>> = {}): Extract<
   ProbeOutcome,
   { kind: "hit" }
@@ -98,6 +150,7 @@ const evmHit = (overrides: Partial<Extract<ProbeOutcome, { kind: "hit" }>> = {})
     adapter: "evm_rpc",
     codehash: "0xabc",
   },
+  binding_evidence: evmBinding("1"),
   ...overrides,
 });
 
@@ -117,6 +170,7 @@ const solanaHit = (): Extract<ProbeOutcome, { kind: "hit" }> => ({
     adapter: "solana_das",
     collection_mint: PYTHIANS_COLLECTION_MINT,
   },
+  binding_evidence: solBinding(),
 });
 
 export type HermeticProbeScript = Readonly<Record<string, ProbeOutcome>>;
@@ -138,6 +192,7 @@ export const SCRIPT_EVM_ERC721: HermeticProbeScript = {
     symbol: "MIB",
     ranking_reasons: ["exact_inventory_match", "supported_standard", "indexed"],
     evidence_material: { adapter: "evm_rpc", fixture: "evm-erc721" },
+    binding_evidence: evmBinding("1"),
   }),
 };
 
@@ -148,18 +203,21 @@ export const SCRIPT_SOLANA_COLLECTION: HermeticProbeScript = {
 export const SCRIPT_MULTI_CHAIN_SAME_ADDRESS: HermeticProbeScript = {
   "eip155:1": evmHit({
     evidence_material: { adapter: "evm_rpc", network: "1" },
+    binding_evidence: evmBinding("1"),
   }),
   "eip155:8453": evmHit({
     index_status: "missing",
     report_readiness: "preparation_required",
     ranking_reasons: ["supported_standard"],
     evidence_material: { adapter: "evm_rpc", network: "8453" },
+    binding_evidence: evmBinding("8453"),
   }),
 };
 
 export const SCRIPT_PARTIAL_TIMEOUT: HermeticProbeScript = {
   "eip155:1": evmHit({
     evidence_material: { adapter: "evm_rpc", fixture: "partial-ok" },
+    binding_evidence: evmBinding("1"),
   }),
   "eip155:8453": { kind: "timeout" },
 };
@@ -167,4 +225,12 @@ export const SCRIPT_PARTIAL_TIMEOUT: HermeticProbeScript = {
 export const SCRIPT_ZERO_CANDIDATES: HermeticProbeScript = {
   "eip155:1": { kind: "miss" },
   "eip155:8453": { kind: "miss" },
+};
+
+/** Hit without binding evidence — must not write positive/readiness cache. */
+export const SCRIPT_HIT_WITHOUT_BINDING: HermeticProbeScript = {
+  "eip155:1": evmHit({
+    binding_evidence: undefined,
+    evidence_material: { adapter: "evm_rpc", fixture: "no-binding" },
+  }),
 };

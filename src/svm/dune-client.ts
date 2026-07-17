@@ -41,7 +41,7 @@ export class DuneClient {
 
   private async request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
     for (let attempt = 0; ; attempt++) {
-      const res = await fetch(`${API_BASE}${path}`, {
+      const res = await /* @non-metadata-fetch Dune API */ fetch(`${API_BASE}${path}`, {
         method,
         headers: { "X-Dune-API-Key": this.apiKey, "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),

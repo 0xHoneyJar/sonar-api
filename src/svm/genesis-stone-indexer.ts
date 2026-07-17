@@ -28,7 +28,7 @@ async function upsert(s: StoneClaimed): Promise<void> {
     mint: s.mint, wallet: s.wallet, element: s.element, element_name: s.elementName,
     weather: s.weather, slot: s.slot, sig: s.sig, claimed_at: s.claimedAt.toISOString(), source: s.source,
   };
-  const res = await fetch(`${HASURA}/v1/graphql`, {
+  const res = await /* @non-metadata-fetch Genesis index */ fetch(`${HASURA}/v1/graphql`, {
     method: "POST",
     headers: { "x-hasura-admin-secret": SECRET, "Content-Type": "application/json" },
     body: JSON.stringify({ query: UPSERT, variables: { o } }),

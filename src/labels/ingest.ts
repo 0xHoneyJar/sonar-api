@@ -17,7 +17,7 @@ const SECRET = process.env.HASURA_GRAPHQL_ADMIN_SECRET ?? "";
 
 /** Default run_sql against Hasura (admin = the service write credential). Injectable for tests. */
 export const defaultRunSql: RunSql = async <T>(sql: string, readOnly = false): Promise<T> => {
-  const r = await fetch(`${HASURA}/v2/query`, {
+  const r = await /* @non-metadata-fetch Hasura labels */ fetch(`${HASURA}/v2/query`, {
     method: "POST",
     headers: { "x-hasura-admin-secret": SECRET, "content-type": "application/json" },
     body: JSON.stringify({ type: "run_sql", args: { source: "default", sql, read_only: readOnly } }),
