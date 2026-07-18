@@ -615,7 +615,7 @@ chains:
           - 0x306b1ea3ecdf94ab739f1910bbda052ed4a9f949 # azuki BEANZ Official
           - 0xb6a37b5d14d502c3ab0ae6f3a0e058bc9517786e # azuki Elementals
           - 0x2079812353e2c9409a788fbf5f383fa62ad85be8 # azuki Bobu the Bean Farmer
-          - 0xb47e3cd837ddf8e4c57f05d70ab865de6e193bbb # cryptopunks (CryptoPunks — non-standard Transfer; may need dedicated handler)
+          # CryptoPunks (0xb47e3cd8…) excluded — non-standard Transfer; needs dedicated handler (BB F-004).
           - 0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d # yuga Bored Ape Yacht Club
           - 0x60e4d786628fea6478f785a6d7e704777c86a7c6 # yuga Mutant Ape Yacht Club
           - 0xba30e5f9bb24c19c9002c35c7098ad4a0f7ff53b # yuga Bored Ape Kennel Club

@@ -232,6 +232,30 @@ describe("ingest-worker", () => {
     expect(stalePublish).toBeUndefined();
   });
 
+  it("external_scale leaves jobs queued until operator ack", async () => {
+    const store = new MemoryIngestJobStore();
+    const key = { chainId: 1, contract: "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d" as const };
+    await store.upsertQueued(key, { order_id: "order", source: "cr-ops-idx-w1" });
+    const claimed = await store.claimQueued({ workerId: "batch-worker", limit: 10 });
+    let writes = 0;
+    await processQueuedIngestBatch({
+      jobs: claimed,
+      store,
+      drainStrategy: "external_scale",
+      writeFile: () => {
+        writes += 1;
+      },
+      restart: async () => {
+        throw new Error("restart must not run");
+      },
+    });
+    expect(writes).toBe(0);
+    await expect(store.get(key)).resolves.toMatchObject({
+      status: "queued",
+      leaseOwner: undefined,
+    });
+  });
+
   it("drains many queued jobs as one config rewrite and one restart", async () => {
     const store = new MemoryIngestJobStore();
     const keys = [

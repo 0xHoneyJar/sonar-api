@@ -283,13 +283,14 @@ export function createCanonicalPreparationRoutes(deps: {
     let body;
     try {
       body = await decodeBatchPreparationRequest(raw);
-    } catch {
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
       return c.json(
         {
           schema_version: 1,
           error: {
             code: "invalid_request",
-            message: "batch request does not match schema version 1 (1–50 items)",
+            message: `batch request does not match schema version 1 (1–50 items): ${detail}`,
           },
         },
         400,
@@ -312,7 +313,8 @@ export function createCanonicalPreparationRoutes(deps: {
             address: item.address,
           }),
         );
-      } catch {
+      } catch (err) {
+        console.error("[kitchen] batch item %d invalid_deployment", index, err);
         rejected += 1;
         results.push({
           index,
@@ -343,7 +345,8 @@ export function createCanonicalPreparationRoutes(deps: {
               }
             : {}),
         });
-      } catch {
+      } catch (err) {
+        console.error("[kitchen] batch item %d admission error", index, err);
         rejected += 1;
         results.push({
           index,
@@ -372,7 +375,16 @@ export function createCanonicalPreparationRoutes(deps: {
       });
     }
 
-    const status = created > 0 ? 202 : rejected === body.items.length ? 422 : 200;
+    // Callers MUST inspect results[] — 202 does not imply zero rejects.
+    // Mixed create/reject → 207; all-ok create → 202; all-ok join → 200; all-reject → 422.
+    const status =
+      rejected > 0 && (created > 0 || joined > 0)
+        ? 207
+        : created > 0
+          ? 202
+          : rejected === body.items.length
+            ? 422
+            : 200;
     return c.json(
       {
         schema_version: 1 as const,
@@ -385,6 +397,90 @@ export function createCanonicalPreparationRoutes(deps: {
         results,
       },
       status,
+    );
+  });
+
+  /**
+   * Operator ack after out-of-band SCALE config apply (external_scale drain).
+   * Promotes queued physical jobs to indexing so the readiness watchdog can
+   * complete or timeout them.
+   */
+  routes.post("/ack", async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ schema_version: 1, error: { code: "invalid_request", message: "request body must be JSON" } }, 400);
+    }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return c.json({ schema_version: 1, error: { code: "invalid_request", message: "request body must be an object" } }, 400);
+    }
+    const body = raw as Record<string, unknown>;
+    if (body.schema_version !== 1) {
+      return c.json({ schema_version: 1, error: { code: "invalid_request", message: "schema_version must be 1" } }, 400);
+    }
+    if (!Array.isArray(body.physical_job_ids) || body.physical_job_ids.length === 0) {
+      return c.json(
+        { schema_version: 1, error: { code: "invalid_request", message: "physical_job_ids must be a non-empty array" } },
+        400,
+      );
+    }
+    const ids = body.physical_job_ids.filter((id): id is string => typeof id === "string" && id.trim() !== "");
+    if (ids.length === 0 || ids.length > 50) {
+      return c.json(
+        { schema_version: 1, error: { code: "invalid_request", message: "physical_job_ids must contain 1–50 strings" } },
+        400,
+      );
+    }
+
+    const results: Array<Record<string, unknown>> = [];
+    let advanced = 0;
+    let missing = 0;
+    let skipped = 0;
+    for (const physicalJobId of ids) {
+      const job = await deps.store.getByPhysicalJobId(physicalJobId);
+      if (!job) {
+        missing += 1;
+        results.push({ physical_job_id: physicalJobId, ok: false, error: { code: "job_not_found" } });
+        continue;
+      }
+      if (job.status === "indexing" || job.status === "completed") {
+        skipped += 1;
+        results.push({ physical_job_id: physicalJobId, ok: true, status: job.status, advanced: false });
+        continue;
+      }
+      if (job.status !== "queued") {
+        skipped += 1;
+        results.push({
+          physical_job_id: physicalJobId,
+          ok: false,
+          error: { code: "unexpected_status", message: `job status is ${job.status}` },
+        });
+        continue;
+      }
+      const updated = await deps.store.updateStatus(physicalJobId, "indexing", {
+        expectedStatus: "queued",
+      });
+      if (!updated) {
+        skipped += 1;
+        results.push({
+          physical_job_id: physicalJobId,
+          ok: false,
+          error: { code: "status_conflict", message: "could not advance queued job to indexing" },
+        });
+        continue;
+      }
+      advanced += 1;
+      results.push({ physical_job_id: physicalJobId, ok: true, status: "indexing", advanced: true });
+    }
+
+    return c.json(
+      {
+        schema_version: 1 as const,
+        ack: { requested: ids.length, advanced, skipped, missing },
+        results,
+      },
+      200,
     );
   });
 

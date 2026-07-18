@@ -25,15 +25,26 @@ function workerFlagEnabled(env: NodeJS.ProcessEnv): boolean {
  * - `file`: mutate `KITCHEN_BELT_CONFIG_PATH` then optional restart webhook
  * - `webhook`: POST one batched patch plan to `KITCHEN_BELT_CONFIG_PATCH_WEBHOOK`
  * - `external_scale`: config is applied out-of-band (SCALE blue-green / PR);
- *   Kitchen only advances job state and readiness
+ *   Kitchen leaves jobs queued until `POST …/ack` (or Hasura readiness completes)
+ *
+ * Precedence when multiple strategy env vars are set: file > webhook > external_scale.
  */
 export function preparationDrainStrategyFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): PreparationDrainStrategy {
-  if (env.KITCHEN_BELT_CONFIG_PATH?.trim()) return "file";
-  if (env.KITCHEN_BELT_CONFIG_PATCH_WEBHOOK?.trim()) return "webhook";
+  const hasFile = Boolean(env.KITCHEN_BELT_CONFIG_PATH?.trim());
+  const hasWebhook = Boolean(env.KITCHEN_BELT_CONFIG_PATCH_WEBHOOK?.trim());
   const drain = env.KITCHEN_PREPARATION_DRAIN?.trim().toLowerCase();
-  if (drain === "external_scale" || drain === "external") return "external_scale";
+  const hasExternal = drain === "external_scale" || drain === "external";
+  const configured = [hasFile, hasWebhook, hasExternal].filter(Boolean).length;
+  if (configured > 1) {
+    console.warn(
+      "[kitchen] multiple drain strategies configured; precedence is file > webhook > external_scale",
+    );
+  }
+  if (hasFile) return "file";
+  if (hasWebhook) return "webhook";
+  if (hasExternal) return "external_scale";
   return "none";
 }
 

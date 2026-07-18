@@ -61,6 +61,19 @@ export function applyBeltConfigPatch(args: {
   return { changed: result.changed };
 }
 
+/** Shared belt-mutation guard for batch patch + webhook plan builders. */
+export function validateBeltJob(job: IngestJobRecord): void {
+  if (job.tokenStandard !== "erc721" || !job.key) {
+    throw new Error(`unsupported_standard: ${job.tokenStandard} cannot mutate Belt config`);
+  }
+  if (
+    job.prepareAdapterId !== "belt.eth-erc721" &&
+    job.prepareAdapterId !== "belt.evm-erc721"
+  ) {
+    throw new Error(`unsupported_adapter: ${job.prepareAdapterId}`);
+  }
+}
+
 /** Apply many ERC-721 Tracked* address patches in one config rewrite. */
 export function applyBeltConfigPatchesBatch(args: {
   configPath: string;
@@ -70,17 +83,7 @@ export function applyBeltConfigPatchesBatch(args: {
 }): { changed: boolean; patchedJobIds: string[] } {
   // Validate the whole batch before touching the filesystem so a bad item
   // cannot leave a partial rewrite and never triggers a spurious read.
-  for (const job of args.jobs) {
-    if (job.tokenStandard !== "erc721" || !job.key) {
-      throw new Error(`unsupported_standard: ${job.tokenStandard} cannot mutate Belt config`);
-    }
-    if (
-      job.prepareAdapterId !== "belt.eth-erc721" &&
-      job.prepareAdapterId !== "belt.evm-erc721"
-    ) {
-      throw new Error(`unsupported_adapter: ${job.prepareAdapterId}`);
-    }
-  }
+  for (const job of args.jobs) validateBeltJob(job);
 
   const readFile = args.readFile ?? ((path: string) => readFileSync(path, "utf8"));
   const writeFile = args.writeFile ?? ((path: string, contents: string) => {
@@ -121,19 +124,11 @@ export type BeltConfigPatchPlanItem = {
 export function buildBeltConfigPatchPlan(jobs: IngestJobRecord[]): BeltConfigPatchPlanItem[] {
   const items: BeltConfigPatchPlanItem[] = [];
   for (const job of jobs) {
-    if (job.tokenStandard !== "erc721" || !job.key) {
-      throw new Error(`unsupported_standard: ${job.tokenStandard} cannot mutate Belt config`);
-    }
-    if (
-      job.prepareAdapterId !== "belt.eth-erc721" &&
-      job.prepareAdapterId !== "belt.evm-erc721"
-    ) {
-      throw new Error(`unsupported_adapter: ${job.prepareAdapterId}`);
-    }
+    validateBeltJob(job);
     items.push({
       physical_job_id: job.physicalJobId,
-      chain_id: job.key.chainId,
-      contract: job.key.contract,
+      chain_id: job.key!.chainId,
+      contract: job.key!.contract,
       label: deterministicJobLabel(job),
       contract_name:
         job.prepareAdapterId === "belt.eth-erc721" ? "EthTrackedErc721" : "TrackedErc721",
@@ -208,6 +203,7 @@ async function markBatchFailed(args: {
   jobs: IngestJobRecord[];
   errorCode: string;
   errorMessage: string;
+  expectedStatus: "queued" | "indexing";
   nowMs?: number;
 }): Promise<void> {
   for (const job of args.jobs) {
@@ -217,7 +213,24 @@ async function markBatchFailed(args: {
       errorMessage: args.errorMessage,
       nowMs: args.nowMs,
       expectedLease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
+      expectedStatus: args.expectedStatus,
+    });
+  }
+}
+
+/** Release leases while remaining queued (external_scale awaiting SCALE ack). */
+async function releaseBatchLeases(args: {
+  store: IngestJobStorePort;
+  jobs: IngestJobRecord[];
+  nowMs?: number;
+}): Promise<void> {
+  for (const job of args.jobs) {
+    if (!job.leaseOwner) continue;
+    await args.store.updateStatus(job.physicalJobId, "queued", {
+      nowMs: args.nowMs,
+      expectedLease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
       expectedStatus: "queued",
+      releaseLease: true,
     });
   }
 }
@@ -225,6 +238,10 @@ async function markBatchFailed(args: {
 /**
  * Drain one claimed batch: single config materialization + single restart.
  * Prefer this over per-job processQueuedIngestJob for production scaling.
+ *
+ * Phase split (BB F-002): materialize first; only then advance status. Catch
+ * handlers use the phase-appropriate expectedStatus so partial advances are
+ * recoverable.
  */
 export async function processQueuedIngestBatch(args: {
   jobs: IngestJobRecord[];
@@ -247,6 +264,15 @@ export async function processQueuedIngestBatch(args: {
   if (renewed.length === 0) return;
 
   const strategy = args.drainStrategy ?? preparationDrainStrategyFromEnv();
+
+  // external_scale: config is applied out-of-band. Do NOT mark indexing here —
+  // jobs stay queued until POST /v2/collection-preparations/ack (or Hasura
+  // readiness completes them directly from queued).
+  if (strategy === "external_scale") {
+    await releaseBatchLeases({ store: args.store, jobs: renewed, nowMs: args.nowMs });
+    return;
+  }
+
   try {
     if (strategy === "file" || strategy === "none") {
       // `none` should not reach here when runtime gates correctly; treat as file
@@ -262,13 +288,9 @@ export async function processQueuedIngestBatch(args: {
       const plan = buildBeltConfigPatchPlan(renewed);
       await (args.postPatchWebhook ?? postBeltConfigPatchWebhook)(plan);
       await (args.restart ?? notifyIndexerRestart)();
-    } else if (strategy === "external_scale") {
-      // Config applied out-of-band (SCALE PR / blue-green). Kitchen only
-      // advances durable job state so readiness can complete the batch.
     } else {
       throw new Error(`unsupported_drain: ${strategy}`);
     }
-    await markBatchIndexing({ store: args.store, jobs: renewed, nowMs: args.nowMs });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const errorCode = message.includes(":") ? message.split(":", 1)[0] : "preparation_failed";
@@ -277,8 +299,31 @@ export async function processQueuedIngestBatch(args: {
       jobs: renewed,
       errorCode,
       errorMessage: message,
+      expectedStatus: "queued",
       nowMs: args.nowMs,
     });
+    return;
+  }
+
+  try {
+    await markBatchIndexing({ store: args.store, jobs: renewed, nowMs: args.nowMs });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const errorCode = message.includes(":") ? message.split(":", 1)[0] : "status_advance_failed";
+    // Per-job: fail only those still queued; already-indexing jobs keep their
+    // lease/status and rely on the indexing timeout watchdog (BB F-002).
+    for (const job of renewed) {
+      if (!job.leaseOwner) continue;
+      const current = await args.store.getByPhysicalJobId(job.physicalJobId);
+      if (!current || current.status !== "queued") continue;
+      await args.store.updateStatus(job.physicalJobId, "failed", {
+        errorCode,
+        errorMessage: message,
+        nowMs: args.nowMs,
+        expectedLease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
+        expectedStatus: "queued",
+      });
+    }
   }
 }
 
@@ -302,6 +347,28 @@ export async function processQueuedIngestJob(args: {
     restart: args.restart,
     nowMs: args.nowMs,
   });
+}
+
+/**
+ * Complete jobs that already have Hasura readiness evidence while still
+ * queued (external_scale awaiting ack, or ack skipped after SCALE apply).
+ */
+export async function advanceQueuedJobsViaReadiness(args: {
+  store: IngestJobStorePort;
+  reader: CollectionStatusReader;
+  nowMs?: number;
+}): Promise<void> {
+  const nowMs = args.nowMs ?? Date.now();
+  const jobs = await args.store.listByStatus("queued", 100);
+  for (const job of jobs) {
+    if (!job.key) continue;
+    const indexed = await args.reader.readIndexedSnapshot(job.key);
+    if (!isIndexedSnapshotReady(indexed)) continue;
+    await args.store.updateStatus(job.physicalJobId, "completed", {
+      nowMs,
+      expectedStatus: "queued",
+    });
+  }
 }
 
 export async function advanceIndexingJobs(args: {
@@ -373,6 +440,7 @@ export async function runKitchenIngestWorkerTick(args: {
     restart: args.restart,
     nowMs,
   });
+  await advanceQueuedJobsViaReadiness({ store: args.store, reader: args.reader, nowMs });
   await advanceIndexingJobs({ store: args.store, reader: args.reader, nowMs });
 }
 
