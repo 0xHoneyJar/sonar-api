@@ -12,6 +12,30 @@ import { BATCH_PREPARATION_MAX_ITEMS } from "./protocol.js";
 import { isIndexedSnapshotReady, type CollectionStatusReader } from "./status.js";
 import type { IngestJobRecord } from "./types.js";
 
+/** Bounded fan-out for per-job store / Hasura I/O inside a worker tick. */
+const STORE_IO_CONCURRENCY = 16;
+
+async function mapPool<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+      while (true) {
+        const index = next;
+        next += 1;
+        if (index >= items.length) return;
+        results[index] = await fn(items[index]!, index);
+      }
+    }),
+  );
+  return results;
+}
+
 export function beltConfigPathFromEnv(): string {
   return process.env.KITCHEN_BELT_CONFIG_PATH?.trim() || "config.yaml";
 }
@@ -200,8 +224,8 @@ async function postBeltConfigPatchWebhook(plan: BeltConfigPatchPlanItem[]): Prom
   }
 }
 
-function webhookOwnsRestart(): boolean {
-  const raw = process.env.KITCHEN_BELT_WEBHOOK_OWNS_RESTART?.trim().toLowerCase();
+function webhookOwnsRestart(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env.KITCHEN_BELT_WEBHOOK_OWNS_RESTART?.trim().toLowerCase();
   // Default: webhook drain owns restart (patch webhook is expected to apply + bounce).
   return raw !== "0" && raw !== "false" && raw !== "no";
 }
@@ -211,19 +235,20 @@ async function renewJobs(args: {
   jobs: IngestJobRecord[];
   nowMs?: number;
 }): Promise<IngestJobRecord[]> {
-  const renewed: IngestJobRecord[] = [];
-  for (const job of args.jobs) {
+  const candidates = args.jobs.filter((job) => {
     if (!job.leaseOwner || job.leaseUntilMs === undefined) {
       console.warn("[kitchen] skip renew — job %s missing lease", job.physicalJobId);
-      continue;
+      return false;
     }
+    return true;
+  });
+  const renewed = await mapPool(candidates, STORE_IO_CONCURRENCY, async (job) => {
     const next = await args.store.renewLease({
       physicalJobId: job.physicalJobId,
-      lease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
+      lease: { owner: job.leaseOwner!, epoch: job.leaseEpoch },
       nowMs: args.nowMs,
     });
-    if (next) renewed.push(next);
-    else {
+    if (!next) {
       console.warn(
         "[kitchen] renewLease CAS miss for %s (owner=%s epoch=%s)",
         job.physicalJobId,
@@ -231,8 +256,9 @@ async function renewJobs(args: {
         job.leaseEpoch,
       );
     }
-  }
-  return renewed;
+    return next;
+  });
+  return renewed.filter((job): job is IngestJobRecord => Boolean(job));
 }
 
 async function markBatchIndexing(args: {
@@ -240,11 +266,11 @@ async function markBatchIndexing(args: {
   jobs: IngestJobRecord[];
   nowMs?: number;
 }): Promise<void> {
-  for (const job of args.jobs) {
-    if (!job.leaseOwner) continue;
+  const candidates = args.jobs.filter((job) => Boolean(job.leaseOwner));
+  await mapPool(candidates, STORE_IO_CONCURRENCY, async (job) => {
     const updated = await args.store.updateStatus(job.physicalJobId, "indexing", {
       nowMs: args.nowMs,
-      expectedLease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
+      expectedLease: { owner: job.leaseOwner!, epoch: job.leaseEpoch },
       expectedStatus: "queued",
     });
     if (!updated) {
@@ -255,7 +281,7 @@ async function markBatchIndexing(args: {
         job.leaseEpoch,
       );
     }
-  }
+  });
 }
 
 async function markBatchFailed(args: {
@@ -266,13 +292,13 @@ async function markBatchFailed(args: {
   expectedStatus: "queued" | "indexing";
   nowMs?: number;
 }): Promise<void> {
-  for (const job of args.jobs) {
-    if (!job.leaseOwner) continue;
+  const candidates = args.jobs.filter((job) => Boolean(job.leaseOwner));
+  await mapPool(candidates, STORE_IO_CONCURRENCY, async (job) => {
     const updated = await args.store.updateStatus(job.physicalJobId, "failed", {
       errorCode: args.errorCode,
       errorMessage: args.errorMessage,
       nowMs: args.nowMs,
-      expectedLease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
+      expectedLease: { owner: job.leaseOwner!, epoch: job.leaseEpoch },
       expectedStatus: args.expectedStatus,
     });
     if (!updated) {
@@ -284,7 +310,7 @@ async function markBatchFailed(args: {
         job.leaseEpoch,
       );
     }
-  }
+  });
 }
 
 /** Release leases while remaining queued (external_scale awaiting SCALE ack). */
@@ -293,15 +319,15 @@ async function releaseBatchLeases(args: {
   jobs: IngestJobRecord[];
   nowMs?: number;
 }): Promise<void> {
-  for (const job of args.jobs) {
-    if (!job.leaseOwner) continue;
+  const candidates = args.jobs.filter((job) => Boolean(job.leaseOwner));
+  await mapPool(candidates, STORE_IO_CONCURRENCY, async (job) => {
     await args.store.updateStatus(job.physicalJobId, "queued", {
       nowMs: args.nowMs,
-      expectedLease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
+      expectedLease: { owner: job.leaseOwner!, epoch: job.leaseEpoch },
       expectedStatus: "queued",
       releaseLease: true,
     });
-  }
+  });
 }
 
 /**
@@ -363,7 +389,7 @@ export async function processQueuedIngestBatch(args: {
       await (args.postPatchWebhook ?? postBeltConfigPatchWebhook)(plan);
       // Webhook drain owns apply+bounce by default; opt into a second restart
       // webhook with KITCHEN_BELT_WEBHOOK_OWNS_RESTART=false.
-      if (!webhookOwnsRestart()) {
+      if (!webhookOwnsRestart(process.env)) {
         await (args.restart ?? notifyIndexerRestart)();
       }
     } else {
@@ -434,12 +460,11 @@ export async function advanceQueuedJobsViaReadiness(args: {
   // Wider than a claim wave so external_scale backlogs still advance when
   // Hasura is already ready (override via KITCHEN_READINESS_SCAN_LIMIT).
   const jobs = await args.store.listByStatus("queued", kitchenReadinessScanLimitFromEnv());
-  for (const job of jobs) {
-    if (!job.key) continue;
-    // Skip actively leased jobs — worker owns them until release.
-    if (job.leaseOwner) continue;
-    const indexed = await args.reader.readIndexedSnapshot(job.key);
-    if (!isIndexedSnapshotReady(indexed)) continue;
+  const candidates = jobs.filter((job) => Boolean(job.key) && !job.leaseOwner);
+  // Fan out Hasura reads; status advances stay per-job CAS.
+  await mapPool(candidates, STORE_IO_CONCURRENCY, async (job) => {
+    const indexed = await args.reader.readIndexedSnapshot(job.key!);
+    if (!isIndexedSnapshotReady(indexed)) return;
     const updated = await args.store.updateStatus(job.physicalJobId, "completed", {
       nowMs,
       expectedStatus: "queued",
@@ -451,7 +476,7 @@ export async function advanceQueuedJobsViaReadiness(args: {
         job.physicalJobId,
       );
     }
-  }
+  });
 }
 
 export async function advanceIndexingJobs(args: {

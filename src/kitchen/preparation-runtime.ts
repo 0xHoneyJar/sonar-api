@@ -27,7 +27,8 @@ function workerFlagEnabled(env: NodeJS.ProcessEnv): boolean {
  * - `external_scale`: config is applied out-of-band (SCALE blue-green / PR);
  *   Kitchen leaves jobs queued until `POST …/ack` (or Hasura readiness completes)
  *
- * Precedence when multiple strategy env vars are set: file > webhook > external_scale.
+ * Explicit `KITCHEN_PREPARATION_DRAIN` always wins. When unset, implicit
+ * detection precedence is: file path > webhook URL (else `none`).
  */
 export function preparationDrainStrategyFromEnv(
   env: NodeJS.ProcessEnv = process.env,

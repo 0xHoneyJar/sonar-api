@@ -10,6 +10,7 @@ import { requireServiceToken } from "./auth.js";
 import { resolvePreparationCapability } from "./capability.js";
 import { collectionKeyFromParams, deploymentFromCollectionKey } from "./normalize.js";
 import {
+  BATCH_ADMIT_CONCURRENCY,
   decodeAckPreparationRequest,
   decodeBatchPreparationRequest,
   decodeCanonicalPreparationRequest,
@@ -302,7 +303,7 @@ export function createCanonicalPreparationRoutes(deps: {
     }
 
     const results: Array<Record<string, unknown>> = new Array(body.items.length);
-    const admitConcurrency = Math.min(8, body.items.length);
+    const admitConcurrency = Math.min(BATCH_ADMIT_CONCURRENCY, body.items.length);
     let nextIndex = 0;
 
     const admitOne = async (index: number): Promise<void> => {
@@ -468,6 +469,7 @@ export function createCanonicalPreparationRoutes(deps: {
     }
 
     const ids = body.physical_job_ids;
+    const nowMs = Date.now();
     const results: Array<Record<string, unknown>> = [];
     let advanced = 0;
     let missing = 0;
@@ -505,24 +507,11 @@ export function createCanonicalPreparationRoutes(deps: {
         });
         continue;
       }
-      // Early exit to avoid a pointless CAS; expectedAbsentLease is the guard.
-      const fresh = await deps.store.getByPhysicalJobId(physicalJobId);
-      if (!fresh || fresh.status !== "queued" || fresh.leaseOwner) {
-        skipped += 1;
-        results.push({
-          physical_job_id: physicalJobId,
-          ok: false,
-          error: {
-            code: "status_conflict",
-            message: "job changed before ack could advance it",
-          },
-        });
-        continue;
-      }
+      // expectedAbsentLease on updateStatus is the concurrency guard.
       const updated = await deps.store.updateStatus(physicalJobId, "indexing", {
         expectedStatus: "queued",
         expectedAbsentLease: true,
-        nowMs: Date.now(),
+        nowMs,
       });
       if (!updated) {
         skipped += 1;

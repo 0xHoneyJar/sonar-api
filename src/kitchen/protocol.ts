@@ -56,6 +56,8 @@ export const CanonicalPreparationResponseSchema = Schema.Struct({
 
 /** Batch admit — one request, many physical jobs (still one job per deployment). */
 export const BATCH_PREPARATION_MAX_ITEMS = 50;
+/** Concurrent admit workers for POST /batch (bounded vs DB pool pressure). */
+export const BATCH_ADMIT_CONCURRENCY = 8;
 
 export const BatchPreparationItemSchema = Schema.Struct({
   network: NetworkRef,
