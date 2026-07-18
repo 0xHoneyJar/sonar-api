@@ -1,0 +1,19 @@
+# Mission 3 — disposable Ethereum-only benchmark stub.
+# DO NOT point this at production DATABASE_URL.
+# Copy addresses/handlers from config.yaml EthTrackedErc721; pin a fixed end_block
+# in your local envio version if supported, or stop the process at the golden height.
+#
+# This file is intentionally minimal documentation-as-config: fill `address` from
+# scripts/profiling/floor-registry.w1.json (non-blocked) before running.
+
+name: sonar-belt-bench-eth
+description: Disposable ETH ownership catch-up benchmark (Mission 3)
+networks:
+  - id: 1
+    start_block: 12287507 # Governance floor from floor-registry.w1.json — min required_floor (0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d @ 12287507); full_from_required_floor
+    # end_block: set in disposable run instructions when CLI supports it
+    contracts:
+      - name: EthTrackedErc721
+        # Populate from floor-registry.w1.json before bench; do not hand-edit a second list long-term.
+        address: []
+# Handlers/schema must match production EthTrackedErc721 (codegen from shared ABI).
