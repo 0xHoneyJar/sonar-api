@@ -25,6 +25,16 @@ fetch_raw() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONPATH="${SCRIPT_DIR}${PYTHONPATH:+:$PYTHONPATH}"
 
+# Framework Python installs on macOS may not inherit the system keychain CA
+# path. Prefer the installed certifi bundle when available; a missing bundle
+# leaves Python's default verification unchanged. Never disable TLS checks.
+if [[ -z "${SSL_CERT_FILE:-}" ]]; then
+  CERTIFI_CA="$(python3 -c 'import certifi; print(certifi.where())' 2>/dev/null || true)"
+  if [[ -n "$CERTIFI_CA" ]]; then
+    export SSL_CERT_FILE="$CERTIFI_CA"
+  fi
+fi
+
 python3 - "$INTERVAL_SECONDS" "$SAMPLES" <<'PY'
 import json, os, sys, time, urllib.request
 from stall_classify import classify_stall

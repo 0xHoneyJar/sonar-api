@@ -32,6 +32,8 @@
     "verify:historical-floors": "node scripts/verify-historical-floors.mjs",
     "verify:historical-floors:enforce": "node scripts/verify-historical-floors.mjs --enforce",
     "test:mission-01-stall": "python3 scripts/profiling/test_stall_classify.py",
+    "test:mission-01-summary": "node --test scripts/profiling/test_summarize_progress.mjs",
+    "summarize:mission-01": "node scripts/profiling/summarize-progress.mjs",
     "verify:svm-contract": "node scripts/verify-svm-contract.mjs",
     "verify:action-contract": "node scripts/verify-svm-contract.mjs --manifest scripts/action-contract.json",
     "s5:parity-dryrun": "tsx scripts/s5-parity-dryrun.ts",

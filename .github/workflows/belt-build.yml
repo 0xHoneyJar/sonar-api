@@ -61,8 +61,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Gate 1 — BLOCKING. Config-fidelity drift would produce silently-wrong data.
-      - name: Gate 1 — belt config fidelity (verify-belt-config)
+      # Gates 1a/1b — BLOCKING. The floor registry is the single source of truth;
+      # config drift or a cohort that starts after a required floor is unshippable.
+      - name: Gate 1a — historical floor materialization drift
+        run: pnpm materialize:eth-floor:check
+
+      - name: Gate 1b — historical floor coverage enforcement
+        run: pnpm verify:historical-floors:enforce
+
+      # Gate 1c — BLOCKING. Config-fidelity drift would produce silently-wrong data.
+      - name: Gate 1c — belt config fidelity (verify-belt-config)
         run: pnpm verify:belt-config
 
       - name: Anti-ponder guard (kitchen lives in src/kitchen/)
@@ -87,12 +95,12 @@ jobs:
       # Requires the `envio` CLI, which is NOT provisioned in CI (not in
       # package.json / pnpm-lock; no install step). Best-effort until a binary or a
       # self-hosted runner is added. NOT a retired path.
-      - name: Gate 3 — scoped codegen (config.mibera.yaml) [informational: envio CLI not in CI]
+      - name: "Gate 3 — scoped codegen (config.mibera.yaml) [informational: envio CLI not in CI]"
         continue-on-error: true
         run: pnpm codegen:mibera
 
       # Gate 4 — INFORMATIONAL. Belt-scoped typecheck depends on Gate 3's codegen
       # output (generated/), so it is gated on the same missing envio CLI.
-      - name: Gate 4 — belt-scoped typecheck (tsconfig.mibera.json) [informational: depends on codegen output]
+      - name: "Gate 4 — belt-scoped typecheck (tsconfig.mibera.json) [informational: depends on codegen output]"
         continue-on-error: true
         run: pnpm typecheck:mibera
