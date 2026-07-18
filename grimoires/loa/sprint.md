@@ -11,7 +11,7 @@ operator_signed: false
 
 # Sprint Plan — Honest frontier Flatline bootstrap
 
-## Sprint 0 — Restore an operational council without overstating its sensors
+## Sprint 0: Restore an operational council without overstating its sensors
 
 ### T0.1 Update the Loa harness
 
@@ -49,6 +49,22 @@ authorized.
 **AC:** issue registry and Sonar/Score lineage packet are the `--from` inputs
 to a fresh `/simstim`; Simstim may proceed only with 3/3 qualifying Flatline
 voices. A readiness warning is recorded as sensor debt, never as READY.
+
+## Verification
+
+- Loa version markers resolve to `1.198.7`, and the governed framework update
+  remains a separate commit.
+- Direct Fable, Cursor Grok 4.5, and Codex calls each return a non-empty
+  response, with evidence binding the configured role to the actual CLI model
+  argument.
+- No Gemini role, fallback, or receipt is present in the effective council.
+- A fresh Flatline probe returns three schema-valid, non-empty verdicts.
+- The existing Flatline readiness result remains `DEGRADED` until its
+  headless-auth and model-identity defects are fixed upstream; operational
+  transport proof must not relabel that sensor as ready.
+- No post-update `.claude/` changes are introduced by this sprint.
+- Ethereum `start_block` remains `12287507`, `ENVIO_RESTART` remains unset,
+  and no database wipe, restart, or production indexing lever is exercised.
 
 ## Stop conditions
 
