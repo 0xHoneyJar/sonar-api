@@ -5,10 +5,22 @@ import type {
   IngestJobRecord,
 } from "./types.js";
 
+export interface IndexReadinessCoverage {
+  requiredFloor: number;
+  processedThroughBlock: number;
+  requiredThroughBlock: number;
+  coverageMode: "full_from_required_floor" | "partial_operator_approved";
+  configDigest: string;
+  tokenRows: number;
+  holderRows: number;
+}
+
 export interface IndexReadinessEvidence {
   state: "ready";
   kind: "indexed_rows" | "registration_marker" | "sync_marker";
   observedAtMs: number;
+  /** Mission 5 — present when readiness is coverage-attributable. */
+  coverage?: IndexReadinessCoverage;
 }
 
 export interface IndexedSnapshot {

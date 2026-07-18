@@ -22,12 +22,17 @@ fetch_raw() {
     -d "$QUERY"
 }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="${SCRIPT_DIR}${PYTHONPATH:+:$PYTHONPATH}"
+
 python3 - "$INTERVAL_SECONDS" "$SAMPLES" <<'PY'
 import json, os, sys, time, urllib.request
+from stall_classify import classify_stall
 
 interval = int(sys.argv[1])
 samples = int(sys.argv[2])
 url = os.environ.get("BELT_GRAPHQL_URL", "https://sonar.0xhoneyjar.xyz/v1/graphql")
+tip_lag = int(os.environ.get("TIP_LAG_BLOCKS", "500"))
 query = {
     "query": "{ chain_metadata { chain_id start_block block_height latest_processed_block latest_fetched_block_number num_events_processed is_hyper_sync timestamp_caught_up_to_head_or_endblock } }"
 }
@@ -48,21 +53,13 @@ def fetch():
     return body["data"]["chain_metadata"]
 
 def classify(row, rates):
-    lag = row["block_height"] - row["latest_processed_block"]
-    proc_bps = rates.get("processed_bps")
-    fetch_bps = rates.get("fetched_bps")
-    # Near-tip lag is normal (Envio often trails head by tens–hundreds of blocks).
-    if lag <= 500:
-        return "TIP_FOLLOW"
-    if fetch_bps is None or proc_bps is None:
-        return "UNKNOWN"
-    if proc_bps > 0 and rates.get("events_per_sec", 0) == 0:
-        return "SPARSE_NORMAL"
-    if fetch_bps > 0 and proc_bps <= 0:
-        return "PROCESS_STALL"
-    if fetch_bps <= 0 and proc_bps <= 0:
-        return "FULL_STALL"
-    return "CATCHUP"
+    return classify_stall(
+        head=row["block_height"],
+        fetched=row["latest_fetched_block_number"],
+        processed=row["latest_processed_block"],
+        rates=rates,
+        tip_lag_blocks=tip_lag,
+    )
 
 for i in range(samples):
     now = time.time()

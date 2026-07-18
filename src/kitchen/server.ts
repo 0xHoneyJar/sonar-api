@@ -1,6 +1,10 @@
 import { serve } from "@hono/node-server";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
-import { createHasuraCollectionStatusReader } from "./hasura-status-reader.js";
+import { createCoverageAwareStatusReader } from "./coverage-aware-status-reader.js";
+import type { CoverageFloorRecord } from "./coverage-readiness.js";
+import { createHasuraCollectionStatusReader, beltGraphqlUrlFromEnv } from "./hasura-status-reader.js";
 import { MemoryIngestJobStore } from "./ingest-store.js";
 import { kitchenWorkerEnabled, startKitchenIngestWorker } from "./ingest-worker.js";
 import {
@@ -10,6 +14,7 @@ import {
 import { createKitchenApp } from "./routes.js";
 import { preparationRuntimeFromEnv } from "./preparation-runtime.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
+import type { CollectionStatusReader } from "./status.js";
 
 async function resolveIngestStore(): Promise<IngestJobStorePort> {
   const dbUrl = kitchenDatabaseUrlFromEnv();
@@ -25,9 +30,90 @@ async function resolveIngestStore(): Promise<IngestJobStorePort> {
   return new MemoryIngestJobStore();
 }
 
+function loadFloorRegistry(): Map<string, CoverageFloorRecord> {
+  const path =
+    process.env.KITCHEN_FLOOR_REGISTRY_PATH?.trim() ||
+    resolve(process.cwd(), "scripts/profiling/floor-registry.w1.json");
+  const map = new Map<string, CoverageFloorRecord>();
+  if (!existsSync(path)) return map;
+  const rows = JSON.parse(readFileSync(path, "utf8")) as Array<{
+    chain_id: number;
+    contract: string;
+    required_floor?: number | null;
+    verified_contract_creation_block?: number | null;
+    blocked?: boolean;
+    coverage_mode?: "full_from_required_floor" | "partial_operator_approved";
+  }>;
+  const configDigest =
+    process.env.KITCHEN_CONFIG_DIGEST?.trim() ||
+    "unbound".padEnd(64, "0");
+  const capabilityVersion =
+    process.env.KITCHEN_CAPABILITY_VERSION?.trim() ||
+    "unbound".padEnd(64, "0");
+  for (const row of rows) {
+    if (row.blocked) continue;
+    const required = row.required_floor ?? row.verified_contract_creation_block;
+    if (required == null) continue;
+    const contract = row.contract.toLowerCase();
+    map.set(`${row.chain_id}:${contract}`, {
+      chainId: row.chain_id,
+      contract,
+      requiredFloor: required,
+      coverageMode: row.coverage_mode ?? "full_from_required_floor",
+      configDigest,
+      capabilityId: "ownership_index.v1",
+      capabilityVersion,
+    });
+  }
+  return map;
+}
+
+function createStatusReader(): CollectionStatusReader {
+  const inner = createHasuraCollectionStatusReader();
+  if (process.env.KITCHEN_COVERAGE_READINESS?.trim() !== "1") {
+    return inner;
+  }
+
+  const floors = loadFloorRegistry();
+  const graphqlUrl = beltGraphqlUrlFromEnv();
+
+  return createCoverageAwareStatusReader({
+    inner,
+    resolveFloor: (key) => floors.get(`${key.chainId}:${key.contract}`) ?? null,
+    readChainProgress: async (chainId) => {
+      try {
+        const response = await fetch(graphqlUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            query:
+              "{ chain_metadata { chain_id latest_processed_block } }",
+          }),
+        });
+        if (!response.ok) return { processedThroughBlock: 0, sensorFailed: true };
+        const payload = (await response.json()) as {
+          data?: { chain_metadata?: Array<{ chain_id: number; latest_processed_block: number }> };
+          errors?: unknown[];
+        };
+        if (payload.errors?.length) {
+          return { processedThroughBlock: 0, sensorFailed: true };
+        }
+        const row = payload.data?.chain_metadata?.find((c) => Number(c.chain_id) === chainId);
+        if (!row) return { processedThroughBlock: 0, sensorFailed: true };
+        return { processedThroughBlock: Number(row.latest_processed_block) };
+      } catch {
+        return { processedThroughBlock: 0, sensorFailed: true };
+      }
+    },
+    // Job digest binding must be supplied by the worker path in a follow-up;
+    // without it the coverage wrapper refuses to invent readiness (inner rows alone).
+    resolveJobBinding: () => null,
+  });
+}
+
 export async function createKitchenServer() {
   const store = await resolveIngestStore();
-  const reader = createHasuraCollectionStatusReader();
+  const reader = createStatusReader();
   const preparationRuntime = preparationRuntimeFromEnv();
   const app = createKitchenApp({ reader, store, preparationRuntime });
   return { app, store, reader };

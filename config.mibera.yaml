@@ -342,7 +342,7 @@ chains:
   # ── Ethereum (1) — MiladyCollection (NftBurn:milady). Densest chain; Milady Transfer
   # volume is very large → may need bounded HyperSync / paid RPC if eRPC ETA is unacceptable.
   - id: 1
-    start_block: 13090020 # Milady contract deployment (MiladyCollection inherits this floor)
+    start_block: 12287507 # Governance floor from floor-registry.w1.json — min required_floor (0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d @ 12287507); full_from_required_floor
     contracts:
       - name: MiladyCollection
         address:
@@ -352,7 +352,7 @@ chains:
       # envio faithfully indexed a non-existent contract → 0 events forever, immune to every
       # config change. The "#120 single-address fetch gap" was THIS address bug, not envio
       # (Milady indexed fine because its address was correct). Dedicated EthTrackedErc721 kept
-      # (structurally mirrors Milady; inherits chain floor 13090020, no history lost).
+      # (structurally mirrors Milady; inherits chain floor 12287507, no history lost).
       - name: EthTrackedErc721
         address:
           - 0xed5af388653567af2f388e6224dc7c4b3241c544 # azuki (canonical, verified on Etherscan)
