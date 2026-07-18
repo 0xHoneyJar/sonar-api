@@ -1542,8 +1542,13 @@ flatline_protocol:
     primary: "claude-headless"
     # Secondary model — subscription CLI headless (Codex CLI via ChatGPT sign-in)
     secondary: "codex-headless"
-    # Tertiary model — subscription CLI headless
-    tertiary: "gemini-headless"
+    # Tertiary RETIRED 2026-07-06 — gemini-headless is dead: Google killed the
+    # individual Gemini CLI tier (`IneligibleTierError: client no longer supported
+    # for Gemini Code Assist for individuals`). Flatline runs the canonical 2-model
+    # adversarial pair (claude-headless reviewer + codex-headless skeptic), both
+    # subscription CLI, zero API keys. Re-add a working headless tertiary here if one
+    # returns (or google:gemini-2.5-pro via HTTP if GOOGLE_API_KEY spend is acceptable).
+    tertiary: ""
 
   # Consensus thresholds (0-1000 scale)
   thresholds:
@@ -1811,6 +1816,22 @@ hounfour:
     anthropic:
       auth: "{env:ANTHROPIC_API_KEY}"
       models:
+        # Headless CLI dispatch (subscription OAuth via `claude -p`, NO ANTHROPIC_API_KEY).
+        # Added 2026-07-06: the tier-SoT model-config.yaml defines anthropic:claude-headless
+        # as kind:cli/auth_type:headless, but this .loa.config anthropic block shadowed the
+        # merged model list with http_api-only models, so `claude-headless` fell through to
+        # the HTTP path (RATE_LIMITED, no key). Re-declaring it here restores CLI dispatch.
+        # cli_model: opus → the reviewer voice runs the top tier (proper adversarial gate),
+        # not the SoT fable default. Pairs with codex-headless (skeptic). See flatline_protocol.
+        claude-headless:
+          auth_type: headless
+          kind: cli
+          dispatch_group: anthropic-claude
+          capabilities: [chat]
+          context_window: 200000
+          extra:
+            cli_model: opus
+            effort: high
         claude-opus-4-6:
           endpoint_family: chat
           auth_type: http_api

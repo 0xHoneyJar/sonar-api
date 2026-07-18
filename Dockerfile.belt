@@ -41,6 +41,14 @@ RUN pnpm install --frozen-lockfile && \
     bash scripts/rebuild-events-dist.sh && \
     pnpm envio codegen --config "${BELT_CONFIG}"
 ENV TUI_OFF=true
+# S1-T1 / KF-015 durable fix: bake the Node heap ceiling so EVERY belt deploy inherits it
+# instead of relying on a per-service Railway var (which only green carried). The 6-chain green
+# belt OOM-crash-loops at Node's ~2GB default old-space in its 24GB container (dense mint regions
+# freeze while lighter chains advance). Raise the ceiling to ~50% of a 24GB box. This is a CEILING,
+# not a reservation — the 4-chain blue belt never approaches it, and a smaller per-chain container
+# (Sprint 2 / D4) MUST override this with a Railway service var scaled to its box.
+# loa:shortcut: single baked default (24GB/6-chain sized); per-container NODE_OPTIONS override if a belt runs in a smaller box.
+ENV NODE_OPTIONS=--max-old-space-size=12288
 # Env-gated re-init: steady-state RESUMES from the last checkpoint (safe default).
 # STRICT gate: only the literal ENVIO_RESTART=1 forces a fresh init — ENVIO_RESTART=false/0
 # do NOT wipe (the old `${VAR:+--restart}` form triggered on ANY non-empty value, a
