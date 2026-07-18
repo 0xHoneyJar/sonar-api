@@ -577,6 +577,7 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
       nowMs?: number;
       releaseLease?: boolean;
       expectedLease?: { owner: string; epoch: number };
+      expectedAbsentLease?: boolean;
       expectedStatus?: IngestJobStatus;
     },
   ): Promise<IngestJobRecord | undefined> {
@@ -588,6 +589,7 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
          updated_at = to_timestamp($5 / 1000.0)
        WHERE physical_job_id = $1
          AND ($9::text IS NULL OR status = $9)
+         AND ($10::boolean IS NOT TRUE OR lease_owner IS NULL)
          AND (
            $7::text IS NULL OR (
              lease_owner = $7 AND lease_epoch = $8
@@ -605,6 +607,7 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
         args?.expectedLease?.owner ?? null,
         args?.expectedLease?.epoch ?? null,
         args?.expectedStatus ?? null,
+        args?.expectedAbsentLease === true,
       ],
     );
     return result.rows[0] ? rowToRecord(result.rows[0]) : undefined;

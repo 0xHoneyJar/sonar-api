@@ -502,6 +502,7 @@ export function createCanonicalPreparationRoutes(deps: {
       }
       const updated = await deps.store.updateStatus(physicalJobId, "indexing", {
         expectedStatus: "queued",
+        expectedAbsentLease: true,
         nowMs: Date.now(),
       });
       if (!updated) {

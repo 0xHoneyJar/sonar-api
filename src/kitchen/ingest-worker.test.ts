@@ -329,6 +329,37 @@ describe("ingest-worker", () => {
     expect(batchResult.changed).toBe(false);
   });
 
+  it("drains a claimed batch via webhook without local config rewrite", async () => {
+    const store = new MemoryIngestJobStore();
+    const key = {
+      chainId: 1,
+      contract: "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d" as const,
+    };
+    await store.upsertQueued(key, { order_id: "order-wh", source: "cr-ops-idx-w1" });
+    const claimed = await store.claimQueued({ workerId: "webhook-worker", limit: 1 });
+    expect(claimed).toHaveLength(1);
+
+    let plans: unknown[] = [];
+    let restarts = 0;
+    await processQueuedIngestBatch({
+      jobs: claimed,
+      store,
+      drainStrategy: "webhook",
+      postPatchWebhook: async (plan) => {
+        plans.push(plan);
+      },
+      restart: async () => {
+        restarts += 1;
+      },
+    });
+
+    expect(plans).toHaveLength(1);
+    expect(JSON.stringify(plans[0]).toLowerCase()).toContain(key.contract);
+    // Default webhookOwnsRestart: true — no separate restart call.
+    expect(restarts).toBe(0);
+    await expect(store.get(key)).resolves.toMatchObject({ status: "indexing" });
+  });
+
   it("releases claimed leases when no drain strategy is configured", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("KITCHEN_WORKER_ENABLED", "true");

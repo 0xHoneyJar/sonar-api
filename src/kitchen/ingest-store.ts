@@ -44,6 +44,8 @@ export interface IngestJobStorePort {
       nowMs?: number;
       releaseLease?: boolean;
       expectedLease?: { owner: string; epoch: number };
+      /** When true, CAS fails if any leaseOwner is present (ack / unleased paths). */
+      expectedAbsentLease?: boolean;
       expectedStatus?: IngestJobStatus;
     },
   ): Promise<IngestJobRecord | undefined>;
@@ -258,6 +260,7 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
       nowMs?: number;
       releaseLease?: boolean;
       expectedLease?: { owner: string; epoch: number };
+      expectedAbsentLease?: boolean;
       expectedStatus?: IngestJobStatus;
     },
   ): Promise<IngestJobRecord | undefined> {
@@ -266,6 +269,9 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
       if (!record) return undefined;
       const nowMs = args?.nowMs ?? Date.now();
       if (args?.expectedStatus !== undefined && record.status !== args.expectedStatus) {
+        return undefined;
+      }
+      if (args?.expectedAbsentLease && record.leaseOwner) {
         return undefined;
       }
       if (

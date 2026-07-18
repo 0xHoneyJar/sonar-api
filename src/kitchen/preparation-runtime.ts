@@ -79,6 +79,22 @@ export function preparationRuntimeFromEnv(
           "KITCHEN_PREPARATION_PORT=belt_config_batch requires KITCHEN_BELT_CONFIG_PATH, KITCHEN_BELT_CONFIG_PATCH_WEBHOOK, or KITCHEN_PREPARATION_DRAIN=external_scale",
       };
     }
+    if (strategy === "file" && !env.KITCHEN_BELT_CONFIG_PATH?.trim()) {
+      return {
+        available: false,
+        mode: "unavailable",
+        reason:
+          "KITCHEN_PREPARATION_DRAIN=file requires KITCHEN_BELT_CONFIG_PATH",
+      };
+    }
+    if (strategy === "webhook" && !env.KITCHEN_BELT_CONFIG_PATCH_WEBHOOK?.trim()) {
+      return {
+        available: false,
+        mode: "unavailable",
+        reason:
+          "KITCHEN_PREPARATION_DRAIN=webhook requires KITCHEN_BELT_CONFIG_PATCH_WEBHOOK",
+      };
+    }
     return {
       available: true,
       mode: "belt_config_batch",

@@ -221,11 +221,19 @@ async function markBatchIndexing(args: {
 }): Promise<void> {
   for (const job of args.jobs) {
     if (!job.leaseOwner) continue;
-    await args.store.updateStatus(job.physicalJobId, "indexing", {
+    const updated = await args.store.updateStatus(job.physicalJobId, "indexing", {
       nowMs: args.nowMs,
       expectedLease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
       expectedStatus: "queued",
     });
+    if (!updated) {
+      console.warn(
+        "[kitchen] markBatchIndexing CAS miss for %s (owner=%s epoch=%s) — config may already be applied",
+        job.physicalJobId,
+        job.leaseOwner,
+        job.leaseEpoch,
+      );
+    }
   }
 }
 
@@ -408,8 +416,9 @@ export async function advanceQueuedJobsViaReadiness(args: {
   nowMs?: number;
 }): Promise<void> {
   const nowMs = args.nowMs ?? Date.now();
-  // Same cap as BATCH_PREPARATION_MAX_ITEMS / claim batch — one drain wave.
-  const jobs = await args.store.listByStatus("queued", kitchenBatchClaimLimitFromEnv());
+  // Wider than a single claim wave so external_scale backlogs still advance
+  // when Hasura is already ready (matches advanceIndexingJobs scan depth).
+  const jobs = await args.store.listByStatus("queued", 100);
   for (const job of jobs) {
     if (!job.key) continue;
     // Skip actively leased jobs — worker owns them until release.
@@ -419,6 +428,7 @@ export async function advanceQueuedJobsViaReadiness(args: {
     const updated = await args.store.updateStatus(job.physicalJobId, "completed", {
       nowMs,
       expectedStatus: "queued",
+      expectedAbsentLease: true,
     });
     if (!updated) {
       console.warn(
