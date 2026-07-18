@@ -62,7 +62,7 @@ curl -s -X POST "$KITCHEN_API_URL/v2/collection-preparations/batch" \
 # After SCALE config apply (external_scale drain), ack jobs so they enter indexing:
 curl -s -X POST "$KITCHEN_API_URL/v2/collection-preparations/ack" \
   -H "authorization: Bearer $SERVICE_TOKEN" -H "content-type: application/json" \
-  -d '{"schema_version":1,"physical_job_ids":["ingest_…"]}'
+  -d '{"schema_version":1,"drain_mode":"external_scale","physical_job_ids":["ingest_…"]}'
 ```
 
 ---

@@ -137,10 +137,19 @@ export function buildBeltConfigPatchPlan(jobs: IngestJobRecord[]): BeltConfigPat
   return items;
 }
 
+function extractErrorCode(message: string, fallback: string): string {
+  if (!message.includes(":")) return fallback;
+  const code = message.split(":", 1)[0]?.trim() ?? "";
+  return code.length > 0 ? code : fallback;
+}
+
 async function notifyIndexerRestart(): Promise<void> {
   const webhook = process.env.KITCHEN_INDEXER_RESTART_WEBHOOK?.trim();
   if (!webhook) return;
-  const response = await /* @non-metadata-fetch kitchen webhook */ fetch(webhook, { method: "POST" });
+  const response = await /* @non-metadata-fetch kitchen webhook */ fetch(webhook, {
+    method: "POST",
+    signal: AbortSignal.timeout(10_000),
+  });
   if (!response.ok) {
     throw new Error(`indexer restart webhook HTTP ${response.status}`);
   }
@@ -159,10 +168,17 @@ async function postBeltConfigPatchWebhook(plan: BeltConfigPatchPlanItem[]): Prom
       drain: "belt_config_batch",
       patches: plan,
     }),
+    signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
     throw new Error(`config patch webhook HTTP ${response.status}`);
   }
+}
+
+function webhookOwnsRestart(): boolean {
+  const raw = process.env.KITCHEN_BELT_WEBHOOK_OWNS_RESTART?.trim().toLowerCase();
+  // Default: webhook drain owns restart (patch webhook is expected to apply + bounce).
+  return raw !== "0" && raw !== "false" && raw !== "no";
 }
 
 async function renewJobs(args: {
@@ -287,17 +303,20 @@ export async function processQueuedIngestBatch(args: {
     } else if (strategy === "webhook") {
       const plan = buildBeltConfigPatchPlan(renewed);
       await (args.postPatchWebhook ?? postBeltConfigPatchWebhook)(plan);
-      await (args.restart ?? notifyIndexerRestart)();
+      // Webhook drain owns apply+bounce by default; opt into a second restart
+      // webhook with KITCHEN_BELT_WEBHOOK_OWNS_RESTART=false.
+      if (!webhookOwnsRestart()) {
+        await (args.restart ?? notifyIndexerRestart)();
+      }
     } else {
       throw new Error(`unsupported_drain: ${strategy}`);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const errorCode = message.includes(":") ? message.split(":", 1)[0] : "preparation_failed";
     await markBatchFailed({
       store: args.store,
       jobs: renewed,
-      errorCode,
+      errorCode: extractErrorCode(message, "preparation_failed"),
       errorMessage: message,
       expectedStatus: "queued",
       nowMs: args.nowMs,
@@ -309,7 +328,7 @@ export async function processQueuedIngestBatch(args: {
     await markBatchIndexing({ store: args.store, jobs: renewed, nowMs: args.nowMs });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const errorCode = message.includes(":") ? message.split(":", 1)[0] : "status_advance_failed";
+    const errorCode = extractErrorCode(message, "status_advance_failed");
     // Per-job: fail only those still queued; already-indexing jobs keep their
     // lease/status and rely on the indexing timeout watchdog (BB F-002).
     for (const job of renewed) {
@@ -359,7 +378,8 @@ export async function advanceQueuedJobsViaReadiness(args: {
   nowMs?: number;
 }): Promise<void> {
   const nowMs = args.nowMs ?? Date.now();
-  const jobs = await args.store.listByStatus("queued", 100);
+  // Same cap as claim batch size — readiness scan tracks one drain wave.
+  const jobs = await args.store.listByStatus("queued", kitchenBatchClaimLimitFromEnv());
   for (const job of jobs) {
     if (!job.key) continue;
     const indexed = await args.reader.readIndexedSnapshot(job.key);

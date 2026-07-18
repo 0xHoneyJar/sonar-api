@@ -419,6 +419,18 @@ export function createCanonicalPreparationRoutes(deps: {
     if (body.schema_version !== 1) {
       return c.json({ schema_version: 1, error: { code: "invalid_request", message: "schema_version must be 1" } }, 400);
     }
+    if (body.drain_mode !== "external_scale") {
+      return c.json(
+        {
+          schema_version: 1,
+          error: {
+            code: "invalid_request",
+            message: "drain_mode must be \"external_scale\" (ack is only for the out-of-band SCALE drain)",
+          },
+        },
+        400,
+      );
+    }
     if (!Array.isArray(body.physical_job_ids) || body.physical_job_ids.length === 0) {
       return c.json(
         { schema_version: 1, error: { code: "invalid_request", message: "physical_job_ids must be a non-empty array" } },
