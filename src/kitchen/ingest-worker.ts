@@ -163,9 +163,20 @@ function extractErrorCode(message: string, fallback: string): string {
 /** Log upstream webhook bodies for operators; never persist them on job records. */
 async function logWebhookErrorBody(response: Response, cap = 500): Promise<void> {
   try {
-    const text = (await response.text()).trim();
+    if (!response.body) return;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    while (text.length < cap) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      if (text.length >= cap) break;
+    }
+    await reader.cancel().catch(() => undefined);
+    text = text.trim().slice(0, cap);
     if (!text) return;
-    console.warn("[kitchen] webhook error body (status=%s): %s", response.status, text.slice(0, cap));
+    console.warn("[kitchen] webhook error body (status=%s): %s", response.status, text);
   } catch {
     // ignore body read failures
   }
@@ -176,11 +187,11 @@ function webhookIdempotencyKey(plan: BeltConfigPatchPlanItem[]): string {
   // (same contract set → new key) without disabling webhook dedupe.
   const epoch = process.env.KITCHEN_BELT_PATCH_IDEMPOTENCY_EPOCH?.trim() ?? "";
   const material = [
-    epoch,
+    `epoch=${epoch}`,
     ...plan
       .map((item) => `${item.chain_id}:${item.contract_name}:${item.contract.toLowerCase()}`)
       .sort(),
-  ].join("|");
+  ].join("\n");
   const digest = createHash("sha256").update(material).digest("hex").slice(0, 32);
   return `belt-patch-${digest}`;
 }
@@ -634,9 +645,23 @@ export async function runKitchenIngestWorkerTick(args: {
   // so prior unleased queued jobs can still complete. Skip on healthy file/webhook
   // ticks to keep Hasura fan-out off the hot path.
   if (effectiveDrain === "external_scale" || effectiveDrain === null) {
-    await advanceQueuedJobsViaReadiness({ store: args.store, reader: args.reader, nowMs });
+    try {
+      await advanceQueuedJobsViaReadiness({ store: args.store, reader: args.reader, nowMs });
+    } catch (error) {
+      console.warn(
+        "[kitchen] advanceQueuedJobsViaReadiness failed — continuing tick (%s)",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
-  await advanceIndexingJobs({ store: args.store, reader: args.reader, nowMs });
+  try {
+    await advanceIndexingJobs({ store: args.store, reader: args.reader, nowMs });
+  } catch (error) {
+    console.warn(
+      "[kitchen] advanceIndexingJobs failed — continuing tick (%s)",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 export function startKitchenIngestWorker(args: {
