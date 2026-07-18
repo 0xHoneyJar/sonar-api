@@ -14,6 +14,9 @@ export const INJECTED_PREPARATION_RUNTIME: PreparationRuntimeState = {
 
 export type PreparationDrainStrategy = "file" | "webhook" | "external_scale" | "none";
 
+/** Once-per-process: ambiguous implicit drain env is fail-closed and noisy. */
+let ambiguousDrainLogged = false;
+
 function workerFlagEnabled(env: NodeJS.ProcessEnv): boolean {
   const workerFlag = env.KITCHEN_WORKER_ENABLED?.trim().toLowerCase();
   return workerFlag === "1" || workerFlag === "true" || workerFlag === "yes";
@@ -43,9 +46,12 @@ export function preparationDrainStrategyFromEnv(
   const hasWebhook = Boolean(env.KITCHEN_BELT_CONFIG_PATCH_WEBHOOK?.trim());
   if (hasFile && hasWebhook) {
     // Ambiguous implicit config — fail closed until the operator picks one.
-    console.error(
-      "[kitchen] both KITCHEN_BELT_CONFIG_PATH and KITCHEN_BELT_CONFIG_PATCH_WEBHOOK are set; set KITCHEN_PREPARATION_DRAIN=file|webhook explicitly",
-    );
+    if (!ambiguousDrainLogged) {
+      ambiguousDrainLogged = true;
+      console.error(
+        "[kitchen] both KITCHEN_BELT_CONFIG_PATH and KITCHEN_BELT_CONFIG_PATCH_WEBHOOK are set; set KITCHEN_PREPARATION_DRAIN=file|webhook explicitly",
+      );
+    }
     return "none";
   }
   if (hasFile) return "file";

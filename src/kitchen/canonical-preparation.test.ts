@@ -449,6 +449,61 @@ describe("canonical collection preparation", () => {
     });
   });
 
+  it("acks unleased queued jobs under external_scale drain", async () => {
+    vi.stubEnv("KITCHEN_PREPARATION_DRAIN", "external_scale");
+    const app = createKitchenApp({
+      store,
+      reader,
+      preparationRuntime: {
+        available: true,
+        mode: "belt_config_batch",
+        reason: "test external_scale",
+      },
+    });
+    const created = await request(evmRequest());
+    expect(created.status).toBe(202);
+    const createdBody = await created.json();
+    const physicalJobId = createdBody.physical_job_id as string;
+    expect(physicalJobId).toBeTruthy();
+
+    const ack = await app.request("/v2/collection-preparations/ack", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        schema_version: 1,
+        drain_mode: "external_scale",
+        physical_job_ids: [physicalJobId],
+      }),
+    });
+    expect(ack.status).toBe(200);
+    await expect(ack.json()).resolves.toMatchObject({
+      ack: { requested: 1, advanced: 1, already_terminal: 0, conflicts: 0, missing: 0 },
+    });
+    await expect(store.getByPhysicalJobId(physicalJobId)).resolves.toMatchObject({
+      status: "indexing",
+    });
+
+    const replay = await app.request("/v2/collection-preparations/ack", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        schema_version: 1,
+        drain_mode: "external_scale",
+        physical_job_ids: [physicalJobId],
+      }),
+    });
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({
+      ack: { requested: 1, advanced: 0, already_terminal: 1, conflicts: 0 },
+    });
+  });
+
   it("leases one queued job to only one worker", async () => {
     await request(evmRequest());
     const [first, second] = await Promise.all([

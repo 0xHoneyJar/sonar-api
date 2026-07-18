@@ -172,10 +172,15 @@ async function logWebhookErrorBody(response: Response, cap = 500): Promise<void>
 }
 
 function webhookIdempotencyKey(plan: BeltConfigPatchPlanItem[]): string {
-  const material = plan
-    .map((item) => `${item.chain_id}:${item.contract_name}:${item.contract.toLowerCase()}`)
-    .sort()
-    .join("|");
+  // Optional epoch lets operators force a re-apply after Belt rollback
+  // (same contract set → new key) without disabling webhook dedupe.
+  const epoch = process.env.KITCHEN_BELT_PATCH_IDEMPOTENCY_EPOCH?.trim() ?? "";
+  const material = [
+    epoch,
+    ...plan
+      .map((item) => `${item.chain_id}:${item.contract_name}:${item.contract.toLowerCase()}`)
+      .sort(),
+  ].join("|");
   const digest = createHash("sha256").update(material).digest("hex").slice(0, 32);
   return `belt-patch-${digest}`;
 }
@@ -440,14 +445,22 @@ export async function processQueuedIngestBatch(args: {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await markBatchFailed({
-      store: args.store,
-      jobs: renewed,
-      errorCode: extractErrorCode(message, "preparation_failed"),
-      errorMessage: message,
-      expectedStatus: "queued",
-      nowMs: args.nowMs,
-    });
+    try {
+      await markBatchFailed({
+        store: args.store,
+        jobs: renewed,
+        errorCode: extractErrorCode(message, "preparation_failed"),
+        errorMessage: message,
+        expectedStatus: "queued",
+        nowMs: args.nowMs,
+      });
+    } catch (failError) {
+      console.warn(
+        "[kitchen] markBatchFailed after drain failure also failed — original=%s secondary=%s",
+        message,
+        failError instanceof Error ? failError.message : String(failError),
+      );
+    }
     return;
   }
 
