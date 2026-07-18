@@ -8,7 +8,11 @@
 > remains unsanctioned. This document maps Core orchestration invariants onto
 > capabilities associated with Claude Fable 5 (`claude-fable-5`), per the
 > research in [`11-research-grounding.md`](11-research-grounding.md). It
-> implements neither the Loa nor Hermes adapter and authorizes no tooling.
+> is the first reference runner profile, not the runner contract. The
+> host-neutral floor is
+> [`adapter-protocol/runner-capability-contract.md`](../../adapter-protocol/runner-capability-contract.md).
+> This profile implements neither the Loa nor Hermes adapter and authorizes no
+> tooling.
 
 ## 1. Profile scope: why Fable 5, and what it may change
 
@@ -20,19 +24,23 @@ worker-spawn primitive. Those are adapter/profile choices.
 
 Capability facts this Fable profile may use (sources in doc 11):
 
-| Fable 5 capability | Design consequence |
-|---|---|
-| 1M-token context window (default), 128K output | Corpus-scale stages (S2 extraction, S4 global dedup) can hold an entire mid-size corpus or ledger set in one context; sharding is a fallback, not the default |
-| State-of-the-art long-horizon agentic execution; single turns may run many minutes | One orchestrator session can own a whole run; stages are checkpointed by artifacts, not by tiny turns; the harness must expect long turns (streaming, async check-ins) |
-| Parallel subagents are dependable; async delegation outperforms spawn-and-block | Fan-out stages (per-source extraction, per-claim judging, verifier panels) run as parallel subagents; the orchestrator keeps working while panels run |
-| Fresh-context verifier subagents outperform self-critique | The verification harness (T2) is separate agents by design, never "check your own work" |
-| File-based memory measurably improves long tasks | The run log + a `lessons.md` memory surface are mandatory equipment, not niceties |
-| Effort is the primary intelligence/latency/cost dial (`low`→`max`); lower efforts still strong | Per-stage effort policy (§5) instead of one global setting |
-| Very literal, high-fidelity instruction following; over-prescription *reduces* quality | Stage prompts state goal + constraints + output contract, not step-by-step scripts (§8); the contracts do the constraining |
-| Always-on thinking; raw chain of thought never returned | Verdicts must carry written rationales — the rationale ledger is the auditable record, not the hidden reasoning |
-| Structured outputs (schema-constrained) | Machine-twin ledgers and verifier verdicts are schema-validated at the call level (artifact 20) |
-| Task budgets (model-aware token ceilings); prompt caching; batch API | Per-stage budget policy (§7); frozen doctrine prefix for cache hits; batch lane for bulk verification |
-| Safety classifiers can refuse (research-bio/cyber domains) | Corpus-content-triggered refusals are a handled failure mode (§9), with fallback policy and manifest logging |
+| Fable 5 capability | Portable classification | Fable profile consequence |
+|---|---|---|
+| `claude-fable-5` as the default model | Optional profile choice; exact realized model identity and role-capability mapping are required | The first validated runs use one pinned model before evidence-backed tier-down experiments |
+| 1M-token context window (default), 128K output | Optional optimization; smaller hosts shard at Core boundaries | S2 and S4 may hold a whole mid-size source or inventory before falling back to recorded sharding |
+| Long-horizon turns | Optional optimization; durable checkpoints are required | One orchestrator session may own a run, while artifacts still checkpoint every stage |
+| Server-side compaction | Optional optimization; the file record must survive without it | Compaction is allowed only after every remembered fact is in the run directory |
+| Parallel asynchronous subagents | Optional optimization; serial dispatch conforms | Fan-out stages may run concurrently while preserving barriers and single-writer persistence |
+| Fresh-context verifier subagents | One Fable mechanism for required isolation | T2 uses separate refuters and never self-critique |
+| File-based memory | Durable file state is required; this exact layout is optional | The profile uses `run-log.md` plus `lessons.md` |
+| `low` through `max` effort controls | Optional host control; exact capability mapping is required | Roles receive the starting effort policy in §5 |
+| Literal, high-fidelity instruction following | Profile evidence, not a platform requirement | Prompts use goal + constraints + output contract instead of step scripts |
+| Hidden chain of thought | Provider trait; written audit rationales are required | Verdicts carry concise rationales rather than relying on hidden reasoning |
+| Schema-constrained structured outputs | Optional generation-time enforcement | Native schemas are used when available; the portable Core validator remains authoritative |
+| Native task budgets | Optional host control; fail-closed budget exhaustion is required | Per-stage token ceilings implement the Core budget envelope |
+| Prompt caching | Optional cost optimization | Byte-stable Core prefixes may be cached |
+| Batch API and provider pricing | Optional scheduling and cost optimization | Bulk verification may use the batch lane |
+| Safety classifiers | Provider trait; refusal retention and blocking are required | Content-triggered refusals follow §9 and the pinned fallback policy |
 
 ## 2. Profile topology: one orchestrator, disposable workers, hostile verifiers
 
@@ -159,8 +167,10 @@ a golden replay shows no quality loss** (T11).
 Every worker's return contract is structured, not free prose: packet rows,
 claim rows, verdicts, cards. Core requires validation before a single-writer
 ledger append. This Fable profile may enforce that boundary with native
-structured outputs / strict tools; another adapter may use a different
-fail-closed validator. Consequences:
+structured outputs / strict tools. A host without that feature captures pure
+JSON text and invokes the exact bundled
+[`validate-worker-return` fallback](../../adapter-protocol/runner-capability-contract.md#structured-return-fallback).
+Both paths use the same Core contract semantics. Consequences:
 
 - parsing failures become retries at the API layer, not corrupted ledgers;
 - the Markdown ledger and its machine twin (artifact 20) are generated from

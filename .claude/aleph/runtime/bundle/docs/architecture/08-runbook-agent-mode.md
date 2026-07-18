@@ -28,8 +28,9 @@ invent an external fact, or if the run directory cannot speak for itself.
    `main`. Record the Core, adapter, bundle, checker, protocol, run-format,
    host/model, and runtime-snapshot pins in the manifest. Read, in order:
    `README.md`, `docs/precis-wedge.md`, `docs/responsibility-map.md`,
-   `docs/routing-and-clustering.md`, `docs/decisions/`, and this architecture
-   tree from those pinned Core bytes.
+   `docs/routing-and-clustering.md`, `docs/decisions/`,
+   `adapter-protocol/runner-capability-contract.md`, and this architecture tree
+   from those pinned Core bytes.
 2. Read `lessons.md` if present. Apply lessons; never let a lesson override
    doctrine.
 3. Confirm with the user: where the raw material is, what the research is
@@ -85,11 +86,14 @@ a. Read the stage contract (doc 04) — purpose, blind rule, DoD.
 b. Assemble worker bundles per the role charter (doc 05 §2).
    The bundle IS the blind-context enforcement: what is not in it
    does not exist for the worker.
-c. Spawn workers with goal + constraints + output schema. No step
-   scripts. Capability/model/effort mapping comes from the selected
-   adapter profile; doc 05 §5 is only the Fable reference mapping.
-d. Validate outputs at the schema boundary; serialize appends into
-   the ledgers yourself (single-writer rule).
+c. Dispatch workers with goal + constraints + output schema. Serial
+   dispatch is valid; parallel fan-out is only a host optimization.
+   Capability/model/effort mapping comes from the selected adapter
+   profile; doc 05 §5 is only the Fable reference mapping.
+d. Validate outputs at the schema boundary. If the host lacks native
+   constrained output, use the pinned Core fallback in the runner
+   capability contract. Append only its passing canonical value, and
+   serialize appends into the ledgers yourself (single-writer rule).
 e. Run the stage's ⚙ self-checks (and the kernel where it applies).
 f. Dispatch the stage's ⚖ verifications to fresh panels. Apply
    consequences as superseding entries.

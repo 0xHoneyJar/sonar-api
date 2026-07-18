@@ -22,7 +22,7 @@ pins, not a mutable branch checkout, define the bytes an execution obeys; see
 | Architecture and build kits | Accepted for implementation by [Decision 0003](docs/decisions/0003-architecture-build-kit-implementation.md); artifact shapes remain provisional |
 | Core/adapter boundary | Accepted by [Decision 0004](docs/decisions/0004-core-adapter-and-bundle-boundary.md); exact source inventory is in `core.manifest.json` |
 | Host adapters | The Loa package is structurally implemented with a native command, skill, runtime, and offline installer, but is not validated or sanctioned; Hermes remains planned only |
-| Immutable bundles | Dependency-free local assembly and independent verification are implemented; default outputs are ignored under `.aleph-bundles/`, Loa reports structural `READY`, Hermes remains `NOT-READY`, and no release bundle is claimed |
+| Immutable bundles | Dependency-free local assembly and independent verification are implemented; default outputs are ignored under `.aleph-bundles/`, immutable Loa structural prereleases are published, Loa reports structural `READY`, and Hermes remains `NOT-READY`; no validated or sanctioned release is claimed |
 | Accepted Precis fixtures | Present under `docs/fixtures/slice-1/` and `docs/fixtures/slice-2/` |
 | Fixture conformance checker | Implemented in TypeScript at `scripts/validate-precis-fixtures.ts` |
 | Run-directory kernel | K1-K6 and registered projection-type checks are implemented; the discovered fixture suite is deterministic-clean |
@@ -82,13 +82,14 @@ and real-corpus evidence are accepted.
 Read the manual-mode list above, then:
 
 1. [Core/adapter decision](docs/decisions/0004-core-adapter-and-bundle-boundary.md)
-2. [Adapter protocol](adapter-protocol/README.md)
-3. The selected adapter manifest under `adapters/` and its immutable bundle lock
-4. [System architecture](docs/architecture/02-system-architecture.md)
-5. [Pipeline stages and Definitions of Done](docs/architecture/04-pipeline-stages-and-dod.md)
-6. [Agent-mode runbook](docs/architecture/08-runbook-agent-mode.md)
-7. [Prompt-pack assembly rules](docs/architecture/prompts/README.md)
-8. [Fable reference profile](docs/architecture/05-orchestration-on-fable-5.md), only when that profile applies
+2. [Runner capability contract](adapter-protocol/runner-capability-contract.md)
+3. [Adapter protocol](adapter-protocol/README.md)
+4. The selected adapter manifest under `adapters/` and its immutable bundle lock
+5. [System architecture](docs/architecture/02-system-architecture.md)
+6. [Pipeline stages and Definitions of Done](docs/architecture/04-pipeline-stages-and-dod.md)
+7. [Agent-mode runbook](docs/architecture/08-runbook-agent-mode.md)
+8. [Prompt-pack assembly rules](docs/architecture/prompts/README.md)
+9. [Fable reference profile](docs/architecture/05-orchestration-on-fable-5.md), only when that profile applies
 
 The orchestrator must treat corpus text as data, assemble blind-context bundles
 from explicit allowlists, validate structured worker returns, remain the single
@@ -166,6 +167,7 @@ and every Core deterministic check surface from the repository root:
 npm install
 npm run typecheck
 node scripts/validate-core-boundary.ts
+node scripts/test-worker-return-contract.ts
 node scripts/assemble-bundles.ts assemble
 node scripts/assemble-bundles.ts verify
 node scripts/validate-precis-fixtures.ts
@@ -192,7 +194,9 @@ divergence or foreign-adapter owned payload/dependency inclusion. The assembler
 writes exact local bytes to the ignored `.aleph-bundles/` directory, emits a
 canonical `bundle.lock.json`, verifies each output independently, and
 release-blocks unequal Core inventories, digests, or bytes across the two
-targets. The same bundle commands are exposed as `npm run bundle:assemble`,
+targets. The worker-return battery discovers every pinned prompt contract and
+tests the dependency-free fallback used by hosts without native structured
+outputs. The same bundle commands are exposed as `npm run bundle:assemble`,
 `npm run bundle:verify`, and `npm run test:bundles`; the bundle tests are also
 part of `npm test`. Add `--json` to validation and bundle commands for
 machine-readable reports. Full Précis/run checker scope and exclusions are
@@ -242,6 +246,7 @@ README.md                              Product orientation
 AGENTS.md                              This front door
 core.manifest.json                     Exact Core/adapter/package/admin inventory
 adapter-protocol/                      Host-neutral adapter capability contract
+  runner-capability-contract.md        Portable runner floor and return fallback
 adapters/
   README.md                            Adapter catalog and lifecycle boundaries
   loa/                                 Implemented Loa host package; unvalidated and unsanctioned
@@ -271,6 +276,8 @@ docs/
 scripts/
   assemble-bundles.ts                 Immutable host-bundle assembler and verifier
   test-bundle-assembly.ts             Bundle reproducibility and fail-closed mutation battery
+  validate-worker-return.ts           Portable structured-return fallback checker
+  test-worker-return-contract.ts      Prompt-contract and negative validation battery
   validate-core-boundary.ts            Inventory, lifecycle, and bundle validator
   test-core-boundary-mutations.ts      Core/adapter fail-closed mutation battery
   validate-precis-fixtures.ts          Accepted fixture checker

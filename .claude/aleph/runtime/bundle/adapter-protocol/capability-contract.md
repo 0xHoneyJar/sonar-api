@@ -5,7 +5,9 @@ It is subordinate to
 [Decision 0004](../docs/decisions/0004-core-adapter-and-bundle-boundary.md)
 and is represented in each adapter's
 [machine-readable manifest](adapter.schema.json). It does not add to, restate,
-or replace Core doctrine.
+or replace Core doctrine. The host-neutral execution floor and portable
+structured-return fallback are defined separately in the
+[runner capability contract](runner-capability-contract.md).
 
 ## Manifest representation
 

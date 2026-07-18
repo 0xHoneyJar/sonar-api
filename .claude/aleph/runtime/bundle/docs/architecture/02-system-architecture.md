@@ -179,7 +179,9 @@ Three tiers with non-overlapping mandates
 - **Agent mode** — a protocol-conforming host adapter executes byte-identical
   Core contracts, isolates workers and verifier panels, writes only through
   the run directory's single-writer boundary, invokes the real checker, and
-  presents every human gate. The operating contract is
+  presents every human gate. The portable host floor is the
+  [`runner capability contract`](../../adapter-protocol/runner-capability-contract.md);
+  the operating contract is
   [`08-runbook-agent-mode.md`](08-runbook-agent-mode.md); document 05 is one
   Fable-specific reference profile, not the universal runner.
 - **Manual mode** — the same stages executed by hand at reconstructable

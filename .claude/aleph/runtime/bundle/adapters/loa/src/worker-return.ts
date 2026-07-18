@@ -21,6 +21,12 @@ import {
   writeJsonAtomic,
 } from './fs.ts';
 import { verifyWorkerBundle } from './worker-bundle.ts';
+import {
+  contractExemplarToJsonSchema,
+  validateWorkerReturnContract,
+} from '../../../scripts/lib/worker-return-contract.ts';
+
+export { contractExemplarToJsonSchema };
 
 const VALIDATED_TOKEN = Symbol('validated-worker-return');
 
@@ -147,170 +153,6 @@ export interface WorkerReturnResult {
   validated: ValidatedWorkerReturn | null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function hasText(value: string): boolean {
-  return value.trim().length > 0;
-}
-
-function validateRequiredString(value: unknown, path: string, errors: string[]): value is string {
-  if (typeof value !== 'string') {
-    errors.push(`${path} must be a string`);
-    return false;
-  }
-  if (!hasText(value)) {
-    errors.push(`${path} must be nonempty`);
-    return false;
-  }
-  return true;
-}
-
-function literalPattern(literal: string): RegExp {
-  const escaped = literal
-    .split('…')
-    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'))
-    .join('.+');
-  return new RegExp(`^(?:${escaped})$`, 'u');
-}
-
-function exemplarAlternatives(example: string): string[] {
-  if (example.includes('|')) return example.split('|');
-  const slashParts = example.split('/');
-  if (slashParts.length > 1 && slashParts.every((part) => part.includes('…'))) {
-    return slashParts;
-  }
-  return [example];
-}
-
-function validateContractString(
-  value: unknown,
-  example: string,
-  path: string,
-  errors: string[],
-): void {
-  if (!validateRequiredString(value, path, errors)) return;
-  if (example === '') return;
-  const alternatives = exemplarAlternatives(example);
-  if (alternatives.some((alternative) => literalPattern(alternative).test(value))) return;
-  errors.push(
-    alternatives.length > 1
-      ? `${path} must match one of the Core literals ${alternatives.join(', ')}`
-      : `${path} must match the Core literal ${example}`,
-  );
-}
-
-function rationaleSentenceCount(value: string): number {
-  const text = value.trim();
-  let count = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    if (!'.!?'.includes(text[index])) continue;
-    while (index + 1 < text.length && '.!?'.includes(text[index + 1])) index += 1;
-    let next = index + 1;
-    while (next < text.length && `\"'”’)]}`.includes(text[next])) next += 1;
-    if (next === text.length || /\s/u.test(text[next])) count += 1;
-  }
-  return count;
-}
-
-function validateJudgmentRationale(value: unknown, path: string, errors: string[]): void {
-  if (typeof value !== 'string' || !hasText(value)) return;
-  const trimmed = value.trim();
-  const sentenceCount = rationaleSentenceCount(trimmed);
-  if (!/[.!?]+["'”’)\]}]*$/u.test(trimmed) || sentenceCount < 1 || sentenceCount > 3) {
-    errors.push(`${path} must contain 1-3 complete sentences`);
-  }
-}
-
-function validateStringArray(value: unknown, path: string, errors: string[]): void {
-  if (!Array.isArray(value)) {
-    errors.push(`${path} must be an array`);
-    return;
-  }
-  value.forEach((entry, index) => {
-    validateRequiredString(entry, `${path}[${String(index)}]`, errors);
-  });
-}
-
-function validateAgainstContractExemplar(
-  value: unknown,
-  example: unknown,
-  path: string,
-  errors: string[],
-): void {
-  if (example === null) {
-    if (value !== null && !validateRequiredString(value, path, errors)) {
-      return;
-    }
-    return;
-  }
-  if (typeof example === 'string') {
-    validateContractString(value, example, path, errors);
-    return;
-  }
-  if (typeof example === 'number') {
-    if (typeof value !== 'number'
-      || !Number.isSafeInteger(value)
-      || Object.is(value, -0)
-      || (example >= 0 && value < 0)) {
-      errors.push(`${path} must be a non-negative safe integer`);
-    }
-    return;
-  }
-  if (typeof example === 'boolean') {
-    if (typeof value !== 'boolean') errors.push(`${path} must be a boolean`);
-    return;
-  }
-  if (Array.isArray(example)) {
-    if (!Array.isArray(value)) {
-      errors.push(`${path} must be an array`);
-      return;
-    }
-    if (example.length > 0) {
-      value.forEach((entry, index) => (
-        validateAgainstContractExemplar(
-          entry,
-          example[0],
-          `${path}[${String(index)}]`,
-          errors,
-        )
-      ));
-    } else {
-      // Every empty array placeholder in the current canonical Core contracts
-      // is a string-valued collection. Treating it as arbitrary JSON would
-      // silently widen the exact contract.
-      validateStringArray(value, path, errors);
-    }
-    return;
-  }
-  if (isRecord(example)) {
-    if (!isRecord(value)) {
-      errors.push(`${path} must be an object`);
-      return;
-    }
-    const expectedKeys = Object.keys(example).sort();
-    const actualKeys = Object.keys(value).sort();
-    for (const key of expectedKeys.filter((key) => !actualKeys.includes(key))) {
-      errors.push(`${path}.${key} is missing`);
-    }
-    for (const key of actualKeys.filter((key) => !expectedKeys.includes(key))) {
-      errors.push(`${path}.${key} is not allowed`);
-    }
-    for (const key of expectedKeys.filter((key) => actualKeys.includes(key))) {
-      validateAgainstContractExemplar(value[key], example[key], `${path}.${key}`, errors);
-    }
-    if (expectedKeys.includes('flags') && actualKeys.includes('flags')) {
-      validateStringArray(value.flags, `${path}.flags`, errors);
-    }
-    if (expectedKeys.includes('rationale') && actualKeys.includes('rationale')) {
-      validateJudgmentRationale(value.rationale, `${path}.rationale`, errors);
-    }
-    return;
-  }
-  errors.push(`${path} has an unsupported Core contract exemplar`);
-}
-
 function parseRaw(raw: ValidateWorkerReturnOptions['raw']): {
   value: unknown;
   bytes: Buffer;
@@ -401,6 +243,7 @@ export function validateWorkerReturn(
     throw new Error('worker output contract selector is invalid');
   }
   const errors: string[] = [];
+  let canonicalValue: JsonValue | null = null;
   if (parsed.error) {
     errors.push(parsed.error);
   } else {
@@ -412,7 +255,9 @@ export function validateWorkerReturn(
         `sealed Core output contract is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    validateAgainstContractExemplar(parsed.value, example, '$', errors);
+    const validation = validateWorkerReturnContract(parsed.bytes, example);
+    errors.push(...validation.errors);
+    canonicalValue = validation.canonicalValue as JsonValue | null;
   }
   const report: WorkerValidationReport = {
     format: LOA_WORKER_VALIDATION_FORMAT,
@@ -429,7 +274,7 @@ export function validateWorkerReturn(
   const validated = new ValidatedWorkerReturn(
     VALIDATED_TOKEN,
     request.call_id,
-    parsed.value as JsonValue,
+    canonicalValue as JsonValue,
     rawDigest,
     contractDigest,
     validationDigest,
