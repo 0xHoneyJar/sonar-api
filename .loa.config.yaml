@@ -1540,10 +1540,10 @@ flatline_protocol:
   models:
     # Primary model — subscription CLI headless (no metered API quota)
     primary: "claude-headless"
-    # Secondary model — subscription CLI headless (Codex CLI via ChatGPT sign-in)
-    secondary: "codex-headless"
-    # Tertiary model — subscription CLI headless
-    tertiary: "gemini-headless"
+    # Secondary model — Cursor Agent subscription, pinned to Grok 4.5 below
+    secondary: "cursor-headless"
+    # Tertiary model — Codex CLI via ChatGPT sign-in
+    tertiary: "codex-headless"
 
   # Consensus thresholds (0-1000 scale)
   thresholds:
@@ -1808,6 +1808,10 @@ hounfour:
           pricing:
             input_per_mtok: 15000000
             output_per_mtok: 60000000
+        codex-headless:
+          context_window: 1000000
+          extra:
+            cli_model: gpt-5.6-sol
     anthropic:
       auth: "{env:ANTHROPIC_API_KEY}"
       models:
@@ -1829,6 +1833,17 @@ hounfour:
           pricing:
             input_per_mtok: 3000000
             output_per_mtok: 15000000
+        claude-headless:
+          extra:
+            cli_model: fable
+            claude_extra_flags:
+              - "--safe-mode"
+    cursor:
+      models:
+        composer-2.5:
+          context_window: 256000
+          extra:
+            cli_model: cursor-grok-4.5-high
 
   aliases:
     native: "claude-code:session"
