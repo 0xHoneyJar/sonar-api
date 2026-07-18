@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { mapPool } from "./async-pool.js";
 import { patchConfigForKitchenIngest } from "./config-patcher.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
+import { collectionKeyId } from "./normalize.js";
 import {
   preparationDrainStrategyFromEnv,
   preparationRuntimeFromEnv,
@@ -15,6 +16,21 @@ import type { IngestJobRecord } from "./types.js";
 
 /** Bounded fan-out for per-job store / Hasura I/O inside a worker tick. */
 const STORE_IO_CONCURRENCY = 16;
+
+async function readJobSnapshots(
+  reader: CollectionStatusReader,
+  jobs: IngestJobRecord[],
+) {
+  const keys = jobs.flatMap((job) => (job.key ? [job.key] : []));
+  if (reader.readIndexedSnapshots) {
+    return reader.readIndexedSnapshots(keys);
+  }
+  const rows = await mapPool(keys, STORE_IO_CONCURRENCY, async (key) => [
+    collectionKeyId(key),
+    await reader.readIndexedSnapshot(key),
+  ] as const);
+  return new Map(rows);
+}
 
 export function beltConfigPathFromEnv(): string {
   return process.env.KITCHEN_BELT_CONFIG_PATH?.trim() || "config.yaml";
@@ -536,9 +552,11 @@ export async function advanceQueuedJobsViaReadiness(args: {
     unleasedOnly: true,
   });
   const candidates = jobs.filter((job) => Boolean(job.key));
-  // Fan out Hasura reads; status advances stay per-job CAS.
+  const snapshots = await readJobSnapshots(args.reader, candidates);
+  // Status advances stay per-job CAS even though evidence is bulk-read.
   await mapPool(candidates, STORE_IO_CONCURRENCY, async (job) => {
-    const indexed = await args.reader.readIndexedSnapshot(job.key!);
+    const indexed = snapshots.get(collectionKeyId(job.key!));
+    if (!indexed) return;
     if (!isIndexedSnapshotReady(indexed)) return;
     const updated = await args.store.updateStatus(job.physicalJobId, "completed", {
       nowMs,
@@ -563,6 +581,7 @@ export async function advanceIndexingJobs(args: {
   const nowMs = args.nowMs ?? Date.now();
   const timeoutMs = args.timeoutMs ?? kitchenIngestTimeoutMs();
   const jobs = await args.store.listByStatus("indexing", 100);
+  const snapshots = await readJobSnapshots(args.reader, jobs);
 
   for (const job of jobs) {
     if (!job.key) {
@@ -574,7 +593,8 @@ export async function advanceIndexingJobs(args: {
       });
       continue;
     }
-    const indexed = await args.reader.readIndexedSnapshot(job.key);
+    const indexed = snapshots.get(collectionKeyId(job.key));
+    if (!indexed) continue;
     if (isIndexedSnapshotReady(indexed)) {
       // Readiness completion is an intentional coordinator transition after
       // preparation has reached indexing; it is not publication by the former

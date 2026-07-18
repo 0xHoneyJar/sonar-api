@@ -16,6 +16,8 @@ RUN npm install --omit=dev
 COPY src/kitchen ./src/kitchen
 COPY src/collection-resolver ./src/collection-resolver
 COPY migrations/kitchen ./migrations/kitchen
+COPY config.yaml ./config.yaml
+COPY scripts/profiling/floor-registry.w1.json ./scripts/profiling/floor-registry.w1.json
 ENV PORT=8080
 ENV RESOLVER_MODE=catalog
 EXPOSE 8080

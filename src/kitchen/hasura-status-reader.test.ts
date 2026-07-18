@@ -26,6 +26,8 @@ describe("createHasuraCollectionStatusReader", () => {
 
     expect(snapshot).toEqual({
       holderCount: 5,
+      tokenCount: 10,
+      trackedHolderCount: 5,
       indexedAtMs: 1700000000 * 1000,
       readiness: {
         state: "ready",
@@ -54,6 +56,8 @@ describe("createHasuraCollectionStatusReader", () => {
 
     expect(snapshot).toMatchObject({
       holderCount: 3,
+      tokenCount: 3,
+      trackedHolderCount: 0,
       indexedAtMs: null,
     });
     expect(snapshot.readiness).toBeUndefined();
@@ -79,6 +83,59 @@ describe("createHasuraCollectionStatusReader", () => {
       contract: "0x0000000000000000000000000000000000000001",
     });
 
-    expect(snapshot).toEqual({ holderCount: 0, indexedAtMs: null });
+    expect(snapshot).toEqual({
+      holderCount: 0,
+      tokenCount: 0,
+      trackedHolderCount: 0,
+      indexedAtMs: null,
+    });
+  });
+
+  it.each([
+    [100, 1],
+    [500, 5],
+  ])("reads %i collections in bounded batches", async (count, expectedCalls) => {
+    const fetchFn = vi.fn().mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { query: string };
+      const aliases = [...body.query.matchAll(/tracked_(\d+):/g)].map(
+        (match) => Number(match[1]),
+      );
+      return {
+        ok: true,
+        json: async () => ({
+          data: Object.fromEntries(
+            aliases.flatMap((index) => [
+              [`tracked_${index}`, { aggregate: { count: 0 } }],
+              [
+                `tokens_${index}`,
+                {
+                  aggregate: {
+                    count: index + 1,
+                    max: { lastTransferTime: "1700000000" },
+                  },
+                },
+              ],
+            ]),
+          ),
+        }),
+      };
+    });
+    const reader = createHasuraCollectionStatusReader({
+      url: "http://hasura.test/v1/graphql",
+      fetchFn,
+      batchSize: 100,
+    });
+    const keys = Array.from({ length: count }, (_, index) => ({
+      chainId: 1,
+      contract: `0x${index.toString(16).padStart(40, "0")}` as `0x${string}`,
+    }));
+
+    const snapshots = await reader.readIndexedSnapshots!(keys);
+
+    expect(fetchFn).toHaveBeenCalledTimes(expectedCalls);
+    expect(snapshots).toHaveLength(count);
+    expect(snapshots.get(`1:${keys.at(-1)!.contract}`)).toMatchObject({
+      trackedHolderCount: 0,
+    });
   });
 });
