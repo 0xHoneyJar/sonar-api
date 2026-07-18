@@ -22,7 +22,11 @@ export interface IngestJobStorePort {
   getByPhysicalJobId(physicalJobId: string): Promise<IngestJobRecord | undefined>;
   admit(request: AdmissionRequest, nowMs?: number): Promise<AdmissionResult>;
   upsertQueued(key: CollectionKey, body: IngestRequestBody, nowMs?: number): Promise<IngestJobRecord>;
-  listByStatus(status: IngestJobStatus, limit?: number): Promise<IngestJobRecord[]>;
+  listByStatus(
+    status: IngestJobStatus,
+    limit?: number,
+    opts?: { unleasedOnly?: boolean },
+  ): Promise<IngestJobRecord[]>;
   claimQueued(args: {
     workerId: string;
     limit?: number;
@@ -218,9 +222,14 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
     return result.job;
   }
 
-  async listByStatus(status: IngestJobStatus, limit = 50): Promise<IngestJobRecord[]> {
+  async listByStatus(
+    status: IngestJobStatus,
+    limit = 50,
+    opts?: { unleasedOnly?: boolean },
+  ): Promise<IngestJobRecord[]> {
     return [...this.jobsById.values()]
       .filter((job) => job.status === status)
+      .filter((job) => !opts?.unleasedOnly || !job.leaseOwner)
       .sort((a, b) => a.createdAtMs - b.createdAtMs)
       .slice(0, limit)
       .map(cloneJob);

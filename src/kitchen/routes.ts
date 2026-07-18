@@ -381,8 +381,8 @@ export function createCanonicalPreparationRoutes(deps: {
       else joined += 1;
     }
 
-    // Callers MUST inspect results[] — 202 does not imply zero rejects.
-    // Mixed create/reject → 207; all-ok create → 202; all-ok join → 200; all-reject → 422.
+    // 202 = all created (zero rejected); 200 = all joined; 207 = mixed; 422 = all rejected.
+    // Callers should still inspect results[] for per-item status.
     const status =
       rejected > 0 && (created > 0 || joined > 0)
         ? 207

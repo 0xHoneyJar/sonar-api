@@ -164,10 +164,24 @@ async function webhookErrorDetail(response: Response, cap = 500): Promise<string
   try {
     const text = (await response.text()).trim();
     if (!text) return "";
-    return `: ${text.slice(0, cap)}`;
+    // Log body for operators; never append upstream bodies into thrown/persisted errors.
+    console.warn("[kitchen] webhook error body (status=%s): %s", response.status, text.slice(0, cap));
   } catch {
-    return "";
+    // ignore body read failures
   }
+  return "";
+}
+
+function webhookIdempotencyKey(plan: BeltConfigPatchPlanItem[]): string {
+  const material = plan
+    .map((item) => `${item.chain_id}:${item.contract_name}:${item.contract.toLowerCase()}`)
+    .sort()
+    .join("|");
+  let hash = 0;
+  for (let i = 0; i < material.length; i += 1) {
+    hash = (Math.imul(31, hash) + material.charCodeAt(i)) | 0;
+  }
+  return `belt-patch-${(hash >>> 0).toString(16)}-${plan.length}`;
 }
 
 function webhookAuthHeaders(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
@@ -197,15 +211,18 @@ async function postBeltConfigPatchWebhook(plan: BeltConfigPatchPlanItem[]): Prom
   if (!webhook) {
     throw new Error("missing_patch_webhook: KITCHEN_BELT_CONFIG_PATCH_WEBHOOK is required");
   }
+  const idempotencyKey = webhookIdempotencyKey(plan);
   const response = await /* @non-metadata-fetch kitchen patch webhook */ fetch(webhook, {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      "idempotency-key": idempotencyKey,
       ...webhookAuthHeaders(),
     },
     body: JSON.stringify({
       schema_version: 1,
       drain: "belt_config_batch",
+      idempotency_key: idempotencyKey,
       patches: plan,
     }),
     signal: AbortSignal.timeout(10_000),
@@ -394,7 +411,7 @@ export async function processQueuedIngestBatch(args: {
       await (args.postPatchWebhook ?? postBeltConfigPatchWebhook)(plan);
       // Webhook drain owns apply+bounce by default; opt into a second restart
       // webhook with KITCHEN_BELT_ALSO_NOTIFY_RESTART=true.
-      if (alsoNotifyIndexerRestart(process.env)) {
+      if (alsoNotifyIndexerRestart()) {
         await (args.restart ?? notifyIndexerRestart)();
       }
     } else {
@@ -471,8 +488,10 @@ export async function advanceQueuedJobsViaReadiness(args: {
   const nowMs = args.nowMs ?? Date.now();
   // Wider than a claim wave so external_scale backlogs still advance when
   // Hasura is already ready (override via KITCHEN_READINESS_SCAN_LIMIT).
-  const jobs = await args.store.listByStatus("queued", kitchenReadinessScanLimitFromEnv());
-  const candidates = jobs.filter((job) => Boolean(job.key) && !job.leaseOwner);
+  const jobs = await args.store.listByStatus("queued", kitchenReadinessScanLimitFromEnv(), {
+    unleasedOnly: true,
+  });
+  const candidates = jobs.filter((job) => Boolean(job.key));
   // Fan out Hasura reads; status advances stay per-job CAS.
   await mapPool(candidates, STORE_IO_CONCURRENCY, async (job) => {
     const indexed = await args.reader.readIndexedSnapshot(job.key!);

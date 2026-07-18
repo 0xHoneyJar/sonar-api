@@ -525,11 +525,17 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
     return result.job;
   }
 
-  async listByStatus(status: IngestJobStatus, limit = 50): Promise<IngestJobRecord[]> {
+  async listByStatus(
+    status: IngestJobStatus,
+    limit = 50,
+    opts?: { unleasedOnly?: boolean },
+  ): Promise<IngestJobRecord[]> {
     const result = await this.pool.query<JobRow>(
       `SELECT ${JOB_COLUMNS} FROM kitchen_ingest_jobs
-       WHERE status = $1 AND physical_job_id IS NOT NULL ORDER BY created_at ASC LIMIT $2`,
-      [status, limit],
+       WHERE status = $1 AND physical_job_id IS NOT NULL
+         AND ($3::boolean IS NOT TRUE OR lease_owner IS NULL)
+       ORDER BY created_at ASC LIMIT $2`,
+      [status, limit, opts?.unleasedOnly === true],
     );
     return Promise.all(result.rows.map(rowToRecord));
   }

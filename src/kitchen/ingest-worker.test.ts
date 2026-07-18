@@ -5,6 +5,7 @@ import {
   applyBeltConfigPatch,
   applyBeltConfigPatchesBatch,
   advanceIndexingJobs,
+  advanceQueuedJobsViaReadiness,
   processQueuedIngestBatch,
   processQueuedIngestJob,
   runKitchenIngestWorkerTick,
@@ -402,6 +403,44 @@ describe("ingest-worker", () => {
       },
     });
     expect(restarts).toBe(1);
+  });
+
+  it("completes unleased queued jobs when Hasura readiness is already present", async () => {
+    const store = new MemoryIngestJobStore();
+    const key = {
+      chainId: 1,
+      contract: "0xed5af388653567af2f388e6224dc7c4b3241c544" as const,
+    };
+    const job = await store.upsertQueued(key, { order_id: "ready", source: "cr-ops-idx-w1" });
+    const ready: CollectionStatusReader = {
+      readIndexedSnapshot: vi.fn().mockResolvedValue({
+        holderCount: 0,
+        indexedAtMs: null,
+        readiness: { state: "ready", kind: "registration_marker", observedAtMs: Date.now() },
+      }),
+    };
+    await advanceQueuedJobsViaReadiness({ store, reader: ready, nowMs: job.updatedAtMs + 1 });
+    await expect(store.get(key)).resolves.toMatchObject({ status: "completed" });
+  });
+
+  it("skips leased queued jobs in readiness advance", async () => {
+    const store = new MemoryIngestJobStore();
+    const key = {
+      chainId: 1,
+      contract: "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d" as const,
+    };
+    await store.upsertQueued(key, { order_id: "leased", source: "cr-ops-idx-w1" });
+    await store.claimQueued({ workerId: "holder", limit: 1, nowMs: 1_000 });
+    const ready: CollectionStatusReader = {
+      readIndexedSnapshot: vi.fn().mockResolvedValue({
+        holderCount: 0,
+        indexedAtMs: null,
+        readiness: { state: "ready", kind: "registration_marker", observedAtMs: Date.now() },
+      }),
+    };
+    await advanceQueuedJobsViaReadiness({ store, reader: ready, nowMs: 1_001 });
+    expect(ready.readIndexedSnapshot).not.toHaveBeenCalled();
+    await expect(store.get(key)).resolves.toMatchObject({ status: "queued", leaseOwner: "holder" });
   });
 
   it("releases claimed leases when no drain strategy is configured", async () => {
