@@ -816,8 +816,8 @@ chains:
           - 0xF68f40230E39067Ee7c98Fe9A8641fC124c5BE60 # Fractured Mibera 8
           - 0xFc79B1BcCa172FF5a8F74205C82F5CBB0125Dd10 # Fractured Mibera 9
           - 0xa3d3EF45712631A6Fb50c677762b8653f932cf71 # Fractured Mibera 10
-          # Holder lane for Shadows (also on GeneralMints for mint actions)
-          - 0x048327A187b944ddac61c6e202BfccD20d17c008 # Mibera Shadows / VM
+          # Shadows (0x048327…) stays on GeneralMints only — Envio forbids dual
+          # contract definitions on the same address (TrackedErc721 + GeneralMints).
 
           # ----- APIOLOGY DAO SEAT NFT (governance membership) -----
           # ApiologyDAO seat NFT — governance vote weight + delegate eligibility
