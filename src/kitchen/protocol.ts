@@ -122,3 +122,18 @@ export async function decodeCanonicalPreparationResponse(raw: unknown) {
 export async function decodeBatchPreparationRequest(raw: unknown) {
   return Effect.runPromise(decodeBatch(raw));
 }
+
+export const AckPreparationRequestSchema = Schema.Struct({
+  schema_version: Schema.Literal(1),
+  drain_mode: Schema.Literal("external_scale"),
+  physical_job_ids: Schema.Array(NonEmptyString).pipe(
+    Schema.minItems(1),
+    Schema.maxItems(BATCH_PREPARATION_MAX_ITEMS),
+  ),
+});
+
+const decodeAck = Schema.decodeUnknown(AckPreparationRequestSchema, strict);
+
+export async function decodeAckPreparationRequest(raw: unknown) {
+  return Effect.runPromise(decodeAck(raw));
+}

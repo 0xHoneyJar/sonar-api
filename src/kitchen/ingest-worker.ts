@@ -8,6 +8,7 @@ import {
   preparationRuntimeFromEnv,
   type PreparationDrainStrategy,
 } from "./preparation-runtime.js";
+import { BATCH_PREPARATION_MAX_ITEMS } from "./protocol.js";
 import { isIndexedSnapshotReady, type CollectionStatusReader } from "./status.js";
 import type { IngestJobRecord } from "./types.js";
 
@@ -16,9 +17,9 @@ export function beltConfigPathFromEnv(): string {
 }
 
 export function kitchenBatchClaimLimitFromEnv(): number {
-  const parsed = Number(process.env.KITCHEN_BATCH_CLAIM_LIMIT ?? 50);
-  if (!Number.isFinite(parsed)) return 50;
-  return Math.min(50, Math.max(1, Math.floor(parsed)));
+  const parsed = Number(process.env.KITCHEN_BATCH_CLAIM_LIMIT ?? BATCH_PREPARATION_MAX_ITEMS);
+  if (!Number.isFinite(parsed)) return BATCH_PREPARATION_MAX_ITEMS;
+  return Math.min(BATCH_PREPARATION_MAX_ITEMS, Math.max(1, Math.floor(parsed)));
 }
 
 /**
@@ -110,6 +111,7 @@ export function applyBeltConfigPatchesBatch(args: {
   }
 
   if (changed) writeFile(args.configPath, configYaml);
+  // patchedJobIds: net-new addresses in this rewrite (idempotent skips omitted).
   return { changed, patchedJobIds };
 }
 
@@ -293,12 +295,19 @@ export async function processQueuedIngestBatch(args: {
     if (strategy === "file" || strategy === "none") {
       // `none` should not reach here when runtime gates correctly; treat as file
       // for hermetic local_config (default path config.yaml).
-      applyBeltConfigPatchesBatch({
+      const applied = applyBeltConfigPatchesBatch({
         configPath: args.configPath ?? beltConfigPathFromEnv(),
         jobs: renewed,
         readFile: args.readFile,
         writeFile: args.writeFile,
       });
+      if (applied.changed) {
+        console.log(
+          "[kitchen] belt_config_batch file drain patched %d/%d jobs",
+          applied.patchedJobIds.length,
+          renewed.length,
+        );
+      }
       await (args.restart ?? notifyIndexerRestart)();
     } else if (strategy === "webhook") {
       const plan = buildBeltConfigPatchPlan(renewed);
@@ -378,10 +387,12 @@ export async function advanceQueuedJobsViaReadiness(args: {
   nowMs?: number;
 }): Promise<void> {
   const nowMs = args.nowMs ?? Date.now();
-  // Same cap as claim batch size — readiness scan tracks one drain wave.
+  // Same cap as BATCH_PREPARATION_MAX_ITEMS / claim batch — one drain wave.
   const jobs = await args.store.listByStatus("queued", kitchenBatchClaimLimitFromEnv());
   for (const job of jobs) {
     if (!job.key) continue;
+    // Skip actively leased jobs — worker owns them until release (BB F-001).
+    if (job.leaseOwner) continue;
     const indexed = await args.reader.readIndexedSnapshot(job.key);
     if (!isIndexedSnapshotReady(indexed)) continue;
     await args.store.updateStatus(job.physicalJobId, "completed", {

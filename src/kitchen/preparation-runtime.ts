@@ -35,6 +35,7 @@ export function preparationDrainStrategyFromEnv(
   const hasFile = Boolean(env.KITCHEN_BELT_CONFIG_PATH?.trim());
   const hasWebhook = Boolean(env.KITCHEN_BELT_CONFIG_PATCH_WEBHOOK?.trim());
   const drain = env.KITCHEN_PREPARATION_DRAIN?.trim().toLowerCase();
+  // Alias "external" kept for ops shorthand; documented in CR-203.md.
   const hasExternal = drain === "external_scale" || drain === "external";
   const configured = [hasFile, hasWebhook, hasExternal].filter(Boolean).length;
   if (configured > 1) {

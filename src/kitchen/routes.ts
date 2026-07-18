@@ -10,6 +10,7 @@ import { requireServiceToken } from "./auth.js";
 import { resolvePreparationCapability } from "./capability.js";
 import { collectionKeyFromParams, deploymentFromCollectionKey } from "./normalize.js";
 import {
+  decodeAckPreparationRequest,
   decodeBatchPreparationRequest,
   decodeCanonicalPreparationRequest,
   decodeLegacyIngestRequest,
@@ -412,39 +413,25 @@ export function createCanonicalPreparationRoutes(deps: {
     } catch {
       return c.json({ schema_version: 1, error: { code: "invalid_request", message: "request body must be JSON" } }, 400);
     }
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-      return c.json({ schema_version: 1, error: { code: "invalid_request", message: "request body must be an object" } }, 400);
-    }
-    const body = raw as Record<string, unknown>;
-    if (body.schema_version !== 1) {
-      return c.json({ schema_version: 1, error: { code: "invalid_request", message: "schema_version must be 1" } }, 400);
-    }
-    if (body.drain_mode !== "external_scale") {
+
+    let body;
+    try {
+      body = await decodeAckPreparationRequest(raw);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
       return c.json(
         {
           schema_version: 1,
           error: {
             code: "invalid_request",
-            message: "drain_mode must be \"external_scale\" (ack is only for the out-of-band SCALE drain)",
+            message: `ack request does not match schema version 1: ${detail}`,
           },
         },
         400,
       );
     }
-    if (!Array.isArray(body.physical_job_ids) || body.physical_job_ids.length === 0) {
-      return c.json(
-        { schema_version: 1, error: { code: "invalid_request", message: "physical_job_ids must be a non-empty array" } },
-        400,
-      );
-    }
-    const ids = body.physical_job_ids.filter((id): id is string => typeof id === "string" && id.trim() !== "");
-    if (ids.length === 0 || ids.length > 50) {
-      return c.json(
-        { schema_version: 1, error: { code: "invalid_request", message: "physical_job_ids must contain 1–50 strings" } },
-        400,
-      );
-    }
 
+    const ids = body.physical_job_ids;
     const results: Array<Record<string, unknown>> = [];
     let advanced = 0;
     let missing = 0;
@@ -467,6 +454,18 @@ export function createCanonicalPreparationRoutes(deps: {
           physical_job_id: physicalJobId,
           ok: false,
           error: { code: "unexpected_status", message: `job status is ${job.status}` },
+        });
+        continue;
+      }
+      if (job.leaseOwner) {
+        skipped += 1;
+        results.push({
+          physical_job_id: physicalJobId,
+          ok: false,
+          error: {
+            code: "status_conflict",
+            message: "job has an active worker lease; wait for external_scale release before ack",
+          },
         });
         continue;
       }
