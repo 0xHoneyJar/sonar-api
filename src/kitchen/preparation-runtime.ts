@@ -41,11 +41,12 @@ export function preparationDrainStrategyFromEnv(
 
   const hasFile = Boolean(env.KITCHEN_BELT_CONFIG_PATH?.trim());
   const hasWebhook = Boolean(env.KITCHEN_BELT_CONFIG_PATCH_WEBHOOK?.trim());
-  const configured = [hasFile, hasWebhook].filter(Boolean).length;
-  if (configured > 1) {
-    console.warn(
-      "[kitchen] multiple drain strategy env vars set; precedence is file path > webhook URL (set KITCHEN_PREPARATION_DRAIN to choose explicitly)",
+  if (hasFile && hasWebhook) {
+    // Ambiguous implicit config — fail closed until the operator picks one.
+    console.error(
+      "[kitchen] both KITCHEN_BELT_CONFIG_PATH and KITCHEN_BELT_CONFIG_PATCH_WEBHOOK are set; set KITCHEN_PREPARATION_DRAIN=file|webhook explicitly",
     );
+    return "none";
   }
   if (hasFile) return "file";
   if (hasWebhook) return "webhook";

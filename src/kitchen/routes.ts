@@ -505,12 +505,15 @@ export function createCanonicalPreparationRoutes(deps: {
 
     let advanced = 0;
     let missing = 0;
-    let skipped = 0;
+    let already_terminal = 0;
+    let conflicts = 0;
     for (const row of results) {
       if (row.ok === true && row.advanced === true) advanced += 1;
-      else if (row.ok === false && row.error?.code === "job_not_found") missing += 1;
-      else skipped += 1;
+      else if (row.ok === true) already_terminal += 1;
+      else if (row.error?.code === "job_not_found") missing += 1;
+      else conflicts += 1;
     }
+    const skipped = already_terminal + conflicts;
 
     const anyFailed = results.some((row) => row.ok === false);
     const httpStatus =
@@ -518,7 +521,14 @@ export function createCanonicalPreparationRoutes(deps: {
     return c.json(
       {
         schema_version: 1 as const,
-        ack: { requested: ids.length, advanced, skipped, missing },
+        ack: {
+          requested: ids.length,
+          advanced,
+          skipped,
+          already_terminal,
+          conflicts,
+          missing,
+        },
         results,
       },
       httpStatus,

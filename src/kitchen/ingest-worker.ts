@@ -1,5 +1,5 @@
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
 
 import { mapPool } from "./async-pool.js";
 import { patchConfigForKitchenIngest } from "./config-patcher.js";
@@ -177,11 +177,8 @@ function webhookIdempotencyKey(plan: BeltConfigPatchPlanItem[]): string {
     .map((item) => `${item.chain_id}:${item.contract_name}:${item.contract.toLowerCase()}`)
     .sort()
     .join("|");
-  let hash = 0;
-  for (let i = 0; i < material.length; i += 1) {
-    hash = (Math.imul(31, hash) + material.charCodeAt(i)) | 0;
-  }
-  return `belt-patch-${(hash >>> 0).toString(16)}-${plan.length}`;
+  const digest = createHash("sha256").update(material).digest("hex").slice(0, 32);
+  return `belt-patch-${digest}`;
 }
 
 function webhookAuthHeaders(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
@@ -373,11 +370,20 @@ export async function processQueuedIngestBatch(args: {
 }): Promise<void> {
   if (args.jobs.length === 0) return;
 
-  const renewed = await renewJobs({
-    store: args.store,
-    jobs: args.jobs,
-    nowMs: args.nowMs,
-  });
+  let renewed: IngestJobRecord[];
+  try {
+    renewed = await renewJobs({
+      store: args.store,
+      jobs: args.jobs,
+      nowMs: args.nowMs,
+    });
+  } catch (error) {
+    console.warn(
+      "[kitchen] renewJobs failed — leaving leases for TTL reclaim (%s)",
+      error instanceof Error ? error.message : String(error),
+    );
+    return;
+  }
   if (renewed.length === 0) return;
 
   const strategy = args.drainStrategy ?? preparationDrainStrategyFromEnv();
@@ -598,10 +604,9 @@ export async function runKitchenIngestWorkerTick(args: {
     await releaseBatchLeases({ store: args.store, jobs: queued, nowMs });
   }
   // Unleased queued jobs with Hasura readiness can complete without re-drain
-  // (external_scale ack shortcut; also recovers orphaned file/webhook claims).
-  if (effectiveDrain) {
-    await advanceQueuedJobsViaReadiness({ store: args.store, reader: args.reader, nowMs });
-  }
+  // (external_scale ack shortcut; also recovers orphaned file/webhook claims),
+  // even when this process's drain is currently misconfigured.
+  await advanceQueuedJobsViaReadiness({ store: args.store, reader: args.reader, nowMs });
   await advanceIndexingJobs({ store: args.store, reader: args.reader, nowMs });
 }
 
