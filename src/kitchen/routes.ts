@@ -485,13 +485,15 @@ export function createCanonicalPreparationRoutes(deps: {
       results.push({ physical_job_id: physicalJobId, ok: true, status: "indexing", advanced: true });
     }
 
+    const httpStatus =
+      missing === ids.length ? 404 : missing > 0 || (advanced > 0 && skipped > 0) ? 207 : 200;
     return c.json(
       {
         schema_version: 1 as const,
         ack: { requested: ids.length, advanced, skipped, missing },
         results,
       },
-      200,
+      httpStatus,
     );
   });
 

@@ -232,6 +232,21 @@ describe("ingest-worker", () => {
     expect(stalePublish).toBeUndefined();
   });
 
+  it("renewLease extends time without bumping leaseEpoch", async () => {
+    const store = new MemoryIngestJobStore();
+    const key = { chainId: 1, contract: "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d" as const };
+    await store.upsertQueued(key, { order_id: "order", source: "s" }, 100);
+    const [claimed] = await store.claimQueued({ workerId: "w", nowMs: 100, leaseMs: 1_000 });
+    const renewed = await store.renewLease({
+      physicalJobId: claimed.physicalJobId,
+      lease: { owner: "w", epoch: claimed.leaseEpoch },
+      nowMs: 200,
+      leaseMs: 1_000,
+    });
+    expect(renewed?.leaseEpoch).toBe(claimed.leaseEpoch);
+    expect(renewed?.leaseUntilMs).toBeGreaterThan(claimed.leaseUntilMs!);
+  });
+
   it("external_scale leaves jobs queued until operator ack", async () => {
     const store = new MemoryIngestJobStore();
     const key = { chainId: 1, contract: "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d" as const };

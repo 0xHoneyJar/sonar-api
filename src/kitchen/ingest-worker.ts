@@ -391,14 +391,20 @@ export async function advanceQueuedJobsViaReadiness(args: {
   const jobs = await args.store.listByStatus("queued", kitchenBatchClaimLimitFromEnv());
   for (const job of jobs) {
     if (!job.key) continue;
-    // Skip actively leased jobs — worker owns them until release (BB F-001).
+    // Skip actively leased jobs — worker owns them until release.
     if (job.leaseOwner) continue;
     const indexed = await args.reader.readIndexedSnapshot(job.key);
     if (!isIndexedSnapshotReady(indexed)) continue;
-    await args.store.updateStatus(job.physicalJobId, "completed", {
+    const updated = await args.store.updateStatus(job.physicalJobId, "completed", {
       nowMs,
       expectedStatus: "queued",
     });
+    if (!updated) {
+      console.warn(
+        "[kitchen] queued readiness complete CAS miss for %s (claimed between list and update)",
+        job.physicalJobId,
+      );
+    }
   }
 }
 
