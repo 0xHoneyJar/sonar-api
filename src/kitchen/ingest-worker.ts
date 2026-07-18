@@ -17,7 +17,9 @@ export function beltConfigPathFromEnv(): string {
 }
 
 export function kitchenBatchClaimLimitFromEnv(): number {
-  const parsed = Number(process.env.KITCHEN_BATCH_CLAIM_LIMIT ?? BATCH_PREPARATION_MAX_ITEMS);
+  const raw = process.env.KITCHEN_BATCH_CLAIM_LIMIT?.trim();
+  if (!raw) return BATCH_PREPARATION_MAX_ITEMS;
+  const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return BATCH_PREPARATION_MAX_ITEMS;
   return Math.min(BATCH_PREPARATION_MAX_ITEMS, Math.max(1, Math.floor(parsed)));
 }
@@ -237,13 +239,22 @@ async function markBatchFailed(args: {
 }): Promise<void> {
   for (const job of args.jobs) {
     if (!job.leaseOwner) continue;
-    await args.store.updateStatus(job.physicalJobId, "failed", {
+    const updated = await args.store.updateStatus(job.physicalJobId, "failed", {
       errorCode: args.errorCode,
       errorMessage: args.errorMessage,
       nowMs: args.nowMs,
       expectedLease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
       expectedStatus: args.expectedStatus,
     });
+    if (!updated) {
+      console.warn(
+        "[kitchen] markBatchFailed CAS miss for %s (expectedStatus=%s owner=%s epoch=%s)",
+        job.physicalJobId,
+        args.expectedStatus,
+        job.leaseOwner,
+        job.leaseEpoch,
+      );
+    }
   }
 }
 
@@ -500,9 +511,10 @@ export async function runKitchenIngestWorkerTick(args: {
     });
   } else if (queued.length > 0) {
     console.warn(
-      "[kitchen] claimed %d jobs but no drain strategy is configured — leaving queued",
+      "[kitchen] claimed %d jobs but no drain strategy is configured — releasing leases",
       queued.length,
     );
+    await releaseBatchLeases({ store: args.store, jobs: queued, nowMs });
   }
   // Queued→completed via Hasura is only for external_scale (ack optional shortcut).
   if (effectiveDrain === "external_scale") {

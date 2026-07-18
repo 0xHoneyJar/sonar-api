@@ -486,8 +486,23 @@ export function createCanonicalPreparationRoutes(deps: {
         });
         continue;
       }
+      // Re-read immediately before CAS to shrink lease TOCTOU window.
+      const fresh = await deps.store.getByPhysicalJobId(physicalJobId);
+      if (!fresh || fresh.status !== "queued" || fresh.leaseOwner) {
+        skipped += 1;
+        results.push({
+          physical_job_id: physicalJobId,
+          ok: false,
+          error: {
+            code: "status_conflict",
+            message: "job changed before ack could advance it",
+          },
+        });
+        continue;
+      }
       const updated = await deps.store.updateStatus(physicalJobId, "indexing", {
         expectedStatus: "queued",
+        nowMs: Date.now(),
       });
       if (!updated) {
         skipped += 1;
