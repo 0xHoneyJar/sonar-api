@@ -412,7 +412,10 @@ describe("canonical collection preparation", () => {
       }),
     });
     expect(res.status).toBe(202);
-    const body = await res.json();
+    const body = (await res.json()) as {
+      batch: { requested: number; created: number; joined: number; rejected: number };
+      results: Array<{ ok: boolean }>;
+    };
     expect(body.batch).toEqual({
       requested: 3,
       created: 3,
@@ -420,7 +423,7 @@ describe("canonical collection preparation", () => {
       rejected: 0,
     });
     expect(body.results).toHaveLength(3);
-    expect(body.results.every((r: { ok: boolean }) => r.ok)).toBe(true);
+    expect(body.results.every((r) => r.ok)).toBe(true);
 
     const replay = await app.request("/v2/collection-preparations/batch", {
       method: "POST",
@@ -462,8 +465,8 @@ describe("canonical collection preparation", () => {
     });
     const created = await request(evmRequest());
     expect(created.status).toBe(202);
-    const createdBody = await created.json();
-    const physicalJobId = createdBody.physical_job_id as string;
+    const createdBody = (await created.json()) as { physical_job_id: string };
+    const physicalJobId = createdBody.physical_job_id;
     expect(physicalJobId).toBeTruthy();
 
     const ack = await app.request("/v2/collection-preparations/ack", {
