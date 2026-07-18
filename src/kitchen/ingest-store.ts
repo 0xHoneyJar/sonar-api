@@ -22,7 +22,11 @@ export interface IngestJobStorePort {
   getByPhysicalJobId(physicalJobId: string): Promise<IngestJobRecord | undefined>;
   admit(request: AdmissionRequest, nowMs?: number): Promise<AdmissionResult>;
   upsertQueued(key: CollectionKey, body: IngestRequestBody, nowMs?: number): Promise<IngestJobRecord>;
-  listByStatus(status: IngestJobStatus, limit?: number): Promise<IngestJobRecord[]>;
+  listByStatus(
+    status: IngestJobStatus,
+    limit?: number,
+    opts?: { unleasedOnly?: boolean },
+  ): Promise<IngestJobRecord[]>;
   claimQueued(args: {
     workerId: string;
     limit?: number;
@@ -44,6 +48,8 @@ export interface IngestJobStorePort {
       nowMs?: number;
       releaseLease?: boolean;
       expectedLease?: { owner: string; epoch: number };
+      /** When true, CAS fails if any leaseOwner is present (ack / unleased paths). */
+      expectedAbsentLease?: boolean;
       expectedStatus?: IngestJobStatus;
     },
   ): Promise<IngestJobRecord | undefined>;
@@ -216,9 +222,14 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
     return result.job;
   }
 
-  async listByStatus(status: IngestJobStatus, limit = 50): Promise<IngestJobRecord[]> {
+  async listByStatus(
+    status: IngestJobStatus,
+    limit = 50,
+    opts?: { unleasedOnly?: boolean },
+  ): Promise<IngestJobRecord[]> {
     return [...this.jobsById.values()]
       .filter((job) => job.status === status)
+      .filter((job) => !opts?.unleasedOnly || !job.leaseOwner)
       .sort((a, b) => a.createdAtMs - b.createdAtMs)
       .slice(0, limit)
       .map(cloneJob);
@@ -258,14 +269,21 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
       nowMs?: number;
       releaseLease?: boolean;
       expectedLease?: { owner: string; epoch: number };
+      expectedAbsentLease?: boolean;
       expectedStatus?: IngestJobStatus;
     },
   ): Promise<IngestJobRecord | undefined> {
     return this.atomic(() => {
+      if (args?.expectedAbsentLease && args.expectedLease) {
+        throw new Error("expectedAbsentLease and expectedLease are mutually exclusive");
+      }
       const record = this.jobsById.get(physicalJobId);
       if (!record) return undefined;
       const nowMs = args?.nowMs ?? Date.now();
       if (args?.expectedStatus !== undefined && record.status !== args.expectedStatus) {
+        return undefined;
+      }
+      if (args?.expectedAbsentLease && record.leaseOwner) {
         return undefined;
       }
       if (

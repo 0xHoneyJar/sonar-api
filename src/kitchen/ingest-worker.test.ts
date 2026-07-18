@@ -1,13 +1,20 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MemoryIngestJobStore } from "./ingest-store.js";
 import {
   applyBeltConfigPatch,
+  applyBeltConfigPatchesBatch,
   advanceIndexingJobs,
+  advanceQueuedJobsViaReadiness,
+  processQueuedIngestBatch,
   processQueuedIngestJob,
   runKitchenIngestWorkerTick,
 } from "./ingest-worker.js";
 import type { CollectionStatusReader } from "./status.js";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 const ETH_CONFIG = `
 chains:
@@ -100,6 +107,9 @@ describe("ingest-worker", () => {
   });
 
   it("reconciles unbackfilled active jobs before claiming queue", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("KITCHEN_WORKER_ENABLED", "true");
+    vi.stubEnv("KITCHEN_PREPARATION_PORT", "local_config");
     const store = new MemoryIngestJobStore();
     let reconciled = false;
     const wrapped = Object.assign(store, {
@@ -123,6 +133,9 @@ describe("ingest-worker", () => {
   });
 
   it("claims and processes a queued job once", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("KITCHEN_WORKER_ENABLED", "true");
+    vi.stubEnv("KITCHEN_PREPARATION_PORT", "local_config");
     const store = new MemoryIngestJobStore();
     const key = { chainId: 80094, contract: "0x4b08a069381efbb9f08c73d6b2e975c9be3c4684" as const };
     await store.upsertQueued(key, { order_id: "order-1", source: "ordering-service" });
@@ -228,6 +241,232 @@ describe("ingest-worker", () => {
       expectedLease: { owner: "stale-worker", epoch: stale.leaseEpoch },
     });
     expect(stalePublish).toBeUndefined();
+  });
+
+  it("renewLease extends time without bumping leaseEpoch", async () => {
+    const store = new MemoryIngestJobStore();
+    const key = { chainId: 1, contract: "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d" as const };
+    await store.upsertQueued(key, { order_id: "order", source: "s" }, 100);
+    const [claimed] = await store.claimQueued({ workerId: "w", nowMs: 100, leaseMs: 1_000 });
+    const renewed = await store.renewLease({
+      physicalJobId: claimed.physicalJobId,
+      lease: { owner: "w", epoch: claimed.leaseEpoch },
+      nowMs: 200,
+      leaseMs: 1_000,
+    });
+    expect(renewed?.leaseEpoch).toBe(claimed.leaseEpoch);
+    expect(renewed?.leaseUntilMs).toBeGreaterThan(claimed.leaseUntilMs!);
+  });
+
+  it("external_scale leaves jobs queued until operator ack", async () => {
+    const store = new MemoryIngestJobStore();
+    const key = { chainId: 1, contract: "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d" as const };
+    await store.upsertQueued(key, { order_id: "order", source: "cr-ops-idx-w1" });
+    const claimed = await store.claimQueued({ workerId: "batch-worker", limit: 10 });
+    let writes = 0;
+    await processQueuedIngestBatch({
+      jobs: claimed,
+      store,
+      drainStrategy: "external_scale",
+      writeFile: () => {
+        writes += 1;
+      },
+      restart: async () => {
+        throw new Error("restart must not run");
+      },
+    });
+    expect(writes).toBe(0);
+    await expect(store.get(key)).resolves.toMatchObject({
+      status: "queued",
+      leaseOwner: undefined,
+    });
+  });
+
+  it("drains many queued jobs as one config rewrite and one restart", async () => {
+    const store = new MemoryIngestJobStore();
+    const keys = [
+      { chainId: 1, contract: "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d" as const },
+      { chainId: 1, contract: "0x60e4d786628fea6478f785a6d7e704777c86a7c6" as const },
+      { chainId: 1, contract: "0xba30e5f9bb24c19c9002c35c7098ad4a0f7ff53b" as const },
+    ];
+    for (const [i, key] of keys.entries()) {
+      await store.upsertQueued(key, { order_id: `order-${i}`, source: "cr-ops-idx-w1" });
+    }
+    const claimed = await store.claimQueued({ workerId: "batch-worker", limit: 10 });
+    expect(claimed).toHaveLength(3);
+
+    let writes = 0;
+    let restarts = 0;
+    let written = ETH_CONFIG;
+    await processQueuedIngestBatch({
+      jobs: claimed,
+      store,
+      drainStrategy: "file",
+      readFile: () => written,
+      writeFile: (_path, contents) => {
+        writes += 1;
+        written = contents;
+      },
+      restart: async () => {
+        restarts += 1;
+      },
+    });
+
+    expect(writes).toBe(1);
+    expect(restarts).toBe(1);
+    for (const key of keys) {
+      expect(written.toLowerCase()).toContain(key.contract);
+      expect((await store.get(key))?.status).toBe("indexing");
+    }
+
+    const batchResult = applyBeltConfigPatchesBatch({
+      configPath: "ignored",
+      jobs: claimed,
+      readFile: () => written,
+      writeFile: () => {
+        throw new Error("idempotent batch must not rewrite");
+      },
+    });
+    expect(batchResult.changed).toBe(false);
+  });
+
+  it("drains a claimed batch via webhook without local config rewrite", async () => {
+    const store = new MemoryIngestJobStore();
+    const key = {
+      chainId: 1,
+      contract: "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d" as const,
+    };
+    await store.upsertQueued(key, { order_id: "order-wh", source: "cr-ops-idx-w1" });
+    const claimed = await store.claimQueued({ workerId: "webhook-worker", limit: 1 });
+    expect(claimed).toHaveLength(1);
+
+    let plans: unknown[] = [];
+    let restarts = 0;
+    await processQueuedIngestBatch({
+      jobs: claimed,
+      store,
+      drainStrategy: "webhook",
+      postPatchWebhook: async (plan) => {
+        plans.push(plan);
+      },
+      restart: async () => {
+        restarts += 1;
+      },
+    });
+
+    expect(plans).toHaveLength(1);
+    expect(JSON.stringify(plans[0]).toLowerCase()).toContain(key.contract);
+    // Default: patch webhook owns restart — no separate restart call.
+    expect(restarts).toBe(0);
+    await expect(store.get(key)).resolves.toMatchObject({ status: "indexing" });
+  });
+
+  it("optionally notifies the indexer restart webhook after patch webhook drain", async () => {
+    vi.stubEnv("KITCHEN_BELT_ALSO_NOTIFY_RESTART", "true");
+    const store = new MemoryIngestJobStore();
+    const key = {
+      chainId: 1,
+      contract: "0x60e4d786628fea6478f785a6d7e704777c86a7c6" as const,
+    };
+    await store.upsertQueued(key, { order_id: "order-wh-restart", source: "cr-ops-idx-w1" });
+    const claimed = await store.claimQueued({ workerId: "webhook-restart-worker", limit: 1 });
+    let restarts = 0;
+    await processQueuedIngestBatch({
+      jobs: claimed,
+      store,
+      drainStrategy: "webhook",
+      postPatchWebhook: async () => {},
+      restart: async () => {
+        restarts += 1;
+      },
+    });
+    expect(restarts).toBe(1);
+  });
+
+  it("honors deprecated WEBHOOK_OWNS_RESTART=false as also-notify", async () => {
+    vi.stubEnv("KITCHEN_BELT_WEBHOOK_OWNS_RESTART", "false");
+    const store = new MemoryIngestJobStore();
+    const key = {
+      chainId: 1,
+      contract: "0xba30e5f9bb24c19c9002c35c7098ad4a0f7ff53b" as const,
+    };
+    await store.upsertQueued(key, { order_id: "order-wh-legacy", source: "cr-ops-idx-w1" });
+    const claimed = await store.claimQueued({ workerId: "webhook-legacy-worker", limit: 1 });
+    let restarts = 0;
+    await processQueuedIngestBatch({
+      jobs: claimed,
+      store,
+      drainStrategy: "webhook",
+      postPatchWebhook: async () => {},
+      restart: async () => {
+        restarts += 1;
+      },
+    });
+    expect(restarts).toBe(1);
+  });
+
+  it("completes unleased queued jobs when Hasura readiness is already present", async () => {
+    const store = new MemoryIngestJobStore();
+    const key = {
+      chainId: 1,
+      contract: "0xed5af388653567af2f388e6224dc7c4b3241c544" as const,
+    };
+    const job = await store.upsertQueued(key, { order_id: "ready", source: "cr-ops-idx-w1" });
+    const ready: CollectionStatusReader = {
+      readIndexedSnapshot: vi.fn().mockResolvedValue({
+        holderCount: 0,
+        indexedAtMs: null,
+        readiness: { state: "ready", kind: "registration_marker", observedAtMs: Date.now() },
+      }),
+    };
+    await advanceQueuedJobsViaReadiness({ store, reader: ready, nowMs: job.updatedAtMs + 1 });
+    await expect(store.get(key)).resolves.toMatchObject({ status: "completed" });
+  });
+
+  it("skips leased queued jobs in readiness advance", async () => {
+    const store = new MemoryIngestJobStore();
+    const key = {
+      chainId: 1,
+      contract: "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d" as const,
+    };
+    await store.upsertQueued(key, { order_id: "leased", source: "cr-ops-idx-w1" });
+    await store.claimQueued({ workerId: "holder", limit: 1, nowMs: 1_000 });
+    const ready: CollectionStatusReader = {
+      readIndexedSnapshot: vi.fn().mockResolvedValue({
+        holderCount: 0,
+        indexedAtMs: null,
+        readiness: { state: "ready", kind: "registration_marker", observedAtMs: Date.now() },
+      }),
+    };
+    await advanceQueuedJobsViaReadiness({ store, reader: ready, nowMs: 1_001 });
+    expect(ready.readIndexedSnapshot).not.toHaveBeenCalled();
+    await expect(store.get(key)).resolves.toMatchObject({ status: "queued", leaseOwner: "holder" });
+  });
+
+  it("releases claimed leases when no drain strategy is configured", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("KITCHEN_WORKER_ENABLED", "true");
+    vi.stubEnv("KITCHEN_PREPARATION_PORT", "belt_config_batch");
+    vi.stubEnv("KITCHEN_PREPARATION_DRAIN", "");
+    const store = new MemoryIngestJobStore();
+    const key = {
+      chainId: 1,
+      contract: "0xed5af388653567af2f388e6224dc7c4b3241c544" as const,
+    };
+    await store.upsertQueued(key, { order_id: "order", source: "cr-ops-idx-w1" });
+    const reader: CollectionStatusReader = {
+      readIndexedSnapshot: vi.fn().mockResolvedValue({ holderCount: 0, indexedAtMs: null }),
+    };
+    await runKitchenIngestWorkerTick({
+      store,
+      reader,
+      workerId: "no-drain-worker",
+      nowMs: 1_000,
+    });
+    await expect(store.get(key)).resolves.toMatchObject({
+      status: "queued",
+      leaseOwner: undefined,
+    });
   });
 
   it("lets the first terminal coordinator result win", async () => {

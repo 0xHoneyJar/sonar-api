@@ -525,11 +525,17 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
     return result.job;
   }
 
-  async listByStatus(status: IngestJobStatus, limit = 50): Promise<IngestJobRecord[]> {
+  async listByStatus(
+    status: IngestJobStatus,
+    limit = 50,
+    opts?: { unleasedOnly?: boolean },
+  ): Promise<IngestJobRecord[]> {
     const result = await this.pool.query<JobRow>(
       `SELECT ${JOB_COLUMNS} FROM kitchen_ingest_jobs
-       WHERE status = $1 AND physical_job_id IS NOT NULL ORDER BY created_at ASC LIMIT $2`,
-      [status, limit],
+       WHERE status = $1 AND physical_job_id IS NOT NULL
+         AND ($3::boolean IS NOT TRUE OR lease_owner IS NULL)
+       ORDER BY created_at ASC LIMIT $2`,
+      [status, limit, opts?.unleasedOnly === true],
     );
     return Promise.all(result.rows.map(rowToRecord));
   }
@@ -577,9 +583,13 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
       nowMs?: number;
       releaseLease?: boolean;
       expectedLease?: { owner: string; epoch: number };
+      expectedAbsentLease?: boolean;
       expectedStatus?: IngestJobStatus;
     },
   ): Promise<IngestJobRecord | undefined> {
+    if (args?.expectedAbsentLease && args.expectedLease) {
+      throw new Error("expectedAbsentLease and expectedLease are mutually exclusive");
+    }
     const nowMs = args?.nowMs ?? Date.now();
     const result = await this.pool.query<JobRow>(
       `UPDATE kitchen_ingest_jobs SET status = $2, error_code = $3, error_message = $4,
@@ -588,6 +598,7 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
          updated_at = to_timestamp($5 / 1000.0)
        WHERE physical_job_id = $1
          AND ($9::text IS NULL OR status = $9)
+         AND ($10::boolean IS NOT TRUE OR lease_owner IS NULL)
          AND (
            $7::text IS NULL OR (
              lease_owner = $7 AND lease_epoch = $8
@@ -605,6 +616,7 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
         args?.expectedLease?.owner ?? null,
         args?.expectedLease?.epoch ?? null,
         args?.expectedStatus ?? null,
+        args?.expectedAbsentLease === true,
       ],
     );
     return result.rows[0] ? rowToRecord(result.rows[0]) : undefined;

@@ -1,4 +1,7 @@
-import type { CollectionDeploymentRef, NetworkRef } from "../collection-resolver/protocol.js";
+import type {
+  CollectionDeploymentRef,
+  NetworkRef,
+} from "../collection-resolver/protocol.js";
 
 export type CollectionIndexStatus = "missing" | "indexing" | "indexed" | "failed";
 export type IngestJobStatus = "queued" | "indexing" | "completed" | "failed";
@@ -137,9 +140,15 @@ export interface MigrationAuthorityState {
 
 export interface PreparationRuntimeState {
   available: boolean;
-  mode: "unavailable" | "local_config" | "injected";
+  mode: "unavailable" | "local_config" | "injected" | "belt_config_batch";
   reason: string;
 }
+
+/** Derived from Effect Schema — do not hand-edit field shapes. */
+export type {
+  BatchPreparationItemRequest,
+  BatchPreparationRequest,
+} from "./protocol.js";
 
 export interface WorkerLease {
   owner: string;

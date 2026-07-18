@@ -54,8 +54,48 @@ export const CanonicalPreparationResponseSchema = Schema.Struct({
   updated_at: NonEmptyString,
 });
 
+/** Batch admit — one request, many physical jobs (still one job per deployment). */
+export const BATCH_PREPARATION_MAX_ITEMS = 50;
+/** Concurrent admit/ack workers (bounded vs DB pool pressure). */
+export const BATCH_ADMIT_CONCURRENCY = 8;
+/**
+ * Ack may cover jobs from multiple prior batch-admit waves after one SCALE apply.
+ * Larger than BATCH_PREPARATION_MAX_ITEMS on purpose.
+ */
+export const ACK_PREPARATION_MAX_ITEMS = 500;
+
+export const BatchPreparationItemSchema = Schema.Struct({
+  network: NetworkRef,
+  address: NonEmptyString,
+  token_standard: KitchenTokenStandard,
+  correlation: Schema.optional(
+    Schema.Struct({
+      source: NonEmptyString,
+      correlation_id: NonEmptyString,
+    }),
+  ),
+});
+
+export const BatchPreparationRequestSchema = Schema.Struct({
+  schema_version: Schema.Literal(1),
+  items: Schema.Array(BatchPreparationItemSchema).pipe(
+    Schema.minItems(1),
+    Schema.maxItems(BATCH_PREPARATION_MAX_ITEMS),
+  ),
+  correlation: Schema.optional(
+    Schema.Struct({
+      source: NonEmptyString,
+      correlation_id: NonEmptyString,
+    }),
+  ),
+});
+
+export type BatchPreparationItemRequest = Schema.Schema.Type<typeof BatchPreparationItemSchema>;
+export type BatchPreparationRequest = Schema.Schema.Type<typeof BatchPreparationRequestSchema>;
+
 const decodeCanonical = Schema.decodeUnknown(CanonicalPreparationRequestSchema, strict);
 const decodeCanonicalResponse = Schema.decodeUnknown(CanonicalPreparationResponseSchema, strict);
+const decodeBatch = Schema.decodeUnknown(BatchPreparationRequestSchema, strict);
 // Legacy v1 historically ignored excess properties; preserve that behavior
 // while moving the known fields onto a typed Effect boundary.
 const decodeLegacy = Schema.decodeUnknown(LegacyIngestRequestSchema, {
@@ -87,4 +127,24 @@ export async function decodeLegacyIngestRequest(raw: unknown) {
 
 export async function decodeCanonicalPreparationResponse(raw: unknown) {
   return Effect.runPromise(decodeCanonicalResponse(raw));
+}
+
+export async function decodeBatchPreparationRequest(raw: unknown) {
+  return Effect.runPromise(decodeBatch(raw));
+}
+
+export const AckPreparationRequestSchema = Schema.Struct({
+  schema_version: Schema.Literal(1),
+  /** Client intent assertion; server also checks process drain strategy (409 on mismatch). */
+  drain_mode: Schema.Literal("external_scale"),
+  physical_job_ids: Schema.Array(NonEmptyString).pipe(
+    Schema.minItems(1),
+    Schema.maxItems(ACK_PREPARATION_MAX_ITEMS),
+  ),
+});
+
+const decodeAck = Schema.decodeUnknown(AckPreparationRequestSchema, strict);
+
+export async function decodeAckPreparationRequest(raw: unknown) {
+  return Effect.runPromise(decodeAck(raw));
 }
