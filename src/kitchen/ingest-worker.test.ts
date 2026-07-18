@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MemoryIngestJobStore } from "./ingest-store.js";
 import {
@@ -10,6 +10,10 @@ import {
   runKitchenIngestWorkerTick,
 } from "./ingest-worker.js";
 import type { CollectionStatusReader } from "./status.js";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 const ETH_CONFIG = `
 chains:
@@ -102,6 +106,9 @@ describe("ingest-worker", () => {
   });
 
   it("reconciles unbackfilled active jobs before claiming queue", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("KITCHEN_WORKER_ENABLED", "true");
+    vi.stubEnv("KITCHEN_PREPARATION_PORT", "local_config");
     const store = new MemoryIngestJobStore();
     let reconciled = false;
     const wrapped = Object.assign(store, {
@@ -125,6 +132,9 @@ describe("ingest-worker", () => {
   });
 
   it("claims and processes a queued job once", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("KITCHEN_WORKER_ENABLED", "true");
+    vi.stubEnv("KITCHEN_PREPARATION_PORT", "local_config");
     const store = new MemoryIngestJobStore();
     const key = { chainId: 80094, contract: "0x4b08a069381efbb9f08c73d6b2e975c9be3c4684" as const };
     await store.upsertQueued(key, { order_id: "order-1", source: "ordering-service" });
