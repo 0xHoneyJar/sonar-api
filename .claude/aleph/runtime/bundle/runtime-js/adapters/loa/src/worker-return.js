@@ -3,6 +3,8 @@ import { basename, dirname, join, resolve, } from 'node:path';
 import { LOA_WORKER_VALIDATION_FORMAT, } from './types.js';
 import { assertNoSymlinkComponents, sha256Digest, stableJson, stableJsonBytes, writeFileAtomic, writeJsonAtomic, } from './fs.js';
 import { verifyWorkerBundle } from './worker-bundle.js';
+import { contractExemplarToJsonSchema, validateWorkerReturnContract, } from '../../../scripts/lib/worker-return-contract.js';
+export { contractExemplarToJsonSchema };
 const VALIDATED_TOKEN = Symbol('validated-worker-return');
 /**
  * Resolve the sole quarantine directory permitted for a sealed worker call.
@@ -98,152 +100,6 @@ export class ValidatedWorkerReturn {
         return this.data;
     }
 }
-function isRecord(value) {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-function hasText(value) {
-    return value.trim().length > 0;
-}
-function validateRequiredString(value, path, errors) {
-    if (typeof value !== 'string') {
-        errors.push(`${path} must be a string`);
-        return false;
-    }
-    if (!hasText(value)) {
-        errors.push(`${path} must be nonempty`);
-        return false;
-    }
-    return true;
-}
-function literalPattern(literal) {
-    const escaped = literal
-        .split('…')
-        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'))
-        .join('.+');
-    return new RegExp(`^(?:${escaped})$`, 'u');
-}
-function exemplarAlternatives(example) {
-    if (example.includes('|'))
-        return example.split('|');
-    const slashParts = example.split('/');
-    if (slashParts.length > 1 && slashParts.every((part) => part.includes('…'))) {
-        return slashParts;
-    }
-    return [example];
-}
-function validateContractString(value, example, path, errors) {
-    if (!validateRequiredString(value, path, errors))
-        return;
-    if (example === '')
-        return;
-    const alternatives = exemplarAlternatives(example);
-    if (alternatives.some((alternative) => literalPattern(alternative).test(value)))
-        return;
-    errors.push(alternatives.length > 1
-        ? `${path} must match one of the Core literals ${alternatives.join(', ')}`
-        : `${path} must match the Core literal ${example}`);
-}
-function rationaleSentenceCount(value) {
-    const text = value.trim();
-    let count = 0;
-    for (let index = 0; index < text.length; index += 1) {
-        if (!'.!?'.includes(text[index]))
-            continue;
-        while (index + 1 < text.length && '.!?'.includes(text[index + 1]))
-            index += 1;
-        let next = index + 1;
-        while (next < text.length && `\"'”’)]}`.includes(text[next]))
-            next += 1;
-        if (next === text.length || /\s/u.test(text[next]))
-            count += 1;
-    }
-    return count;
-}
-function validateJudgmentRationale(value, path, errors) {
-    if (typeof value !== 'string' || !hasText(value))
-        return;
-    const trimmed = value.trim();
-    const sentenceCount = rationaleSentenceCount(trimmed);
-    if (!/[.!?]+["'”’)\]}]*$/u.test(trimmed) || sentenceCount < 1 || sentenceCount > 3) {
-        errors.push(`${path} must contain 1-3 complete sentences`);
-    }
-}
-function validateStringArray(value, path, errors) {
-    if (!Array.isArray(value)) {
-        errors.push(`${path} must be an array`);
-        return;
-    }
-    value.forEach((entry, index) => {
-        validateRequiredString(entry, `${path}[${String(index)}]`, errors);
-    });
-}
-function validateAgainstContractExemplar(value, example, path, errors) {
-    if (example === null) {
-        if (value !== null && !validateRequiredString(value, path, errors)) {
-            return;
-        }
-        return;
-    }
-    if (typeof example === 'string') {
-        validateContractString(value, example, path, errors);
-        return;
-    }
-    if (typeof example === 'number') {
-        if (typeof value !== 'number'
-            || !Number.isSafeInteger(value)
-            || Object.is(value, -0)
-            || (example >= 0 && value < 0)) {
-            errors.push(`${path} must be a non-negative safe integer`);
-        }
-        return;
-    }
-    if (typeof example === 'boolean') {
-        if (typeof value !== 'boolean')
-            errors.push(`${path} must be a boolean`);
-        return;
-    }
-    if (Array.isArray(example)) {
-        if (!Array.isArray(value)) {
-            errors.push(`${path} must be an array`);
-            return;
-        }
-        if (example.length > 0) {
-            value.forEach((entry, index) => (validateAgainstContractExemplar(entry, example[0], `${path}[${String(index)}]`, errors)));
-        }
-        else {
-            // Every empty array placeholder in the current canonical Core contracts
-            // is a string-valued collection. Treating it as arbitrary JSON would
-            // silently widen the exact contract.
-            validateStringArray(value, path, errors);
-        }
-        return;
-    }
-    if (isRecord(example)) {
-        if (!isRecord(value)) {
-            errors.push(`${path} must be an object`);
-            return;
-        }
-        const expectedKeys = Object.keys(example).sort();
-        const actualKeys = Object.keys(value).sort();
-        for (const key of expectedKeys.filter((key) => !actualKeys.includes(key))) {
-            errors.push(`${path}.${key} is missing`);
-        }
-        for (const key of actualKeys.filter((key) => !expectedKeys.includes(key))) {
-            errors.push(`${path}.${key} is not allowed`);
-        }
-        for (const key of expectedKeys.filter((key) => actualKeys.includes(key))) {
-            validateAgainstContractExemplar(value[key], example[key], `${path}.${key}`, errors);
-        }
-        if (expectedKeys.includes('flags') && actualKeys.includes('flags')) {
-            validateStringArray(value.flags, `${path}.flags`, errors);
-        }
-        if (expectedKeys.includes('rationale') && actualKeys.includes('rationale')) {
-            validateJudgmentRationale(value.rationale, `${path}.rationale`, errors);
-        }
-        return;
-    }
-    errors.push(`${path} has an unsupported Core contract exemplar`);
-}
 function parseRaw(raw) {
     if (Buffer.isBuffer(raw) || typeof raw === 'string') {
         const bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(raw, 'utf8');
@@ -322,6 +178,7 @@ export function validateWorkerReturn(options) {
         throw new Error('worker output contract selector is invalid');
     }
     const errors = [];
+    let canonicalValue = null;
     if (parsed.error) {
         errors.push(parsed.error);
     }
@@ -333,7 +190,9 @@ export function validateWorkerReturn(options) {
         catch (error) {
             throw new Error(`sealed Core output contract is invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
         }
-        validateAgainstContractExemplar(parsed.value, example, '$', errors);
+        const validation = validateWorkerReturnContract(parsed.bytes, example);
+        errors.push(...validation.errors);
+        canonicalValue = validation.canonicalValue;
     }
     const report = {
         format: LOA_WORKER_VALIDATION_FORMAT,
@@ -348,7 +207,7 @@ export function validateWorkerReturn(options) {
     if (errors.length > 0)
         return { report, validated: null };
     const validationDigest = sha256Digest(stableJsonBytes(report));
-    const validated = new ValidatedWorkerReturn(VALIDATED_TOKEN, request.call_id, parsed.value, rawDigest, contractDigest, validationDigest, options.dispatchReceipt.simulation);
+    const validated = new ValidatedWorkerReturn(VALIDATED_TOKEN, request.call_id, canonicalValue, rawDigest, contractDigest, validationDigest, options.dispatchReceipt.simulation);
     writeFileAtomic(join(returnRoot, 'validated.json'), validated.canonicalBytes());
     return {
         report,

@@ -17,9 +17,10 @@ defined by the [packaging contract](../packaging/README.md).
 Read:
 
 1. this overview;
-2. the [capability contract](capability-contract.md);
-3. the machine-readable [adapter manifest schema](adapter.schema.json); and
-4. the selected manifest in the [adapter catalog](../adapters/README.md).
+2. the host-neutral [runner capability contract](runner-capability-contract.md);
+3. the manifest-level [adapter capability contract](capability-contract.md);
+4. the machine-readable [adapter manifest schema](adapter.schema.json); and
+5. the selected manifest in the [adapter catalog](../adapters/README.md).
 
 ## The boundary
 
@@ -45,6 +46,11 @@ and installation requirements belong only to an adapter profile.
 An adapter must be independent of every other adapter. Its owned paths,
 manifest references, installation, and runtime may not name or require a
 foreign adapter.
+
+The [runner capability contract](runner-capability-contract.md) states the
+portable execution floor, makes serial dispatch explicitly conforming, and
+defines the Core-owned deterministic fallback for hosts without native
+schema-constrained output.
 
 ## Full-mode preflight
 

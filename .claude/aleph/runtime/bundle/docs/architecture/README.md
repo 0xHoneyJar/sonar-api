@@ -26,7 +26,9 @@ contracts, the pipeline with per-stage definitions of done, the agent
 orchestration invariants plus one Fable reference profile, the verification
 stack, the projection stage, operating manuals for agent mode and manual mode,
 and a slice-by-slice build roadmap. Core owns the invariants and evidence;
-adapters own host mechanics and profiles.
+adapters own host mechanics and profiles. The host-neutral execution floor is
+the
+[`runner capability contract`](../../adapter-protocol/runner-capability-contract.md).
 
 ## Reading order
 
@@ -36,7 +38,7 @@ adapters own host mechanics and profiles.
 | 2 | [`02-system-architecture.md`](02-system-architecture.md) | The layered system: doctrine plane, artifact substrate, engines, verification stack, runners, governance; run directory; ID scheme; run state machine |
 | 3 | [`03-artifact-contracts.md`](03-artifact-contracts.md) | Every artifact in the system: purpose, producer/consumer, provisional fields, invariants |
 | 4 | [`04-pipeline-stages-and-dod.md`](04-pipeline-stages-and-dod.md) | The stage graph S0–S13 and P1–P3, with inputs, outputs, blind-context rules, and a Definition of Done per stage |
-| 5 | [`05-orchestration-on-fable-5.md`](05-orchestration-on-fable-5.md) | A Fable adapter reference profile mapped onto Core orchestration invariants; its model, effort, cache, and batch choices are not universal |
+| 5 | [`05-orchestration-on-fable-5.md`](05-orchestration-on-fable-5.md) | The first Fable adapter reference profile mapped onto the host-neutral runner contract; its model, effort, cache, and batch choices are not universal |
 | 6 | [`06-verification-and-conformance.md`](06-verification-and-conformance.md) | The three verification tiers; conformance-kernel roadmap; verification-harness spec; golden replay protocol |
 | 7 | [`07-projection-stage.md`](07-projection-stage.md) | Tier-1/Tier-2 projection architecture, the projection-trace contract, per-projection DoD |
 | 8 | [`08-runbook-agent-mode.md`](08-runbook-agent-mode.md) | The operating manual an agent follows to execute a run |
