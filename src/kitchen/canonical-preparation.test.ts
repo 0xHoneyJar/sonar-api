@@ -269,6 +269,14 @@ describe("canonical collection preparation", () => {
       KITCHEN_WORKER_ENABLED: "true",
       KITCHEN_PREPARATION_DRAIN: "external_scale",
     })).toMatchObject({ available: true, mode: "belt_config_batch" });
+
+    expect(preparationRuntimeFromEnv({
+      NODE_ENV: "production",
+      KITCHEN_PREPARATION_PORT: "belt_config_batch",
+      KITCHEN_WORKER_ENABLED: "true",
+      KITCHEN_PREPARATION_DRAIN: "file",
+      KITCHEN_BELT_CONFIG_PATH: "/tmp/config.yaml",
+    })).toMatchObject({ available: true, mode: "belt_config_batch" });
   });
 
   it("separates process liveness from preparation readiness", async () => {

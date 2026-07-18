@@ -32,20 +32,22 @@ function workerFlagEnabled(env: NodeJS.ProcessEnv): boolean {
 export function preparationDrainStrategyFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): PreparationDrainStrategy {
+  const drain = env.KITCHEN_PREPARATION_DRAIN?.trim().toLowerCase();
+  // Explicit drain name wins when set (file|webhook|external_scale|external).
+  if (drain === "file") return "file";
+  if (drain === "webhook") return "webhook";
+  if (drain === "external_scale" || drain === "external") return "external_scale";
+
   const hasFile = Boolean(env.KITCHEN_BELT_CONFIG_PATH?.trim());
   const hasWebhook = Boolean(env.KITCHEN_BELT_CONFIG_PATCH_WEBHOOK?.trim());
-  const drain = env.KITCHEN_PREPARATION_DRAIN?.trim().toLowerCase();
-  // Alias "external" kept for ops shorthand; documented in CR-203.md.
-  const hasExternal = drain === "external_scale" || drain === "external";
-  const configured = [hasFile, hasWebhook, hasExternal].filter(Boolean).length;
+  const configured = [hasFile, hasWebhook].filter(Boolean).length;
   if (configured > 1) {
     console.warn(
-      "[kitchen] multiple drain strategies configured; precedence is file > webhook > external_scale",
+      "[kitchen] multiple drain strategy env vars set; precedence is file path > webhook URL (set KITCHEN_PREPARATION_DRAIN to choose explicitly)",
     );
   }
   if (hasFile) return "file";
   if (hasWebhook) return "webhook";
-  if (hasExternal) return "external_scale";
   return "none";
 }
 

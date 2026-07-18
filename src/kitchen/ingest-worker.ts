@@ -140,9 +140,9 @@ export function buildBeltConfigPatchPlan(jobs: IngestJobRecord[]): BeltConfigPat
 }
 
 function extractErrorCode(message: string, fallback: string): string {
-  if (!message.includes(":")) return fallback;
-  const code = message.split(":", 1)[0]?.trim() ?? "";
-  return code.length > 0 ? code : fallback;
+  // Only accept snake_case / identifier codes before the first colon.
+  const match = /^([a-z][a-z0-9_]{0,63}):/.exec(message);
+  return match?.[1] ?? fallback;
 }
 
 async function notifyIndexerRestart(): Promise<void> {
@@ -190,13 +190,24 @@ async function renewJobs(args: {
 }): Promise<IngestJobRecord[]> {
   const renewed: IngestJobRecord[] = [];
   for (const job of args.jobs) {
-    if (!job.leaseOwner || job.leaseUntilMs === undefined) continue;
+    if (!job.leaseOwner || job.leaseUntilMs === undefined) {
+      console.warn("[kitchen] skip renew — job %s missing lease", job.physicalJobId);
+      continue;
+    }
     const next = await args.store.renewLease({
       physicalJobId: job.physicalJobId,
       lease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
       nowMs: args.nowMs,
     });
     if (next) renewed.push(next);
+    else {
+      console.warn(
+        "[kitchen] renewLease CAS miss for %s (owner=%s epoch=%s)",
+        job.physicalJobId,
+        job.leaseOwner,
+        job.leaseEpoch,
+      );
+    }
   }
   return renewed;
 }
@@ -292,9 +303,7 @@ export async function processQueuedIngestBatch(args: {
   }
 
   try {
-    if (strategy === "file" || strategy === "none") {
-      // `none` should not reach here when runtime gates correctly; treat as file
-      // for hermetic local_config (default path config.yaml).
+    if (strategy === "file") {
       const applied = applyBeltConfigPatchesBatch({
         configPath: args.configPath ?? beltConfigPathFromEnv(),
         jobs: renewed,
@@ -318,6 +327,7 @@ export async function processQueuedIngestBatch(args: {
         await (args.restart ?? notifyIndexerRestart)();
       }
     } else {
+      // `none` and unknown strategies fail closed — never silently mutate config.
       throw new Error(`unsupported_drain: ${strategy}`);
     }
   } catch (error) {
@@ -468,16 +478,36 @@ export async function runKitchenIngestWorkerTick(args: {
     nowMs,
   });
   // One tick = one drain batch (single config rewrite / webhook / restart).
-  await processQueuedIngestBatch({
-    jobs: queued,
-    store: args.store,
-    configPath: args.configPath,
-    readFile: args.readFile,
-    writeFile: args.writeFile,
-    restart: args.restart,
-    nowMs,
-  });
-  await advanceQueuedJobsViaReadiness({ store: args.store, reader: args.reader, nowMs });
+  const runtime = preparationRuntimeFromEnv();
+  const drainStrategy = preparationDrainStrategyFromEnv();
+  // local_config hermetic seam implies file drain; production never invents one.
+  const effectiveDrain: PreparationDrainStrategy | null =
+    drainStrategy !== "none"
+      ? drainStrategy
+      : runtime.mode === "local_config"
+        ? "file"
+        : null;
+  if (effectiveDrain) {
+    await processQueuedIngestBatch({
+      jobs: queued,
+      store: args.store,
+      drainStrategy: effectiveDrain,
+      configPath: args.configPath,
+      readFile: args.readFile,
+      writeFile: args.writeFile,
+      restart: args.restart,
+      nowMs,
+    });
+  } else if (queued.length > 0) {
+    console.warn(
+      "[kitchen] claimed %d jobs but no drain strategy is configured — leaving queued",
+      queued.length,
+    );
+  }
+  // Queued→completed via Hasura is only for external_scale (ack optional shortcut).
+  if (effectiveDrain === "external_scale") {
+    await advanceQueuedJobsViaReadiness({ store: args.store, reader: args.reader, nowMs });
+  }
   await advanceIndexingJobs({ store: args.store, reader: args.reader, nowMs });
 }
 

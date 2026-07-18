@@ -15,7 +15,10 @@ import {
   decodeCanonicalPreparationRequest,
   decodeLegacyIngestRequest,
 } from "./protocol.js";
-import { UNAVAILABLE_PREPARATION_RUNTIME } from "./preparation-runtime.js";
+import {
+  preparationDrainStrategyFromEnv,
+  UNAVAILABLE_PREPARATION_RUNTIME,
+} from "./preparation-runtime.js";
 import {
   resolveProbeRuntimeFromEnv,
   type ResolveProbeRuntime,
@@ -428,6 +431,20 @@ export function createCanonicalPreparationRoutes(deps: {
           },
         },
         400,
+      );
+    }
+
+    // Ack is only meaningful when Kitchen is running the external_scale drain.
+    if (preparationDrainStrategyFromEnv() !== "external_scale") {
+      return c.json(
+        {
+          schema_version: 1,
+          error: {
+            code: "drain_mode_mismatch",
+            message: "ack requires KITCHEN_PREPARATION_DRAIN=external_scale on this Kitchen process",
+          },
+        },
+        409,
       );
     }
 
