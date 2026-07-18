@@ -10,6 +10,7 @@
     "dev": "envio dev",
     "start": "envio start",
     "test": "vitest run",
+    "test:belt": "vitest run --exclude test/events-publisher.test.ts --exclude test/canonical/emit.test.ts --exclude test/canonical/map-evm.test.ts --exclude test/canonical/map-svm.test.ts --exclude test/metadata-egress.browser-boundary.test.ts --exclude test/recognition-operations.hermetic.test.ts --exclude test/solana-das-adapter.hermetic.test.ts --exclude test/sqd-45-gate-integration.test.ts",
     "test:hasura": "vitest run test/hasura-contract",
     "test:gate": "vitest run test/sqd-45-gate-integration.test.ts",
     "test:collection-resolver": "vitest run test/collection-resolver.hermetic.test.ts",

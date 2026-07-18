@@ -28,7 +28,7 @@ sources:
       name: berachain
     - id: 7777777
       name: zora
-  contract_source_count: 40
+  contract_source_count: 41
   svm:
     lane: src/svm/*
     transport: webhook
