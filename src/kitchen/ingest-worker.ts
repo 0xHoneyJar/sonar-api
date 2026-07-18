@@ -24,6 +24,15 @@ export function kitchenBatchClaimLimitFromEnv(): number {
   return Math.min(BATCH_PREPARATION_MAX_ITEMS, Math.max(1, Math.floor(parsed)));
 }
 
+/** Per-tick scan depth for unleased queued → completed via Hasura readiness. */
+export function kitchenReadinessScanLimitFromEnv(): number {
+  const raw = process.env.KITCHEN_READINESS_SCAN_LIMIT?.trim();
+  if (!raw) return 500;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 500;
+  return Math.min(5_000, Math.max(1, Math.floor(parsed)));
+}
+
 /**
  * Async preparation stays off unless the operator explicitly selects a
  * preparation port. `local_config` is non-production only; production uses
@@ -147,6 +156,16 @@ function extractErrorCode(message: string, fallback: string): string {
   return match?.[1] ?? fallback;
 }
 
+async function webhookErrorDetail(response: Response, cap = 500): Promise<string> {
+  try {
+    const text = (await response.text()).trim();
+    if (!text) return "";
+    return `: ${text.slice(0, cap)}`;
+  } catch {
+    return "";
+  }
+}
+
 async function notifyIndexerRestart(): Promise<void> {
   const webhook = process.env.KITCHEN_INDEXER_RESTART_WEBHOOK?.trim();
   if (!webhook) return;
@@ -155,7 +174,8 @@ async function notifyIndexerRestart(): Promise<void> {
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
-    throw new Error(`indexer restart webhook HTTP ${response.status}`);
+    const detail = await webhookErrorDetail(response);
+    throw new Error(`indexer restart webhook HTTP ${response.status}${detail}`);
   }
 }
 
@@ -175,7 +195,8 @@ async function postBeltConfigPatchWebhook(plan: BeltConfigPatchPlanItem[]): Prom
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
-    throw new Error(`config patch webhook HTTP ${response.status}`);
+    const detail = await webhookErrorDetail(response);
+    throw new Error(`config patch webhook HTTP ${response.status}${detail}`);
   }
 }
 
@@ -365,22 +386,16 @@ export async function processQueuedIngestBatch(args: {
   try {
     await markBatchIndexing({ store: args.store, jobs: renewed, nowMs: args.nowMs });
   } catch (error) {
+    // Config/webhook already applied — never mark failed (would invite
+    // duplicate rematerialize on reclaim). Release leases; leave queued so
+    // readiness/ack or a later tick can advance status. Drain paths must be
+    // idempotent (file rewrite is; webhook handlers must tolerate repeats).
     const message = error instanceof Error ? error.message : String(error);
-    const errorCode = extractErrorCode(message, "status_advance_failed");
-    // Per-job: fail only those still queued; already-indexing jobs keep their
-    // lease/status and rely on the indexing timeout watchdog (BB F-002).
-    for (const job of renewed) {
-      if (!job.leaseOwner) continue;
-      const current = await args.store.getByPhysicalJobId(job.physicalJobId);
-      if (!current || current.status !== "queued") continue;
-      await args.store.updateStatus(job.physicalJobId, "failed", {
-        errorCode,
-        errorMessage: message,
-        nowMs: args.nowMs,
-        expectedLease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
-        expectedStatus: "queued",
-      });
-    }
+    console.warn(
+      "[kitchen] status_advance_failed after successful drain — releasing leases (%s)",
+      message,
+    );
+    await releaseBatchLeases({ store: args.store, jobs: renewed, nowMs: args.nowMs });
   }
 }
 
@@ -416,9 +431,9 @@ export async function advanceQueuedJobsViaReadiness(args: {
   nowMs?: number;
 }): Promise<void> {
   const nowMs = args.nowMs ?? Date.now();
-  // Wider than a single claim wave so external_scale backlogs still advance
-  // when Hasura is already ready (matches advanceIndexingJobs scan depth).
-  const jobs = await args.store.listByStatus("queued", 100);
+  // Wider than a claim wave so external_scale backlogs still advance when
+  // Hasura is already ready (override via KITCHEN_READINESS_SCAN_LIMIT).
+  const jobs = await args.store.listByStatus("queued", kitchenReadinessScanLimitFromEnv());
   for (const job of jobs) {
     if (!job.key) continue;
     // Skip actively leased jobs — worker owns them until release.

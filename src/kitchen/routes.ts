@@ -301,12 +301,12 @@ export function createCanonicalPreparationRoutes(deps: {
       );
     }
 
-    const results: Array<Record<string, unknown>> = [];
-    let created = 0;
-    let joined = 0;
-    let rejected = 0;
+    const results: Array<Record<string, unknown>> = new Array(body.items.length);
+    const admitConcurrency = Math.min(8, body.items.length);
+    let nextIndex = 0;
 
-    for (const [index, item] of body.items.entries()) {
+    const admitOne = async (index: number): Promise<void> => {
+      const item = body.items[index]!;
       const correlation = item.correlation ?? body.correlation;
       let deployment: CollectionDeploymentRef;
       try {
@@ -319,8 +319,7 @@ export function createCanonicalPreparationRoutes(deps: {
         );
       } catch (err) {
         console.error("[kitchen] batch item %d invalid_deployment", index, err);
-        rejected += 1;
-        results.push({
+        results[index] = {
           index,
           ok: false,
           error: {
@@ -328,8 +327,8 @@ export function createCanonicalPreparationRoutes(deps: {
             reason_class: "invalid_input",
             message: "network and address do not form a valid deployment",
           },
-        });
-        continue;
+        };
+        return;
       }
 
       let result: AdmissionResult;
@@ -351,8 +350,7 @@ export function createCanonicalPreparationRoutes(deps: {
         });
       } catch (err) {
         console.error("[kitchen] batch item %d admission error", index, err);
-        rejected += 1;
-        results.push({
+        results[index] = {
           index,
           ok: false,
           error: {
@@ -360,23 +358,44 @@ export function createCanonicalPreparationRoutes(deps: {
             reason_class: "internal",
             message: "collection preparation admission failed",
           },
-        });
-        continue;
+        };
+        return;
       }
 
       if (!result.ok) {
-        rejected += 1;
-        results.push({ index, ok: false, ...admissionError(result) });
-        continue;
+        results[index] = { index, ok: false, ...admissionError(result) };
+        return;
       }
-      if (result.created) created += 1;
-      else joined += 1;
-      results.push({
+      results[index] = {
         index,
         ok: true,
         created: result.created,
         job: canonicalJobResponse(result.job),
-      });
+      };
+    };
+
+    await Promise.all(
+      Array.from({ length: admitConcurrency }, async () => {
+        while (true) {
+          const index = nextIndex;
+          nextIndex += 1;
+          if (index >= body.items.length) return;
+          await admitOne(index);
+        }
+      }),
+    );
+
+    // Counters derived after concurrent admit — avoid racy += across awaits.
+    let created = 0;
+    let joined = 0;
+    let rejected = 0;
+    for (const row of results) {
+      if (!row || row.ok !== true) {
+        rejected += 1;
+        continue;
+      }
+      if (row.created === true) created += 1;
+      else joined += 1;
     }
 
     // Callers MUST inspect results[] — 202 does not imply zero rejects.
@@ -486,7 +505,7 @@ export function createCanonicalPreparationRoutes(deps: {
         });
         continue;
       }
-      // Re-read immediately before CAS to shrink lease TOCTOU window.
+      // Early exit to avoid a pointless CAS; expectedAbsentLease is the guard.
       const fresh = await deps.store.getByPhysicalJobId(physicalJobId);
       if (!fresh || fresh.status !== "queued" || fresh.leaseOwner) {
         skipped += 1;
@@ -518,8 +537,9 @@ export function createCanonicalPreparationRoutes(deps: {
       results.push({ physical_job_id: physicalJobId, ok: true, status: "indexing", advanced: true });
     }
 
+    const anyFailed = results.some((row) => row.ok === false);
     const httpStatus =
-      missing === ids.length ? 404 : missing > 0 || (advanced > 0 && skipped > 0) ? 207 : 200;
+      missing === ids.length ? 404 : anyFailed || (advanced > 0 && skipped > 0) ? 207 : 200;
     return c.json(
       {
         schema_version: 1 as const,

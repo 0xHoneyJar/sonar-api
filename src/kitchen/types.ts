@@ -144,26 +144,11 @@ export interface PreparationRuntimeState {
   reason: string;
 }
 
-/** One deployment in a batch admit request (canonical v2 item). */
-export interface BatchPreparationItemRequest {
-  network: NetworkRef;
-  address: string;
-  token_standard: TokenStandard;
-  correlation?: {
-    source: string;
-    correlation_id: string;
-  };
-}
-
-export interface BatchPreparationRequest {
-  schema_version: 1;
-  items: BatchPreparationItemRequest[];
-  /** Optional batch-level correlation; per-item correlation wins when both set. */
-  correlation?: {
-    source: string;
-    correlation_id: string;
-  };
-}
+/** Derived from Effect Schema — do not hand-edit field shapes. */
+export type {
+  BatchPreparationItemRequest,
+  BatchPreparationRequest,
+} from "./protocol.js";
 
 export interface WorkerLease {
   owner: string;

@@ -83,6 +83,9 @@ export const BatchPreparationRequestSchema = Schema.Struct({
   ),
 });
 
+export type BatchPreparationItemRequest = Schema.Schema.Type<typeof BatchPreparationItemSchema>;
+export type BatchPreparationRequest = Schema.Schema.Type<typeof BatchPreparationRequestSchema>;
+
 const decodeCanonical = Schema.decodeUnknown(CanonicalPreparationRequestSchema, strict);
 const decodeCanonicalResponse = Schema.decodeUnknown(CanonicalPreparationResponseSchema, strict);
 const decodeBatch = Schema.decodeUnknown(BatchPreparationRequestSchema, strict);
