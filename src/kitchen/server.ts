@@ -42,7 +42,7 @@ createKitchenServer()
       console.log("kitchen ingest worker enabled");
     } else if (process.env.KITCHEN_WORKER_ENABLED) {
       console.warn(
-        "kitchen ingest worker requested but disabled: KITCHEN_PREPARATION_PORT must name an explicit preparation seam",
+        "kitchen ingest worker requested but disabled: set KITCHEN_PREPARATION_PORT=belt_config_batch (with a drain strategy) or local_config (non-prod)",
       );
     }
     serve({ fetch: app.fetch, port }, () => {

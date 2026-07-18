@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto";
 
 import { patchConfigForKitchenIngest } from "./config-patcher.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
-import { preparationRuntimeFromEnv } from "./preparation-runtime.js";
+import {
+  preparationDrainStrategyFromEnv,
+  preparationRuntimeFromEnv,
+  type PreparationDrainStrategy,
+} from "./preparation-runtime.js";
 import { isIndexedSnapshotReady, type CollectionStatusReader } from "./status.js";
 import type { IngestJobRecord } from "./types.js";
 
@@ -11,15 +15,20 @@ export function beltConfigPathFromEnv(): string {
   return process.env.KITCHEN_BELT_CONFIG_PATH?.trim() || "config.yaml";
 }
 
+export function kitchenBatchClaimLimitFromEnv(): number {
+  const parsed = Number(process.env.KITCHEN_BATCH_CLAIM_LIMIT ?? 50);
+  if (!Number.isFinite(parsed)) return 50;
+  return Math.min(50, Math.max(1, Math.floor(parsed)));
+}
+
 /**
- * Async preparation stays off unless the operator explicitly selects the local
- * config seam. This seam is useful for hermetic proof but is not a production
- * deployment port.
+ * Async preparation stays off unless the operator explicitly selects a
+ * preparation port. `local_config` is non-production only; production uses
+ * `belt_config_batch` with an explicit drain strategy.
  */
 export function kitchenWorkerEnabled(): boolean {
-  const raw = process.env.KITCHEN_WORKER_ENABLED?.trim().toLowerCase();
-  const requested = raw === "1" || raw === "true" || raw === "yes";
-  return requested && preparationRuntimeFromEnv().mode === "local_config";
+  const mode = preparationRuntimeFromEnv().mode;
+  return mode === "local_config" || mode === "belt_config_batch";
 }
 
 export function kitchenWorkerIntervalMs(): number {
@@ -43,32 +52,94 @@ export function applyBeltConfigPatch(args: {
   readFile?: (path: string) => string;
   writeFile?: (path: string, contents: string) => void;
 }): { changed: boolean } {
-  if (args.job.tokenStandard !== "erc721" || !args.job.key) {
-    throw new Error(`unsupported_standard: ${args.job.tokenStandard} cannot mutate Belt config`);
-  }
-  if (
-    args.job.prepareAdapterId !== "belt.eth-erc721" &&
-    args.job.prepareAdapterId !== "belt.evm-erc721"
-  ) {
-    throw new Error(`unsupported_adapter: ${args.job.prepareAdapterId}`);
+  const result = applyBeltConfigPatchesBatch({
+    configPath: args.configPath,
+    jobs: [args.job],
+    readFile: args.readFile,
+    writeFile: args.writeFile,
+  });
+  return { changed: result.changed };
+}
+
+/** Apply many ERC-721 Tracked* address patches in one config rewrite. */
+export function applyBeltConfigPatchesBatch(args: {
+  configPath: string;
+  jobs: IngestJobRecord[];
+  readFile?: (path: string) => string;
+  writeFile?: (path: string, contents: string) => void;
+}): { changed: boolean; patchedJobIds: string[] } {
+  // Validate the whole batch before touching the filesystem so a bad item
+  // cannot leave a partial rewrite and never triggers a spurious read.
+  for (const job of args.jobs) {
+    if (job.tokenStandard !== "erc721" || !job.key) {
+      throw new Error(`unsupported_standard: ${job.tokenStandard} cannot mutate Belt config`);
+    }
+    if (
+      job.prepareAdapterId !== "belt.eth-erc721" &&
+      job.prepareAdapterId !== "belt.evm-erc721"
+    ) {
+      throw new Error(`unsupported_adapter: ${job.prepareAdapterId}`);
+    }
   }
 
   const readFile = args.readFile ?? ((path: string) => readFileSync(path, "utf8"));
   const writeFile = args.writeFile ?? ((path: string, contents: string) => {
     writeFileSync(path, contents, "utf8");
   });
-  const current = readFile(args.configPath);
-  const { changed, configYaml } = patchConfigForKitchenIngest({
-    configYaml: current,
-    key: args.job.key,
-    label: deterministicJobLabel(args.job),
-    contractName:
-      args.job.prepareAdapterId === "belt.eth-erc721"
-        ? "EthTrackedErc721"
-        : "TrackedErc721",
-  });
+
+  let configYaml = readFile(args.configPath);
+  let changed = false;
+  const patchedJobIds: string[] = [];
+
+  for (const job of args.jobs) {
+    const patched = patchConfigForKitchenIngest({
+      configYaml,
+      key: job.key!,
+      label: deterministicJobLabel(job),
+      contractName:
+        job.prepareAdapterId === "belt.eth-erc721" ? "EthTrackedErc721" : "TrackedErc721",
+    });
+    if (patched.changed) {
+      changed = true;
+      configYaml = patched.configYaml;
+      patchedJobIds.push(job.physicalJobId);
+    }
+  }
+
   if (changed) writeFile(args.configPath, configYaml);
-  return { changed };
+  return { changed, patchedJobIds };
+}
+
+export type BeltConfigPatchPlanItem = {
+  physical_job_id: string;
+  chain_id: number;
+  contract: `0x${string}`;
+  label: string;
+  contract_name: "EthTrackedErc721" | "TrackedErc721";
+};
+
+export function buildBeltConfigPatchPlan(jobs: IngestJobRecord[]): BeltConfigPatchPlanItem[] {
+  const items: BeltConfigPatchPlanItem[] = [];
+  for (const job of jobs) {
+    if (job.tokenStandard !== "erc721" || !job.key) {
+      throw new Error(`unsupported_standard: ${job.tokenStandard} cannot mutate Belt config`);
+    }
+    if (
+      job.prepareAdapterId !== "belt.eth-erc721" &&
+      job.prepareAdapterId !== "belt.evm-erc721"
+    ) {
+      throw new Error(`unsupported_adapter: ${job.prepareAdapterId}`);
+    }
+    items.push({
+      physical_job_id: job.physicalJobId,
+      chain_id: job.key.chainId,
+      contract: job.key.contract,
+      label: deterministicJobLabel(job),
+      contract_name:
+        job.prepareAdapterId === "belt.eth-erc721" ? "EthTrackedErc721" : "TrackedErc721",
+    });
+  }
+  return items;
 }
 
 async function notifyIndexerRestart(): Promise<void> {
@@ -80,6 +151,138 @@ async function notifyIndexerRestart(): Promise<void> {
   }
 }
 
+async function postBeltConfigPatchWebhook(plan: BeltConfigPatchPlanItem[]): Promise<void> {
+  const webhook = process.env.KITCHEN_BELT_CONFIG_PATCH_WEBHOOK?.trim();
+  if (!webhook) {
+    throw new Error("missing_patch_webhook: KITCHEN_BELT_CONFIG_PATCH_WEBHOOK is required");
+  }
+  const response = await /* @non-metadata-fetch kitchen patch webhook */ fetch(webhook, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      schema_version: 1,
+      drain: "belt_config_batch",
+      patches: plan,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`config patch webhook HTTP ${response.status}`);
+  }
+}
+
+async function renewJobs(args: {
+  store: IngestJobStorePort;
+  jobs: IngestJobRecord[];
+  nowMs?: number;
+}): Promise<IngestJobRecord[]> {
+  const renewed: IngestJobRecord[] = [];
+  for (const job of args.jobs) {
+    if (!job.leaseOwner || job.leaseUntilMs === undefined) continue;
+    const next = await args.store.renewLease({
+      physicalJobId: job.physicalJobId,
+      lease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
+      nowMs: args.nowMs,
+    });
+    if (next) renewed.push(next);
+  }
+  return renewed;
+}
+
+async function markBatchIndexing(args: {
+  store: IngestJobStorePort;
+  jobs: IngestJobRecord[];
+  nowMs?: number;
+}): Promise<void> {
+  for (const job of args.jobs) {
+    if (!job.leaseOwner) continue;
+    await args.store.updateStatus(job.physicalJobId, "indexing", {
+      nowMs: args.nowMs,
+      expectedLease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
+      expectedStatus: "queued",
+    });
+  }
+}
+
+async function markBatchFailed(args: {
+  store: IngestJobStorePort;
+  jobs: IngestJobRecord[];
+  errorCode: string;
+  errorMessage: string;
+  nowMs?: number;
+}): Promise<void> {
+  for (const job of args.jobs) {
+    if (!job.leaseOwner) continue;
+    await args.store.updateStatus(job.physicalJobId, "failed", {
+      errorCode: args.errorCode,
+      errorMessage: args.errorMessage,
+      nowMs: args.nowMs,
+      expectedLease: { owner: job.leaseOwner, epoch: job.leaseEpoch },
+      expectedStatus: "queued",
+    });
+  }
+}
+
+/**
+ * Drain one claimed batch: single config materialization + single restart.
+ * Prefer this over per-job processQueuedIngestJob for production scaling.
+ */
+export async function processQueuedIngestBatch(args: {
+  jobs: IngestJobRecord[];
+  store: IngestJobStorePort;
+  drainStrategy?: PreparationDrainStrategy;
+  configPath?: string;
+  readFile?: (path: string) => string;
+  writeFile?: (path: string, contents: string) => void;
+  restart?: () => Promise<void>;
+  postPatchWebhook?: (plan: BeltConfigPatchPlanItem[]) => Promise<void>;
+  nowMs?: number;
+}): Promise<void> {
+  if (args.jobs.length === 0) return;
+
+  const renewed = await renewJobs({
+    store: args.store,
+    jobs: args.jobs,
+    nowMs: args.nowMs,
+  });
+  if (renewed.length === 0) return;
+
+  const strategy = args.drainStrategy ?? preparationDrainStrategyFromEnv();
+  try {
+    if (strategy === "file" || strategy === "none") {
+      // `none` should not reach here when runtime gates correctly; treat as file
+      // for hermetic local_config (default path config.yaml).
+      applyBeltConfigPatchesBatch({
+        configPath: args.configPath ?? beltConfigPathFromEnv(),
+        jobs: renewed,
+        readFile: args.readFile,
+        writeFile: args.writeFile,
+      });
+      await (args.restart ?? notifyIndexerRestart)();
+    } else if (strategy === "webhook") {
+      const plan = buildBeltConfigPatchPlan(renewed);
+      await (args.postPatchWebhook ?? postBeltConfigPatchWebhook)(plan);
+      await (args.restart ?? notifyIndexerRestart)();
+    } else if (strategy === "external_scale") {
+      // Config applied out-of-band (SCALE PR / blue-green). Kitchen only
+      // advances durable job state so readiness can complete the batch.
+    } else {
+      throw new Error(`unsupported_drain: ${strategy}`);
+    }
+    await markBatchIndexing({ store: args.store, jobs: renewed, nowMs: args.nowMs });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const errorCode = message.includes(":") ? message.split(":", 1)[0] : "preparation_failed";
+    await markBatchFailed({
+      store: args.store,
+      jobs: renewed,
+      errorCode,
+      errorMessage: message,
+      nowMs: args.nowMs,
+    });
+  }
+}
+
+/** @deprecated Prefer processQueuedIngestBatch — kept for unit tests of single-job adapters. */
 export async function processQueuedIngestJob(args: {
   job: IngestJobRecord;
   store: IngestJobStorePort;
@@ -89,39 +292,16 @@ export async function processQueuedIngestJob(args: {
   restart?: () => Promise<void>;
   nowMs?: number;
 }): Promise<void> {
-  const configPath = args.configPath ?? beltConfigPathFromEnv();
-  if (!args.job.leaseOwner || args.job.leaseUntilMs === undefined) return;
-  const lease = { owner: args.job.leaseOwner, epoch: args.job.leaseEpoch };
-  const renewed = await args.store.renewLease({
-    physicalJobId: args.job.physicalJobId,
-    lease,
+  await processQueuedIngestBatch({
+    jobs: [args.job],
+    store: args.store,
+    drainStrategy: "file",
+    configPath: args.configPath,
+    readFile: args.readFile,
+    writeFile: args.writeFile,
+    restart: args.restart,
     nowMs: args.nowMs,
   });
-  if (!renewed) return;
-  try {
-    applyBeltConfigPatch({
-      configPath,
-      job: renewed,
-      readFile: args.readFile,
-      writeFile: args.writeFile,
-    });
-    await (args.restart ?? notifyIndexerRestart)();
-    await args.store.updateStatus(args.job.physicalJobId, "indexing", {
-      nowMs: args.nowMs,
-      expectedLease: lease,
-      expectedStatus: "queued",
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const errorCode = message.includes(":") ? message.split(":", 1)[0] : "preparation_failed";
-    await args.store.updateStatus(args.job.physicalJobId, "failed", {
-      errorCode,
-      errorMessage: message,
-      nowMs: args.nowMs,
-      expectedLease: lease,
-      expectedStatus: "queued",
-    });
-  }
 }
 
 export async function advanceIndexingJobs(args: {
@@ -180,20 +360,19 @@ export async function runKitchenIngestWorkerTick(args: {
   await args.store.reconcileUnbackfilledActiveJobs(nowMs);
   const queued = await args.store.claimQueued({
     workerId: args.workerId ?? `kitchen-${randomUUID()}`,
-    limit: 10,
+    limit: kitchenBatchClaimLimitFromEnv(),
     nowMs,
   });
-  for (const job of queued) {
-    await processQueuedIngestJob({
-      job,
-      store: args.store,
-      configPath: args.configPath,
-      readFile: args.readFile,
-      writeFile: args.writeFile,
-      restart: args.restart,
-      nowMs,
-    });
-  }
+  // One tick = one drain batch (single config rewrite / webhook / restart).
+  await processQueuedIngestBatch({
+    jobs: queued,
+    store: args.store,
+    configPath: args.configPath,
+    readFile: args.readFile,
+    writeFile: args.writeFile,
+    restart: args.restart,
+    nowMs,
+  });
   await advanceIndexingJobs({ store: args.store, reader: args.reader, nowMs });
 }
 

@@ -1,4 +1,7 @@
-import type { CollectionDeploymentRef, NetworkRef } from "../collection-resolver/protocol.js";
+import type {
+  CollectionDeploymentRef,
+  NetworkRef,
+} from "../collection-resolver/protocol.js";
 
 export type CollectionIndexStatus = "missing" | "indexing" | "indexed" | "failed";
 export type IngestJobStatus = "queued" | "indexing" | "completed" | "failed";
@@ -137,8 +140,29 @@ export interface MigrationAuthorityState {
 
 export interface PreparationRuntimeState {
   available: boolean;
-  mode: "unavailable" | "local_config" | "injected";
+  mode: "unavailable" | "local_config" | "injected" | "belt_config_batch";
   reason: string;
+}
+
+/** One deployment in a batch admit request (canonical v2 item). */
+export interface BatchPreparationItemRequest {
+  network: NetworkRef;
+  address: string;
+  token_standard: TokenStandard;
+  correlation?: {
+    source: string;
+    correlation_id: string;
+  };
+}
+
+export interface BatchPreparationRequest {
+  schema_version: 1;
+  items: BatchPreparationItemRequest[];
+  /** Optional batch-level correlation; per-item correlation wins when both set. */
+  correlation?: {
+    source: string;
+    correlation_id: string;
+  };
 }
 
 export interface WorkerLease {

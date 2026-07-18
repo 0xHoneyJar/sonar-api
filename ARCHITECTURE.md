@@ -11,14 +11,17 @@
   operation-scoped `ownership_index.v1` capability version. Legacy EVM routes
   and `/v2/collection-preparations` join through one admission transaction;
   subscriber/order correlations are stored separately from physical work.
-- The background ingest worker requires both `KITCHEN_WORKER_ENABLED=true` and
-  the explicit `KITCHEN_PREPARATION_PORT=local_config` seam. This proves
-  ERC-721 adapter selection and leasing hermetically, but is not a production
-  config/deploy port. `/health` remains process liveness; production admission
-  and `/ready` remain unavailable until a durable preparation drain port exists,
-  so requests are not accepted into an immortal queue. Ethereum uses `EthTrackedErc721`; other supported EVM
-  networks use `TrackedErc721`. ERC-1155 and Solana preparation fail typed
-  without mutation.
+- The background ingest worker requires `KITCHEN_WORKER_ENABLED=true` and an
+  explicit preparation port. `local_config` is the hermetic non-production seam.
+  Production uses `KITCHEN_PREPARATION_PORT=belt_config_batch` with a drain
+  strategy (`KITCHEN_BELT_CONFIG_PATH`, `KITCHEN_BELT_CONFIG_PATCH_WEBHOOK`, or
+  `KITCHEN_PREPARATION_DRAIN=external_scale`). The worker claims a batch and
+  materializes it once (single config rewrite / webhook / restart). Operators
+  may also `POST /v2/collection-preparations/batch` (1–50 items) so admission
+  is one round-trip. `/health` remains process liveness; `/ready` follows drain
+  availability so jobs are never accepted into an immortal queue. Ethereum uses
+  `EthTrackedErc721`; other supported EVM networks use `TrackedErc721`. ERC-1155
+  and Solana preparation fail typed without mutation.
 - Bearer auth via `SERVICE_TOKEN`
 
 **Public GraphQL:** `belt-gateway` (Caddy) → `belt-hasura-selfhost` → `/v1/graphql`

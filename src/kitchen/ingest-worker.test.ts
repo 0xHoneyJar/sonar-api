@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { MemoryIngestJobStore } from "./ingest-store.js";
 import {
   applyBeltConfigPatch,
+  applyBeltConfigPatchesBatch,
   advanceIndexingJobs,
+  processQueuedIngestBatch,
   processQueuedIngestJob,
   runKitchenIngestWorkerTick,
 } from "./ingest-worker.js";
@@ -228,6 +230,54 @@ describe("ingest-worker", () => {
       expectedLease: { owner: "stale-worker", epoch: stale.leaseEpoch },
     });
     expect(stalePublish).toBeUndefined();
+  });
+
+  it("drains many queued jobs as one config rewrite and one restart", async () => {
+    const store = new MemoryIngestJobStore();
+    const keys = [
+      { chainId: 1, contract: "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d" as const },
+      { chainId: 1, contract: "0x60e4d786628fea6478f785a6d7e704777c86a7c6" as const },
+      { chainId: 1, contract: "0xba30e5f9bb24c19c9002c35c7098ad4a0f7ff53b" as const },
+    ];
+    for (const [i, key] of keys.entries()) {
+      await store.upsertQueued(key, { order_id: `order-${i}`, source: "cr-ops-idx-w1" });
+    }
+    const claimed = await store.claimQueued({ workerId: "batch-worker", limit: 10 });
+    expect(claimed).toHaveLength(3);
+
+    let writes = 0;
+    let restarts = 0;
+    let written = ETH_CONFIG;
+    await processQueuedIngestBatch({
+      jobs: claimed,
+      store,
+      drainStrategy: "file",
+      readFile: () => written,
+      writeFile: (_path, contents) => {
+        writes += 1;
+        written = contents;
+      },
+      restart: async () => {
+        restarts += 1;
+      },
+    });
+
+    expect(writes).toBe(1);
+    expect(restarts).toBe(1);
+    for (const key of keys) {
+      expect(written.toLowerCase()).toContain(key.contract);
+      expect((await store.get(key))?.status).toBe("indexing");
+    }
+
+    const batchResult = applyBeltConfigPatchesBatch({
+      configPath: "ignored",
+      jobs: claimed,
+      readFile: () => written,
+      writeFile: () => {
+        throw new Error("idempotent batch must not rewrite");
+      },
+    });
+    expect(batchResult.changed).toBe(false);
   });
 
   it("lets the first terminal coordinator result win", async () => {

@@ -256,6 +256,19 @@ describe("canonical collection preparation", () => {
       KITCHEN_PREPARATION_PORT: "local_config",
       KITCHEN_WORKER_ENABLED: "true",
     })).toMatchObject({ available: false, mode: "unavailable" });
+
+    expect(preparationRuntimeFromEnv({
+      NODE_ENV: "production",
+      KITCHEN_PREPARATION_PORT: "belt_config_batch",
+      KITCHEN_WORKER_ENABLED: "true",
+    })).toMatchObject({ available: false, mode: "unavailable" });
+
+    expect(preparationRuntimeFromEnv({
+      NODE_ENV: "production",
+      KITCHEN_PREPARATION_PORT: "belt_config_batch",
+      KITCHEN_WORKER_ENABLED: "true",
+      KITCHEN_PREPARATION_DRAIN: "external_scale",
+    })).toMatchObject({ available: true, mode: "belt_config_batch" });
   });
 
   it("separates process liveness from preparation readiness", async () => {
@@ -326,6 +339,75 @@ describe("canonical collection preparation", () => {
       KITCHEN_PREPARATION_PORT: "local_config",
       KITCHEN_WORKER_ENABLED: "true",
     })).toMatchObject({ available: true, mode: "local_config" });
+  });
+
+  it("batch-admits many deployments in one request", async () => {
+    const app = createKitchenApp({
+      store,
+      reader,
+      preparationRuntime: INJECTED_PREPARATION_RUNTIME,
+    });
+    const addresses = [
+      "0x4b08a069381efbb9f08c73d6b2e975c9be3c4684",
+      "0x8d4972bd5d2df474e71da6676a365fb549853991",
+      "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
+    ];
+    const res = await app.request("/v2/collection-preparations/batch", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        schema_version: 1,
+        correlation: { source: "cr-ops-idx-w1", correlation_id: "batch-fixture" },
+        items: addresses.map((address, i) => ({
+          network: {
+            schema_version: 1,
+            network_namespace: "eip155",
+            network_reference: i === 2 ? "1" : "80094",
+          },
+          address,
+          token_standard: "erc721",
+        })),
+      }),
+    });
+    expect(res.status).toBe(202);
+    const body = await res.json();
+    expect(body.batch).toEqual({
+      requested: 3,
+      created: 3,
+      joined: 0,
+      rejected: 0,
+    });
+    expect(body.results).toHaveLength(3);
+    expect(body.results.every((r: { ok: boolean }) => r.ok)).toBe(true);
+
+    const replay = await app.request("/v2/collection-preparations/batch", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        schema_version: 1,
+        items: [
+          {
+            network: {
+              schema_version: 1,
+              network_namespace: "eip155",
+              network_reference: "80094",
+            },
+            address: addresses[0],
+            token_standard: "erc721",
+          },
+        ],
+      }),
+    });
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({
+      batch: { requested: 1, created: 0, joined: 1, rejected: 0 },
+    });
   });
 
   it("leases one queued job to only one worker", async () => {

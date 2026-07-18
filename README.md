@@ -51,10 +51,13 @@ curl -s -X POST https://sonar.0xhoneyjar.xyz/v1/graphql \
 ```
 
 ```bash
-# 4. Kitchen: is a collection indexed? then enqueue one for indexing
-curl -s https://sonar.0xhoneyjar.xyz/v1/collections/1/0xed5af388653567af2f388e6224dcc93746104133/status
-curl -s -X POST https://sonar.0xhoneyjar.xyz/v1/collections/1/0x.../ingest \
-  -H "authorization: Bearer $SERVICE_TOKEN"
+# 4. Kitchen: is a collection indexed? then enqueue (prefer kitchen-api base URL)
+curl -s -H "authorization: Bearer $SERVICE_TOKEN" \
+  https://kitchen-api-production-1937.up.railway.app/v1/collections/1/0xed5af388653567af2f388e6224dc7c4b3241c544/status
+# Batch admit (preferred for multi-collection waves; 1–50 items)
+curl -s -X POST https://kitchen-api-production-1937.up.railway.app/v2/collection-preparations/batch \
+  -H "authorization: Bearer $SERVICE_TOKEN" -H "content-type: application/json" \
+  -d '{"schema_version":1,"correlation":{"source":"ops","correlation_id":"w1"},"items":[{"network":{"schema_version":1,"network_namespace":"eip155","network_reference":"1"},"address":"0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d","token_standard":"erc721"}]}'
 ```
 
 ---

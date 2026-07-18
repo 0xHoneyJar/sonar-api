@@ -10,6 +10,7 @@ import { requireServiceToken } from "./auth.js";
 import { resolvePreparationCapability } from "./capability.js";
 import { collectionKeyFromParams, deploymentFromCollectionKey } from "./normalize.js";
 import {
+  decodeBatchPreparationRequest,
   decodeCanonicalPreparationRequest,
   decodeLegacyIngestRequest,
 } from "./protocol.js";
@@ -264,6 +265,127 @@ export function createCanonicalPreparationRoutes(deps: {
 
     if (!result.ok) return c.json(admissionError(result), admissionHttpStatus(result));
     return c.json(canonicalJobResponse(result.job), result.created ? 202 : 200);
+  });
+
+  /**
+   * Batch admit — one HTTP round-trip for many deployments.
+   * Physical identity remains one job per deployment; the drain worker
+   * materializes the whole claim set as a single Belt config batch.
+   */
+  routes.post("/batch", async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ schema_version: 1, error: { code: "invalid_request", message: "request body must be JSON" } }, 400);
+    }
+
+    let body;
+    try {
+      body = await decodeBatchPreparationRequest(raw);
+    } catch {
+      return c.json(
+        {
+          schema_version: 1,
+          error: {
+            code: "invalid_request",
+            message: "batch request does not match schema version 1 (1–50 items)",
+          },
+        },
+        400,
+      );
+    }
+
+    const results: Array<Record<string, unknown>> = [];
+    let created = 0;
+    let joined = 0;
+    let rejected = 0;
+
+    for (const [index, item] of body.items.entries()) {
+      const correlation = item.correlation ?? body.correlation;
+      let deployment: CollectionDeploymentRef;
+      try {
+        deployment = await Effect.runPromise(
+          makeCollectionDeploymentRef({
+            schema_version: COLLECTION_PROTOCOL_SCHEMA_VERSION,
+            network: item.network,
+            address: item.address,
+          }),
+        );
+      } catch {
+        rejected += 1;
+        results.push({
+          index,
+          ok: false,
+          error: {
+            code: "invalid_deployment",
+            reason_class: "invalid_input",
+            message: "network and address do not form a valid deployment",
+          },
+        });
+        continue;
+      }
+
+      let result: AdmissionResult;
+      try {
+        result = await admitCanonical({
+          store: deps.store,
+          capabilityResolver,
+          preparationRuntime,
+          deployment,
+          tokenStandard: item.token_standard,
+          ...(correlation
+            ? {
+                correlation: {
+                  source: correlation.source,
+                  correlationId: correlation.correlation_id,
+                },
+              }
+            : {}),
+        });
+      } catch {
+        rejected += 1;
+        results.push({
+          index,
+          ok: false,
+          error: {
+            code: "admission_failed",
+            reason_class: "internal",
+            message: "collection preparation admission failed",
+          },
+        });
+        continue;
+      }
+
+      if (!result.ok) {
+        rejected += 1;
+        results.push({ index, ok: false, ...admissionError(result) });
+        continue;
+      }
+      if (result.created) created += 1;
+      else joined += 1;
+      results.push({
+        index,
+        ok: true,
+        created: result.created,
+        job: canonicalJobResponse(result.job),
+      });
+    }
+
+    const status = created > 0 ? 202 : rejected === body.items.length ? 422 : 200;
+    return c.json(
+      {
+        schema_version: 1 as const,
+        batch: {
+          requested: body.items.length,
+          created,
+          joined,
+          rejected,
+        },
+        results,
+      },
+      status,
+    );
   });
 
   routes.get("/:physical_job_id", async (c) => {

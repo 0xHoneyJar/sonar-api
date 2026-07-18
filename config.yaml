@@ -610,6 +610,22 @@ chains:
       - name: EthTrackedErc721
         address:
           - 0xed5af388653567af2f388e6224dc7c4b3241c544 # azuki (canonical, verified on Etherscan)
+          # CR-OPS-IDX W1 hot-set (2026-07-18) — one SCALE batch; Kitchen admits via
+          # POST /v2/collection-preparations/batch + belt_config_batch drain.
+          - 0x306b1ea3ecdf94ab739f1910bbda052ed4a9f949 # azuki BEANZ Official
+          - 0xb6a37b5d14d502c3ab0ae6f3a0e058bc9517786e # azuki Elementals
+          - 0x2079812353e2c9409a788fbf5f383fa62ad85be8 # azuki Bobu the Bean Farmer
+          - 0xb47e3cd837ddf8e4c57f05d70ab865de6e193bbb # cryptopunks (CryptoPunks — non-standard Transfer; may need dedicated handler)
+          - 0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d # yuga Bored Ape Yacht Club
+          - 0x60e4d786628fea6478f785a6d7e704777c86a7c6 # yuga Mutant Ape Yacht Club
+          - 0xba30e5f9bb24c19c9002c35c7098ad4a0f7ff53b # yuga Bored Ape Kennel Club
+          - 0xbd3531da5cf5857e7cfaa92426877b022e612cf8 # pudgy-penguins Pudgy Penguins
+          - 0x524cab2ec69124574082676e6f654a18df49a048 # pudgy-penguins Lil Pudgys
+          - 0xd3d9ddd0cf0a5f0bfb8f7fceae075df687eaebab # remilia Redacted Remilio Babies
+          - 0x8a90cab2b38dba80c64b7734e58ee1db38b8992e # doodles Doodles
+          - 0x23581767a106ae21c074b2276d25e5c3e136a68b # moonbirds Moonbirds
+          - 0x9c8ff314c9bc7f6e59a9d9225fb22946427edc03 # nouns Nouns
+          - 0x79fcdef22feed20eddacbb2587640e45491b757f # mfers
       # Seaport — OpenSea marketplace, mainnet Azuki secondary sales (FR-6a).
       # Handler filters OrderFulfilled to TRACKED_COLLECTIONS (seaport.ts).
       # OrderFulfilled ABI is stable across Seaport versions, so one handler
@@ -789,6 +805,19 @@ chains:
           - 0xaaB7b4502251aE393D0590bAB3e208E2d58F4813 # fracture #8: mireveal_6_6
           - 0xc64126EA8dC7626c16daA2A29D375C33fcaa4C7c # fracture #9: mireveal_7_7
           - 0x24F4047d372139de8DACbe79e2fC576291Ec3ffc # fracture #10: mireveal_8_8
+
+          # ----- CR-OPS-IDX W1 Fractured Mibera (seed addresses; distinct from SBFT set above) -----
+          - 0x6956dae88C00372B1A0b2dfBfE5Eed19F85b0D4B # Fractured Mibera 1
+          - 0x77ec6B83495974a5B2C5BEf943b0f2e5aCd8Fc26 # Fractured Mibera 3
+          - 0xc557Bf6C7d21BA98A40dDfE2BEAbA682C49D17A9 # Fractured Mibera 4
+          - 0xbcb082bB41E892f29d9c600eaadEA698d5f712Ef # Fractured Mibera 5
+          - 0x2030f226Bf9a0c88687e83AcCdcEfb7Dae260094 # Fractured Mibera 6
+          - 0xcc426F9375c5edcef5CA6bDb0449c07113348cF7 # Fractured Mibera 7
+          - 0xF68f40230E39067Ee7c98Fe9A8641fC124c5BE60 # Fractured Mibera 8
+          - 0xFc79B1BcCa172FF5a8F74205C82F5CBB0125Dd10 # Fractured Mibera 9
+          - 0xa3d3EF45712631A6Fb50c677762b8653f932cf71 # Fractured Mibera 10
+          # Holder lane for Shadows (also on GeneralMints for mint actions)
+          - 0x048327A187b944ddac61c6e202BfccD20d17c008 # Mibera Shadows / VM
 
           # ----- APIOLOGY DAO SEAT NFT (governance membership) -----
           # ApiologyDAO seat NFT — governance vote weight + delegate eligibility
