@@ -160,16 +160,15 @@ function extractErrorCode(message: string, fallback: string): string {
   return match?.[1] ?? fallback;
 }
 
-async function webhookErrorDetail(response: Response, cap = 500): Promise<string> {
+/** Log upstream webhook bodies for operators; never persist them on job records. */
+async function logWebhookErrorBody(response: Response, cap = 500): Promise<void> {
   try {
     const text = (await response.text()).trim();
-    if (!text) return "";
-    // Log body for operators; never append upstream bodies into thrown/persisted errors.
+    if (!text) return;
     console.warn("[kitchen] webhook error body (status=%s): %s", response.status, text.slice(0, cap));
   } catch {
     // ignore body read failures
   }
-  return "";
 }
 
 function webhookIdempotencyKey(plan: BeltConfigPatchPlanItem[]): string {
@@ -181,12 +180,10 @@ function webhookIdempotencyKey(plan: BeltConfigPatchPlanItem[]): string {
   return `belt-patch-${digest}`;
 }
 
-function webhookAuthHeaders(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
-  const token =
-    env.KITCHEN_BELT_CONFIG_PATCH_WEBHOOK_TOKEN?.trim() ||
-    env.KITCHEN_INDEXER_RESTART_WEBHOOK_TOKEN?.trim();
-  if (!token) return {};
-  return { authorization: `Bearer ${token}` };
+function bearerAuthHeader(token: string | undefined): Record<string, string> {
+  const trimmed = token?.trim();
+  if (!trimmed) return {};
+  return { authorization: `Bearer ${trimmed}` };
 }
 
 async function notifyIndexerRestart(): Promise<void> {
@@ -194,12 +191,12 @@ async function notifyIndexerRestart(): Promise<void> {
   if (!webhook) return;
   const response = await /* @non-metadata-fetch kitchen webhook */ fetch(webhook, {
     method: "POST",
-    headers: webhookAuthHeaders(),
+    headers: bearerAuthHeader(process.env.KITCHEN_INDEXER_RESTART_WEBHOOK_TOKEN),
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
-    const detail = await webhookErrorDetail(response);
-    throw new Error(`indexer restart webhook HTTP ${response.status}${detail}`);
+    await logWebhookErrorBody(response);
+    throw new Error(`indexer restart webhook HTTP ${response.status}`);
   }
 }
 
@@ -214,7 +211,7 @@ async function postBeltConfigPatchWebhook(plan: BeltConfigPatchPlanItem[]): Prom
     headers: {
       "content-type": "application/json",
       "idempotency-key": idempotencyKey,
-      ...webhookAuthHeaders(),
+      ...bearerAuthHeader(process.env.KITCHEN_BELT_CONFIG_PATCH_WEBHOOK_TOKEN),
     },
     body: JSON.stringify({
       schema_version: 1,
@@ -225,8 +222,8 @@ async function postBeltConfigPatchWebhook(plan: BeltConfigPatchPlanItem[]): Prom
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
-    const detail = await webhookErrorDetail(response);
-    throw new Error(`config patch webhook HTTP ${response.status}${detail}`);
+    await logWebhookErrorBody(response);
+    throw new Error(`config patch webhook HTTP ${response.status}`);
   }
 }
 
@@ -262,20 +259,29 @@ async function renewJobs(args: {
     return true;
   });
   const renewed = await mapPool(candidates, STORE_IO_CONCURRENCY, async (job) => {
-    const next = await args.store.renewLease({
-      physicalJobId: job.physicalJobId,
-      lease: { owner: job.leaseOwner!, epoch: job.leaseEpoch },
-      nowMs: args.nowMs,
-    });
-    if (!next) {
+    try {
+      const next = await args.store.renewLease({
+        physicalJobId: job.physicalJobId,
+        lease: { owner: job.leaseOwner!, epoch: job.leaseEpoch },
+        nowMs: args.nowMs,
+      });
+      if (!next) {
+        console.warn(
+          "[kitchen] renewLease CAS miss for %s (owner=%s epoch=%s)",
+          job.physicalJobId,
+          job.leaseOwner,
+          job.leaseEpoch,
+        );
+      }
+      return next;
+    } catch (error) {
       console.warn(
-        "[kitchen] renewLease CAS miss for %s (owner=%s epoch=%s)",
+        "[kitchen] renewLease threw for %s — skipping item (%s)",
         job.physicalJobId,
-        job.leaseOwner,
-        job.leaseEpoch,
+        error instanceof Error ? error.message : String(error),
       );
+      return undefined;
     }
-    return next;
   });
   return renewed.filter((job): job is IngestJobRecord => Boolean(job));
 }
@@ -340,12 +346,20 @@ async function releaseBatchLeases(args: {
 }): Promise<void> {
   const candidates = args.jobs.filter((job) => Boolean(job.leaseOwner));
   await mapPool(candidates, STORE_IO_CONCURRENCY, async (job) => {
-    await args.store.updateStatus(job.physicalJobId, "queued", {
+    const updated = await args.store.updateStatus(job.physicalJobId, "queued", {
       nowMs: args.nowMs,
       expectedLease: { owner: job.leaseOwner!, epoch: job.leaseEpoch },
       expectedStatus: "queued",
       releaseLease: true,
     });
+    if (!updated) {
+      console.warn(
+        "[kitchen] releaseBatchLeases CAS miss for %s (owner=%s epoch=%s)",
+        job.physicalJobId,
+        job.leaseOwner,
+        job.leaseEpoch,
+      );
+    }
   });
 }
 
@@ -603,10 +617,12 @@ export async function runKitchenIngestWorkerTick(args: {
     );
     await releaseBatchLeases({ store: args.store, jobs: queued, nowMs });
   }
-  // Unleased queued jobs with Hasura readiness can complete without re-drain
-  // (external_scale ack shortcut; also recovers orphaned file/webhook claims),
-  // even when this process's drain is currently misconfigured.
-  await advanceQueuedJobsViaReadiness({ store: args.store, reader: args.reader, nowMs });
+  // external_scale: ack optional shortcut. Also run when drain is misconfigured
+  // so prior unleased queued jobs can still complete. Skip on healthy file/webhook
+  // ticks to keep Hasura fan-out off the hot path.
+  if (effectiveDrain === "external_scale" || effectiveDrain === null) {
+    await advanceQueuedJobsViaReadiness({ store: args.store, reader: args.reader, nowMs });
+  }
   await advanceIndexingJobs({ store: args.store, reader: args.reader, nowMs });
 }
 

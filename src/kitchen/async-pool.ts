@@ -15,9 +15,8 @@ export async function mapPool<T, R>(
     throw new Error("mapPool: concurrency must be >= 1");
   }
   if (items.length === 0) return [];
-  const results = new Array<R>(items.length);
+  const settled = new Array<{ ok: true; value: R } | { ok: false; error: unknown }>(items.length);
   let next = 0;
-  let firstError: unknown;
   await Promise.all(
     Array.from({ length: Math.min(concurrency, items.length) }, async () => {
       while (true) {
@@ -25,13 +24,19 @@ export async function mapPool<T, R>(
         next += 1;
         if (index >= items.length) return;
         try {
-          results[index] = await fn(items[index]!, index);
+          settled[index] = { ok: true, value: await fn(items[index]!, index) };
         } catch (error) {
-          firstError ??= error;
+          settled[index] = { ok: false, error };
         }
       }
     }),
   );
-  if (firstError !== undefined) throw firstError;
-  return results;
+  const firstError = settled.find((row) => row.ok === false);
+  if (firstError && firstError.ok === false) throw firstError.error;
+  return settled.map((row) => {
+    if (row.ok !== true) {
+      throw new Error("mapPool: internal hole after successful drain");
+    }
+    return row.value;
+  });
 }
