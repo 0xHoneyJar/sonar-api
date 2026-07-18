@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
+import { mapPool } from "./async-pool.js";
 import { patchConfigForKitchenIngest } from "./config-patcher.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
 import {
@@ -14,27 +15,6 @@ import type { IngestJobRecord } from "./types.js";
 
 /** Bounded fan-out for per-job store / Hasura I/O inside a worker tick. */
 const STORE_IO_CONCURRENCY = 16;
-
-async function mapPool<T, R>(
-  items: readonly T[],
-  concurrency: number,
-  fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0) return [];
-  const results = new Array<R>(items.length);
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-      while (true) {
-        const index = next;
-        next += 1;
-        if (index >= items.length) return;
-        results[index] = await fn(items[index]!, index);
-      }
-    }),
-  );
-  return results;
-}
 
 export function beltConfigPathFromEnv(): string {
   return process.env.KITCHEN_BELT_CONFIG_PATH?.trim() || "config.yaml";
@@ -224,10 +204,17 @@ async function postBeltConfigPatchWebhook(plan: BeltConfigPatchPlanItem[]): Prom
   }
 }
 
-function webhookOwnsRestart(env: NodeJS.ProcessEnv = process.env): boolean {
-  const raw = env.KITCHEN_BELT_WEBHOOK_OWNS_RESTART?.trim().toLowerCase();
-  // Default: webhook drain owns restart (patch webhook is expected to apply + bounce).
-  return raw !== "0" && raw !== "false" && raw !== "no";
+/**
+ * After a successful patch webhook, also POST KITCHEN_INDEXER_RESTART_WEBHOOK.
+ * Default false (patch webhook owns apply+bounce). Opt in via
+ * KITCHEN_BELT_ALSO_NOTIFY_RESTART=true, or legacy
+ * KITCHEN_BELT_WEBHOOK_OWNS_RESTART=false.
+ */
+function alsoNotifyIndexerRestart(env: NodeJS.ProcessEnv = process.env): boolean {
+  const also = env.KITCHEN_BELT_ALSO_NOTIFY_RESTART?.trim().toLowerCase();
+  if (also === "1" || also === "true" || also === "yes") return true;
+  const legacyOwns = env.KITCHEN_BELT_WEBHOOK_OWNS_RESTART?.trim().toLowerCase();
+  return legacyOwns === "0" || legacyOwns === "false" || legacyOwns === "no";
 }
 
 async function renewJobs(args: {
@@ -388,8 +375,8 @@ export async function processQueuedIngestBatch(args: {
       const plan = buildBeltConfigPatchPlan(renewed);
       await (args.postPatchWebhook ?? postBeltConfigPatchWebhook)(plan);
       // Webhook drain owns apply+bounce by default; opt into a second restart
-      // webhook with KITCHEN_BELT_WEBHOOK_OWNS_RESTART=false.
-      if (!webhookOwnsRestart(process.env)) {
+      // webhook with KITCHEN_BELT_ALSO_NOTIFY_RESTART=true.
+      if (alsoNotifyIndexerRestart(process.env)) {
         await (args.restart ?? notifyIndexerRestart)();
       }
     } else {

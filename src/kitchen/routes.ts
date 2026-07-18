@@ -9,6 +9,7 @@ import {
 import { requireServiceToken } from "./auth.js";
 import { resolvePreparationCapability } from "./capability.js";
 import { collectionKeyFromParams, deploymentFromCollectionKey } from "./normalize.js";
+import { mapPool } from "./async-pool.js";
 import {
   BATCH_ADMIT_CONCURRENCY,
   decodeAckPreparationRequest,
@@ -302,12 +303,7 @@ export function createCanonicalPreparationRoutes(deps: {
       );
     }
 
-    const results: Array<Record<string, unknown>> = new Array(body.items.length);
-    const admitConcurrency = Math.min(BATCH_ADMIT_CONCURRENCY, body.items.length);
-    let nextIndex = 0;
-
-    const admitOne = async (index: number): Promise<void> => {
-      const item = body.items[index]!;
+    const results = await mapPool(body.items, BATCH_ADMIT_CONCURRENCY, async (item, index) => {
       const correlation = item.correlation ?? body.correlation;
       let deployment: CollectionDeploymentRef;
       try {
@@ -320,16 +316,15 @@ export function createCanonicalPreparationRoutes(deps: {
         );
       } catch (err) {
         console.error("[kitchen] batch item %d invalid_deployment", index, err);
-        results[index] = {
+        return {
           index,
-          ok: false,
+          ok: false as const,
           error: {
             code: "invalid_deployment",
             reason_class: "invalid_input",
             message: "network and address do not form a valid deployment",
           },
         };
-        return;
       }
 
       let result: AdmissionResult;
@@ -351,40 +346,27 @@ export function createCanonicalPreparationRoutes(deps: {
         });
       } catch (err) {
         console.error("[kitchen] batch item %d admission error", index, err);
-        results[index] = {
+        return {
           index,
-          ok: false,
+          ok: false as const,
           error: {
             code: "admission_failed",
             reason_class: "internal",
             message: "collection preparation admission failed",
           },
         };
-        return;
       }
 
       if (!result.ok) {
-        results[index] = { index, ok: false, ...admissionError(result) };
-        return;
+        return { index, ok: false as const, ...admissionError(result) };
       }
-      results[index] = {
+      return {
         index,
-        ok: true,
+        ok: true as const,
         created: result.created,
         job: canonicalJobResponse(result.job),
       };
-    };
-
-    await Promise.all(
-      Array.from({ length: admitConcurrency }, async () => {
-        while (true) {
-          const index = nextIndex;
-          nextIndex += 1;
-          if (index >= body.items.length) return;
-          await admitOne(index);
-        }
-      }),
-    );
+    });
 
     // Counters derived after concurrent admit — avoid racy += across awaits.
     let created = 0;
@@ -470,42 +452,35 @@ export function createCanonicalPreparationRoutes(deps: {
 
     const ids = body.physical_job_ids;
     const nowMs = Date.now();
-    const results: Array<Record<string, unknown>> = [];
-    let advanced = 0;
-    let missing = 0;
-    let skipped = 0;
-    for (const physicalJobId of ids) {
+    const results = await mapPool(ids, BATCH_ADMIT_CONCURRENCY, async (physicalJobId) => {
       const job = await deps.store.getByPhysicalJobId(physicalJobId);
       if (!job) {
-        missing += 1;
-        results.push({ physical_job_id: physicalJobId, ok: false, error: { code: "job_not_found" } });
-        continue;
+        return { physical_job_id: physicalJobId, ok: false as const, error: { code: "job_not_found" } };
       }
       if (job.status === "indexing" || job.status === "completed") {
-        skipped += 1;
-        results.push({ physical_job_id: physicalJobId, ok: true, status: job.status, advanced: false });
-        continue;
+        return {
+          physical_job_id: physicalJobId,
+          ok: true as const,
+          status: job.status,
+          advanced: false,
+        };
       }
       if (job.status !== "queued") {
-        skipped += 1;
-        results.push({
+        return {
           physical_job_id: physicalJobId,
-          ok: false,
+          ok: false as const,
           error: { code: "unexpected_status", message: `job status is ${job.status}` },
-        });
-        continue;
+        };
       }
       if (job.leaseOwner) {
-        skipped += 1;
-        results.push({
+        return {
           physical_job_id: physicalJobId,
-          ok: false,
+          ok: false as const,
           error: {
             code: "status_conflict",
             message: "job has an active worker lease; wait for external_scale release before ack",
           },
-        });
-        continue;
+        };
       }
       // expectedAbsentLease on updateStatus is the concurrency guard.
       const updated = await deps.store.updateStatus(physicalJobId, "indexing", {
@@ -514,16 +489,27 @@ export function createCanonicalPreparationRoutes(deps: {
         nowMs,
       });
       if (!updated) {
-        skipped += 1;
-        results.push({
+        return {
           physical_job_id: physicalJobId,
-          ok: false,
+          ok: false as const,
           error: { code: "status_conflict", message: "could not advance queued job to indexing" },
-        });
-        continue;
+        };
       }
-      advanced += 1;
-      results.push({ physical_job_id: physicalJobId, ok: true, status: "indexing", advanced: true });
+      return {
+        physical_job_id: physicalJobId,
+        ok: true as const,
+        status: "indexing" as const,
+        advanced: true,
+      };
+    });
+
+    let advanced = 0;
+    let missing = 0;
+    let skipped = 0;
+    for (const row of results) {
+      if (row.ok === true && row.advanced === true) advanced += 1;
+      else if (row.ok === false && row.error?.code === "job_not_found") missing += 1;
+      else skipped += 1;
     }
 
     const anyFailed = results.some((row) => row.ok === false);

@@ -265,6 +265,9 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
     },
   ): Promise<IngestJobRecord | undefined> {
     return this.atomic(() => {
+      if (args?.expectedAbsentLease && args.expectedLease) {
+        throw new Error("expectedAbsentLease and expectedLease are mutually exclusive");
+      }
       const record = this.jobsById.get(physicalJobId);
       if (!record) return undefined;
       const nowMs = args?.nowMs ?? Date.now();

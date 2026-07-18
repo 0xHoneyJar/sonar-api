@@ -581,6 +581,9 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
       expectedStatus?: IngestJobStatus;
     },
   ): Promise<IngestJobRecord | undefined> {
+    if (args?.expectedAbsentLease && args.expectedLease) {
+      throw new Error("expectedAbsentLease and expectedLease are mutually exclusive");
+    }
     const nowMs = args?.nowMs ?? Date.now();
     const result = await this.pool.query<JobRow>(
       `UPDATE kitchen_ingest_jobs SET status = $2, error_code = $3, error_message = $4,

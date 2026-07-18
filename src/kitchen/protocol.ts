@@ -56,8 +56,13 @@ export const CanonicalPreparationResponseSchema = Schema.Struct({
 
 /** Batch admit — one request, many physical jobs (still one job per deployment). */
 export const BATCH_PREPARATION_MAX_ITEMS = 50;
-/** Concurrent admit workers for POST /batch (bounded vs DB pool pressure). */
+/** Concurrent admit/ack workers (bounded vs DB pool pressure). */
 export const BATCH_ADMIT_CONCURRENCY = 8;
+/**
+ * Ack may cover jobs from multiple prior batch-admit waves after one SCALE apply.
+ * Larger than BATCH_PREPARATION_MAX_ITEMS on purpose.
+ */
+export const ACK_PREPARATION_MAX_ITEMS = 500;
 
 export const BatchPreparationItemSchema = Schema.Struct({
   network: NetworkRef,
@@ -130,10 +135,11 @@ export async function decodeBatchPreparationRequest(raw: unknown) {
 
 export const AckPreparationRequestSchema = Schema.Struct({
   schema_version: Schema.Literal(1),
+  /** Client intent assertion; server also checks process drain strategy (409 on mismatch). */
   drain_mode: Schema.Literal("external_scale"),
   physical_job_ids: Schema.Array(NonEmptyString).pipe(
     Schema.minItems(1),
-    Schema.maxItems(BATCH_PREPARATION_MAX_ITEMS),
+    Schema.maxItems(ACK_PREPARATION_MAX_ITEMS),
   ),
 });
 
