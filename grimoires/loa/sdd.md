@@ -1,108 +1,72 @@
 ---
-hivemind:
-  schema_version: "1.0"
-  artifact_type: technical-rfc
-  product_area: "sonar-api — SVM SQD block-stream substrate"
-  workstream: delivery
-  priority: high
-  jtbd: {category: functional, description: "design SqdCollectionEventSource: Portal stream consumption, balance-diff decode, chunked mint filtering, and convergence with the existing writer/gate — per the svm-sqd-substrate PRD"}
-  learning_status: directionally-correct
-  source: team-internal
-trust_tier: operator-authored
+title: "SDD — honest frontier Flatline bootstrap"
+status: active
+trust_tier: ai-derived
 read_state: read
-confidence: 0.8
+confidence: 0.88
 decay_class: working
-last_confirmed: 2026-07-05
-operator_signed: self_attested
+last_confirmed: 2026-07-18
+operator_signed: false
 ---
 
-# SDD — SVM SQD Substrate (cycle: svm-sqd-substrate, r1 2026-07-05)
+# SDD — Honest frontier Flatline bootstrap
 
-Traces: PRD r1 FR-1..FR-5. Grounding: `origin/main` @ 046fb23; live Portal probes 2026-07-05.
+## Stage A — consume the recent Loa update
 
-## 1. Architecture
+Update the isolated Sonar planning branch from Loa v1.180.0 to the current
+governed Loa head using `/update-loa` safeguards. This supplies the newer
+model-overlay machinery and `/loa-aleph` intake without hand-copying System
+Zone files.
 
-The two-lane ADR holds; this cycle gives the batch lane a second, free substrate. All three supply
-implementations (Dune, SQD, Helius Enhanced) feed ONE writer under the SAME invariants:
+## Stage B — prove the intended transports in Sonar
 
-```
-DAS getAssetsByGroup ──► member mints (all 8 collections; metadata-era-agnostic)
-        │
-        ▼ chunks of ≤500 mints
-SQD Portal stream ──► SqdCollectionEventSource ──► CollectionEvent[] ──► upsertCollectionEvents(ifAbsentOnly)
- (slot windows,          (balance-diff decode)                                 │
-  resumable cursor)                                                     svm.collection_event + sync_status('sqd-stream')
-                                                                               │
-                                                              §4.5 reconcile gate (DAS recompute = trust root)
-```
+Use the project override surface in `.loa.config.yaml`; the framework-managed
+`.claude/` System Zone remains untouched.
 
-## 2. Components
+1. Configure Flatline roles as `claude-headless`, `cursor-headless`, and
+   `codex-headless`.
+2. In the project Hounfour overlay, bind the Cursor provider payload to the
+   current exact Cursor Agent model ID `cursor-grok-4.5-high`.
+3. Preserve Fable through the existing Claude headless payload binding.
+4. Emit a Sonar-side invocation receipt that records the effective alias,
+   provider, adapter, and actual `cli_model` argument for each voice.
+5. Run a deterministic three-voice Flatline probe. Non-empty output and
+   schema validity are mandatory; an empty Cursor success does not qualify.
+6. Record the remaining upstream defects separately:
+   - project alias overlays excluded from pre-runtime validation
+   - headless readiness conflated with HTTP API-key readiness
+   - missing honest Cursor Grok 4.5 registry identity
+   - MODELINV records the registry target but not the actual CLI payload
 
-### 2.1 `src/svm/sqd-client.ts` (~140 loc)
-Portal stream consumer, raw fetch (repo idiom). `POST {PORTAL_BASE}/datasets/solana-mainnet/finalized-stream`
-with `{type:"solana", fromBlock, toBlock, fields:{tokenBalance:{account,preMint,postMint,preOwner,postOwner,
-preAmount,postAmount,transactionIndex,transactionIndex:true}, block:{number,timestamp}, transaction:{signatures:true}},
-tokenBalances:[{postMint:[...chunk]},{preMint:[...chunk]}]}` `[MEASURED: filter shape verified; response =
-newline-delimited JSON block objects]`. Both pre+post mint filters so burns (post disappears) and mints
-(pre absent) are both captured. Handles: slot windowing (`SQD_WINDOW_SLOTS`, default 500k ≈ ~2.7 days),
-resumable via last-processed-slot cursor from `svm.collection_event` (source='sqd-stream'), 429/5xx
-retry with cap, request counting via helius-meter's pattern (new `sqd` meter kind, weight 0 — count
-requests, price nothing; the meter is the politeness ledger). Env: `SQD_PORTAL_BASE` (default
-portal.sqd.dev), `SQD_API_KEY` optional header.
-**Open item for T-1**: exact per-request response pagination semantics (does one request return the
-full slot range or a bounded chunk with a continuation? probe measured single-block scale only) —
-T-1 resolves; client written continuation-tolerant (consume until stream end, note `lastBlock`).
+## Stage C — upstream Loa repair
 
-### 2.2 `src/svm/sqd-collection-event-source.ts` (~200 loc, the decode)
-Pure decode from token-balance diffs grouped by (tx, mint) — unit-testable, no network:
-- **transfer**: within one tx+mint, an account with pre=1→post=0 AND another with pre=0→post=1 →
-  `{from: preOwner(losing), to: postOwner(gaining)}`.
-- **mint**: gaining account with NO losing counterpart AND no prior sqd-seen balance for the mint
-  (first appearance) → from=null. (Cross-check: candy-guard-era mints show pre-account absent.)
-- **burn**: losing account with no gaining counterpart → to=null.
-- **ambiguous** (multi-leg same-tx custody hops, escrow shuffles): decode the NET owner change per
-  the 001-view custody semantics; if net is unresolvable → reject + count (never guess; the fixture
-  adjudicates how often this happens — G1 target bounds it).
-- `instructionIndex`: per-(tx,mint) occurrence ordinal in (slot, txIndex) order — SAME rule as
-  parseHeliusTx/warehouse mapRows [CODE:src/svm/warehouse-loader.ts mapRows]; PK convergence test pinned.
-- kinds emitted: mint/transfer/burn ONLY (PRD OUT: marketplace kinds).
+The durable fix belongs in `0xHoneyJar/loa`, not a Sonar wrapper:
 
-### 2.3 CLI `src/svm/sqd-loader.ts` (~80 loc)
-`--collection <key> [--from-slot N] [--dry]`: registry resolve → DAS members (existing source) →
-chunk → windows → decode → upsert(ifAbsentOnly) → sync_status(`sqd-stream`) → optional §4.5 verify
-(same degraded-declared rule). Budget analog: `SQD_MAX_REQUESTS` per run (default 20k) — the
-grant-not-right guard; STOP cleanly between windows like DUNE_CREDIT_BUDGET.
+1. Flatline pre-validation consumes the effective merged alias set.
+2. Readiness resolves `kind/auth_type` and checks CLI subscription state for
+   headless models.
+3. MODELINV adds the dispatched CLI model identity.
+4. Cursor empty output fails qualification.
+5. Tests cover Fable + Cursor Grok 4.5 + Codex with Gemini absent.
 
-### 2.4 Integration deltas
-- `sync-status.ts`: `SyncEventSource` += `"sqd-stream"`; migration 003 widens the CHECK constraint
-  (idempotent ALTER … DROP/ADD constraint).
-- `collection-event-writer.ts`: `EventSource` += `"sqd-stream"` (one union member).
-- `svm-warehouse-ops.yml`: `sqd-ingest` step (inputs: collection, from_slot; env-passed + charset
-  allowlist per #127/#129 injection posture; no vendor secrets needed).
+Cross-repo mutation or a Loa PR remains a coordinator action and requires its
+own authorization/room. Sonar records the upstream handoff without claiming
+that the upstream defect is already fixed.
 
-## 3. Security & Cost
-- No secrets required (Portal open; optional SQD_API_KEY env-only if registered). Rows are UNTRUSTED:
-  field-validate (base58, slot ints, amount strings) before decode; reject-don't-coerce.
-- Politeness: sequential windows, no fan-out, request meter, SQD_MAX_REQUESTS cap; T-1 abort
-  criterion (PRD risk row) is the terms tripwire.
+## Bootstrap caveat
 
-## 4. Test Strategy (fixtures only, zero network in CI)
-- `test/sqd-decode.test.ts`: transfer/mint/burn/ambiguous-reject cases from constructed balance-diff
-  rows; PK-convergence (same tx via SQD rows and parseHeliusTx fixture → identical eventId).
-- `test/sqd-client.test.ts`: windowing, chunking (501 mints → 2 chunks), cursor resume, request cap
-  stop, retry, key-header only-when-set (mocked fetch).
-- `test/fixtures/svm-sqd/`: pythians slice — REAL Portal response rows captured in T-1 (committed),
-  adjudicated against the Helius-classified 30,006-event fixture for G1 recall measurement.
-- Suite + tsc regression gates per repo standard.
+Flatline cannot approve the repair that makes its own identity/readiness
+sensors truthful. This sprint therefore uses independent manual runtime
+receipts only to authorize the temporary Sonar overlay. It does not approve
+the upstream Loa repair; that needs a separately governed Loa cycle.
 
-## 5. Rollout (maps to sprint tasks)
-1. **T-1 SPIKE (gate for everything)**: register etiquette key; stream pythians (3,682 mints, full
-   history) with request meter on; measure rows/request, requests total, wall-clock, any throttle;
-   capture fixture slice; ABORT→operator if gating appears. Deliverable: measured table in NOTES +
-   fixture files. (Runs via ops-workflow dry mode — no DB writes needed for the spike.)
-2. T-2 decode + tests (pure, parallel-safe with T-1 fixture arrival).
-3. T-3 client + CLI + integration deltas + migration 003.
-4. T-4 G1 adjudication: pythians full ingest (dry→live), recall vs fixture, §4.5 gate.
-5. T-5 batch: remaining 7 collections via ops dispatches; sync_status rows; per-run meter lines.
-6. T-6 closure rides the EXISTING NOTES protocol (KF-018/#122/#121) — batch-1 landing via SQD
-   satisfies the same trigger; Dune path becomes optional (Jul-16 free cycle = bonus seam-fill only).
+## Verification
+
+- Static config parse and model-resolution tests.
+- Direct, minimal round trip through each runtime.
+- Fresh readiness probe, preserved honestly even if it remains advisory
+  `DEGRADED`.
+- Fresh Flatline review over a small deterministic artifact with 3/3
+  qualifying voices.
+- Side receipt verifies actual runtime/model arguments; MODELINV mismatch stays
+  an open defect until upstream closure.

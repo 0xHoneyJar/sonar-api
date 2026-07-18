@@ -1,59 +1,60 @@
 ---
-hivemind:
-  schema_version: "1.0"
-  artifact_type: launch-plan
-  product_area: "sonar-api — SVM SQD block-stream substrate"
-  workstream: delivery
-  priority: high
-  jtbd: {category: functional, description: "sprint-1 task breakdown for svm-sqd-substrate: spike-gated build of the free block-stream supply lane through batch-1 landing and closure"}
-  learning_status: directionally-correct
-  source: team-internal
-trust_tier: operator-authored
+title: "Sprint Plan — honest frontier Flatline bootstrap"
+status: active
+trust_tier: ai-derived
 read_state: read
-confidence: 0.8
+confidence: 0.88
 decay_class: working
-last_confirmed: 2026-07-05
-operator_signed: self_attested
+last_confirmed: 2026-07-18
+operator_signed: false
 ---
 
-# Sprint Plan — svm-sqd-substrate · sprint-1
+# Sprint Plan — Honest frontier Flatline bootstrap
 
-Traces PRD r1 + SDD r1 §5. Branch `feat/svm-sqd-substrate`. BB gate on merge (operator rule).
-T-1 is the GATE: its abort criterion (gating/throttle observed) pauses the cycle for operator terms
-decision — nothing downstream executes on hope.
+## Sprint 0 — Restore an operational council without overstating its sensors
 
-### T-1 SPIKE — Portal terms + shape discovery (pythians, measured)
-Stream pythians' full history (3,682 DAS members, chunked ≤500) from Portal with request counting.
-Measure: requests total, rows/request, continuation semantics (one request per window vs bounded
-chunks), wall-clock, throttles/429s. Capture a fixture slice (real response rows) to
-`test/fixtures/svm-sqd/`. Register free etiquette key at portal.sqd.dev/app = operator-optional.
-**AC**: measured table appended to NOTES; fixture committed; pagination open-item (SDD §2.1) resolved
-into the client design; ABORT path exercised-or-cleared. No DB writes (dry).
+### T0.1 Update the Loa harness
 
-### T-2 decode (pure) — `sqd-collection-event-source.ts`
-Balance-diff FSM per SDD §2.2 + `test/sqd-decode.test.ts` incl. PK-convergence vs parseHeliusTx and
-ambiguous-reject cases. **AC**: decode tests green; recall vs the Helius-classified pythians fixture
-measured ≥99.5% on ownership-moving events (G1 metric) using T-1's captured rows.
+Run the governed `/update-loa` flow on the isolated branch, moving from
+v1.180.0 to the current Loa head/release with collateral safeguards.
 
-### T-3 client + CLI + integration — `sqd-client.ts`, `sqd-loader.ts`, deltas
-Windowing/chunking/cursor/cap per SDD §2.1+§2.3 (constants tuned from T-1 measurements, not guesses);
-`EventSource`+`SyncEventSource` += `sqd-stream`; migration 003 CHECK widen; ops `sqd-ingest` step
-(injection-safe input pattern). **AC**: `test/sqd-client.test.ts` green; suite + tsc no regressions;
-ops workflow lints.
+**AC:** version markers agree; project identity/application files are
+preserved; update diff is committed separately; current `/loa-aleph` and model
+overlay machinery are present.
 
-### T-4 G1 adjudication — pythians live ingest
-Dry parity first, then live (insert-if-absent → existing rows untouched, new-only). §4.5 reconcile
-gate; sync_status `sqd-stream` row. **AC**: G1 targets met + gate passed; per-run meter line recorded.
+### T0.2 Effective transport configuration
 
-### T-5 batch — remaining 7 collections
-Sequential ops dispatches (Clay/FFF/GG prove the metadata-era fix). **AC**: 8/8 counts >0 via gateway,
-sync_status rows current, request meter within SQD_MAX_REQUESTS per run.
+Configure the Sonar project overlay for Fable, Cursor Grok 4.5, and Codex
+using exact live model IDs and no Gemini role/fallback.
 
-### T-6 closure — rides the EXISTING NOTES protocol
-Trigger satisfied by T-5 (batch-1 landed, substrate = SQD). Execute: verify → KF-018
-RESOLVED-STRUCTURAL → close #122 → notify #121 (freshness contract + collection keys) → contract
-manifest svm_sync_status → live via PR. **AC**: protocol's 4 steps done with evidence links.
+**AC:** effective config resolves three roles; direct minimal calls return
+non-empty outputs; a side receipt binds alias to actual CLI model arguments.
 
-## Order & gates
-T-1 → (T-2 ∥ T-3, both consume T-1 outputs) → T-4 → T-5 → T-6. Sprint acceptance: full suite green,
-tsc clean on touched files, BB-reviewed PR merged, closure evidence posted.
+### T0.3 Bootstrap and mechanical proof
+
+Review the sprint diff manually through Fable, Cursor Grok 4.5, and Codex, then
+run a fresh mechanical Flatline probe after T0.1–T0.2.
+
+**AC:** three independent runtime receipts are preserved; all three reviewers
+PASS the revised overlay; the mechanical probe returns 3/3 non-empty,
+schema-valid verdicts. The stale readiness/MODELINV identity gaps remain
+explicitly unresolved rather than being normalized away.
+
+### T0.4 Upstream handoff and Simstim gate
+
+Prepare the upstream Loa defect packet and record issue #1199 linkage without
+opening, commenting, or pushing cross-repo changes unless separately
+authorized.
+
+**AC:** issue registry and Sonar/Score lineage packet are the `--from` inputs
+to a fresh `/simstim`; Simstim may proceed only with 3/3 qualifying Flatline
+voices. A readiness warning is recorded as sensor debt, never as READY.
+
+## Stop conditions
+
+- Any runtime/model identity mismatch.
+- Fewer than three valid voices.
+- Any claim that the current hardcoded readiness script is fixed by a
+  repo-local wrapper.
+- Any attempted edit in `.claude/` outside the governed `/update-loa` merge.
+- Any production, database, floor, or restart mutation.
