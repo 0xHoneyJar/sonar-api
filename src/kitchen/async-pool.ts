@@ -1,4 +1,11 @@
-/** Bounded fan-out for index-ordered async work (admit/ack/store I/O). */
+/**
+ * Bounded fan-out for index-ordered async work (admit/ack/store I/O).
+ *
+ * If `fn` rejects for one item, `Promise.all` rejects immediately while other
+ * in-flight workers may still finish (and consume further indices). Callers
+ * that mutate durable state must rely on CAS / idempotency — not all-or-nothing
+ * mapPool semantics.
+ */
 export async function mapPool<T, R>(
   items: readonly T[],
   concurrency: number,

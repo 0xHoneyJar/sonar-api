@@ -96,6 +96,18 @@ export function preparationRuntimeFromEnv(
           "KITCHEN_PREPARATION_DRAIN=webhook requires KITCHEN_BELT_CONFIG_PATCH_WEBHOOK",
       };
     }
+    if (
+      strategy === "webhook" &&
+      production &&
+      !env.KITCHEN_BELT_CONFIG_PATCH_WEBHOOK_TOKEN?.trim()
+    ) {
+      return {
+        available: false,
+        mode: "unavailable",
+        reason:
+          "production webhook drain requires KITCHEN_BELT_CONFIG_PATCH_WEBHOOK_TOKEN (Bearer auth on outbound patches)",
+      };
+    }
     return {
       available: true,
       mode: "belt_config_batch",

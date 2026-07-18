@@ -298,6 +298,15 @@ describe("canonical collection preparation", () => {
       KITCHEN_WORKER_ENABLED: "true",
       KITCHEN_PREPARATION_DRAIN: "webhook",
       KITCHEN_BELT_CONFIG_PATCH_WEBHOOK: "https://example.test/patch",
+    })).toMatchObject({ available: false, mode: "unavailable" });
+
+    expect(preparationRuntimeFromEnv({
+      NODE_ENV: "production",
+      KITCHEN_PREPARATION_PORT: "belt_config_batch",
+      KITCHEN_WORKER_ENABLED: "true",
+      KITCHEN_PREPARATION_DRAIN: "webhook",
+      KITCHEN_BELT_CONFIG_PATCH_WEBHOOK: "https://example.test/patch",
+      KITCHEN_BELT_CONFIG_PATCH_WEBHOOK_TOKEN: "shared-secret",
     })).toMatchObject({ available: true, mode: "belt_config_batch" });
   });
 

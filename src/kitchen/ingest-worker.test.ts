@@ -355,9 +355,53 @@ describe("ingest-worker", () => {
 
     expect(plans).toHaveLength(1);
     expect(JSON.stringify(plans[0]).toLowerCase()).toContain(key.contract);
-    // Default webhookOwnsRestart: true — no separate restart call.
+    // Default: patch webhook owns restart — no separate restart call.
     expect(restarts).toBe(0);
     await expect(store.get(key)).resolves.toMatchObject({ status: "indexing" });
+  });
+
+  it("optionally notifies the indexer restart webhook after patch webhook drain", async () => {
+    vi.stubEnv("KITCHEN_BELT_ALSO_NOTIFY_RESTART", "true");
+    const store = new MemoryIngestJobStore();
+    const key = {
+      chainId: 1,
+      contract: "0x60e4d786628fea6478f785a6d7e704777c86a7c6" as const,
+    };
+    await store.upsertQueued(key, { order_id: "order-wh-restart", source: "cr-ops-idx-w1" });
+    const claimed = await store.claimQueued({ workerId: "webhook-restart-worker", limit: 1 });
+    let restarts = 0;
+    await processQueuedIngestBatch({
+      jobs: claimed,
+      store,
+      drainStrategy: "webhook",
+      postPatchWebhook: async () => {},
+      restart: async () => {
+        restarts += 1;
+      },
+    });
+    expect(restarts).toBe(1);
+  });
+
+  it("honors deprecated WEBHOOK_OWNS_RESTART=false as also-notify", async () => {
+    vi.stubEnv("KITCHEN_BELT_WEBHOOK_OWNS_RESTART", "false");
+    const store = new MemoryIngestJobStore();
+    const key = {
+      chainId: 1,
+      contract: "0xba30e5f9bb24c19c9002c35c7098ad4a0f7ff53b" as const,
+    };
+    await store.upsertQueued(key, { order_id: "order-wh-legacy", source: "cr-ops-idx-w1" });
+    const claimed = await store.claimQueued({ workerId: "webhook-legacy-worker", limit: 1 });
+    let restarts = 0;
+    await processQueuedIngestBatch({
+      jobs: claimed,
+      store,
+      drainStrategy: "webhook",
+      postPatchWebhook: async () => {},
+      restart: async () => {
+        restarts += 1;
+      },
+    });
+    expect(restarts).toBe(1);
   });
 
   it("releases claimed leases when no drain strategy is configured", async () => {

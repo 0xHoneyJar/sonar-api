@@ -170,11 +170,20 @@ async function webhookErrorDetail(response: Response, cap = 500): Promise<string
   }
 }
 
+function webhookAuthHeaders(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const token =
+    env.KITCHEN_BELT_CONFIG_PATCH_WEBHOOK_TOKEN?.trim() ||
+    env.KITCHEN_INDEXER_RESTART_WEBHOOK_TOKEN?.trim();
+  if (!token) return {};
+  return { authorization: `Bearer ${token}` };
+}
+
 async function notifyIndexerRestart(): Promise<void> {
   const webhook = process.env.KITCHEN_INDEXER_RESTART_WEBHOOK?.trim();
   if (!webhook) return;
   const response = await /* @non-metadata-fetch kitchen webhook */ fetch(webhook, {
     method: "POST",
+    headers: webhookAuthHeaders(),
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
@@ -190,7 +199,10 @@ async function postBeltConfigPatchWebhook(plan: BeltConfigPatchPlanItem[]): Prom
   }
   const response = await /* @non-metadata-fetch kitchen patch webhook */ fetch(webhook, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...webhookAuthHeaders(),
+    },
     body: JSON.stringify({
       schema_version: 1,
       drain: "belt_config_batch",
@@ -210,11 +222,17 @@ async function postBeltConfigPatchWebhook(plan: BeltConfigPatchPlanItem[]): Prom
  * KITCHEN_BELT_ALSO_NOTIFY_RESTART=true, or legacy
  * KITCHEN_BELT_WEBHOOK_OWNS_RESTART=false.
  */
-function alsoNotifyIndexerRestart(env: NodeJS.ProcessEnv = process.env): boolean {
+export function alsoNotifyIndexerRestart(env: NodeJS.ProcessEnv = process.env): boolean {
   const also = env.KITCHEN_BELT_ALSO_NOTIFY_RESTART?.trim().toLowerCase();
   if (also === "1" || also === "true" || also === "yes") return true;
   const legacyOwns = env.KITCHEN_BELT_WEBHOOK_OWNS_RESTART?.trim().toLowerCase();
-  return legacyOwns === "0" || legacyOwns === "false" || legacyOwns === "no";
+  if (legacyOwns === "0" || legacyOwns === "false" || legacyOwns === "no") {
+    console.warn(
+      "[kitchen] KITCHEN_BELT_WEBHOOK_OWNS_RESTART=false is deprecated; prefer KITCHEN_BELT_ALSO_NOTIFY_RESTART=true",
+    );
+    return true;
+  }
+  return false;
 }
 
 async function renewJobs(args: {
@@ -408,7 +426,14 @@ export async function processQueuedIngestBatch(args: {
       "[kitchen] status_advance_failed after successful drain — releasing leases (%s)",
       message,
     );
-    await releaseBatchLeases({ store: args.store, jobs: renewed, nowMs: args.nowMs });
+    try {
+      await releaseBatchLeases({ store: args.store, jobs: renewed, nowMs: args.nowMs });
+    } catch (releaseError) {
+      console.warn(
+        "[kitchen] lease release after status_advance_failed also failed — leases will expire by TTL (%s)",
+        releaseError instanceof Error ? releaseError.message : String(releaseError),
+      );
+    }
   }
 }
 
@@ -553,8 +578,9 @@ export async function runKitchenIngestWorkerTick(args: {
     );
     await releaseBatchLeases({ store: args.store, jobs: queued, nowMs });
   }
-  // Queued→completed via Hasura is only for external_scale (ack optional shortcut).
-  if (effectiveDrain === "external_scale") {
+  // Unleased queued jobs with Hasura readiness can complete without re-drain
+  // (external_scale ack shortcut; also recovers orphaned file/webhook claims).
+  if (effectiveDrain) {
     await advanceQueuedJobsViaReadiness({ store: args.store, reader: args.reader, nowMs });
   }
   await advanceIndexingJobs({ store: args.store, reader: args.reader, nowMs });
