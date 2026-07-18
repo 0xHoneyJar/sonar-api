@@ -20,7 +20,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -43,7 +43,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -66,7 +66,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -89,7 +89,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -112,7 +112,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -135,7 +135,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -158,7 +158,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -181,7 +181,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -204,7 +204,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -227,7 +227,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -250,7 +250,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -273,7 +273,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -297,7 +297,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -320,7 +320,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -343,7 +343,7 @@
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -367,6 +367,6 @@
     "notes": "canonical Azuki in EthTrackedErc721 (config); not in W1 admit batch",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
     "governing_floor_block": 12287507,
-    "config_digest": "fc76d1bf0f28bdcc16860798a0bc3fa1d59a80b7a25c299f45c44f843bb0db46"
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   }
 ]

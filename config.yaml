@@ -807,17 +807,6 @@ chains:
           - 0xc64126EA8dC7626c16daA2A29D375C33fcaa4C7c # fracture #9: mireveal_7_7
           - 0x24F4047d372139de8DACbe79e2fC576291Ec3ffc # fracture #10: mireveal_8_8
 
-          # ----- CR-OPS-IDX W1 Fractured Mibera (seed addresses; distinct from SBFT set above) -----
-          # Fractured Mibera 2 omitted: already tracked in SBFT set as fracture #2 miladies above.
-          - 0x6956dae88c00372b1a0b2dfbfe5eed19f85b0d4b # Fractured Mibera 1
-          - 0x77ec6b83495974a5b2c5bef943b0f2e5acd8fc26 # Fractured Mibera 3
-          - 0xc557bf6c7d21ba98a40ddfe2beaba682c49d17a9 # Fractured Mibera 4
-          - 0xbcb082bb41e892f29d9c600eaadea698d5f712ef # Fractured Mibera 5
-          - 0x2030f226bf9a0c88687e83accdcefb7dae260094 # Fractured Mibera 6
-          - 0xcc426f9375c5edcef5ca6bdb0449c07113348cf7 # Fractured Mibera 7
-          - 0xf68f40230e39067ee7c98fe9a8641fc124c5be60 # Fractured Mibera 8
-          - 0xfc79b1bcca172ff5a8f74205c82f5cbb0125dd10 # Fractured Mibera 9
-          - 0xa3d3ef45712631a6fb50c677762b8653f932cf71 # Fractured Mibera 10
           # Shadows (0x048327…) stays on GeneralMints only — Envio forbids dual
           # contract definitions on the same address (TrackedErc721 + GeneralMints).
 

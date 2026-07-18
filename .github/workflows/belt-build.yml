@@ -12,8 +12,10 @@
 #
 # Gates, in order:
 #
-#   1. verify:belt-config  — BLOCKING. The config-fidelity check: config.mibera.yaml's
-#      field_selection / address / start_block are byte-identical to config.yaml.
+#   1. verify:belt-config  — BLOCKING. The config-fidelity check: field_selection
+#      and start_block are identical; critical addresses are identical.
+#      TrackedErc721 and EthTrackedErc721 are explicitly expansion-safe: each
+#      non-empty belt list remains a subset while config.yaml may add communities.
 #      A belt config that drops a field a handler reads produces silently-wrong
 #      data, not a crash — this makes that unshippable.
 #   2. envio-free belt tests — BLOCKING. `pnpm test` (vitest run) runs the binary-free belt

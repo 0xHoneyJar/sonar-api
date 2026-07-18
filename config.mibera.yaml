@@ -1,10 +1,13 @@
 # yaml-language-server: $schema=./node_modules/envio/evm.schema.json
 # Mibera belt — Deployment #1 (the fire fix).
 #
-# A HyperIndex config scoped to the two Mibera contracts on Berachain. Event ABIs,
-# per-event `field_selection`, addresses and start_blocks are extracted VERBATIM
-# from config.yaml; scripts/verify-belt-config.js mechanically enforces that
-# fidelity (SDD §5.3, PRD FR-1, AC-2 / AC-11). The top-level `handlers:` key scopes
+# A HyperIndex config scoped to the Score failback footprint. Event ABIs,
+# per-event `field_selection`, start_blocks, and critical addresses are extracted
+# verbatim from config.yaml. TrackedErc721 and EthTrackedErc721 are the explicit
+# expansion-safe exceptions: each non-empty belt list must remain a subset while
+# config.yaml may add communities.
+# scripts/verify-belt-config.js mechanically enforces that fidelity (SDD §5.3,
+# PRD FR-1, AC-2 / AC-11). The top-level `handlers:` key scopes
 # Envio's handler autoload (HandlerLoader.autoLoadFromSrcHandlers globs that
 # directory) to src/belts/mibera/ — whose only file is the belt registration
 # entrypoint — so a scoped `envio codegen` build never imports the other contracts'
