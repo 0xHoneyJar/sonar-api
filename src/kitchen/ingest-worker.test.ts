@@ -329,6 +329,32 @@ describe("ingest-worker", () => {
     expect(batchResult.changed).toBe(false);
   });
 
+  it("releases claimed leases when no drain strategy is configured", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("KITCHEN_WORKER_ENABLED", "true");
+    vi.stubEnv("KITCHEN_PREPARATION_PORT", "belt_config_batch");
+    vi.stubEnv("KITCHEN_PREPARATION_DRAIN", "");
+    const store = new MemoryIngestJobStore();
+    const key = {
+      chainId: 1,
+      contract: "0xed5af388653567af2f388e6224dc7c4b3241c544" as const,
+    };
+    await store.upsertQueued(key, { order_id: "order", source: "cr-ops-idx-w1" });
+    const reader: CollectionStatusReader = {
+      readIndexedSnapshot: vi.fn().mockResolvedValue({ holderCount: 0, indexedAtMs: null }),
+    };
+    await runKitchenIngestWorkerTick({
+      store,
+      reader,
+      workerId: "no-drain-worker",
+      nowMs: 1_000,
+    });
+    await expect(store.get(key)).resolves.toMatchObject({
+      status: "queued",
+      leaseOwner: undefined,
+    });
+  });
+
   it("lets the first terminal coordinator result win", async () => {
     const store = new MemoryIngestJobStore();
     const job = await store.upsertQueued(
