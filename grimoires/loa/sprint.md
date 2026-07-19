@@ -16,6 +16,11 @@ Sprint 0 execution and its stop conditions; it does not promote unresolved
 readiness or model-identity sensors to healthy. The separate operator receipt
 is `.run/evidence/sonar-score-agent-dream-outcome/operator-approval-receipt.json`.
 
+Current admission result: **BLOCKED_TERMINAL**. Campaign 2 exhausted its sole
+attempt with 3/3 content-qualified voices but 11 substantive blockers. This
+plan remains active and incomplete; neither Simstim nor `/run sprint-plan` is
+admitted.
+
 ## Sprint 0: Restore an operational council without overstating its sensors
 
 ### Sprint Goal
@@ -128,8 +133,10 @@ finding.
 **AC:** `flatline-campaign-receipt.json` enumerates all three campaign-1
 attempts, their blocker counts, rerun reasons, and adjudications. Campaign 1
 is `BLOCKED_EXHAUSTED`, has no selected attempt, and closes with an attempt
-budget of three. A materially changed campaign 2 permits exactly one review
-and must carry all campaign-1 findings.
+budget of three. Campaign 2 carried all campaign-1 findings, used its one
+permitted review, and ended `BLOCKED_TERMINAL`; no further campaign is
+authorized. `bd-v54z.9` owns objective material-change and exhausted-campaign
+rules before the operator can decide whether another attempt is warranted.
 
 ### T0.6 Mechanical planning boundary
 
@@ -143,7 +150,9 @@ identity is false, Score emission and consumption readiness are false,
 `bd-v54z.4`/`.5`/`.6` are present, the artifact manifest is complete, prior
 campaign findings are carried, the upstream pin is full-SHA-bound and
 unexpired, and the live production invariants hold. A post-dispatch artifact
-also requires a SHA-256 binding.
+also requires a SHA-256 binding. Environment isolation is proven, but
+filesystem/auth projection and positive rejection redaction remain open under
+`bd-v54z.10`; this blocks another campaign.
 
 ### T0.E2E End-to-end bootstrap validation
 
@@ -171,7 +180,9 @@ classifier.
 - `bd-v54z.6` — identity-bound, complete, redacted council receipt gate.
 - `bd-v54z.7` — mechanical observational-admission classifier; complete.
 - `bd-v54z.8` — allowlisted Flatline environment; complete.
-- `bd-v54z.9` — bounded campaign receipt; complete.
+- `bd-v54z.9` — campaign state machine reopened after terminal review.
+- `bd-v54z.10` — isolated reviewer filesystem/auth projection and positive
+  rejection redaction proof.
 - `bd-v54z.2` — Sonar producer-contract Simstim, blocked until Sprint 0 closes.
 - `bd-v54z.1` — Score consumption/policy closure, blocked behind Simstim.
 - Dated Sonar/Score issue registry and lineage packet under
@@ -185,7 +196,7 @@ classifier.
 | A hollow but schema-valid response counts as a voice | Require reasoned-empty fields in the active response validator; keep upstream merge/pin proof owned by `bd-v54z.5`. |
 | Repeated runs select only unanimous attempts | Campaign 1 aggregates all three attempts and selects none; campaign 2 has a fixed budget of one and carries every prior finding. |
 | Readiness warning is laundered into READY | Mechanically require NON_AUTHORITATIVE/NON_READY in both Simstim receipts and reject Score-facing artifacts. |
-| Review processes inherit ambient secrets | Dispatch through `scripts/with-flatline-env.sh`; tests prove application/provider secret variables are not inherited. |
+| Review processes inherit ambient secrets | Dispatch through `scripts/with-flatline-env.sh`; tests prove application/provider secret variables are not inherited. `bd-v54z.10` additionally owns HOME/file/socket isolation and raw-rejection redaction. |
 | Framework rollback leaves mixed versions | Revert the ordered tail commit, then rerun strict integrity and effective-config assertions. |
 
 ### Success Metrics
