@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Detached, content-addressed Sonar→Score planning-promotion verification that
+  preserves the production/non-production authority boundary.
+- Strict Effect Schema truth-contract types, typed boundary failures, decimal
+  uint64 brands, and bounded lifecycle/status variants.
+- Closed RFC 8785/SHA-256/Ed25519 truth-bundle compilation with
+  environment/generation domain separation and cross-consumer golden vectors.
+- Versioned normative policy objects plus an executable FR-1 through FR-13
+  module/test/Beads-owner traceability gate.
+
 ## [1.157.0] — 2026-05-12 — Multi-Model Live: Cheval Substrate + Within-Company Chains + Voice-Drop
 
 This is a **named milestone release** that bundles the multi-model-stabilization arc spanning cycles 102 → 107 (~3 weeks of work). The framework's three review consumers — **Bridgebuilder (BB)**, **Flatline (FL)**, and **Red-team (RT)** — now route through a single unified provider substrate with within-company fallback chains, voice-drop on chain exhaustion, and the MODELINV v1.1 audit envelope.

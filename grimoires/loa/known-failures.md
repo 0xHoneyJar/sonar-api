@@ -80,6 +80,7 @@ actually tried, not just what someone *said* was tried.
 | [KF-014](#kf-014-bridgebuilder-pass-2-enrichment-unavailable-on-claude-headless-cli-subscription) | DEGRADED-ACCEPTED 2026-05-22 (Pass-1 convergence findings still post; only the educational enrichment layer is lost) | `/bridgebuilder` two-pass review on `claude-headless` | 3 |
 | [KF-015](#kf-015-envio-belt-indexer-node-js-heap-oom-on-multi-chain-belt-default-2gb-heap-vs-large-container) | **RESOLVED-VIA-CONFIG 2026-05-22** (`NODE_OPTIONS=--max-old-space-size=12288` — 6-chain belt OOM'd Node's ~2GB default heap in a 24GB container; green-only; RECURRED 2026-06-19 on managed-Envio Cloud @3.2.1 — heap/RAM lever there is TBD) | belt-indexer 6-chain consolidated cold-sync OOM | 2 |
 | [KF-016](#kf-016-envio-321-blocks-chain-indexing-on-hasura-trackdatabase-retry) | **RESOLVED-VIA-CONFIG 2026-06-21** (set `HASURA_GRAPHQL_ENDPOINT` to a reachable Hasura — `envio@3.2.1` blocks chain-indexing on the `Hasura.trackDatabase`→`createSelectPermission` retry loop when no Hasura is reachable; `block_height` stuck at 0, `latest_processed_block` -1. The local-upload spike slipped past it; the GitHub-sourced re-home did not — give the indexer a Hasura at deploy time) | self-host envio@3.2.1 deploy, indexer seeds schema but never indexes | 1 |
+| [KF-021](#kf-021-flatline-codex-headless-returns-empty-on-large-sprint-5-diff) | DEGRADED-ACCEPTED | Flatline PR review tertiary voice | 2 |
 
 ---
 
@@ -1027,3 +1028,36 @@ This is a liveness bug, not a correctness bug — the MV data is unaffected. The
 |------|---------|--------|----------|
 | 2026-07 | metered reads for Solana history (Helius DAS credits, Dune egress) | quota-outs + ~100x cost misses; snapshot-first only bought point-in-time ownership | KF-018, metered-provider-spike-protocol |
 | 2026-07-06 | recognize self-hosted-indexer-first (belt-indexer already proves the pattern) | DOCTRINE — not yet built for SVM; the correct deep-history path | this entry |
+
+## KF-021: Flatline codex-headless returns empty on large Sprint 5 diff
+
+**Status**: DEGRADED-ACCEPTED
+**Feature**: `.claude/scripts/flatline-orchestrator.sh` PR review with
+`codex-headless` as the tertiary voice.
+**Symptom**: Both tertiary review and skeptic calls exit 1 with empty content
+while Claude-headless and Cursor-headless complete against the same 249 KB
+Sprint 5 diff. Flatline correctly emits `DEGRADED` with `voices=2/3`, skips
+Phase 2, and must not be reported as convergence.
+**First observed**: 2026-07-19 (`run-20260718-19763105`, Sprint 5 repair loop).
+**Recurrence count**: 2
+**Current workaround**: Preserve the degraded receipt, apply actionable dissent
+from the two healthy voices, and require fresh independent scoped acceptance,
+cryptographic/property, and code reviews. Do not infer a Codex vote from the
+missing output. If this reaches recurrence 3, stop retrying this route and file
+the upstream issue.
+**Upstream issue**: not filed
+
+### Attempts
+
+| Date | What we tried | Outcome | Evidence |
+|------|---------------|---------|----------|
+| 2026-07-19 | Initial Flatline review of the staged Sprint 5 diff | DEGRADED — Codex review + skeptic empty; Claude and Cursor returned blockers | `run-20260718-19763105`; initial `pr-final_consensus.json` receipt |
+| 2026-07-19 | Repaired trust/replay seams, regenerated the exact 249 KB diff, reran Flatline | DEGRADED — identical Codex failure; 2/3 healthy voices returned actionable dissent | `grimoires/loa/a2a/flatline/pr-final_consensus.json` at `2026-07-19T09:29:56Z` |
+
+### Reading guide
+
+At recurrence 2, do not call Flatline converged and do not discard the two
+healthy reviews. Repair their actionable findings, record `DEGRADED 2/3`, and
+use independent scoped reviewers for the final blocking verdict. A third
+identical recurrence makes the route structural under this file's rule: stop
+retries and route the adapter failure upstream.

@@ -791,3 +791,19 @@ future condition); key rotation from last session still pending.
 
 **Spend**: model voices ran on subscription-auth headless adapters (MODELINV cost 0);
 Helius untouched tonight; no Dune. SQD Portal remains free/open.
+## Session Continuity — Sonar Score truth contract Run Mode (2026-07-18)
+
+- Active run: `run-20260718-19763105`; plan `plan-20260718-06ab4334`; branch `feature/sprint-plan`.
+- Task 1.1 gate committed at `03e0b273`; exact document digests, floor, and unset `ENVIO_RESTART` verify.
+- Sprint 1 owns strict Effect schemas, non-circular signed root, normative closure, and FR traceability.
+- Reuse vendored trust protocol JCS/SHA-256/Ed25519; never redefine cryptographic primitives.
+- All protocol-sized integers are canonical decimal uint64 strings; unsafe numbers and excess keys fail.
+- Resource bounds: root 256 KiB, 128 objects, object 4 MiB, closure 32 MiB, graph 10k/50k/depth64.
+- Existing strict-decoder precedent: capability registry and kitchen protocol use Effect Schema with excess-property errors.
+- Production authority remains excluded: no deployment, signer activation, database/index mutation, restart, wipe, or floor change.
+
+## Bug Triage — 20260719-03b184 (sprint-bug-189, 2026-07-19)
+
+- Triaged from Bridgebuilder review of PR #221: TC-001 (HIGH) + TC-004/TC-005 (test hygiene). Beads: bd-di51. Ledger: cycle-bug-20260719-03b184, counter → 189.
+- TC-001 confirmed in code: validateEventBody (invalidation.ts:607-660) leaves LIFECYCLE_TRANSITION unconstrained on resolves_cause_event_ids/replacement_evidence; applyEvent resolution branch (:822) keys on array length, not kind === "RECOVERY"; PRODUCER sits in both allowedLifecycleAuthorities (DRAFT/PRODUCED) and SOURCE_TRANSPORT_LOSS.recovery_authorities (:128), so one event can advance lifecycle AND clear causes, bypassing the :792 "recovery changed lifecycle" invariant.
+- Observation: `.claude/scripts/validate-artifact.sh` validate_bug_triage fails on darwin — its grep/sed use GNU `\s` in ERE, which BSD sed treats literally, so bug_id extraction returns the whole line and validation always exits 1 regardless of artifact correctness. All four checks (id grammar, sibling state.json, schema_version, PII scan) replayed portably and PASS for this triage. Same GNU-ism defect class as TC-005. Upstream fix: `[[:space:]]` instead of `\s`.

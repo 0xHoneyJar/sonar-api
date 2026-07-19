@@ -1,0 +1,36 @@
+{
+  "schema": "loa.a2a.adversarial-audit.v1",
+  "sprint": "sprint-5",
+  "run": "run-20260718-19763105",
+  "verdict": "APPROVED",
+  "severity_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+  "gates": {
+    "truth_agent": "PASS_47_OF_47",
+    "truth_contract": "PASS_65_OF_65",
+    "truth_registry": "PASS_50_OF_50",
+    "truth_promotion": "PASS",
+    "traceability": "PASS_13_TOTAL_9_IMPLEMENTED_4_PLANNED",
+    "flatline": "DEGRADED_2_OF_3_NO_CONVERGENCE",
+    "production_authority": false,
+    "diff_check": "PASS"
+  },
+  "invariants": {
+    "ethereum_start_block": 12287507,
+    "envio_restart_unset": true,
+    "floor_lowered": false,
+    "wipe_or_restart": false,
+    "kf_013_replayed": false,
+    "production_mutation": false
+  },
+  "reviewers": {
+    "acceptance": "APPROVED",
+    "crypto_property": "APPROVED",
+    "final_code": "APPROVED"
+  },
+  "findings": []
+}

@@ -1,0 +1,80 @@
+{
+  "findings": [
+    {
+      "id": "DISS-001",
+      "severity": "BLOCKING",
+      "category": "data-loss",
+      "anchor": "src/truth-contract/normative-compiler.ts:validateObjectSemantics",
+      "anchor_type": "function",
+      "scope": "diff",
+      "description": "Identity snapshots receive no semantic validation. The compiler accepts duplicate canonical_collection_id values and conflicting bindings that map the same chain identity to different collections, then hashes them into a signed normative object.",
+      "failure_mode": "Consumers cannot deterministically resolve the authoritative collection identity. Different iteration or indexing strategies may select different bindings, causing attribution to the wrong collection or overwriting one binding with another.",
+      "suggested_fix": "Add identity_snapshot validation that enforces uniqueness of canonical_collection_id and of the canonical chain tuple (chain_family, chain_id, canonical_address), plus any required alias-disjointness rules. Reject conflicting bindings before canonicalization.",
+      "anchor_status": "valid",
+      "anchor_stability": "symbol"
+    },
+    {
+      "id": "DISS-002",
+      "severity": "BLOCKING",
+      "category": "authz",
+      "anchor": "src/truth-contract/normative-compiler.ts:validateNetworkPolicy",
+      "anchor_type": "function",
+      "scope": "diff",
+      "description": "Provider identity uniqueness is not checked, and maximumIndependentProviderSet ignores provider_id. Multiple records with the same provider_id but different claimed operators/control domains can therefore satisfy a quorum as if they were distinct providers.",
+      "failure_mode": "A network policy can pass compilation with required_provider_quorum=2 even though both quorum entries identify the same provider. Runtime finality decisions may then be authorized without the required number of independent sources.",
+      "suggested_fix": "Require provider_id uniqueness within each network before calculating independence. Also reject conflicting reuse of a provider identity across operator or control-domain claims.",
+      "anchor_status": "valid",
+      "anchor_stability": "symbol"
+    },
+    {
+      "id": "DISS-003",
+      "severity": "BLOCKING",
+      "category": "spec-violation",
+      "anchor": "src/truth-contract/normative-compiler.ts:validateObjectSemantics",
+      "anchor_type": "function",
+      "scope": "diff",
+      "description": "Identity effective-status records are signed without validating their time interval. evaluated_at may be equal to or later than expires_at, including for READY status.",
+      "failure_mode": "The compiler can produce an authoritative identity snapshot that declares READY evidence which was already expired when evaluated. Consumers trusting the signed status can serve stale or invalid identity truth.",
+      "suggested_fix": "Validate every binding's effective_status so expires_at is strictly later than evaluated_at, and enforce any status-specific evidence and expiry invariants before signing the normative object.",
+      "anchor_status": "valid",
+      "anchor_stability": "symbol"
+    }
+  ],
+  "metadata": {
+    "type": "review",
+    "model": "codex-headless",
+    "sprint_id": "sprint-1",
+    "timestamp": "2026-07-19T04:00:10Z",
+    "tokens_input": 43736,
+    "tokens_output": 1592,
+    "cost_usd": 0,
+    "latency_ms": 71471,
+    "status": "reviewed",
+    "degraded": false,
+    "rejected_count": 0,
+    "rejected_sidecar": "grimoires/loa/a2a/sprint-1/adversarial-rejected-review.jsonl",
+    "model_attempts": [
+      "codex-headless:reviewed"
+    ],
+    "final_model": "codex-headless",
+    "hallucination_filter": {
+      "applied": true,
+      "downgraded": 0
+    }
+  },
+  "verdict_quality": {
+    "consensus_outcome": "consensus",
+    "truncation_waiver_applied": false,
+    "voices_planned": 1,
+    "voices_succeeded": 1,
+    "voices_succeeded_ids": [
+      "codex-headless"
+    ],
+    "voices_dropped": [],
+    "chain_health": "ok",
+    "confidence_floor": "high",
+    "rationale": "multi-voice aggregate (1/1 succeeded); chain_health=ok",
+    "single_voice_call": true,
+    "status": "APPROVED"
+  }
+}

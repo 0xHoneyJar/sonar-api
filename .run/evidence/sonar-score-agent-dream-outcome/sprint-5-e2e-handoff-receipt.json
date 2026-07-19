@@ -1,0 +1,81 @@
+{
+  "schema": "sonar.score-staged-handoff-receipt.v1",
+  "run": "run-20260718-19763105",
+  "sprint": "sprint-5",
+  "status": "SEALED_STAGED_HANDOFF",
+  "production_authority": false,
+  "inspection": {
+    "envelope_hash": "0c309b3999ac9fde35016d7d7c0e1dc259b344a427ab92e142c3c177e261aa42",
+    "envelope_hash_scope": "local_filesystem_context",
+    "publisher_key_id": "sonar-staged-publisher",
+    "environment": "staging",
+    "validity_class": "STAGED_CURRENT",
+    "authority_validity": "STAGED_VALID",
+    "event_chain": [
+      "producer_readiness",
+      "reconciliation",
+      "score_not_consumed"
+    ],
+    "replay_digest_required": true
+  },
+  "slice": {
+    "collection_id": "mibera",
+    "chain_id": "80094",
+    "canonical_address": "0x6666397dfe9a8c469bf65dc744cb1c733416c420",
+    "event_signature": "Transfer(address,address,uint256)",
+    "finalized_height": "23718180",
+    "finalized_block_hash": "cdf90542afbee65e908eacec5481088e9eec1993d682c1268647f4a1ddbb33cb",
+    "binary_bytecode_sha256": "6cbf0a2f6bde17afc7d0c56f67675964b57d6e4168c6d302e7f284770f287f6f",
+    "provider_response_sha256": "d4da3d41ee2a8796309c91cdcc721abbcf69a2d9395efe1c1b5280197d576a2d",
+    "provider_quorum": 2
+  },
+  "targets": {
+    "produced": {
+      "exit_code": 0,
+      "state": "READY"
+    },
+    "reconciled_staged": {
+      "exit_code": 0,
+      "state": "READY"
+    },
+    "consumed": {
+      "exit_code": 2,
+      "state": "NOT_CONSUMED"
+    },
+    "live_proven": {
+      "exit_code": 2,
+      "state": "NOT_CONSUMED"
+    },
+    "graduated": {
+      "exit_code": 2,
+      "state": "NOT_CONSUMED"
+    }
+  },
+  "score_continuation": {
+    "owner": "bd-v54z.1",
+    "handoff_sealed_at": "2026-07-19T09:00:00.000Z",
+    "deadline": "2026-07-26T09:00:00.000Z",
+    "remaining": [
+      "Score projection integration",
+      "live serving and user-meaning proof",
+      "compatibility enforcement",
+      "production signer and rollout"
+    ]
+  },
+  "gates": {
+    "truth_agent": "PASS_47_OF_47",
+    "truth_contract": "PASS_65_OF_65",
+    "truth_registry": "PASS_50_OF_50",
+    "truth_promotion": "PASS",
+    "diff_check": "PASS",
+    "flatline": "DEGRADED_2_OF_3_NO_CONVERGENCE"
+  },
+  "invariants": {
+    "ethereum_start_block": "12287507",
+    "envio_restart_unset": true,
+    "floor_lowered": false,
+    "wipe_or_restart": false,
+    "kf_013_replayed": false,
+    "production_mutation": false
+  }
+}

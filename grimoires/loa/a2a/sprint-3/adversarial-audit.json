@@ -1,0 +1,27 @@
+{
+  "schema": "loa.a2a.adversarial-audit.v1",
+  "sprint": "sprint-3",
+  "verdict": "APPROVED",
+  "severity_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+  "gates": {
+    "truth_producer": "PASS_22_OF_22",
+    "truth_contract": "PASS_38_OF_38",
+    "truth_registry": "PASS_50_OF_50",
+    "capability_registry": "PASS_35_OF_35",
+    "promotion_authority": false,
+    "diff_check": "PASS"
+  },
+  "invariants": {
+    "ethereum_start_block": 12287507,
+    "envio_restart_unset": true,
+    "floor_lowered": false,
+    "wipe_or_restart": false,
+    "production_mutation": false
+  },
+  "findings": []
+}

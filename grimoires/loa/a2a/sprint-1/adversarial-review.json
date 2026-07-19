@@ -1,0 +1,9 @@
+{
+  "findings": [],
+  "metadata": {
+    "type": "review",
+    "sprint_id": "sprint-1",
+    "status": "failed",
+    "reason": "Third remediation-verification invocation completed without emitting its required output artifact; attempts 1 and 2 are preserved and every anchored blocker was addressed with tests."
+  }
+}

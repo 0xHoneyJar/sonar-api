@@ -1,0 +1,18 @@
+{
+  "projection": {
+    "schema_version": 1,
+    "environment": "staging",
+    "generation": "1",
+    "root_hash": "cf6082a1d0a6ff972b45a992832bb2a33dec741499cba14e03228e9ae33fa5bc",
+    "activation_hash": "245f0636fbb13b24ccb59d520f8e92fcfea1f365a0b0c9f547f985452142bfc0",
+    "object_count": 13,
+    "closure_bytes": "690",
+    "activation_audit_sequence": "1",
+    "revocation_epoch": "1",
+    "revocation_sequence": "1",
+    "revoked_targets": [
+      "cf6082a1d0a6ff972b45a992832bb2a33dec741499cba14e03228e9ae33fa5bc"
+    ]
+  },
+  "projection_sha256": "984922815a9cde872254a5989fe1b230350e70944646862810e16f8020d6c702"
+}

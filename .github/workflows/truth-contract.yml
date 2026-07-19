@@ -1,0 +1,68 @@
+name: Truth Contract
+
+on:
+  pull_request:
+    paths:
+      - "src/truth-contract/**"
+      - "src/collection-resolver/**"
+      - "test/truth-contract.*"
+      - "scripts/verify-truth-*.ts"
+      - "scripts/verify-truth-promotion.sh"
+      - "grimoires/loa/promotion-receipt.sonar-score-v1.json"
+      - "grimoires/loa/sprint.md"
+      - ".run/evidence/sonar-score-agent-dream-outcome/**"
+      - "config.yaml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "tsconfig.truth-contract.json"
+      - ".github/workflows/truth-contract.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/truth-contract/**"
+      - "src/collection-resolver/**"
+      - "test/truth-contract.*"
+      - "scripts/verify-truth-*.ts"
+      - "scripts/verify-truth-promotion.sh"
+      - "grimoires/loa/promotion-receipt.sonar-score-v1.json"
+      - "grimoires/loa/sprint.md"
+      - ".run/evidence/sonar-score-agent-dream-outcome/**"
+      - "config.yaml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "tsconfig.truth-contract.json"
+      - ".github/workflows/truth-contract.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: truth-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  hermetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        # Version comes from package.json "packageManager"; pnpm/action-setup v4
+        # errors if it is ALSO pinned here (ERR_PNPM_BAD_PM_VERSION).
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify implementation authority and production invariants
+        run: pnpm verify:truth-promotion
+      - name: Verify agent truth contract
+        run: pnpm verify:truth-agent
+      - name: Verify producer and reconciliation contract
+        run: pnpm verify:truth-contract
+      - name: Verify registry, trust, and revocation contract
+        run: pnpm verify:truth-registry

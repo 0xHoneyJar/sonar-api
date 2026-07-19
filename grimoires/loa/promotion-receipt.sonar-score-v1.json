@@ -1,0 +1,44 @@
+{
+  "schema": "loa.operator-promotion-receipt.v1",
+  "repository": "0xHoneyJar/sonar-api",
+  "remote": "https://github.com/0xHoneyJar/sonar-api.git",
+  "base_commit": "8a72f564200c560e4950ef991087f90dcbffbbe8",
+  "approved_at": "2026-07-19T03:19:19Z",
+  "approved_by": "operator:zksoju",
+  "attestation_kind": "self_attested_conversation_approval",
+  "approval_source": "current_operator_message: Yes approve.",
+  "implementation_authorized": true,
+  "scope": {
+    "included": [
+      "Sonar to Score truth-contract implementation described by the bound PRD, SDD, and sprint plan",
+      "Hermetic and read-only staged verification",
+      "Task 1.1 promotion-receipt gate"
+    ],
+    "excluded": [
+      "Production deployment",
+      "Production signing or trust-root activation",
+      "Production index or database mutation",
+      "Envio restart, wipe, floor lowering, or KF-013 replay",
+      "Score graduation"
+    ]
+  },
+  "documents": {
+    "grimoires/loa/prd.md": "sha256:063b397045fb1232805be68f82b00bc6b4474365a71df15028288f71f2e6a6cf",
+    "grimoires/loa/sdd.md": "sha256:8285b762a58454d3561d928c04bc9dcdac1dc63f15bd725c309f4e99cb63156e",
+    "grimoires/loa/sprint.md": "sha256:df309c84ed44d8ff971663ab37c57011c89b084f2ddcac60dc43e252b2cb7905"
+  },
+  "flatline": {
+    "prd": "completed_bounded",
+    "sdd": "completed_bounded",
+    "sprint": "two_attempt_campaign_complete_post_review_remedies_integrated"
+  },
+  "production_invariants": {
+    "ethereum_start_block": "12287507",
+    "envio_restart": "unset",
+    "floor_lowering": false,
+    "wipe": false,
+    "kf_013_replay": false
+  },
+  "cryptographic_signature": null,
+  "signature_note": "This is an explicit governance attestation captured from the operator conversation, not a production cryptographic trust root. Exact content digests are mechanically verified before Task 1.2."
+}
