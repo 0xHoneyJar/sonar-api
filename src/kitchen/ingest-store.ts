@@ -19,6 +19,7 @@ import type {
 
 export interface IngestJobStorePort {
   get(key: CollectionKey): Promise<IngestJobRecord | undefined>;
+  getMany(keys: CollectionKey[]): Promise<Map<string, IngestJobRecord>>;
   getByPhysicalJobId(physicalJobId: string): Promise<IngestJobRecord | undefined>;
   admit(request: AdmissionRequest, nowMs?: number): Promise<AdmissionResult>;
   upsertQueued(key: CollectionKey, body: IngestRequestBody, nowMs?: number): Promise<IngestJobRecord>;
@@ -100,6 +101,16 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
     const physicalJobId = this.legacyAliases.get(collectionKeyId(key));
     const record = physicalJobId ? this.jobsById.get(physicalJobId) : undefined;
     return record ? cloneJob(record) : undefined;
+  }
+
+  async getMany(keys: CollectionKey[]): Promise<Map<string, IngestJobRecord>> {
+    const jobs = new Map<string, IngestJobRecord>();
+    for (const key of keys) {
+      const physicalJobId = this.legacyAliases.get(collectionKeyId(key));
+      const record = physicalJobId ? this.jobsById.get(physicalJobId) : undefined;
+      if (record) jobs.set(collectionKeyId(key), cloneJob(record));
+    }
+    return jobs;
   }
 
   async getByPhysicalJobId(physicalJobId: string): Promise<IngestJobRecord | undefined> {

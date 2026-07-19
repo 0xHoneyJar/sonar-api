@@ -6,6 +6,10 @@ import type {
 } from "./types.js";
 
 export interface IndexReadinessCoverage {
+  physicalJobId: string;
+  deploymentId: string;
+  capabilityId: string;
+  capabilityVersion: string;
   requiredFloor: number;
   processedThroughBlock: number;
   requiredThroughBlock: number;
@@ -26,6 +30,9 @@ export interface IndexReadinessEvidence {
 export interface IndexedSnapshot {
   holderCount: number;
   indexedAtMs: number | null;
+  /** Raw aggregates retained for attributable coverage evidence. */
+  tokenCount?: number;
+  trackedHolderCount?: number;
   readiness?: IndexReadinessEvidence;
 }
 
@@ -59,4 +66,11 @@ export function toStatusResponse(
 
 export interface CollectionStatusReader {
   readIndexedSnapshot(key: CollectionKey): Promise<IndexedSnapshot>;
+  /**
+   * Bounded bulk path used by readiness scans. Implementations should preserve
+   * input identity and return one entry per key.
+   */
+  readIndexedSnapshots?(
+    keys: CollectionKey[],
+  ): Promise<Map<string, IndexedSnapshot>>;
 }

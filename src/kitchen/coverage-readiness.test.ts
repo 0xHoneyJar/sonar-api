@@ -11,6 +11,7 @@ import {
 const floor: CoverageFloorRecord = {
   chainId: 1,
   contract: "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
+  physicalJobId: "ingest_test",
   requiredFloor: 12_287_507,
   coverageMode: "full_from_required_floor",
   configDigest: "cfg".padEnd(64, "a"),
@@ -108,6 +109,27 @@ describe("evaluateCoverageReadiness", () => {
       },
     });
     expect(bound).toEqual({ ready: false, reason: "wrong_config_digest" });
+  });
+
+  it("fails a matching collection attributed to the wrong physical job", () => {
+    const bound = bindFloorToObservation({
+      floor,
+      observation: {
+        physicalJobId: "ingest_wrong",
+        deploymentId: "dep".padEnd(64, "c"),
+        chainId: 1,
+        contract: floor.contract,
+        configDigest: floor.configDigest,
+        capabilityId: floor.capabilityId,
+        capabilityVersion: floor.capabilityVersion,
+        processedThroughBlock: 20_000_000,
+        requiredThroughBlock: 20_000_000,
+        tokenRows: 1,
+        holderRows: 1,
+        observedAtMs: 1,
+      },
+    });
+    expect(bound).toEqual({ ready: false, reason: "wrong_job_binding" });
   });
 
   it("fails processed-through below required end (adversarial #5)", () => {

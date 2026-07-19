@@ -1,65 +1,121 @@
 /**
- * Mission 5 — wrap the Hasura row reader with coverage-aware readiness.
+ * Mission 5 — attributable, bulk coverage-aware readiness.
  *
- * When a floor record is supplied, positive rows alone cannot complete a job:
- * processed_through must cover required_floor..required_through, and digests
- * must bind. Zero-row collections may complete via sync_marker.
- *
- * Enabled when createCoverageAwareStatusReader is used (see server.ts env gate).
+ * A physical job completes only when its deployment/capability/config binding
+ * matches the floor registry and chain progress is within the configured
+ * tip-follow lag. Entity rows are descriptive; they are never the coverage
+ * proof. A fully covered zero-row collection completes via a sync marker.
  */
 
-import type { CollectionKey } from "./types.js";
+import { collectionKeyId } from "./normalize.js";
 import type { CollectionStatusReader, IndexedSnapshot } from "./status.js";
+import type { CollectionKey } from "./types.js";
 import {
   bindFloorToObservation,
   evaluateCoverageReadiness,
   type CoverageFloorRecord,
 } from "./coverage-readiness.js";
 
-export type ChainProgressReader = (chainId: number) => Promise<{
+export interface ChainProgress {
   processedThroughBlock: number;
+  headBlock: number;
   sensorFailed?: boolean;
-} | null>;
+}
+
+export type ChainProgressReader = (
+  chainIds: number[],
+) => Promise<Map<number, ChainProgress>>;
+
+export interface CoverageJobBinding {
+  physicalJobId: string;
+  deploymentId: string;
+  configDigest: string;
+  capabilityId: string;
+  capabilityVersion: string;
+}
+
+export type JobBindingResolver = (
+  keys: CollectionKey[],
+) => Promise<Map<string, CoverageJobBinding>>;
+
+function withoutUnprovenReadiness(snapshot: IndexedSnapshot): IndexedSnapshot {
+  return {
+    holderCount: snapshot.holderCount,
+    indexedAtMs: snapshot.indexedAtMs,
+    ...(snapshot.tokenCount === undefined ? {} : { tokenCount: snapshot.tokenCount }),
+    ...(snapshot.trackedHolderCount === undefined
+      ? {}
+      : { trackedHolderCount: snapshot.trackedHolderCount }),
+  };
+}
+
+async function readInnerBatch(
+  reader: CollectionStatusReader,
+  keys: CollectionKey[],
+): Promise<Map<string, IndexedSnapshot>> {
+  if (reader.readIndexedSnapshots) {
+    return reader.readIndexedSnapshots(keys);
+  }
+  const rows = await Promise.all(
+    keys.map(async (key) => [
+      collectionKeyId(key),
+      await reader.readIndexedSnapshot(key),
+    ] as const),
+  );
+  return new Map(rows);
+}
 
 export function createCoverageAwareStatusReader(args: {
   inner: CollectionStatusReader;
-  /** Lookup floor by chainId + lowercase contract. */
   resolveFloor: (key: CollectionKey) => CoverageFloorRecord | null;
+  /** Registry-blocked contracts are governed but can never become ready. */
+  isBlocked?: (key: CollectionKey) => boolean;
   readChainProgress: ChainProgressReader;
-  /** Fixed end of coverage window; defaults to processed tip (catch-up to head). */
-  requiredThroughBlock?: number;
-  /** Job binding digests — when omitted, coverage path is skipped (inner only). */
-  resolveJobBinding?: (key: CollectionKey) => {
-    physicalJobId: string;
-    deploymentId: string;
-    configDigest: string;
-    capabilityId: string;
-    capabilityVersion: string;
-  } | null;
+  resolveJobBindings: JobBindingResolver;
+  tipLagBlocks?: number;
 }): CollectionStatusReader {
-  return {
-    async readIndexedSnapshot(key: CollectionKey): Promise<IndexedSnapshot> {
-      const inner = await args.inner.readIndexedSnapshot(key);
+  const tipLagBlocks = Math.max(0, args.tipLagBlocks ?? 500);
+
+  async function readIndexedSnapshots(
+    keys: CollectionKey[],
+  ): Promise<Map<string, IndexedSnapshot>> {
+    const inner = await readInnerBatch(args.inner, keys);
+    const snapshots = new Map(inner);
+    for (const key of keys) {
+      if (!args.isBlocked?.(key)) continue;
+      const id = collectionKeyId(key);
+      snapshots.set(
+        id,
+        withoutUnprovenReadiness(
+          inner.get(id) ?? { holderCount: 0, indexedAtMs: null },
+        ),
+      );
+    }
+    const coveredKeys = keys.filter((key) => args.resolveFloor(key) !== null);
+    if (coveredKeys.length === 0) return snapshots;
+
+    const [bindings, progressByChain] = await Promise.all([
+      args.resolveJobBindings(coveredKeys),
+      args.readChainProgress([
+        ...new Set(coveredKeys.map((key) => Number(key.chainId))),
+      ]),
+    ]);
+    for (const key of coveredKeys) {
+      const id = collectionKeyId(key);
+      const snapshot =
+        inner.get(id) ?? { holderCount: 0, indexedAtMs: null };
       const floor = args.resolveFloor(key);
-      if (!floor) {
-        // No floor binding → do not invent coverage readiness; keep inner evidence.
-        return inner;
+      const binding = bindings.get(id);
+      const progress = progressByChain.get(key.chainId);
+      if (!floor || !binding || !progress || progress.sensorFailed) {
+        snapshots.set(id, withoutUnprovenReadiness(snapshot));
+        continue;
       }
 
-      const binding = args.resolveJobBinding?.(key) ?? null;
-      if (!binding) {
-        // Floor known but job digests unavailable → refuse green from rows alone.
-        return { holderCount: inner.holderCount, indexedAtMs: inner.indexedAtMs };
-      }
-
-      const progress = await args.readChainProgress(key.chainId);
-      if (!progress || progress.sensorFailed) {
-        return { holderCount: inner.holderCount, indexedAtMs: null };
-      }
-
-      const requiredThrough =
-        args.requiredThroughBlock ?? progress.processedThroughBlock;
-
+      const requiredThroughBlock = Math.max(
+        floor.requiredFloor,
+        progress.headBlock - tipLagBlocks,
+      );
       const bound = bindFloorToObservation({
         floor,
         observation: {
@@ -71,24 +127,26 @@ export function createCoverageAwareStatusReader(args: {
           capabilityId: binding.capabilityId,
           capabilityVersion: binding.capabilityVersion,
           processedThroughBlock: progress.processedThroughBlock,
-          requiredThroughBlock: requiredThrough,
-          tokenRows: inner.holderCount > 0 ? inner.holderCount : 0,
-          holderRows: inner.holderCount,
-          observedAtMs: inner.indexedAtMs ?? Date.now(),
+          requiredThroughBlock,
+          tokenRows: snapshot.tokenCount ?? snapshot.holderCount,
+          holderRows:
+            snapshot.trackedHolderCount ?? snapshot.holderCount,
+          observedAtMs: snapshot.indexedAtMs ?? Date.now(),
         },
       });
-
-      if ("ready" in bound && bound.ready === false) {
-        return { holderCount: inner.holderCount, indexedAtMs: inner.indexedAtMs };
+      if ("ready" in bound) {
+        snapshots.set(id, withoutUnprovenReadiness(snapshot));
+        continue;
       }
 
-      const decision = evaluateCoverageReadiness(bound as Parameters<typeof evaluateCoverageReadiness>[0]);
+      const decision = evaluateCoverageReadiness(bound);
       if (!decision.ready) {
-        return { holderCount: inner.holderCount, indexedAtMs: inner.indexedAtMs };
+        snapshots.set(id, withoutUnprovenReadiness(snapshot));
+        continue;
       }
 
-      return {
-        holderCount: inner.holderCount,
+      snapshots.set(id, {
+        ...withoutUnprovenReadiness(snapshot),
         indexedAtMs: decision.evidence.observedAtMs,
         readiness: {
           state: "ready",
@@ -96,7 +154,22 @@ export function createCoverageAwareStatusReader(args: {
           observedAtMs: decision.evidence.observedAtMs,
           coverage: decision.evidence.coverage,
         },
-      };
+      });
+    }
+
+    return snapshots;
+  }
+
+  return {
+    async readIndexedSnapshot(key: CollectionKey): Promise<IndexedSnapshot> {
+      const snapshots = await readIndexedSnapshots([key]);
+      return (
+        snapshots.get(collectionKeyId(key)) ?? {
+          holderCount: 0,
+          indexedAtMs: null,
+        }
+      );
     },
+    readIndexedSnapshots,
   };
 }

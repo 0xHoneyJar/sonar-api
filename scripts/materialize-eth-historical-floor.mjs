@@ -146,6 +146,25 @@ for (const path of configPaths) {
   }
 }
 
+const materializedConfigDigest =
+  digests[configPaths[0]]?.sha256_after ??
+  createHash("sha256").update(mainYaml).digest("hex");
+const digestDriftRows = registry.filter(
+  (row) =>
+    Number(row.chain_id) === 1 &&
+    !row.blocked &&
+    ethSet.has(String(row.contract).toLowerCase()) &&
+    row.config_digest !== materializedConfigDigest,
+);
+if (checkOnly && digestDriftRows.length > 0) {
+  drift = true;
+  for (const row of digestDriftRows) {
+    console.error(
+      `DRIFT ${row.contract}: config_digest ${row.config_digest ?? "<missing>"} != ${materializedConfigDigest}`,
+    );
+  }
+}
+
 // Refresh registry configured_start / unsafe flags to match materialized floor.
 const nextRegistry = registry.map((r) => {
   if (Number(r.chain_id) !== 1) return r;
@@ -165,6 +184,7 @@ const nextRegistry = registry.map((r) => {
     coverage_mode: r.coverage_mode ?? "full_from_required_floor",
     governing_floor_contract: binding.contract,
     governing_floor_block: requiredStart,
+    config_digest: materializedConfigDigest,
   };
 });
 
@@ -177,6 +197,7 @@ const evidence = {
   required_start_block: requiredStart,
   eth_tracked_count: ethTracked.length,
   governing_count: governing.length,
+  materialized_config_digest: materializedConfigDigest,
   config_digests: Object.fromEntries(
     Object.entries(digests).map(([p, d]) => [p.replace(root + "/", ""), d]),
   ),

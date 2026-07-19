@@ -8,8 +8,12 @@
  * write 0n — SDD §5.1). This script makes that failure mode impossible to ship:
  *
  *   For each belt contract it asserts the contract definition (events +
- *   field_selection) in config.mibera.yaml is field-identical to config.yaml,
- *   and that the Berachain (chain 80094) address + start_block match.
+ *   field_selection) in config.mibera.yaml is field-identical to config.yaml
+ *   and start_block matches. Critical contract addresses remain identical.
+ *   TrackedErc721 and EthTrackedErc721 are the expansion-safe generic community
+ *   trackers: each non-empty belt address list must remain a subset of
+ *   config.yaml, while the monolith may add communities outside the Score
+ *   failback footprint.
  *
  * Exit 0 = identical, exit 1 = drift (mismatches printed to stderr).
  * Run locally from the repo root: `pnpm verify:belt-config`.
@@ -58,6 +62,17 @@ export const BELT_CONTRACTS = [
   { name: "EthTrackedErc721", chainId: 1 },
   { name: "Seaport", chainId: 1 }, // mainnet Azuki secondary sales (OpenSea, FR-6a)
 ];
+
+/**
+ * Generic collection trackers whose monolith address list may expand without
+ * widening the Score failback belt. Keep this allowlist explicit: protocol
+ * contracts such as PaddleFi and MiberaLiquidBacking require exact address
+ * parity.
+ */
+export const ADDRESS_SUBSET_CONTRACTS = new Set([
+  "TrackedErc721",
+  "EthTrackedErc721",
+]);
 
 /** @deprecated belt is now multi-chain — use BELT_CONTRACTS[].chainId. Kept for back-compat. */
 export const BELT_CHAIN_ID = 80094;
@@ -288,7 +303,7 @@ export function verifyBeltConfig(opts = {}) {
       }
     }
 
-    // --- chain reference: address + start_block (per contract, per chain) ---
+    // --- chain reference: scoped address policy + exact start_block ---
     const beltRef = extractChainContractRef(beltText, chainId, name);
     const monoRef = extractChainContractRef(monoText, chainId, name);
     if (monoRef === null) {
@@ -298,7 +313,23 @@ export function verifyBeltConfig(opts = {}) {
     } else if (beltRef === null) {
       mismatches.push(`${name}: missing from belt chain ${chainId} contracts:`);
     } else {
-      if (beltRef.address.join(",") !== monoRef.address.join(",")) {
+      if (beltRef.address.length === 0) {
+        mismatches.push(
+          `${name} (chain ${chainId}): belt address list is empty`,
+        );
+      } else if (ADDRESS_SUBSET_CONTRACTS.has(name)) {
+        const monoAddresses = new Set(
+          monoRef.address.map((address) => address.toLowerCase()),
+        );
+        const missingAddresses = beltRef.address.filter(
+          (address) => !monoAddresses.has(address.toLowerCase()),
+        );
+        if (missingAddresses.length > 0) {
+          mismatches.push(
+            `${name} (chain ${chainId}): belt address missing from config.yaml — [${missingAddresses.join(", ")}]`,
+          );
+        }
+      } else if (beltRef.address.join(",") !== monoRef.address.join(",")) {
         mismatches.push(
           `${name} (chain ${chainId}): address differs — belt [${beltRef.address.join(", ")}] vs config.yaml [${monoRef.address.join(", ")}]`,
         );
@@ -320,7 +351,7 @@ function main() {
     const names = new Set(BELT_CONTRACTS.map((c) => c.name));
     const chains = new Set(BELT_CONTRACTS.map((c) => c.chainId));
     console.log(
-      `✓ verify-belt-config: ${names.size} belt contracts across ${chains.size} chains field-identical to config.yaml`,
+      `✓ verify-belt-config: ${names.size} belt contracts across ${chains.size} chains field-identical with governed address fidelity`,
     );
     process.exit(0);
   }

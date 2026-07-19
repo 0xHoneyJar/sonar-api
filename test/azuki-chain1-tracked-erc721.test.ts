@@ -58,7 +58,7 @@ describe("chain-1 Azuki EthTrackedErc721 (#120 / sprint-bug-192; real community)
     );
     // envio #120 refinement: a single-address contract with a per-contract start_block ABOVE
     // the chain floor is not fetched on chain 1. Milady — the working dedicated single-address
-    // control — has none; Azuki now mirrors it exactly. Chain floor 13090020 < Azuki deploy
+    // control — has none; Azuki now mirrors it exactly. Chain floor 12287507 < Azuki deploy
     // 14162194, so no history is lost.
     expect(ref!.startBlock).toBeNull();
   });
@@ -76,7 +76,7 @@ describe("chain-1 Azuki EthTrackedErc721 (#120 / sprint-bug-192; real community)
     ).toEqual([10, 8453, 80094]);
   });
 
-  it("keeps config.mibera.yaml field-identical for the chain-1 Azuki binding", () => {
+  it("keeps the scoped belt Azuki binding covered by the expansion-safe Ethereum tracker", () => {
     const beltRef = extractChainContractRef(
       beltText,
       AZUKI.chainId,
@@ -87,7 +87,20 @@ describe("chain-1 Azuki EthTrackedErc721 (#120 / sprint-bug-192; real community)
       AZUKI.chainId,
       AZUKI.contractName,
     );
-    expect(beltRef).toEqual(monoRef);
+    expect(beltRef).not.toBeNull();
+    expect(monoRef).not.toBeNull();
+    expect(beltRef!.address.map((address) => address.toLowerCase())).toEqual([
+      AZUKI.contract,
+    ]);
+    const monoAddresses = new Set(
+      monoRef!.address.map((address) => address.toLowerCase()),
+    );
+    expect(
+      beltRef!.address.every((address) =>
+        monoAddresses.has(address.toLowerCase()),
+      ),
+    ).toBe(true);
+    expect(beltRef!.startBlock).toBe(monoRef!.startBlock);
   });
 
   it("passes verify-belt-config (monolith + mibera parity)", () => {

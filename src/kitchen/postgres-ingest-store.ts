@@ -314,6 +314,28 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
     return result.rows[0] ? rowToRecord(result.rows[0]) : undefined;
   }
 
+  async getMany(keys: CollectionKey[]): Promise<Map<string, IngestJobRecord>> {
+    if (keys.length === 0) return new Map();
+    const chainIds = keys.map((key) => key.chainId);
+    const contracts = keys.map((key) => key.contract);
+    const result = await this.pool.query<JobRow>(
+      `SELECT DISTINCT ON (requested.ordinality) jobs.*
+       FROM unnest($1::int[], $2::text[]) WITH ORDINALITY
+         AS requested(chain_id, contract, ordinality)
+       JOIN kitchen_ingest_jobs AS jobs
+         ON jobs.chain_id = requested.chain_id
+        AND lower(jobs.contract) = lower(requested.contract)
+       ORDER BY requested.ordinality, jobs.created_at ASC`,
+      [chainIds, contracts],
+    );
+    const jobs = new Map<string, IngestJobRecord>();
+    for (const row of result.rows) {
+      const record = await rowToRecord(row);
+      if (record.key) jobs.set(collectionKeyId(record.key), record);
+    }
+    return jobs;
+  }
+
   async getByPhysicalJobId(physicalJobId: string): Promise<IngestJobRecord | undefined> {
     const result = await this.pool.query<JobRow>(
       `SELECT ${JOB_COLUMNS} FROM kitchen_ingest_jobs

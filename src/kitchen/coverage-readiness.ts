@@ -11,6 +11,7 @@ export type CoverageMode = "full_from_required_floor" | "partial_operator_approv
 export interface CoverageFloorRecord {
   chainId: number;
   contract: string;
+  physicalJobId?: string;
   requiredFloor: number;
   coverageMode: CoverageMode;
   configDigest: string;
@@ -47,6 +48,10 @@ export type CoverageReadyDecision =
         kind: "sync_marker" | "indexed_rows";
         observedAtMs: number;
         coverage: {
+          physicalJobId: string;
+          deploymentId: string;
+          capabilityId: string;
+          capabilityVersion: string;
           requiredFloor: number;
           processedThroughBlock: number;
           requiredThroughBlock: number;
@@ -61,6 +66,7 @@ export type CoverageReadyDecision =
       ready: false;
       reason:
         | "sensor_failed"
+        | "wrong_job_binding"
         | "wrong_config_digest"
         | "wrong_capability"
         | "insufficient_processed_through"
@@ -96,6 +102,10 @@ export function evaluateCoverageReadiness(obs: CoverageObservation): CoverageRea
       kind,
       observedAtMs: obs.observedAtMs,
       coverage: {
+        physicalJobId: obs.physicalJobId,
+        deploymentId: obs.deploymentId,
+        capabilityId: obs.capabilityId,
+        capabilityVersion: obs.capabilityVersion,
         requiredFloor: obs.requiredFloor,
         processedThroughBlock: obs.processedThroughBlock,
         requiredThroughBlock: obs.requiredThroughBlock,
@@ -124,6 +134,12 @@ export function bindFloorToObservation(args: {
   };
 }): CoverageReadyDecision | CoverageObservation {
   const { floor, observation } = args;
+  if (
+    floor.physicalJobId !== undefined &&
+    floor.physicalJobId !== observation.physicalJobId
+  ) {
+    return { ready: false, reason: "wrong_job_binding" };
+  }
   if (floor.configDigest !== observation.configDigest) {
     return { ready: false, reason: "wrong_config_digest" };
   }

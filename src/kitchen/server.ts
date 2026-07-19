@@ -1,10 +1,18 @@
 import { serve } from "@hono/node-server";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { createCoverageAwareStatusReader } from "./coverage-aware-status-reader.js";
+import { resolvePreparationCapability } from "./capability.js";
+import {
+  createCoverageAwareStatusReader,
+  type ChainProgress,
+} from "./coverage-aware-status-reader.js";
 import type { CoverageFloorRecord } from "./coverage-readiness.js";
-import { createHasuraCollectionStatusReader, beltGraphqlUrlFromEnv } from "./hasura-status-reader.js";
+import {
+  createHasuraCollectionStatusReader,
+  beltGraphqlUrlFromEnv,
+} from "./hasura-status-reader.js";
 import { MemoryIngestJobStore } from "./ingest-store.js";
 import { kitchenWorkerEnabled, startKitchenIngestWorker } from "./ingest-worker.js";
 import {
@@ -15,6 +23,7 @@ import { createKitchenApp } from "./routes.js";
 import { preparationRuntimeFromEnv } from "./preparation-runtime.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
 import type { CollectionStatusReader } from "./status.js";
+import { collectionKeyId, deploymentFromCollectionKey } from "./normalize.js";
 
 async function resolveIngestStore(): Promise<IngestJobStorePort> {
   const dbUrl = kitchenDatabaseUrlFromEnv();
@@ -30,90 +39,197 @@ async function resolveIngestStore(): Promise<IngestJobStorePort> {
   return new MemoryIngestJobStore();
 }
 
-function loadFloorRegistry(): Map<string, CoverageFloorRecord> {
-  const path =
+type FloorRegistryRow = {
+  chain_id: number;
+  contract: string;
+  physical_job_id?: string | null;
+  required_floor?: number | null;
+  verified_contract_creation_block?: number | null;
+  blocked?: boolean;
+  coverage_mode?: "full_from_required_floor" | "partial_operator_approved";
+  config_digest?: string | null;
+};
+
+async function loadFloorRegistry(): Promise<{
+  floors: Map<string, CoverageFloorRecord>;
+  blockedKeys: Set<string>;
+  configDigest: string;
+}> {
+  const registryPath =
     process.env.KITCHEN_FLOOR_REGISTRY_PATH?.trim() ||
     resolve(process.cwd(), "scripts/profiling/floor-registry.w1.json");
-  const map = new Map<string, CoverageFloorRecord>();
-  if (!existsSync(path)) return map;
-  const rows = JSON.parse(readFileSync(path, "utf8")) as Array<{
-    chain_id: number;
-    contract: string;
-    required_floor?: number | null;
-    verified_contract_creation_block?: number | null;
-    blocked?: boolean;
-    coverage_mode?: "full_from_required_floor" | "partial_operator_approved";
-  }>;
-  const configDigest =
-    process.env.KITCHEN_CONFIG_DIGEST?.trim() ||
-    "unbound".padEnd(64, "0");
-  const capabilityVersion =
-    process.env.KITCHEN_CAPABILITY_VERSION?.trim() ||
-    "unbound".padEnd(64, "0");
+  const configPath =
+    process.env.KITCHEN_BELT_CONFIG_PATH?.trim() ||
+    resolve(process.cwd(), "config.yaml");
+  if (!existsSync(registryPath)) {
+    throw new Error(`coverage floor registry missing: ${registryPath}`);
+  }
+  if (!existsSync(configPath)) {
+    throw new Error(`coverage Belt config missing: ${configPath}`);
+  }
+
+  const configDigest = createHash("sha256")
+    .update(readFileSync(configPath, "utf8"))
+    .digest("hex");
+  const rows = JSON.parse(readFileSync(registryPath, "utf8")) as FloorRegistryRow[];
+  const floors = new Map<string, CoverageFloorRecord>();
+  const blockedKeys = new Set<string>();
+  const capabilityVersions = new Map<number, string>();
+
   for (const row of rows) {
-    if (row.blocked) continue;
+    const chainId = Number(row.chain_id);
+    const contract = row.contract.toLowerCase();
+    if (row.blocked) {
+      blockedKeys.add(`${chainId}:${contract}`);
+      continue;
+    }
     const required = row.required_floor ?? row.verified_contract_creation_block;
     if (required == null) continue;
-    const contract = row.contract.toLowerCase();
-    map.set(`${row.chain_id}:${contract}`, {
-      chainId: row.chain_id,
+    if (row.config_digest !== configDigest) {
+      throw new Error(
+        `coverage config digest mismatch for ${row.chain_id}:${row.contract}: ` +
+          `${row.config_digest ?? "<missing>"} != ${configDigest}`,
+      );
+    }
+
+    let capabilityVersion = capabilityVersions.get(chainId);
+    if (!capabilityVersion) {
+      const deployment = await deploymentFromCollectionKey({
+        chainId,
+        contract: row.contract.toLowerCase() as `0x${string}`,
+      });
+      const capability = await resolvePreparationCapability({
+        network: deployment.network,
+        tokenStandard: "erc721",
+      });
+      if (!capability.enabled || capability.capabilityId !== "ownership_index.v1") {
+        throw new Error(`coverage capability unavailable for chain ${chainId}`);
+      }
+      capabilityVersion = capability.capabilityVersion;
+      capabilityVersions.set(chainId, capabilityVersion);
+    }
+
+    floors.set(`${chainId}:${contract}`, {
+      chainId,
       contract,
-      requiredFloor: required,
+      ...(row.physical_job_id
+        ? { physicalJobId: row.physical_job_id }
+        : {}),
+      requiredFloor: Number(required),
       coverageMode: row.coverage_mode ?? "full_from_required_floor",
       configDigest,
       capabilityId: "ownership_index.v1",
       capabilityVersion,
     });
   }
-  return map;
+
+  if (floors.size === 0) {
+    throw new Error("coverage floor registry has no usable entries");
+  }
+  return { floors, blockedKeys, configDigest };
 }
 
-function createStatusReader(): CollectionStatusReader {
+function failedProgress(chainIds: number[]): Map<number, ChainProgress> {
+  return new Map(
+    chainIds.map((chainId) => [
+      chainId,
+      { processedThroughBlock: 0, headBlock: 0, sensorFailed: true },
+    ]),
+  );
+}
+
+async function createStatusReader(
+  store: IngestJobStorePort,
+): Promise<CollectionStatusReader> {
   const inner = createHasuraCollectionStatusReader();
   if (process.env.KITCHEN_COVERAGE_READINESS?.trim() !== "1") {
     return inner;
   }
 
-  const floors = loadFloorRegistry();
+  const { floors, blockedKeys, configDigest } = await loadFloorRegistry();
   const graphqlUrl = beltGraphqlUrlFromEnv();
 
   return createCoverageAwareStatusReader({
     inner,
-    resolveFloor: (key) => floors.get(`${key.chainId}:${key.contract}`) ?? null,
-    readChainProgress: async (chainId) => {
+    resolveFloor: (key) => floors.get(collectionKeyId(key)) ?? null,
+    isBlocked: (key) => blockedKeys.has(collectionKeyId(key)),
+    resolveJobBindings: async (keys) => {
+      const jobs = await store.getMany(keys);
+      const bindings = new Map();
+      for (const key of keys) {
+        const id = collectionKeyId(key);
+        const job = jobs.get(id);
+        if (!job?.key) continue;
+        const sameDeployment =
+          job.key.chainId === key.chainId &&
+          job.key.contract === key.contract &&
+          job.deployment.network.network_namespace === "eip155" &&
+          job.deployment.network.network_reference === String(key.chainId) &&
+          job.deployment.normalized_address === key.contract;
+        if (!sameDeployment) continue;
+        bindings.set(id, {
+          physicalJobId: job.physicalJobId,
+          deploymentId: job.deployment.deployment_id.digest,
+          configDigest,
+          capabilityId: job.capabilityId,
+          capabilityVersion: job.capabilityVersion,
+        });
+      }
+      return bindings;
+    },
+    readChainProgress: async (chainIds) => {
       try {
         const response = await fetch(graphqlUrl, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             query:
-              "{ chain_metadata { chain_id latest_processed_block } }",
+              "{ chain_metadata { chain_id latest_processed_block block_height } }",
           }),
         });
-        if (!response.ok) return { processedThroughBlock: 0, sensorFailed: true };
+        if (!response.ok) return failedProgress(chainIds);
         const payload = (await response.json()) as {
-          data?: { chain_metadata?: Array<{ chain_id: number; latest_processed_block: number }> };
+          data?: {
+            chain_metadata?: Array<{
+              chain_id: number;
+              latest_processed_block: number;
+              block_height: number;
+            }>;
+          };
           errors?: unknown[];
         };
-        if (payload.errors?.length) {
-          return { processedThroughBlock: 0, sensorFailed: true };
+        if (payload.errors?.length) return failedProgress(chainIds);
+        const requested = new Set(chainIds);
+        const progress = new Map<number, ChainProgress>();
+        for (const row of payload.data?.chain_metadata ?? []) {
+          const chainId = Number(row.chain_id);
+          if (!requested.has(chainId)) continue;
+          progress.set(chainId, {
+            processedThroughBlock: Number(row.latest_processed_block),
+            headBlock: Number(row.block_height),
+          });
         }
-        const row = payload.data?.chain_metadata?.find((c) => Number(c.chain_id) === chainId);
-        if (!row) return { processedThroughBlock: 0, sensorFailed: true };
-        return { processedThroughBlock: Number(row.latest_processed_block) };
+        for (const chainId of chainIds) {
+          if (!progress.has(chainId)) {
+            progress.set(chainId, {
+              processedThroughBlock: 0,
+              headBlock: 0,
+              sensorFailed: true,
+            });
+          }
+        }
+        return progress;
       } catch {
-        return { processedThroughBlock: 0, sensorFailed: true };
+        return failedProgress(chainIds);
       }
     },
-    // Job digest binding must be supplied by the worker path in a follow-up;
-    // without it the coverage wrapper refuses to invent readiness (inner rows alone).
-    resolveJobBinding: () => null,
+    tipLagBlocks: Number(process.env.KITCHEN_TIP_LAG_BLOCKS ?? 500),
   });
 }
 
 export async function createKitchenServer() {
   const store = await resolveIngestStore();
-  const reader = createStatusReader();
+  const reader = await createStatusReader(store);
   const preparationRuntime = preparationRuntimeFromEnv();
   const app = createKitchenApp({ reader, store, preparationRuntime });
   return { app, store, reader };

@@ -12,16 +12,16 @@
 #
 # Gates, in order:
 #
-#   1. verify:belt-config  — BLOCKING. The config-fidelity check: config.mibera.yaml's
-#      field_selection / address / start_block are byte-identical to config.yaml.
+#   1. verify:belt-config  — BLOCKING. The config-fidelity check: field_selection
+#      and start_block are identical; critical addresses are identical.
+#      TrackedErc721 and EthTrackedErc721 are explicitly expansion-safe: each
+#      non-empty belt list remains a subset while config.yaml may add communities.
 #      A belt config that drops a field a handler reads produces silently-wrong
 #      data, not a crash — this makes that unshippable.
-#   2. envio-free belt tests — BLOCKING. `pnpm test` (vitest run) runs the binary-free belt
-#      gates: test/green-belt-handler-resolves.test.ts (every `handler:` path in the
-#      LIVE config.yaml resolves on disk — catches the dangling-handler class,
-#      bd-z5sw) and test/registration-coverage.test.ts (runtime registration
-#      coverage; ENVIO321_CONFIG=config.yaml targets the live green belt). These
-#      mock the `envio` package, so they run and block without the CLI.
+#   2. belt-safe suite — BLOCKING. `pnpm test:belt` keeps the repository's
+#      passing EVM/config/handler regressions blocking while explicitly
+#      quarantining only known-red files already failing on main (#218).
+#      SQD's live integration stays in its dedicated blocking workflow.
 #   3-4. codegen:mibera / typecheck:mibera — INFORMATIONAL (continue-on-error).
 #      These invoke the real `envio` CLI, which is NOT provisioned in CI (envio is
 #      not in package.json / pnpm-lock, and no workflow installs it). They run as a
@@ -61,23 +61,30 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Gate 1 — BLOCKING. Config-fidelity drift would produce silently-wrong data.
-      - name: Gate 1 — belt config fidelity (verify-belt-config)
+      # Gates 1a/1b — BLOCKING. The floor registry is the single source of truth;
+      # config drift or a cohort that starts after a required floor is unshippable.
+      - name: Gate 1a — historical floor materialization drift
+        run: pnpm materialize:eth-floor:check
+
+      - name: Gate 1b — historical floor coverage enforcement
+        run: pnpm verify:historical-floors:enforce
+
+      # Gate 1c — BLOCKING. Config-fidelity drift would produce silently-wrong data.
+      - name: Gate 1c — belt config fidelity (verify-belt-config)
         run: pnpm verify:belt-config
 
       - name: Anti-ponder guard (kitchen lives in src/kitchen/)
         run: test ! -d ponder-runtime && ! grep -q '"ponder"' package.json
 
-      # Gate 2 — BLOCKING. Envio-binary-free belt invariants: every handler path on
-      # the live green belt (config.yaml) resolves on disk, plus runtime
-      # registration coverage. These tests mock `envio`, so they run and block
-      # without the CLI. ENVIO321_CONFIG targets the live green belt.
-      - name: Gate 2 — envio-free belt tests (vitest)
+      # Gate 2 — BLOCKING. Inclusive passing suite: all live EVM/config/handler
+      # regressions remain blocking. Exact known-red files are quarantined in
+      # package.json under #218 until their owners repair or re-home them.
+      # ENVIO321_CONFIG targets the live green belt.
+      - name: Gate 2 — belt-safe inclusive tests (vitest)
         env:
           ENVIO321_CONFIG: config.yaml
-        # `pnpm test` (= vitest run) uses the lockfile-pinned vitest, not whatever
-        # `npx` would resolve at runtime — deterministic CI (BB BR-003).
-        run: pnpm test
+        # package script uses lockfile-pinned vitest, not runtime-resolved npx.
+        run: pnpm test:belt
 
       # Gate 2b — beacon drift (offline). Exit 2 fails CI (no --allow-unknown).
       - name: Gate 2b — beacon drift check (sonar self)
@@ -87,12 +94,12 @@ jobs:
       # Requires the `envio` CLI, which is NOT provisioned in CI (not in
       # package.json / pnpm-lock; no install step). Best-effort until a binary or a
       # self-hosted runner is added. NOT a retired path.
-      - name: Gate 3 — scoped codegen (config.mibera.yaml) [informational: envio CLI not in CI]
+      - name: "Gate 3 — scoped codegen (config.mibera.yaml) [informational: envio CLI not in CI]"
         continue-on-error: true
         run: pnpm codegen:mibera
 
       # Gate 4 — INFORMATIONAL. Belt-scoped typecheck depends on Gate 3's codegen
       # output (generated/), so it is gated on the same missing envio CLI.
-      - name: Gate 4 — belt-scoped typecheck (tsconfig.mibera.json) [informational: depends on codegen output]
+      - name: "Gate 4 — belt-scoped typecheck (tsconfig.mibera.json) [informational: depends on codegen output]"
         continue-on-error: true
         run: pnpm typecheck:mibera

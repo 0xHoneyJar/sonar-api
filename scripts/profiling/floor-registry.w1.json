@@ -19,7 +19,8 @@
     "error": null,
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -41,7 +42,8 @@
     "error": null,
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -63,7 +65,8 @@
     "error": null,
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -85,7 +88,8 @@
     "error": null,
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -107,7 +111,8 @@
     "error": null,
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -129,7 +134,8 @@
     "error": null,
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -151,7 +157,8 @@
     "error": null,
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -173,7 +180,8 @@
     "error": null,
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -195,7 +203,8 @@
     "error": null,
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -217,7 +226,8 @@
     "error": null,
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -239,7 +249,8 @@
     "error": null,
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -261,7 +272,8 @@
     "error": "no_code_at_tip",
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -284,7 +296,8 @@
     "notes": "eth_getCode first-code block 13117018 conflicts with commonly cited ~12342215; treat as needs_independent_verification before floor edit",
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -306,7 +319,8 @@
     "error": null,
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -328,7 +342,8 @@
     "error": null,
     "coverage_mode": "full_from_required_floor",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   },
   {
     "chain_id": 1,
@@ -351,6 +366,7 @@
     "error": null,
     "notes": "canonical Azuki in EthTrackedErc721 (config); not in W1 admit batch",
     "governing_floor_contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
-    "governing_floor_block": 12287507
+    "governing_floor_block": 12287507,
+    "config_digest": "8afde775e465bb0bdfb5d56a30df5463b2059d115053c368be0b538969758856"
   }
 ]
