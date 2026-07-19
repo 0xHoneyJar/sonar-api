@@ -104,7 +104,37 @@ export {
   selectDiagnosticRecognizeNetworks,
   toRecognizeCapabilitySnapshot,
   type DefaultSearchHit,
+  type RecognizeSearchIdentifier,
 } from "./search.js";
+
+/**
+ * Hermetic / test fixtures for CR-101 networks. Runtime Kitchen resolve-probe
+ * also consumes `defaultLiveRecognizeNetworkCapabilities` from fixtures.ts
+ * directly; re-export here so collection-resolver barrel hermetic suites can
+ * import capability builders without a private path.
+ */
+export {
+  defaultMainnetRegistryInput,
+  defaultMainnetNetworkCapabilities,
+  defaultLiveRecognizeNetworkCapabilities,
+  hermeticResolverRegistryInput,
+  hermeticResolverNetworkCapabilities,
+  ethereumMainnetCapability,
+  baseMainnetCapability,
+  optimismMainnetCapability,
+  arbitrumMainnetCapability,
+  berachainMainnetCapability,
+  zoraMainnetCapability,
+  solanaMainnetCapability,
+  robinhoodDisabledCapability,
+  robinhoodMainnetCapability,
+  robinhoodRecognizeOnlyCapability,
+  ROBINHOOD_MAINNET_CHAIN_ID,
+  ROBINHOOD_CHAIN_EVIDENCE_REFERENCE,
+  DEFAULT_REGISTRY_EPOCH,
+  DEFAULT_REGISTRY_SEQUENCE,
+  FIXTURE_EFFECTIVE_AT,
+} from "./fixtures.js";
 
 export {
   applyCapabilityRegistryTransition,
