@@ -29,6 +29,6 @@
 
 ## Doc roles (one line each)
 
-- **`../prd.md` + `../sdd.md`** — active *planning* (EVM onboarding contract)
+- **`../prd.md` + `../sdd.md`** — active *planning* (Sonar→Score truth contract on main)
 - **`as-built-*.md`** — *code* snapshot from ride
 - **`../prd-belt-zero-downtime.md`** — sibling belt track (not golden-path default)

@@ -20,7 +20,7 @@ Nothing below overrides `src/`, `config.yaml`, `schema.graphql`, `package.json`.
 |---|--------------|------|
 | 1 | Orientation | **this file** |
 | 2 | Code map | `reality/index.md` → one spoke only |
-| 3 | **Planning / implement a feature** | `prd.md` + `sdd.md` (EVM Collection Onboarding v1) |
+| 3 | **Planning / implement a feature** | `prd.md` + `sdd.md` (active on main: Sonar→Score truth contract) |
 | 4 | **What the code actually is today** | `reality/as-built-prd.md` + `reality/as-built-sdd.md` |
 
 Optional fifth (ops scars only): `INDEX.md` → jump to one `KF-NNN` **Reading guide** — never the whole `known-failures.md`.
@@ -32,7 +32,7 @@ Optional fifth (ops scars only): `INDEX.md` → jump to one `KF-NNN` **Reading g
 | Ponder or Envio? | **Envio.** `ponder-runtime/` gone. No `ponder-ci.yml`. Live CI gate = `belt-build.yml`. | `.github/workflows/belt-build.yml:1-14` |
 | Node 20 or 22? | **≥22** | `package.json` engines; `.cursor/rules/hyperindex.mdc` |
 | Is `NftActivity` a GraphQL entity? | **No.** Package DTO from `@0xhoneyjar/events`, mapped in `src/canonical/`. PG ownership surface includes `Token` (`schema.graphql:350`). | `src/canonical/map-evm.ts` |
-| Which PRD? | **Feature work → `prd.md`.** Belt blue/green history → `prd-belt-zero-downtime.md` (sibling, not current golden path). Code snapshot → `reality/as-built-*.md`. | headers 2026-07-07 |
+| Which PRD? | **Feature work → `prd.md`/`sdd.md` on this branch tip (main: Sonar→Score truth contract).** Named siblings (`prd-belt-zero-downtime.md`, onboarding drafts) are parallel tracks. Code snapshot → `reality/as-built-*.md`. | `prd.md` header |
 | Semver tags? | **None by design here.** Identity = git SHA + Railway deploy, not `v*`. | `git tag` empty; governance-report |
 | SQD parallel loader? | **Present** (`src/svm/sqd-parallel-loader.ts`, 13/13 tests). Restored 2026-07-19 from `9c33df84`. | GAP-002 closed |
 

@@ -1,741 +1,961 @@
 ---
-hivemind:
-  schema_version: "1.0"
-  artifact_type: technical-rfc
-  product_area: "sonar-api — EVM Collection Onboarding Contract v1 (canonical NftActivity adoption + Token ownership index)"
-  workstream: delivery
-  priority: high
-  learning_status: directionally-correct
-  source: team-internal
+title: "Software Design Document — Sonar to Score truth contract"
+status: approved
+trust_tier: operator-validated
+read_state: validated
+confidence: 0.85
+decay_class: working
+last_confirmed: 2026-07-18
+operator_signed: self_attested
+classification: OPERATOR_APPROVED
+implementation_authorized: true
 ---
 
-# SDD — EVM Collection Onboarding Contract v1
+# Software Design Document — Sonar to Score Truth Contract
 
-> **Software Design Document** · **Status**: Draft · **Date**: 2026-07-07 · **Repo**: 0xHoneyJar/sonar-api (thj-envio / freeside-sonar)
-> **Phase**: `/architect` output → feeds `/sprint-plan`. **Author**: Architecture Designer Agent.
-> **PRD Reference**: `grimoires/loa/prd.md` (EVM Collection Onboarding Contract v1 — traces FR-1..FR-6, §7 risks, §9 OQs).
-> **Sibling SDD** (parallel track, NOT superseded): `grimoires/loa/sdd-belt-zero-downtime.md` (EVM belt zero-downtime re-platform).
-> **Agent door**: `grimoires/loa/ARRIVAL.md` — load order + closed questions before expanding context.
-> **Prior art (authoritative handoff)**: `grimoires/loa/runbooks/canonical-s5-s6-handoff.md` (the S1–S4 merged/inert
-> state + S5/S6 procedure); reindex precedent `runbooks/candies-holder-balance-reindex.md` +
-> `runbooks/apiculture-green-belt-reindex.md`.
-> **Doctrine**: contract-first — *schema-is-not-the-contract* (shape **+** semantics **+** invariants **+** version)
-> and *contracts-as-bridges* (a versioned seam with an *executable* parity gate, not prose).
-
----
-
-## Table of Contents
-
-1. [Project Architecture](#1-project-architecture)
-2. [Software Stack](#2-software-stack)
-3. [Database Design](#3-database-design)
-4. [UI Design](#4-ui-design) (N/A — backend indexer; Read Surfaces & Consumer Planes)
-5. [API Specifications](#5-api-specifications) (Contract & API Specifications)
-6. [Error Handling Strategy](#6-error-handling-strategy)
-7. [Testing Strategy](#7-testing-strategy)
-8. [Development Phases](#8-development-phases)
-9. [Known Risks and Mitigation](#9-known-risks-and-mitigation)
-10. [Open Questions](#10-open-questions)
-11. [Appendix](#11-appendix)
-
----
+> **Agent door**: [`grimoires/loa/ARRIVAL.md`](ARRIVAL.md) — load order + closed questions before expanding context.
 
 ## 1. Project Architecture
 
-### 1.1 System Overview
+> Sources: `grimoires/loa/prd.md`; Sonar/Score issue registry and lineage packet
 
-v1 is **not a green-field contract design**. Per the PRD: *"It is: adopt the contract that exists (complete its
-go-live handshake) and build the one genuine gap (the #153 Token index)"* (prd:80-82). The canonical Effect-Schema
-layer (`src/canonical/`) is **built, FAGAN-reviewed, merged, and shipped inert** (`canonical-s5-s6-handoff.md`:
-S1–S4 "all FAGAN-approved, all INERT"). The design work is therefore: (a) land one index fresh on main, (b) run
-the executable consumer handshake, (c) satisfy the go-live prerequisites and flip the gate, (d) document the
-onboarding lookup.
+Build one deterministic Sonar boundary that compiles producer identity,
+semantics, coverage, reconciliation, and effective status into signed,
+content-addressed artifacts. Score consumes the exact producer generation and
+emits a separate receipt. An agent can inspect the joined state without
+database credentials, chain RPC, or historical reconstruction.
 
-**The central architectural clarity this SDD introduces: onboarding a collection resolves against TWO distinct
-contract planes, not one.** The PRD names the canonical `NftActivity` stream as "THE onboarding contract" (G1),
-but the blocked consumer inventory-api#27 does **not** read that stream — it reads an *ownership read model*. Keeping
-these planes explicit is what makes "onboard collection N+1" a lookup instead of archaeology:
+The first Sonar cycle ends at `PRODUCED` or `RECONCILED`. It ships the Score
+receipt schema and an explicit `NOT_CONSUMED` stub, but it cannot claim
+`CONSUMED`, `LIVE_PROVEN`, or `GRADUATED`.
 
-| Plane | Contract surface | Transport | Primary consumer | v1 status |
-|-------|------------------|-----------|------------------|-----------|
-| **P1 — Ownership read model** | `type Token` (owner→tokenIds) | Hasura GraphQL (pull) | **inventory-api** (#27) | **Build the index (FR-2)** |
-| **P2 — Activity event stream** | canonical `NftActivity` (sealed schema) | NATS `nft.activity.recorded.*` (push) | **score-mibera** (#151/#115) | **Adopt via S5/S6 handshake (FR-1/3/4); price the sale across the ramp (FR-6)** |
+The operator approved this design for implementation on 2026-07-18. The
+detached promotion receipt must bind the final PRD, SDD, and sprint digests
+before protocol-kernel code begins. That governance attestation does not grant
+production signing, deployment, or Score-graduation authority.
 
-Both planes are *versioned seams*. P1's owner→tokenIds is a Hasura entity query; P2's activity is a sealed,
-`schema_version`-carrying event. A per-collection onboarding descriptor (FR-5) is the third artifact that binds
-config → both planes.
+### 1.1 Existing seams to reuse
 
-**FR-6 is a P2 *value-feeder*, not a new plane.** It makes the P2 `NftActivity.value` field actually non-null for
-priced EVM sales across the ~100-collection ramp — the `evm_collection_event` twin of `svm_collection_event.price`.
-It does **not** introduce a new contract surface: the sale shape already exists (`verb="sale"` + `value` wei +
-`decimals`, §5.1); FR-6 only ensures the raw priced-sale *fact* is produced (Seaport decode) and *reaches* the
-mapper (S4 projection) for collections like Azuki whose price is null today. It is a **copy-adapt** of the already-
-written `src/handlers/seaport.ts` decode (native + wrapped-native → `amountPaid`), not a design (prd:207-210).
+> Sources: current Sonar source tree and package manifest
 
-### 1.2 Architectural Pattern
+This design extends working contracts instead of creating a parallel stack:
 
-**Pattern:** Event-driven indexer with a dual-plane read contract (pull read model + push event stream), fronted by
-a capability-gated emission path.
+| Existing seam | Reuse |
+|---|---|
+| `src/collection-resolver/trust-protocol.ts` | RFC 8785 JCS, SHA-256, Ed25519, key registry, replay/epoch rules, fixture keys |
+| `src/collection-resolver/capability-registry/` | strict Effect schemas, network finality policies, transition audit, signed registry patterns |
+| `src/collection-resolver/adapters/evm/` | bytecode, proxy, implementation, block/hash, and finality-qualified identity evidence |
+| `src/kitchen/coverage-readiness.ts` | fail-closed coverage binding and legitimate zero-row sync markers |
+| `scripts/ramp-readiness.ts` | current collection inventory, chain progress, holder/event observations, and Score-facing readiness vocabulary |
+| `scripts/promotion-gate.js` | schema-superset and reconciliation-footprint precedents |
+| `src/sense/cli/sonar-sense.ts` | Incur agent CLI, JSON/TOON/MCP affordances, deterministic exit handling |
+| `scripts/chain-metadata-view.sql` | read-only processed-through progress; explicitly not finality |
+| `scripts/reorg-drill.sh` | deterministic replay/idempotency fixture precedent |
+| `tests/conformance/jcs/` | cross-runtime canonicalization vectors |
 
-**Justification:** The estate is already an Envio event-sourced indexer (`envio@3.2.1`) writing to belt Postgres,
-exposed via Hasura GraphQL (grounded: sibling `sdd.md`:31-42 current topology). P1 (ownership) is a natural Hasura
-read model — an `@index`-backed entity query, matching every indexed peer entity (`Holder`, `TrackedHolder`,
-`AddressType` at `schema.graphql:287,294,305`). P2 (activity) is already an event stream under a distinct publisher
-identity (`emit.ts`: `emitted_by="sonar-canonical"`, separate hash chain). Choosing anything else would rebuild
-what exists. **Boring-technology-when-appropriate** (decision framework #4): no new pattern, no new dependency.
+`chain_metadata.latest_processed_block` remains a progress sensor only. A
+signed finality policy and the observed source block hash are independently
+required for readiness.
 
-### 1.3 Component Diagram
+### 1.2 Bounded context and file layout
 
-```mermaid
-graph TD
-    subgraph Indexer["sonar-api Envio indexer (envio@3.2.1)"]
-        H[tracked-erc721.ts handler<br/>Transfer → hold721 + Action overlays]
-        TOK[(Token entity<br/>schema.graphql:350<br/>owner/collection/isBurned)]
-        H --> TOK
-    end
+> Sources: PRD FR-1 through FR-13; current Sonar module conventions
 
-    subgraph Canonical["src/canonical/ (INERT, gate OFF)"]
-        ME[map-evm.ts<br/>legs → NftActivity]
-        MS[map-svm.ts<br/>CollectionEvent → NftActivity]
-        PAR[parity.ts<br/>S5 executable gate]
-        EM[emit.ts<br/>makeCanonicalEmitterIfEnabled]
-        ME --> EM
-        MS --> EM
-    end
+Create `src/truth-contract/` as the only owner of this protocol:
 
-    PG[(belt Postgres)]
-    HAS[belt-hasura<br/>GraphQL]
-    NATS[NATS<br/>nft.activity.recorded.*]
-
-    TOK --> PG --> HAS
-    EM -. gate OFF until S6 .-> NATS
-
-    HAS -->|P1: getNftsForOwner| INV[inventory-api #27]
-    NATS -->|P2: subscribe| SCORE[score-mibera / score-api]
-    HAS -->|coverage watermark FR-5b| DASH[freeside-dashboard]
-
-    EV[@0xhoneyjar/events<br/>sealed NftActivitySchema] -.contract.-> ME
-    EV -.contract.-> MS
-    EV -.contract.-> EM
+```text
+src/truth-contract/
+  schemas/
+    common.ts
+    bundle.ts
+    readiness.ts
+    reconciliation.ts
+    consumption.ts
+    authority.ts
+    registry.ts
+  canonical.ts
+  crypto.ts
+  bundle-compiler.ts
+  identity-snapshot.ts
+  readiness-evaluator.ts
+  reconciliation.ts
+  dependency-graph.ts
+  effective-status.ts
+  errors.ts
+  services.ts
+  layers.ts
+  registry-store.ts
+  filesystem-registry-store.ts
+  publisher.ts
+  verifier.ts
+  status-reader.ts
+  cli/sonar-truth.ts
+  fixtures/
+scripts/truth-contract/
+  compile-bundle.ts
+  publish-generation.ts
+  reconcile.ts
+  build-activity-profile.ts
+  verify-generation.ts
+contracts/truth-contract/
+  v1/
+    compatibility.json
+    event-vocabulary.json
+    provenance-requirements.json
+    authority-matrix.json
+    security-profile.json
+    activity-profiles.json
+    serving-policy.json
+    network-policies.json
+test/truth-contract/
 ```
 
-### 1.4 System Components
+The protocol module is TypeScript 5.7 plus Effect 3.21 Schema. No handler
+imports the registry. Envio handlers continue producing facts; the truth
+compiler reads their declared vocabulary and read-only observations.
 
-#### Token ownership read model (P1 — the FR-2 build)
-- **Purpose:** Serve enumerable owner→tokenIds per collection for inventory-api#27.
-- **Responsibilities:** Maintain one `Token` row per `(collection, chainId, tokenId)` with the current `owner`,
-  `isBurned`, `mintedAt`, `lastTransferTime`; provide `@index`-backed filtering on `owner`, `collection`, `isBurned`.
-- **Interfaces:** Hasura GraphQL query (`Token(where:{owner, collection, isBurned})`).
-- **Dependencies:** Envio handler write path (already emits `Token` transitions), belt Postgres, belt-hasura, a scoped reindex to populate the new indexes.
+### 1.3 Effect runtime shape
 
-#### Canonical normalizer + emitter (P2 — the FR-1/3/4 adopt)
-- **Purpose:** Produce a chain-agnostic, versioned `NftActivity` stream that answers #151 (verb vocabulary) and #115 (sale value) by construction.
-- **Responsibilities:** Pure mapping (`map-evm.ts`/`map-svm.ts`, `Either<NftActivity, SchemaInvalid>`); capability-gated NATS emission under a distinct publisher identity; NEVER-DROP (a mapping failure is an observable `Either.Left`, never a silent drop).
-- **Interfaces:** NATS subject `nft.activity.recorded.<collection_key>.v1`; the S5 parity gate as a pure function.
-- **Dependencies:** `@0xhoneyjar/events` sealed `NftActivitySchema` (upstream package — a contract change is a coordinated package bump, prd:230); the S4 Hasura adapter that projects native entities into mapper input shapes.
+Named wire and domain models use `Schema.Class`; lifecycle/status variants use
+`Schema.TaggedClass`; artifact IDs, generations, environment IDs, and SHA-256
+digests are branded schemas. Small anonymous fragments may use
+`Schema.Struct`. External data is decoded with `Schema.decodeUnknownEffect`,
+with excess fields refused before business logic.
 
-#### S5 parity gate (`parity.ts` — the FR-3 handshake, already runnable)
-- **Purpose:** Turn "does canonical lose nothing the consumer relies on?" into a test, not a checklist.
-- **Responsibilities:** Compare canonical vs legacy key-sets by `(tx, asset_ref, verb)`; report `legacyOnly` (parity failures), `canonicalOnly` (over-emits), and `verbDisagreements` (misclassifications). **Presence parity only** (`valueParityChecked: false`) — value parity is a separate step (FR-3b).
-- **Interfaces:** `parityReport(canonical, legacy)`; CLI `scripts/s5-parity-dryrun.ts` (exit 0/1/2).
+Protocol and boundary failures use `Schema.TaggedErrorClass`, including
+`TruthDecodeError`, `TruthIntegrityError`, `TruthTrustError`,
+`TruthCompatibilityError`, `TruthRegistryError`, and
+`TruthTransportError`. Expected invalidity stays in Effect's typed error
+channel; impossible graph/hash invariants are defects; cancellation remains an
+interrupt. Raw provider, filesystem, crypto, and transport errors are wrapped
+at their boundary and never become the public contract.
 
-#### Seaport priced-sale decode (FR-6 — the P2 `value` feeder)
-- **Purpose:** Produce a classified, *priced* `MintActivity` SALE/PURCHASE row for every indexed EVM collection so
-  `map-evm.ts` surfaces a non-null canonical `value` — closing the "Azuki 107k transfers, 0 priced sales" gap
-  (prd:198-205).
-- **Responsibilities:** On `Seaport.OrderFulfilled`, decode the offer/consideration split (listing vs accepted-bid —
-  already written, `seaport.ts:94-139`), sum **native + wrapped-native** into `amountPaid` (`seaport.ts:103-114`),
-  write a `MintActivity` SALE (seller) + PURCHASE (buyer) row carrying `chainId` + the real 0x `contract`
-  (`seaport.ts:151-186`). Extend coverage to **mainnet (chain 1) + mainnet WETH**, wiring Azuki.
-- **Interfaces:** the shared `TRACKED_COLLECTIONS` map in `seaport.ts` (the task's "SEAPORT_CONFIG" — no symbol of
-  that name exists; `TRACKED_COLLECTIONS` is the real identifier, `seaport.ts:37`), keyed by lowercased collection
-  address → `{chainId, wrappedNativeToken}`; the Envio `Seaport` contract binding per chain in `config.yaml`.
-- **Dependencies:** a chain-1 `Seaport` contract binding in `config.yaml` (absent today — chain 1 has Azuki as
-  `TrackedErc721` at `config.yaml:596` but no Seaport node); `config.mibera.yaml` parity + `BELT_CONTRACTS` gate
-  (sprint-bug-172); the S4 projection carrying `chainId` (§1.5, OQ-5). **Scope: ETH/WETH-only v1** (~71% coverage —
-  null/skip aggregator sweeps + non-ETH ERC-20, FR-6c/N5).
+`TruthRegistryStore`, `TruthSigner`, `TruthClock`, `SourceEvidenceReader`, and
+`RevocationReader` are focused `Context.Service` dependencies. Live,
+filesystem, and hermetic implementations are named layers. Business operations
+such as `compileBundle`, `publishGeneration`, `evaluateReadiness`,
+`reconcileSnapshot`, and `invalidateDependents` are named `Effect.fn`
+functions. Layers are composed once in `layers.ts` and provided at the CLI or
+worker boundary; business functions do not construct or locally provide live
+dependencies. Repeated CLI/worker entrypoints share one `ManagedRuntime`.
 
-#### Per-collection onboarding descriptor + coverage watermark (FR-5 — the doc/read surface)
-- **Purpose:** The single lookup that replaces per-collection archaeology (covers #120, #95, #121, #135).
-- **Responsibilities:** Define config shape + a checklist that would have caught #120; serve a coverage watermark consumers query for "collection X backfilled to block N?"; document the ~100-collection capacity envelope.
-
-### 1.5 Data Flow
-
-**P1 (pull, ownership):** `Transfer` event → `tracked-erc721.ts` writes the `Token` transition (owner reassignment /
-`isBurned` on a burn) → belt Postgres → belt-hasura → `getNftsForOwner(owner, collection)` filters on the new
-indexes → non-empty `nfts[]` (FR-2c acceptance = inventory-api#27).
-
-**P2 (push, activity):** native entities (`MiberaTransfer`, `MintActivity` SALE/PURCHASE, `NftBurn`) → S4 Hasura
-adapter normalizes into mapper input shapes → `map-evm.ts`/`map-svm.ts` → `Either<NftActivity, SchemaInvalid>` →
-(post-S6) `makeCanonicalEmitterIfEnabled` → NATS `nft.activity.recorded.<collection_key>.v1` → score-mibera dedups
-by `(tx, asset_ref, verb)`.
-
-**Sale derivation (P2, grounded, validated):** per the handoff runbook, the EVM sale resolution is **data-derived**:
-`MintActivity` emits a `SALE` row (`user`=seller) and a `PURCHASE` row (`user`=buyer) for the same `(tx, tokenId)`,
-both carrying `amountPaid` and the real 0x `contract`. The S4/S6 adapter MUST join **`MintActivity × MiberaTransfer`**
-(mibera-specific), NOT the generic `Transfer` table (which shares zero `(tx,tokenId)` with mibera sales → 100% silent
-join-miss, FAGAN MINOR-1). Validated: 1,984/1,984 complete sales → valid `verb=sale`, 0 join-misses
-(`canonical-s5-s6-handoff.md`).
-
-**Priced-sale ingress for the ramp (P2, FR-6 — how Azuki price becomes canonical `value`):** the `Seaport.OrderFulfilled`
-handler (`seaport.ts`) is the *producer* of the `MintActivity` SALE row for any collection in `TRACKED_COLLECTIONS`.
-Once Azuki (chain 1) is wired (FR-6a/b), a mainnet OpenSea sale writes a priced `MintActivity{activityType:SALE,
-chainId:1, contract:0xed5af…, amountPaid}` row. The S4 adapter projects that SALE row into an `EvmSaleRow`
-(`priceWei`), which `mapEvmLegs` matches to the carrier transfer leg → `verb=sale` with `value=amountPaid` +
-`decimals=18` (`map-evm.ts:152-158`). So the chain from raw OpenSea event → canonical `value` is:
-`OrderFulfilled → MintActivity SALE (chainId-tagged) → S4 EvmSaleRow → map-evm carrier match → NftActivity.value`.
-
-**S4 adapter is contract-scoped, not chain-hardcoded (resolves the FR-6 open question, OQ-5).** `map-evm.ts` is pure
-and per-collection — `EvmCollectionContext` carries `{collectionKey, chainId, contract}` (`map-evm.ts:85-93`) — so it
-prices whatever `(legs, sales)` the S4 adapter feeds it. The S4 SALE-row projection is keyed by the collection's
-**contract address** (from the FR-5 onboarding descriptor), so Azuki's chain-1 SALE rows are picked up **for free**
-once the handler produces them and Azuki is onboarded with `{chainId:1, contract:0xed5af…}`. **No mainnet-specific
-SALE-row wiring is added *inside* S4** — the prerequisite is upstream (the handler + config binding, FR-6a/b).
-**Load-bearing caveat:** the `MintActivity.id` (`${txHash}_${tokenId}_${seller}_SALE`, `seaport.ts:151`) does **not**
-encode chainId, and the Base Seaport binding was explicitly DEFERRED "until downstream repos add chainId filters"
-(`config.yaml:685-689`). Extending Seaport to chain 1 re-triggers that exact condition, so the S4 projection **MUST**
-select/disambiguate `MintActivity` rows by the `chainId` column (present at `seaport.ts:165`) and carry it into
-`metadata.chain_id` — the chainId-filter work is the un-block gate, not optional (R-9).
-
-### 1.6 External Integrations
-
-| Service | Purpose | API Type | Notes |
-|---------|---------|----------|-------|
-| belt-hasura | P1 ownership read model + coverage watermark | GraphQL | STABLE consumer alias (belt zero-downtime SDD §7.4) |
-| NATS | P2 activity event transport | Pub/Sub | subject `nft.activity.recorded.<collection_key>.v1` |
-| `@0xhoneyjar/events` | Sealed `NftActivitySchema`, emitter, signer, prev-hash chain | npm package | contract change = coordinated package bump (loa-freeside) |
-| inventory-api | P1 consumer (#27) | GraphQL client | acceptance target for FR-2 |
-| score-mibera / score-api | P2 consumer (first migration) | NATS subscriber | S5/S6 handshake counterparty |
-
-### 1.7 Deployment Architecture
-
-Both planes deploy into the **existing belt topology** — no new services (PRD N3: no durable prev-hash store as new
-infra unless S6 selects it). P1 is a schema change + scoped reindex against belt Postgres/Hasura, coordinated with
-the belt zero-downtime cutover mechanics (green-build → reindex from genesis → auto-track at cutover, per the
-reindex runbooks). P2 flips a capability gate (`SONAR_CANONICAL_EMIT_ENABLED`) at the composition root after S5/S6.
-
-### 1.8 Scalability Strategy
-
-- **Driver:** score-api ramp to **~100 collections** (#121/#135). At that cardinality per-collection archaeology
-  does not survive (prd:56-58).
-- **P1 horizontal:** `@index` on `owner`/`collection`/`isBurned` keeps `getNftsForOwner` a bounded index scan per
-  collection rather than a table scan. **OQ-2:** whether `@index` alone enumerates at scale, or a derived
-  owner→tokenIds projection entity is needed, is decided by the FR-5c capacity spike (§10). Design default:
-  `@index`-only (mirrors indexed peers); projection is a v2 lever pulled only if query headroom fails.
-- **P2:** subject is partitioned per `collection_key` (`nft.activity.recorded.<collection_key>.v1`), so per-collection
-  fan-out is a natural NATS subject shard.
-- **Capacity envelope (FR-5c):** a documented answer (per-collection cost, indexer/query headroom) — committed as a
-  deliverable, not to specific numbers (prd:194-196; BOEHM-shaped spike).
-
-### 1.9 Security Architecture
-
-- **Distinct publisher identity (F1, hard invariant):** canonical emits under `emitted_by="sonar-canonical"`,
-  `signing_key_id="sonar-canonical-1"` → a **separate hash chain** from the sonar-api publisher. NEVER reuse the
-  sonar-api signer/identity (a shared chain interleaves two producers and forks — `emit.ts`:6-13).
-- **Distinct signing seed (S6):** seed from `SONAR_CANONICAL_SIGNING_SEED_HEX`; NEVER reuse `SONAR_SIGNING_SEED_HEX`.
-  The `keyId` guard in `makeCanonicalEmitter` is label-only — it cannot detect wrong key *material* under the right
-  id; the consumer's signature verifier is the loud backstop (`emit.ts`:36-38).
-- **Capability gating:** the live emitter is constructable ONLY via `makeCanonicalEmitterIfEnabled` (null when the
-  gate is off) — the live path is *unconstructable* while disabled (`emit.ts`:115-126). F7 is a capability, not a
-  convention a caller can forget.
-- **Zone:** schema + mapper code is App zone (`src/`, `schema.graphql`) → confirm writes; runbook/docs are State zone.
-
----
+Polling and retry timing use `Schedule`, not manual sleep loops. Only typed
+transport, contention, and transient-store failures retry with bounded,
+jittered exponential backoff. Schema, signature, compatibility, semantic, and
+revocation failures do not retry into success. Retry attempts and selected
+fallback providers remain observable.
 
 ## 2. Software Stack
 
-**Constraint (PRD §6):** *"no new validation dependency"* — `src/canonical/` is the reference idiom; new contract
-code follows it. All versions below are **already in the estate** (`package.json`).
+> Sources: current `package.json`; existing trust and CLI modules
 
-### 2.1 Language & Runtime
+| Concern | Selected stack |
+|---|---|
+| Runtime | Node.js 22 or newer; TypeScript 5.7 |
+| Domain effects | Effect 3.21 with typed errors, services, layers, schedules, and metrics |
+| Boundary schemas | Effect Schema; strict unknown-input decoding |
+| Canonical encoding | RFC 8785 JCS through the vendored trust protocol |
+| Integrity/authenticity | SHA-256 and Ed25519 through the vendored trust protocol |
+| Agent CLI | Incur 0.4 with JSON/TOON/MCP surfaces |
+| Tests | Vitest 3.2; aligned `@effect/vitest`; existing JCS cross-runtime suite |
+| Source observations | read-only GraphQL plus existing resolver/RPC ports |
+| Initial registry | atomic local filesystem reference adapter behind an Effect service |
 
-| Category | Technology | Version | Justification |
-|----------|------------|---------|---------------|
-| Language | TypeScript | `^5.7.3` | Estate standard (`package.json:36`) |
-| Indexer framework | Envio | `3.2.1` | The event-sourced indexer already running (`package.json:49`); `@index` + reindex are its native primitives |
-| Schema / validation | `@effect/schema` | `^0.75.0` | Sealed `NftActivitySchema` decode path; `src/canonical/` idiom (`package.json:42`) |
-| Effect runtime | `effect` | `^3.10.0` | `Either`, `Data.TaggedError` ADT — confined to `src/canonical/` (`package.json:48`) |
-| Contract package | `@0xhoneyjar/events` | (estate-pinned) | Upstream sealed `NftActivitySchema`, emitter, signer, prev-hash chain (`package.json:61`) |
-
-**Key libraries (already in use):**
-- `@effect/schema` `Schema as S`, `TreeFormatter` — decode + typed parse-error formatting (`map-evm.ts:53`).
-- `effect` `Either` (never-drop channel), `Data.TaggedError` (the `CanonicalError` ADT, `errors.ts`).
-
-### 2.2 Data / Transport
-
-| Category | Technology | Purpose |
-|----------|------------|---------|
-| Read model DB | belt Postgres | P1 `Token` entity storage |
-| GraphQL gateway | belt-hasura | P1 ownership query + FR-5b coverage watermark; STABLE alias |
-| Event transport | NATS | P2 `nft.activity.recorded.*` |
-| Prev-hash store | `InMemoryPrevHashStore` (Redis NOT in estate) | Per-process chain tip; restart re-genesis caveat (S6 prereq #1) |
-
-### 2.3 Testing / DevOps
-
-| Category | Technology | Version | Purpose |
-|----------|------------|---------|---------|
-| Test runner | Vitest | `^3.2.4` | Unit (mappers), parity, contract tests (`package.json:37`) |
-| S5 dry-run CLI | `scripts/s5-parity-dryrun.ts` (tsx) | — | The executable go/no-go gate |
-| Contract CI guard | `verify:action-contract` | — | Hard-fails on `action` projection drift post-go-live |
-
----
+No new framework or database is required for the initial Sonar delivery.
+Production object storage, KMS/HSM, and Score deployment remain adapter/gate
+decisions.
 
 ## 3. Database Design
 
-### 3.1 Database Technology
+> Sources: PRD FR-9 and FR-12; atomic-publication requirement
 
-**Primary store:** belt Postgres (managed by Envio + belt-hasura). **The P1 change is an Envio `schema.graphql`
-entity-index change**, not a hand-written DDL — Envio owns codegen and table creation. The DDL below is the
-*effective* shape for review.
+The initial sprint does not add a production database schema. The logical
+registry model is storage-adapter-neutral:
 
-### 3.2 Schema Design — the FR-2 change
+| Logical record | Key | Mutability |
+|---|---|---|
+| content object | SHA-256 digest | immutable |
+| environment root | environment + generation | append-only generations; one CAS current pointer |
+| audit event | environment + monotonic sequence | append-only |
+| revocation | environment + key/artifact + sequence | append-only |
+| dependency edge | parent hash + child hash | immutable within a generation |
+| effective status | artifact hash + projection sequence | derived/rebuildable |
 
-**Current** (`schema.graphql:350`, the gap — NO `@index`):
-
-```graphql
-type Token {
-  id: ID!
-  collection: String!
-  chainId: Int!
-  tokenId: BigInt!
-  owner: String!
-  isBurned: Boolean!
-  mintedAt: BigInt!
-  lastTransferTime: BigInt!
-}
-```
-
-**Target** (FR-2a — add `@index` on the three fields inventory-api#27 filters on, matching the indexed peers at
-`schema.graphql:287,294,305`):
-
-```graphql
-type Token {
-  id: ID!
-  collection: String! @index
-  chainId: Int!
-  tokenId: BigInt!
-  owner: String! @index
-  isBurned: Boolean! @index
-  mintedAt: BigInt!
-  lastTransferTime: BigInt!
-}
-```
-
-**Effective Postgres shape** (what Envio codegen produces for review — names illustrative):
-
-```sql
--- Envio-managed table (do not hand-write; shown for review of the index intent)
-CREATE INDEX idx_token_owner      ON "Token" (owner);
-CREATE INDEX idx_token_collection ON "Token" (collection);
-CREATE INDEX idx_token_isburned   ON "Token" (is_burned);
--- inventory-api#27's query filters (owner AND collection [AND isBurned=false]) → index scan, not table scan.
-```
-
-> **OQ-2 (§10):** if a composite `(collection, owner)` index or a derived `OwnerTokens` projection entity is required
-> for enumerability at ~100-collection scale, that is decided by the FR-5c spike. v1 default: the three single-field
-> `@index` declarations above (the peer-entity pattern).
-
-### 3.3 Entity Relationships
-
-```mermaid
-erDiagram
-    Token }o--|| Collection : "belongs to (collection key)"
-    Token }o--|| Owner : "current owner (wallet)"
-    TrackedHolder }o--|| Owner : "aggregate holdings (count)"
-    Token {
-        ID id PK
-        String collection "INDEX (new)"
-        Int chainId
-        BigInt tokenId
-        String owner "INDEX (new)"
-        Boolean isBurned "INDEX (new)"
-        BigInt mintedAt
-        BigInt lastTransferTime
-    }
-    TrackedHolder {
-        ID id PK
-        String collectionKey "INDEX"
-        String address "INDEX"
-        Int tokenCount
-    }
-```
-
-**Reconciliation invariant (FR-2c):** `holdings.tokenCount` (aggregate, from `TrackedHolder`) MUST equal
-`len(getNftsForOwner(owner, collection).nfts[])` (enumerable, from the indexed `Token`). Today the aggregate is
-correct while the enumerable list is empty (prd:47-49) — this invariant is the acceptance test.
-
-### 3.4 Migration Strategy — the reindex runbook (FR-2b)
-
-**Grounded in the reindex precedent** (`candies-holder-balance-reindex.md`, `apiculture-green-belt-reindex.md`):
-
-1. **Fresh on main (FR-2 mandate, R-1 mitigation):** re-implement the index change fresh — do NOT cherry-pick the
-   diverged belt-factory branch (avoids reintroducing stale reconcile assumptions, prd:242).
-2. **Additive → from-genesis reindex → auto-track at cutover** (the proven shape). A from-genesis reindex
-   `DROP ... CASCADE`s the schema — which **drops the `Token` table**; the reindex recreates it populated + indexed.
-3. **Scoped, not a full 6-chain re-backfill** (N4): coordinate the reindex window with the belt zero-downtime cutover
-   mechanics (STABLE Caddy alias → live traffic never points at the surface being rebuilt; sibling SDD §7.4).
-4. **Operator-led — do NOT run a live reindex from an agent session** (hard rule, `candies` runbook:24). The runbook
-   is committed as an artifact; execution is operator-gated on a chosen window.
-
-**Verification queries** (the reindex is correct iff these hold — mirror the candies runbook pattern):
-`Token` row count > 0 for the target collection; `getNftsForOwner(Mibera owner)` non-empty; reconciliation invariant
-(§3.3) holds.
-
-### 3.5 Data Access Patterns
-
-| Query | Plane | Frequency | Optimization |
-|-------|-------|-----------|--------------|
-| `getNftsForOwner(owner, collection)` | P1 | High (per inventory read) | `@index` on `owner` + `collection` |
-| Coverage watermark "collection X → block N?" | FR-5b | Med (consumer readiness polls) | single read model row per (collection, chain) |
-| `(tx, asset_ref, verb)` dedup on subscribe | P2 | High (per activity) | consumer-side dedup key (handled by score-mibera) |
-
-### 3.6 Coverage watermark read model (FR-5b — OQ-1)
-
-`schema.graphql` today has **no** `sync_status` / watermark entity, and the belt SDD carries only per-chain coverage
-*probes*, not a formal watermark surface (grounded: grep found none in `schema.graphql`; belt `sdd.md`:148,228). So
-there is currently **zero** watermark contract, not two. **Design recommendation (to resolve OQ-1):** define **ONE**
-coverage watermark read model keyed by `(collectionKey, chainId) → lastIndexedBlock`, co-owned with the belt PRD, so
-consumers query a single surface. Do NOT introduce a second onboarding-specific watermark. **[VERIFY with belt-PRD
-owner before SDD is Approved — prd OQ-1.]**
-
----
+The filesystem reference store proves atomic semantics. A future production
+adapter MUST preserve the same compare-and-swap, immutability, isolation,
+retention, and ordered-audit behavior. Effective status is a projection; signed
+artifacts and lifecycle history remain the source records.
 
 ## 4. UI Design
 
-> **Read Surfaces & Consumer Planes.** UI Design is **N/A** for this system.
+> Sources: PRD FR-8; agent-first scope
 
-**There is no UI in this system.** sonar-api is a backend indexer + contract layer; the "interface" is the two
-consumer planes (§1.1) and their query/subscription contracts. The only human-facing surface is
-freeside-dashboard's read of the coverage watermark (FR-5b), which consumes the same GraphQL read model as any other
-client — no bespoke UI is designed here. This section documents the **consumer-facing contracts** in lieu of pages.
-
-### 4.1 P1 consumer contract — inventory-api (#27)
-
-```graphql
-# getNftsForOwner — the FR-2c acceptance query
-query {
-  Token(where: { owner: { _eq: $owner }, collection: { _eq: $collection }, isBurned: { _eq: false } }) {
-    tokenId
-    chainId
-    mintedAt
-    lastTransferTime
-  }
-}
-# ACCEPTANCE: returns the correct non-empty token list; len == holdings.tokenCount.
-```
-
-### 4.2 P2 consumer contract — score-mibera
-
-- **Subscribe:** `nft.activity.recorded.<collection_key>.v1`.
-- **Dedup identity:** `(tx, asset_ref, verb)` (the §4 consumer dedup, `parity.ts:36-41`).
-- **Cutover during deprecation overlap:** subscribe `nft.activity.recorded.*` + unsubscribe `nft.mint.detected`
-  atomically; dedup by the key above during the ≥30d overlap (`canonical-s5-s6-handoff.md` S6 step 5).
-
-### 4.3 Onboarding operational contract — the "one lookup" (FR-5)
-
-The single doc an operator uses to onboard collection N+1 (replaces per-collection reverse-engineering):
-
-| Field | Meaning | Catches |
-|-------|---------|---------|
-| `chain` / `chainId` | e.g. Berachain 80094 | #95 (main Mibera 0x6666 on Berachain) |
-| `address(es)` | collection contract 0x (lowercased into metadata) | #120 (Azuki 0 holders post-config) |
-| `mode` | tracked-vs-holder | config-class mistakes |
-| `standard` | 721 / 1155 | N2 boundary (no cNFT/compressed) |
-| `collection_key` | topic-segment slug `/^[a-z][a-z0-9-]*$/` (slugify the name) | mapper rejects non-slug (adapter must slugify — runbook finding) |
-| verb vocabulary | `mint`/`burn`/`sale`/`transfer` (by construction) | #151 (no per-collection excavation) |
-| sale `value`/`decimals` | wei decimal string + `decimals:18` (versioned) | #115 |
-
----
+There is no graphical UI in this delivery. The supported interaction surface is
+the `sonar-truth` Incur CLI and its generated help, JSON schema, JSON/TOON
+output, and MCP transport. Human tables are projections of the same typed
+result; they cannot introduce a separate readiness interpretation.
 
 ## 5. API Specifications
 
-> **Contract & API Specifications** — the versioned contract surfaces (P1 GraphQL, P2 NATS, S5 gate, S6 prereqs).
+> Sources: PRD FR-1 through FR-13
 
-### 5.1 The canonical `NftActivity` contract (P2 — FR-1)
+### 5.1 Closed normative bundle
 
-The sealed Effect-Schema `NftActivity` (from `@0xhoneyjar/events`) IS the onboarding contract. Fields the mappers
-populate (grounded in `map-evm.ts:165-184`):
+> Sources: PRD FR-1, FR-3, FR-7, FR-10, FR-13; Flatline PRD findings
 
-| Field | Type | Semantics |
-|-------|------|-----------|
-| `verb` | `"mint" \| "burn" \| "sale" \| "transfer"` | The #151 vocabulary, *typed* — mint = Transfer from zero, burn = to zero, sale = carrier leg matched to a marketplace SALE, transfer = any other leg |
-| `chain` | `"evm" \| "svm"` | chain-agnostic target |
-| `collection_key` | slug | topic-segment; drives the NATS subject |
-| `asset_ref` | string | tokenId |
-| `from` / `to` | string \| null | resolved owner-level parties (sale = resolved seller/buyer, not raw routed legs) |
-| `value` / `decimals` | string \| null | #115 sale price — wei DECIMAL STRING (uint256 > 2^53, never a float) + `decimals:18` |
-| `tx` | string | tx hash |
-| `timestamp` | ISO-8601 | (EVM: epoch/range validation owned by S4 adapter — MINOR-4) |
-| `metadata` | object | `{chain, chain_id, contract, token_id, log_index, block_number}` — pins the raw leg for F9 re-derivability |
+#### 5.1.1 Root manifest
 
-**Versioning (FR-1a):** every activity carries `schema_version`; a sale-derivation heuristic change re-runs the join
-under a NEW version (runbook), never an in-place mutation. The derivation is re-derivable from
-`(tx, log_index, token_id)` (`map-evm.ts:32-35`).
+`TruthBundleRootUnsignedV1` is strict-decoded and contains:
 
-**Producer identity (FR-1b):** `emitted_by="sonar-canonical"`, separate hash chain (`emit.ts`:56-58).
-
-### 5.2 NATS subject grammar
-
-```
-nft.activity.recorded.<collection_key>.v1
-# built from the payload's own collection_key (always a sendable specifier — the charset IS the topic grammar).
-# emit.ts:99-104
+```text
+schema_version = 1
+protocol = "sonar-score-truth-contract/v1"
+environment = development | staging | production
+generation = decimal uint64 string
+supersedes_generation = decimal uint64 string | null
+objects[] = { kind, media_type, sha256, byte_length }
+issuer = { service_id, key_id }
+issued_at, valid_from
+compatibility_version
+authority_matrix_hash
+security_profile_hash
 ```
 
-### 5.3 The S5 parity gate contract (FR-3)
+`TruthBundleRootV1` is a separate signed envelope:
 
-```
-parityReport(canonical: NftActivity[], legacy: ParityKey[]) -> ParityReport
-```
-
-| Field | Go/no-go meaning |
-|-------|------------------|
-| `parityHolds` | **HARD GATE** — true iff `legacyOnly` is empty (canonical loses nothing the consumer relies on) |
-| `legacyOnly` / `legacyOnlyByVerb` | parity FAILURES — data the consumer relies on that canonical lost |
-| `verbDisagreements` | **read FIRST** — a `(tx,asset_ref)` classified differently each side (e.g. a demoted sale); a real loss, named so it can't hide among tolerable over-emits (MAJOR-1) |
-| `canonicalOnly` / `canonicalOnlyByVerb` | producer EXTRAS — the known MAJOR-3 market-routing-hop `verb=transfer`; do NOT fail parity; DECIDE tolerate/suppress with real topology (FR-3c) |
-| `valueParityChecked: false` | **presence parity ONLY** — re-derived sale `from`/`to`/`value` is a SEPARATE pass (FR-3b) |
-| `matched` / `canonicalCount` / `legacyCount` | guard a vacuous GREEN — a trustworthy GREEN needs `matched > 0` + complete inputs |
-
-CLI: `npx tsx scripts/s5-parity-dryrun.ts canonical.json legacy.json` — exit 0 = parity holds (real overlap) · 1 = FAILED or vacuous · 2 = usage/IO.
-
-### 5.4 S6 go-live prerequisites (FR-4 — land at the composition root BEFORE flipping the gate)
-
-1. **FR-4a** — Durable prev-hash store **OR** a consumer-side chain-reset handshake (InMemory store re-genesis-es the
-   chain on restart → a verifying consumer sees `prev-hash-broken` every restart; the canonical chain's value IS
-   verifiability). **N3:** v1 does NOT build durable infra — S6 checklist SELECTS in-memory + consumer chain-reset
-   handshake unless the consumer requires durability.
-2. **FR-4b** — Build the live emitter ONLY via `makeCanonicalEmitterIfEnabled` (null when off).
-3. **FR-4c** — Distinct seed `SONAR_CANONICAL_SIGNING_SEED_HEX`.
-4. **FR-4d** — `recovery` config (maxRetries + deadLetter + onAlert) → a NATS blip is an observable dead-letter, not a silent `Left`.
-
-### 5.5 Uniform priced EVM sale decode (FR-6 — mainnet Seaport → priced `MintActivity`)
-
-FR-6 has **no new contract surface** — the canonical sale shape (`verb="sale"` + `value` wei + `decimals`) is FR-1's
-already-sealed field set (§5.1). What changes is two config/handler edits (App zone) plus the belt-parity gates. This
-is a **copy-adapt** of the existing decode, which already sums native + wrapped-native (`seaport.ts:103-114`).
-
-**FR-6a — extend `TRACKED_COLLECTIONS` to mainnet, and add the chain-1 Seaport binding.**
-
-`src/handlers/seaport.ts` `TRACKED_COLLECTIONS` (the task's "SEAPORT_CONFIG"; today 80094 Mibera + three 8453 Base
-entries, `seaport.ts:37-56`) gains the mainnet WETH + Azuki entry:
-
-```ts
-// Ethereum mainnet — Azuki (chain 1), mainnet WETH
-"0xed5af388653567af2f388e6224dcc93746104133": {
-  chainId: 1,
-  wrappedNativeToken: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2", // mainnet WETH (LOWERCASED — map is keyed/compared lowercase)
-},
+```text
+unsigned_root = TruthBundleRootUnsignedV1
+root_hash = sha256(JCS(unsigned_root))
+signature = Ed25519(domain-separated root_hash)
 ```
 
-> **Grounding note (lowercasing):** `TRACKED_COLLECTIONS` lookups compare `.toLowerCase()` (`seaport.ts:84,110,123`).
-> The PRD gives WETH checksummed (`0xC02aaA39…`, prd:210); it MUST be stored lowercased or the `wrappedNativeToken`
-> equality at `seaport.ts:110` silently never matches → WETH sales sum to 0 → the priced-sale is dropped for missing
-> `amountPaid > 0n` (`seaport.ts:146`). The Azuki key is likewise lowercased.
+The digest field is never inside its own preimage.
 
-The Envio `Seaport` contract binding is **absent on chain 1** today (chain 1 has Azuki as `TrackedErc721` at
-`config.yaml:596`, but no `Seaport` node — contrast Berachain 80094 at `config.yaml:901-904`). FR-6a adds a
-`Seaport` binding under the `- id: 1` network with the Seaport v1.6 address `0x0000000000000068F116a894984e2DB1123eB395`
-and a `start_block` (Azuki deployment `14162194` or later — no relevant Azuki trades predate the collection).
+`objects` is the complete normative closure. It MUST contain the bundle schema,
+identity snapshot, event vocabulary, provenance rules, behavioral invariants,
+compatibility matrix, authority matrix, security profile, network/finality
+policies, activity profiles, serving policy, and issuer metadata. Unknown
+required object kinds, missing objects, duplicate kinds, excess fields, digest
+mismatches, and unreferenced normative files fail verification.
 
-**FR-6a belt-parity gates (mandatory — grounded in sprint-bug-172 / #118):** adding a chain-level binding to
-`config.yaml` without (1) `config.mibera.yaml` parity, (2) a `BELT_CONTRACTS` gate entry, and (3) an explicit
-`start_block` is *silent belt config drift CI never catches*. So FR-6a MUST also: mirror the binding into
-`config.mibera.yaml` (which already carries chain-1 Azuki at `config.mibera.yaml:345`); add the Seaport@1 entry to
-`BELT_CONTRACTS` so `verify:belt-config` catches drift; extend the `test/azuki-chain1-tracked-erc721.test.ts` gate-
-coverage pattern. Post-merge is a **KF-013** (`ENVIO_RESTART`) redeploy on `belt-indexer-selfhost` + a scoped chain-1
-Azuki reindex from `start_block` (operator-run, same discipline as §3.4 — do NOT run a live reindex from an agent).
+#### 5.1.2 Canonicalization and hashing
 
-**FR-6b — Azuki produces a priced SALE that surfaces as canonical `value`.** Acceptance = an Azuki `OrderFulfilled`
-writes `MintActivity{SALE, chainId:1, amountPaid>0}`, and `map-evm.ts` surfaces it as `NftActivity.value` (non-null;
-today null — the gap #115 comment 4911466984 reports). Requires the S4 projection to be chainId-aware (§1.5, R-9).
+1. Strict-decode `TruthBundleRootUnsignedV1`.
+2. Canonicalize the complete unsigned value with RFC 8785 JCS.
+3. Hash those canonical bytes with SHA-256 to obtain `root_hash`.
+4. Construct `TruthBundleRootV1` from `unsigned_root` and `root_hash`.
+5. Sign domain-separated bytes:
+   `sonar.truth-contract.v1\0<environment>\0<generation>\0<root-sha256>`.
 
-**FR-6c — ETH/WETH-only v1 (~71% coverage, ACCEPTED).** The decode counts only `ITEM_TYPE_NATIVE` (ETH) and the
-one configured `wrappedNativeToken` (WETH); a sale settled purely in a non-ETH ERC-20 sums to `amountPaid=0n` and is
-**skipped** (`seaport.ts:146` — not emitted as a zero-priced sale). Aggregator-sweep decomposition and non-ETH
-currencies are a later `schema_version` bump (N5), not v1.
+The implementation reuses the vendored trust protocol's JCS, SHA-256, and
+Ed25519 primitives. Sonar and the Score consumer package MUST run identical
+golden vectors, including Unicode, numeric boundaries, key order, excess
+properties, digest mismatch, circular/self-hash attempts, wrong environment,
+and modified signature.
 
-**FR-6d — boundary #85 unchanged.** The indexer emits only the event *fact* — "sale settled for X wei of token Y on
-marketplace M". No floor/filter/scoring; score-api owns all downstream interpretation. FR-6 adds no scoring surface.
+Every protocol integer that can exceed JavaScript's safe range is a canonical
+decimal string with an explicit unsigned range: generation, audit/registry
+sequence, block height, slot, timestamp milliseconds, byte length, sample and
+population counts, and reconciliation totals. Leading zeroes, signs, decimal
+points, exponent notation, values above uint64, and unvalidated JSON numbers
+are rejected. Golden vectors cover `2^53 - 1`, `2^53`, and uint64 boundaries.
 
----
+Verifier resource limits are enforced before deep decode or graph traversal:
+
+| Resource | v1 limit |
+|---|---:|
+| signed root bytes | 256 KiB |
+| normative objects per root | 128 |
+| one object | 4 MiB |
+| total object closure | 32 MiB |
+| dependency edges declared by one artifact | 128 |
+| graph nodes per environment generation | 10,000 |
+| graph edges per environment generation | 50,000 |
+| dependency depth | 64 |
+| ordinary free-text field | 8 KiB |
+
+Content length, object count, canonical integer syntax, and bounded identifiers
+are checked before allocation-heavy work. Exceeding a bound is a typed decode
+failure, never partial verification. Invalidation marks the signed ancestor
+state immediately and processes bounded descendant batches; readers inherit
+the ancestor's worse state even before traversal completes, preserving the
+60-second effective-status objective.
+
+#### 5.1.3 Event vocabulary
+
+Each event kind declares:
+
+```text
+kind, semantic_version, source_entities, identity_fields, required_provenance,
+user_meaning, non_user_legs, denominator_membership, breaking_change_rules
+```
+
+The initial manifest is compiled from current handlers and mapping constants.
+Custody, staking, bridge, marketplace, conduit, mint, burn, sale, and direct
+transfer legs are distinct. Score cannot infer missing address classification
+through RPC.
+
+### 5.2 Identity snapshot
+
+> Sources: PRD FR-2; collection resolver and capability registry
+
+`IdentitySnapshotV1` binds each canonical collection ID to:
+
+- chain family, chain ID, canonical address/mint, and legacy aliases;
+- config digest and source reference;
+- observed block/slot, hash, timestamp, and finality policy version;
+- deployed code hash or Solana owner/program identity;
+- proxy kind, implementation address/code hash, and upgrade mechanism;
+- validity interval, superseded snapshot, and contest state;
+- evidence references and effective state.
+
+The compiler calls the existing collection resolver through a narrow injected
+port. Live RPC is never called in schema or unit tests. Hermetic snapshots are
+CI inputs; read-only live probes may refresh staged evidence.
+
+Admission rules:
+
+1. Address shape without deployed identity is `UNKNOWN`.
+2. RPC/provider failure is `UNKNOWN`, never absent or ready.
+3. Proxy evidence is incomplete without implementation binding.
+4. A code-hash or implementation change invalidates the old identity snapshot.
+5. Aliases never overwrite canonical identity; ambiguity is `NOT_READY`.
+6. Metamorphic or unresolvable upgrade behavior is explicitly unsupported or
+   contested.
+
+The first runtime slice is explicitly EVM-only and limited to networks
+enumerated in the signed `network-policies.json`; no unlisted EVM network
+inherits Ethereum policy. Solana wire variants remain compilable for consumer
+compatibility but cannot become `READY` until a Solana identity/finality
+adapter, fixtures, and admission tests land in a separately named sprint.
+
+### 5.3 Readiness decision engine
+
+> Sources: PRD FR-4; `coverage-readiness.ts`; `ramp-readiness.ts`
+
+#### 5.3.1 Inputs
+
+The pure evaluator accepts a bundle hash, identity snapshot, finality-qualified
+watermark, coverage observation, source-head observations, activity profile,
+reconciliation receipt, current time, and revocation/invalidation set.
+
+#### 5.3.2 State precedence
+
+Worst state wins across every required source:
+
+```text
+SUSPENDED
+  > NOT_READY
+  > UNKNOWN
+  > EXPIRED
+  > DEGRADED
+  > READY
+```
+
+`SUSPENDED` means confirmed semantic or trust invalidity. `UNKNOWN` means
+required evidence cannot be obtained or verified. `EXPIRED` is valid evidence
+outside its time budget. `DEGRADED` is known, bounded loss of freshness or
+availability for which policy permits last-good use. No healthy source masks an
+unhealthy required source.
+
+#### 5.3.3 Required evidence
+
+`READY` requires all of:
+
+- verified current root and active signing key;
+- admitted identity at a finalized block/hash;
+- compatible event/provenance version;
+- processed-through at or beyond the required horizon;
+- source head and index cursor advancing within the activity profile;
+- reconciliation pass bound to the same snapshot;
+- no active invalidation edge;
+- unexpired envelope within clock-skew budget.
+
+Rows alone are not readiness. A zero-row collection can be ready only through a
+coverage-bound sync marker plus a quiet activity profile. A source with no rows,
+no cursor advancement, or no independent heartbeat is `UNKNOWN` or
+`NOT_READY`.
+
+#### 5.3.4 Time budgets
+
+| Artifact/sensor | Production TTL | Staging TTL | Max future skew |
+|---|---:|---:|---:|
+| source-head observation | 2 minutes | 5 minutes | 60 seconds |
+| readiness envelope | 15 minutes | 30 minutes | 60 seconds |
+| head-following reconciliation | 15 minutes | 30 minutes | 60 seconds |
+| fixed historical reconciliation | 24 hours | 24 hours | 60 seconds |
+| Score consumption/serving observation | 15 minutes | 30 minutes | 60 seconds |
+| revocation/root cache | 5 minutes | 5 minutes | 60 seconds |
+
+Development fixtures use an injected clock and explicit fixture expiry.
+Changing these values is a signed policy change, not an environment variable.
+
+### 5.4 Finality and reorg invalidation
+
+> Sources: PRD FR-4 and FR-9; capability registry finality schemas; reorg drill
+
+Each network policy is a signed object in the bundle and reuses
+`FinalityPolicy`. Ethereum does not lend its confirmation rule to other EVM
+chains. A watermark is the tuple:
+
+```text
+network, height_or_slot, block_or_root_hash, observed_at,
+finality_policy_version, finality_class
+```
+
+The read-only detector polls required heads at most every 60 seconds. Two
+independent providers must agree when the active policy requires quorum.
+Parent/hash divergence behind any active watermark creates a signed
+`reorg_detected` invalidation event.
+
+Provider independence is signed policy data, not endpoint count. Each provider
+entry declares operator/legal entity, ASN/network path, execution client
+family, upstream source, and attested control domain. A quorum requires distinct
+operators and control domains; the active network policy may additionally
+require distinct ASNs or client families. Unprovable independence or loss of
+quorum is `UNKNOWN`; conflicting finalized hashes are `NOT_READY` and trigger
+invalidation. The evaluator never silently falls back to one provider.
+
+Required service objectives:
+
+- detection: within two poll intervals;
+- registry invalidation publication: p99 within 60 seconds after detection;
+- dependent status projection: p99 within 60 seconds after invalidation;
+- no automatic recovery until replacement identity, watermark, reconciliation,
+  and downstream receipts exist.
+
+Every receipt declares `depends_on[]` artifact hashes. The dependency graph is
+acyclic and append-only per generation. Invalidation performs a deterministic
+breadth-first traversal, emits one idempotency-keyed event per affected
+artifact, and preserves lifecycle history. Failed delivery retries with bounded
+backoff and enters a dead-letter set. Dead-letter status is the worse of
+`UNKNOWN` and the originating invalidation: reorg remains at least `NOT_READY`;
+semantic, identity, signer, or root compromise remains `SUSPENDED`. A delivery
+failure can never weaken the triggering state or leave the prior status green.
+
+### 5.5 Reconciliation design
+
+> Sources: PRD FR-5; promotion gate; Flatline statistical findings
+
+#### 5.5.1 Snapshot binding
+
+`ReconciliationReceiptV1` binds:
+
+- bundle and identity hashes;
+- source and projection block/root hashes;
+- exact query/adapter versions;
+- universe denominator and strata definition;
+- seed commitment and revealed seed;
+- sample or census membership digest;
+- counts, mismatches, bounded examples, decision, expiry, and signer.
+
+Evidence from different snapshot IDs cannot be joined.
+
+#### 5.5.2 Seed protocol
+
+The reconciler is a separate service principal, network boundary, deployment,
+and Ed25519 key domain from the Sonar publisher. Producer credentials cannot
+invoke its plan, commit, reveal, or receipt APIs. A dual-control deployment
+attestation proves this separation before a reconciliation receipt is trusted.
+Local fixtures may simulate both sides but are always non-authoritative.
+
+After the producer root is published, the reconciler generates 256-bit CSPRNG
+entropy and builds `SamplingPlanV1` containing bundle/root and snapshot hashes,
+universe digest, ordered strata and denominators, query/parameter/adapter
+digests, selection-algorithm version, confidence targets, and nonce commitment.
+It atomically appends the signed plan before querying. Ordered events are:
+
+```text
+PLAN_COMMITTED -> QUERY_FINALIZED -> NONCE_REVEALED -> RECEIPT_PUBLISHED
+```
+
+The commitment is:
+`SHA-256("sonar-reconcile-seed-v1" || JCS(sampling_plan_without_commitment) || nonce)`.
+The nonce is revealed only after the query plan and universe are immutable.
+Changing any bound input requires a new plan and invalidates the old attempt.
+
+#### 5.5.3 Sampling and escalation
+
+Sampling is stratified by network, collection, event kind, time bucket, and
+high-risk semantic class (custody/staking, proxy upgrade, sale, mint/burn).
+Each stratum declares its own maximum tolerated defect rate, confidence target,
+population, and power calculation in the signed plan. Three hundred observations
+is only a minimum floor for an ordinary populated stratum, never a global proof.
+Rare and high-risk semantic strata use a census. Zero observed errors in one
+stratum makes no claim about another.
+
+Any semantic mismatch, missing mandatory stratum, identity mismatch, or
+provenance omission triggers a census for the affected generation. Aggregate
+count thresholds reuse a versioned footprint policy; the initial compatibility
+baseline is the existing promotion gate's 0.1% relative tolerance with
+entity-specific floors, while low-cardinality and semantic assertions remain
+exact. Threshold changes require authority-matrix approval and a new bundle.
+
+If a known mismatch triggered the census and the census cannot complete, the
+terminal effective state remains `NOT_READY`. If escalation is required only
+because evidence or a mandatory stratum cannot be obtained and no defect is yet
+confirmed, the terminal state is `UNKNOWN`. Both produce a signed incomplete
+receipt with retry owner/deadline; neither can hang or pass.
+
+#### 5.5.4 Quiet versus starved
+
+An activity profile includes expected-event distribution/window, collection
+launch interval, source-head cadence, cursor cadence, provider heartbeat,
+cross-source availability, owner, training/backtest window, and confidence.
+A quiet pass requires source head plus cursor progression and a complete
+coverage marker even when event count is zero. Missing independent progression
+is never quiet.
+
+### 5.6 Registry and publication
+
+> Sources: PRD FR-8, FR-11, FR-12; Flatline atomic-publication finding
+
+#### 5.6.1 Store port
+
+`TruthRegistryStore` exposes:
+
+```text
+putObjectIfAbsent(hash, canonicalBytes)
+getObject(hash)
+appendAuditEvent(event)
+readRoot(environment)
+compareAndSwapRoot(environment, expectedGeneration, signedRoot)
+readRevocations(environment)
+```
+
+The initial implementation is a hermetic filesystem reference store using
+same-directory temporary files, local-POSIX advisory locking, fsync, and atomic
+rename. It is restricted to one host and a filesystem that passes the
+conformance probe; network filesystems and stores without durable rename,
+exclusive lock/create, file fsync, and directory fsync are rejected. Production
+storage is a later adapter and MUST provide transactional or conditional
+compare-and-swap semantics.
+The store is an Effect service: acquisition and any owned resources live in a
+`Layer.effect`, while the pure in-memory fixture uses `Layer.succeed`.
+
+Publication order:
+
+1. compile and strict-verify every object;
+2. write all immutable objects by digest;
+3. fsync object files and their containing directories;
+4. read every object back and verify digest;
+5. sign the complete root and one `GenerationActivationV1` containing the root
+   hash, exact prior generation, exact next generation, and audit sequence;
+6. durably append the prepared activation/audit record;
+7. compare-and-swap one current pointer to that activation;
+8. fsync the pointer's containing directory and expose the generation.
+
+Generation is contiguous: `next = prior + 1`; gaps, duplicates, and merely
+greater values fail. The local adapter takes an exclusive inter-process lock
+with owner PID/start metadata, refuses live competing owners, and has a
+bounded stale-lock recovery check. Readers accept a root only through a complete
+signed activation record, so root activation and publication audit are one
+logical object rather than two fallible actions.
+
+Genesis is generation `"1"`, `supersedes_generation = null`, expected current
+pointer absent, prior generation `"0"` in the activation precondition, and
+audit sequence `"1"`. Compare-and-swap uses atomic create-if-absent for genesis.
+Two genesis publishers racing against an empty store must yield exactly one
+winner and one typed contention failure.
+
+A crash before step 7 leaves prepared but inactive objects. A crash after step
+7 is recovered by verifying the activation, pointer, directory durability,
+audit sequence, and complete object closure. Conformance tests kill the process
+between every step and race two publishers; at most one contiguous activation
+may become current.
+
+Before enabling the filesystem adapter, an executable conformance probe verifies
+local single-host identity, exclusive create/lock behavior across processes,
+same-directory durable rename, file fsync, directory fsync, stale-lock
+recovery, genesis race behavior, and crash recovery at every publication step.
+Any unsupported syscall, network/mounted filesystem classification, or
+non-durable result refuses adapter startup.
+
+#### 5.6.2 Trust profile
+
+Normative v1 is Ed25519 signatures, SHA-256 digests, and RFC 8785 canonical
+JSON. Production private keys are non-exportable KMS/HSM keys behind a
+`TruthSigner` port. PEM/file signers exist only for hermetic tests and local
+development and use distinct fixture key IDs.
+
+Each environment has a `TrustBootstrapV1` pin bundle containing environment,
+protocol, bootstrap generation, key ID, Ed25519 public key, activation interval,
+governance quorum public keys/threshold, recovery quorum public keys/threshold,
+and bundle digest. Its canonical digest is verified through two independent
+operator-controlled distribution channels and recorded in the release receipt.
+Production never accepts staging/development roots.
+
+Normal rotation is signed by the active root and authority quorum with an
+overlap interval. Emergency recovery requires a separately protected recovery
+quorum. Unknown roots, generation rollback, missing revocation state, stale
+revocation cache, and algorithm mismatch are trust failures.
+
+First install requires the two-channel bootstrap digest and quorum fixture.
+Updates require the locally trusted current root plus quorum signatures and
+must advance the persisted trusted-generation high-water mark exactly. The
+high-water record is stored in a separately permissioned local state file with
+digest and environment binding; deleting or losing it puts the reader into
+`UNKNOWN` recovery mode rather than accepting any signed historical root.
+Recovery requires a fresh bootstrap ceremony and operator receipt. Pin
+substitution, rollback, partial quorum, cache loss, and compromised recovery-key
+fixtures are mandatory.
+
+Revocation includes `compromised_from`, `revoked_at`, and reason. The registry
+queries its hash dependency graph for every artifact signed in the affected
+interval, invalidates their effective status, and requires newly observed and
+newly signed evidence.
+
+Emergency revocation also travels through a push invalidation channel and
+short-circuits positive caches immediately. A receipt signed by a compromised
+key is `SUSPENDED` even inside the five-minute cache window and last-good
+serving is forbidden. If push/revocation freshness cannot be proven after its
+budget, trust is `UNKNOWN`; cached green status cannot continue.
+
+The push channel is the existing signed trust-envelope stream on
+`sonar.truth.revocation.v1.<environment>`. Only the governance/recovery
+revocation authority may publish `EmergencyRevocationV1`; it uses a key and
+service principal distinct from producer and reconciler. Consumers verify
+environment, issuer, signature, epoch, monotonic sequence, compromise interval,
+and artifact/key target before evicting caches. Delivery is at least once with
+idempotent event IDs, gap detection, replay-range repair, and a registry-backed
+poll fallback. When offline, the last verified revocation sequence is reported;
+after the five-minute freshness budget, affected trust becomes `UNKNOWN`.
+
+### 5.7 Effective lifecycle and serving policy
+
+> Sources: PRD FR-6 and FR-9; Flatline serving-policy finding
+
+Lifecycle history and effective status are separate projections. The complete
+v1 lifecycle enumeration is `DRAFT`, `PRODUCED`, `RECONCILED`, `CONSUMED`,
+`LIVE_PROVEN`, `GRADUATED`, `SUPERSEDED`, and `ROLLED_BACK`.
+
+Allowed forward transitions are:
+
+```text
+DRAFT -> PRODUCED -> RECONCILED -> CONSUMED -> LIVE_PROVEN -> GRADUATED
+any non-terminal version -> SUPERSEDED
+CONSUMED | LIVE_PROVEN | GRADUATED -> ROLLED_BACK
+```
+
+Sonar publisher authority may create `PRODUCED`; the independent reconciler may
+create `RECONCILED`; Score publisher authority may create `CONSUMED`; the
+serving verifier may create `LIVE_PROVEN`; only the signed governance authority
+may create `GRADUATED`, `SUPERSEDED`, or `ROLLED_BACK`. No transition erases or
+rewrites an earlier event. Effective status can worsen automatically.
+
+Registry generation and semantic contract lifecycle are different axes. The
+Sonar publisher may advance contiguous registry generations for compatible
+evidence refreshes without changing a contract version's lifecycle.
+`supersedes_generation` is physical registry lineage only. A new generation
+that changes semantics or declares a prior contract version `SUPERSEDED`
+requires the signed governance transition in addition to publisher activation;
+without it, activation fails.
+
+| Failure class | Effective status | Last-good serving | User label | Recovery |
+|---|---|---|---|---|
+| temporary source transport loss within TTL | `DEGRADED` | yes, existing version only | degraded/stale timestamp | fresh source and readiness evidence |
+| stale projection or evidence after TTL | `EXPIRED` | yes for at most one additional readiness-envelope TTL: 15m production, 30m staging | stale | fresh reconciliation and serving observation |
+| source/index cursor not advancing | `UNKNOWN` | existing version only; no graduation | delayed/unknown | independent head, cursor, and coverage proof |
+| reorg behind active watermark | `NOT_READY` | no for affected version | temporarily unavailable | replacement watermark and all dependent receipts |
+| reconciliation count breach | `NOT_READY` | no new version; last-good prior generation only | update held | census pass |
+| semantic/provenance mismatch | `SUSPENDED` | no | unavailable | corrected bundle and new Score receipt |
+| canonical identity revoked/contested | `SUSPENDED` | no | unavailable | re-admission and new evidence |
+| signer/root compromise | `SUSPENDED` | no for impact set | unavailable | recovered root and fresh evidence |
+| incompatible producer/consumer version | `SUSPENDED` | no for incompatible version | update required | compatible build and receipt |
+
+Escalation is immediate for `SUSPENDED` and `NOT_READY`, at TTL expiry for
+`EXPIRED`, and after two missed detector polls for `UNKNOWN`. Serving exceptions
+are signed, time-bounded policy objects and cannot permit graduation.
+
+### 5.8 Score consumption boundary
+
+> Sources: PRD FR-6 and FR-7; Score issue/PR evidence in the issue registry
+
+Publish a strict tagged union in a small generated consumer package.
+`ConsumedReceiptV1` contains:
+
+```text
+producer_root_hash, bundle_hash, identity_hash, reconciliation_hash,
+producer_snapshot_id, score_build, projection_checkpoint,
+compatibility_result, communities, dimensions, assertion_set_hash,
+serving_query_hash, environment, observed_at, expires_at,
+lifecycle_state, effective_status, depends_on[], issuer, signature
+```
+
+`NotConsumedReceiptV1` contains:
+
+```text
+_tag = "NotConsumedReceiptV1"
+producer_root_hash, bundle_hash, identity_hash
+lifecycle_state = "PRODUCED" | "RECONCILED"
+effective_status = "NOT_READY"
+reason_code = "NOT_CONSUMED"
+score_owner
+retirement_deadline
+environment, observed_at, expires_at, depends_on[], issuer, signature
+```
+
+The Sonar stub selects the lifecycle state actually reached; it never hardcodes
+`RECONCILED`. Variant-specific fields are required and excess fields are
+refused. Valid and invalid golden fixtures cover both tags.
+
+The Score cycle owns the verifier integration, projection checkpoint, live
+query, user-meaning fixtures, and receipt signer. Compatibility validation runs
+before projection and again before serving. A receipt pins exactly one producer
+version even during dual-publish.
+
+### 5.9 Agent interface
+
+> Sources: PRD FR-8; current Incur Sonar Sense CLI
+
+Add `pnpm truth` for `src/truth-contract/cli/sonar-truth.ts`:
+
+```text
+sonar-truth status --collection <id> --environment <env> --target-state produced|reconciled|consumed|live-proven|graduated --format json
+sonar-truth verify --root <path-or-ref> --format json
+sonar-truth explain --artifact <sha256> --format json
+sonar-truth dependencies --artifact <sha256> --format json
+sonar-truth rebuild-status --environment <env> --format json
+```
+
+`status` returns root generation, identity, producer readiness,
+reconciliation, Score consumption, effective status, reason codes, expiries,
+blocking bead/owner, and evidence references. It reads only the signed registry
+or an explicitly identified offline cache.
+
+Exit taxonomy:
+
+| Exit | Meaning |
+|---:|---|
+| 0 | ready for the explicitly requested scope |
+| 2 | valid result with findings/non-ready state |
+| 3 | invalid invocation or unsupported schema |
+| 4 | signature, trust-root, replay, or rollback failure |
+| 5 | registry/transport unavailable |
+| 6 | internal invariant failure |
+
+Every non-zero response remains valid versioned JSON. Secrets, raw database
+errors, private URLs, and operator-private memory are structurally excluded
+from schemas.
+
+`--target-state` is required in machine mode and defaults to `graduated` only
+for interactive human output. Exit 0 means the named lifecycle state has been
+reached or exceeded and every artifact required through that state has effective
+status `READY`. Producer targets are `produced` and `reconciled`; end-to-end
+targets are `consumed`, `live-proven`, and `graduated`. A
+`NotConsumedReceiptV1` always yields exit 2 for every end-to-end target,
+regardless of producer readiness.
+
+`rebuild-status` replays the signed activation, lifecycle, revocation, and
+invalidation records into a fresh projection and compares its digest with the
+served projection. A committed golden event log proves rebuild equivalence.
+The first sprint may ship the hermetic command and fixture; production recovery
+remains separately authorized.
+
+### 5.10 Compatibility and supersession
+
+> Sources: PRD FR-7 and FR-10; `bd-v54z.11`
+
+The compatibility matrix is executable data:
+
+- additive optional field/event: compatible only when the consumer declares
+  support or ignores it by contract;
+- removal, requiredness change, meaning change, provenance change, identity
+  reinterpretation, or denominator change: breaking;
+- unknown producer or consumer version: incompatible;
+- dual-publish: both roots valid, but routing is explicit by consumer and
+  environment;
+- promotion: staging artifacts are re-observed and re-signed for production,
+  never relabeled.
+
+A superseding root names affected consumers, migration requirements, validity
+start, prior generation, and rollback target. Pins and replacement bundles run
+the complete canonicalization, trust, compatibility, provenance, regression,
+and negative-fixture suites.
 
 ## 6. Error Handling Strategy
 
-### 6.1 NEVER-DROP discipline (the cardinal sin)
+> Sources: Effect error guidance; PRD failure semantics
 
-The `src/canonical/` layer confines Effect and never throws across its boundary (`errors.ts`). A mapping failure is a
-**typed `Either.Left`**, never a silent drop (PRD §6). The full error union (`CanonicalError`, `errors.ts`):
+Errors remain classified rather than flattened:
 
-| Variant | Raised when |
-|---------|-------------|
-| `SchemaInvalid` | candidate failed `NftActivitySchema` decode (bad/drifted source) — Sprint-2 mappers exercise only this |
-| `SourceUnavailable` | a chain source (Hasura/Helius) unreadable |
-| `SignFailed` | canonical signer failed |
-| `NatsUnreachable` | NATS unreachable at emit |
-| `ChainBroken` | prev-hash tip diverged (an emit would fork the chain) |
-| `HasuraWriteFailed` | the `action` projection write failed |
+| Class | Representation | Retry | External result |
+|---|---|---|---|
+| invalid payload/schema | typed `TruthDecodeError` | never | exit 3 / structured reason |
+| digest, signature, root, replay, rollback | typed `TruthIntegrityError` or `TruthTrustError` | never | exit 4 / fail closed |
+| semantic or compatibility conflict | typed domain error | never | valid finding, status `NOT_READY` or `SUSPENDED` |
+| unavailable provider/registry | typed `TruthTransportError` | bounded schedule | exit 5 or `UNKNOWN` |
+| CAS contention/transient filesystem | typed `TruthRegistryError` | bounded schedule | retry then exit 5 |
+| impossible DAG/hash invariant | defect | never | exit 6, alert, no publication |
+| cancellation/shutdown | interrupt | never | scoped cleanup, no false failure artifact |
 
-### 6.2 Known over-emit (MAJOR-3) — the SAFE direction
-
-A non-carrier leg of a matched `(tx,tokenId)` is a market-routing hop OR a genuine retransfer — **indistinguishable
-from legs alone** without owner-topology — so it is emitted as `verb=transfer` (VISIBLE, not silent). Silent
-suppression here would be unrecoverable loss on multi-leg pre/post chains; principled suppression is deferred to the
-S5 handshake against real mibera topology (`map-evm.ts:14-23`). The parity gate surfaces + quantifies these
-(`canonicalOnly`) so the decision is explicit (FR-3c).
-
-### 6.3 Observability gaps to wire
-
-- **Orphan sales (MINOR-3):** `findOrphanSales` returns sale rows with no matching non-zero leg in the batch (a sale
-  whose Transfer fell outside the window). The S4 layer SHOULD log/reconcile `sales.length - emitted_sales`
-  (`map-evm.ts:250-266`).
-- **Dead-letter (FR-4d):** the `recovery` config makes a NATS blip observable, not a dropped `Left`.
-
----
+Schema errors are normalized at the boundary. Foreign errors are wrapped with
+safe causes; raw credentials, URLs, and private details are not encoded.
+Publication is all-or-nothing, and a failed invalidation/dead-letter path
+worsens effective status rather than preserving green state.
 
 ## 7. Testing Strategy
 
-### 7.1 Test pyramid
+> Sources: PRD success metrics; current Vitest/Bats/JCS test surfaces; Effect test guidance
 
-| Level | Target | Tool | What |
-|-------|--------|------|------|
-| Unit | mappers pure-function coverage | Vitest | `map-evm`/`map-svm` leg→verb precedence, carrier pick determinism (min-logIndex), `canonTokenId` join, zero-address mint/burn |
-| Contract | S5 presence parity | Vitest + `parity.ts` | `parityReport` on curated key-sets; `legacyOnly` empty; `verbDisagreements` detection |
-| Value-parity (FR-3b) | sale from/to/value | script pass over `matched` | re-derived seller/buyer/price byte-identical to score-api `fetchMiberaBuyers/Sellers` — a `verbDisagreement` (demoted sale) is a HARD block |
-| Live dry-run | producer real-data | `validate:evm-canonical` / `validate:evm-sales` | already GREEN: 20,000/20,000 legs + 1,984/1,984 sales map cleanly (handoff runbook) |
-| Reindex verification | P1 correctness | SQL queries (§3.4) | `Token` count > 0, `getNftsForOwner` non-empty, reconciliation invariant |
+### 7.1 Verification strategy
 
-### 7.2 Goal-driven acceptance mapping (per Karpathy #4)
+> Sources: PRD success metrics; current Vitest/Bats/JCS test surfaces
 
-- "Land the index" → **`getNftsForOwner(Mibera)` returns the correct non-empty list AND `len == holdings.tokenCount`** (FR-2c).
-- "Migrate the consumer" → **`parity.ts` shows `legacyOnly` empty (real overlap, `matched > 0`) AND the value-parity pass passed AND the gate is flipped ON with FR-4 prereqs met** (FR-3/Acceptance-2).
-- "Onboarding documented" → **a single doc reproduces onboarding collection N+1 without grammar excavation** (Acceptance-3).
+#### 7.1.1 Hermetic gates
 
-### 7.3 CI
+- strict schema decode and excess-property refusal for every artifact;
+- cross-language JCS/SHA-256/Ed25519 golden vectors;
+- wrong root, environment, generation, signature, digest, nonce, expiry, and
+  dependency negative fixtures;
+- genesis create-if-absent, contiguous generation, physical-versus-semantic
+  supersession, and trusted high-water fixtures;
+- partial-generation and compare-and-swap race tests;
+- filesystem conformance probe and process-kill matrix;
+- readiness truth-table property tests;
+- DAG cycle rejection, idempotent fan-out, dead-letter fail-closed behavior;
+- root/object/graph/depth/field resource-limit fixtures;
+- quiet, starved, reorg, proxy-upgrade, revoked-key, and compromise-interval
+  fixtures;
+- signed revocation stream replay, gap repair, offline expiry, and unauthorized
+  publisher fixtures;
+- sampling determinism, commitment verification, strata coverage, and census
+  escalation;
+- Score wrong-snapshot, wrong-bundle, forged/replayed receipt tests;
+- CLI target-state, schema, and exit-code tests.
 
-`verify:action-contract` hard-fails on `action`-projection drift once promoted `pending-exposure → live` (post-S6).
-S5 dry-run is run **before any backfill** (handoff runbook), not after.
+Effect tests use `@effect/vitest`: `it.effect` for ordinary programs,
+shared `layer(...)` groups for reusable stores/signers, isolated
+`it.layer(...)` fixtures for publication races, `it.effect.prop` with schema
+arbitraries for canonicalization and state-machine laws, and `TestClock` for
+TTL, polling, retry, and revocation behavior. A compatible, version-aligned
+`@effect/vitest` package may be added without broadening this sprint into an
+Effect upgrade.
 
----
+#### 7.1.2 Read-only integration gates
+
+- compile a bundle from current config/constants without mutation;
+- verify current chain progress through GraphQL;
+- obtain identity evidence from read-only provider calls;
+- reconcile a representative collection into a local/staged registry;
+- prove no `ENVIO_RESTART`, database write URL, or production signing capability
+  is present in the planning/test environment.
+
+#### 7.1.3 Traceability gate
+
+CI fails when an FR lacks a schema/test/sprint mapping, a normative object is
+outside the root closure, or an open `NOT_CONSUMED` stub lacks owner/deadline.
+
+The initial normative mapping is:
+
+| FR | Planned schema/module | Required test class | Owner |
+|---|---|---|---|
+| FR-1 | `bundle.ts`, `canonical.ts`, `bundle-compiler.ts` | root/JCS/hash closure vectors | `bd-v54z.11` |
+| FR-2 | `identity-snapshot.ts` | live-code/proxy/alias/finality fixtures | Sonar #159 |
+| FR-3 | event/provenance contract objects | handler vocabulary and semantic-leg fixtures | Sonar #151/#157/#214 |
+| FR-4 | `readiness.ts`, `readiness-evaluator.ts` | complete state table, TTL, quiet/starved, multi-source properties | Sonar #121/#135 |
+| FR-5 | `reconciliation.ts` | plan commitment, per-stratum power, mismatch/census escalation | Sonar #121/#135 |
+| FR-6 | `consumption.ts` tagged union | wrong snapshot plus valid/invalid stub/consumed vectors | `bd-v54z.1` |
+| FR-7 | `compatibility.json`, verifier | dual-publish and negative compatibility fixtures | `bd-v54z.11` |
+| FR-8 | `status-reader.ts`, `cli/sonar-truth.ts` | schema, redaction, cache, and exit taxonomy | `bd-v54z.12` |
+| FR-9 | `dependency-graph.ts`, `effective-status.ts` | lifecycle transitions, fan-out, dead-letter severity, rebuild | `bd-v54z.13` |
+| FR-10 | root supersession fields and compatibility policy | pin replacement, rollback, migration fixtures | `bd-v54z.11` |
+| FR-11 | `crypto.ts`, `authority.ts`, trust bootstrap | forge/replay/revoke/compromise/bootstrap/rollback vectors | `bd-v54z.12` |
+| FR-12 | `registry-store.ts`, `publisher.ts` | crash matrix, dual writer, retention, complete generation | `bd-v54z.12` |
+| FR-13 | `authority-matrix.json` | unauthorized transition/profile/root/stub attempts | `bd-v54z.14` |
 
 ## 8. Development Phases
 
-> Ordering rationale: **FR-2 is independent, urgent, and unblocks a shipped consumer (inventory-api#27)** — it goes
-> first. FR-3/FR-4 are **cross-building** (need the score-mibera consumer + real data + live secrets), per the handoff
-> runbook they *could not be auto-completed from a sonar session* — they follow, operator-paired. FR-1 is "by
-> construction" (already merged inert) → it is a *documentation designation*, folded into Phase 4. FR-5 documents
-> throughout. **FR-6** (priced sale decode) is an independent copy-adapt that produces the raw priced rows the S4
-> adapter needs, so it lands as Phase 1.5 — before Phase 2, whose adapter surfaces the `value` canonically.
+> Sources: dependency cut in PRD initial delivery; beads `bd-v54z.11`–`.14`
 
-### Phase 1 — Land the Token ownership index (FR-2) · unblocks inventory-api#27
-- [ ] Add `@index` on `Token.owner`/`collection`/`isBurned` fresh on main (§3.2); Envio codegen.
-- [ ] Author the scoped reindex runbook (§3.4) — additive → from-genesis → auto-track at cutover; operator-gated.
-- [ ] Verification queries + reconciliation invariant (§3.3) pass on a green build.
-- [ ] Acceptance: `getNftsForOwner(Mibera)` non-empty in prod after the operator-run reindex.
+1. **Protocol kernel** — schemas, canonical bundle, security profile, golden
+   vectors, filesystem store, atomic root publication.
+2. **Producer evidence** — identity snapshots, event/provenance compiler,
+   coverage/readiness evaluator, activity profiles.
+3. **Reconciliation and invalidation** — committed sampling, receipts,
+   dependency DAG, reorg/expiry/revocation projection.
+4. **Agent consumption** — status reader, Incur CLI, deterministic exit codes.
+5. **Score seam** — generated consumer schemas, compatibility verifier,
+   `NOT_CONSUMED` stub with `bd-v54z.1` and a sprint deadline.
+6. **Staged proof** — representative collection, negative drills, no production
+   mutation.
 
-### Phase 1.5 — Priced EVM sale decode (FR-6) · independent, unblocks Azuki price for score-api
-> Copy-adapt of the existing Seaport decode; lands near Phase 1 (same config+reindex shape). The priced `value`
-> only *surfaces* canonically once the Phase-2 S4 adapter exists — but the raw priced `MintActivity` rows it needs
-> must be produced first, so this phase precedes the S4 build.
-- [ ] Add the mainnet Azuki + WETH (LOWERCASED) entry to `TRACKED_COLLECTIONS` (§5.5 FR-6a).
-- [ ] Add the chain-1 `Seaport` binding to `config.yaml` **and** `config.mibera.yaml`; add Seaport@1 to `BELT_CONTRACTS`; extend `test/azuki-chain1-tracked-erc721.test.ts` gate coverage; `verify:belt-config` green (sprint-bug-172).
-- [ ] Verify the active registration path fires the handler for chain-1 Azuki (R-11: belt `EventHandlers.mibera.ts:51` imports `handleSeaportOrderFulfilled`, but `seaport.ts` self-registers via `indexer.onEvent` with no such export on this branch — reconcile before relying on it).
-- [ ] Operator-run: KF-013 `ENVIO_RESTART` redeploy + scoped chain-1 Azuki reindex from `start_block`.
-- [ ] Acceptance (FR-6b): an Azuki `OrderFulfilled` writes `MintActivity{SALE, chainId:1, amountPaid>0}`.
+Production registry publication, production signing-key provisioning, Score
+deployment, and live graduation are separately authorized operations.
 
-### Phase 2 — S5 consumer-parity handshake (FR-3) · cross-building, operator-paired
-- [ ] Build the S4 EVM Hasura adapter (slugify name→`collection_key`; name→address for `metadata.contract`;
-      bigint→string + logIndex; **join `MintActivity × MiberaTransfer`**, never generic `Transfer`; **contract-scoped
-      SALE projection that filters/carries `chainId`** so Azuki chain-1 sales surface without cross-chain contamination — §1.5/R-9/OQ-5).
-- [ ] Confirm FR-6 priced Azuki `value` surfaces non-null end-to-end through the new adapter.
-- [ ] Produce `canonical.json` (mapper over a slice) + `legacy.json` (score-mibera tuples for the same slice).
-- [ ] Run `s5-parity-dryrun.ts` — require `legacyOnly` empty + `matched > 0`; read `verbDisagreements` first.
-- [ ] **Separate value-parity pass** over `matched` sales (FR-3b); a demoted sale blocks.
-- [ ] DECIDE `canonicalOnly` routing-hop over-emits with real topology (FR-3c) — documented decision, not silent surplus.
+### 8.1 Observability and operational acceptance
 
-### Phase 3 — S6 go-live prerequisites + flip the gate (FR-4)
-- [ ] FR-4a prev-hash: SELECT in-memory + consumer chain-reset handshake (N3) OR durable store if consumer requires.
-- [ ] FR-4b/c/d: `makeCanonicalEmitterIfEnabled` only; distinct `SONAR_CANONICAL_SIGNING_SEED_HEX`; `recovery` config.
-- [ ] Apply `action-projection.sql` + promote `canonical_action` `pending-exposure → live`.
-- [ ] Full EVM+SVM backfill → canonical (content-addressed `event_id` → idempotent); reconcile counts.
-- [ ] Flip `SONAR_CANONICAL_EMIT_ENABLED=true` for score-mibera; schedule `nft.mint.detected` deprecation (≥30d overlap).
+> Sources: PRD agent-first goal; readiness and invalidation design
 
-### Phase 4 — Onboarding operational contract (FR-5) + FR-1 designation
-- [ ] Config-shape descriptor + checklist (catches #120/#95); FR-1 designation doc (schema + verb vocabulary + versioning rule).
-- [ ] Coverage watermark read model (§3.6) — ONE surface, reconciled with belt (OQ-1).
-- [ ] Capacity envelope (FR-5c) — BOEHM-shaped spike; commit the envelope, not fixed numbers.
-- [ ] Reclassify raw `Action` table as *legacy* (still serving un-migrated consumers — N1).
+Emit structured counters and durations:
 
----
+- bundle compilation/publication/verification result by reason;
+- root generation and age;
+- readiness state and reason distribution;
+- source-head, cursor, and reconciliation age;
+- reconciliation sample/census size and mismatch class;
+- invalidation detection-to-publication and fan-out latency;
+- dependency dead-letter count;
+- active revoked/compromised artifact count;
+- Score stub age and deadline breach;
+- CLI trust/transport/findings exit count.
+
+Metrics identify artifact hashes and public collection IDs only. Logs never
+carry signing material, provider credentials, database URLs, or raw private
+errors.
+
+Every meaningful protocol operation is a named `Effect.fn` span annotated with
+environment, generation, public collection ID, and artifact hash. Structured
+Effect logs appear only at publication, verification, reconciliation,
+invalidation, and CLI boundaries. Metrics attach to those same boundaries; the
+domain does not construct telemetry exporters.
+
+### 8.2 Failure containment and rollout
+
+> Sources: operator production invariants; PRD non-goals
+
+- Phase 0: hermetic compile/verify only.
+- Phase 1: read-only staging observations and local signed fixture registry.
+- Phase 2: report-only production shadow reader after separate authorization.
+- Phase 3: production root publication after signing/storage/operator gates.
+- Phase 4: Score dual-consumption and live proof in Score's governed cycle.
+
+No phase lowers the Ethereum floor, sets `ENVIO_RESTART`, wipes data, replays
+KF-013, or mutates the production indexer. A failed or absent registry leaves
+current Sonar serving unchanged and blocks new truth-contract graduation.
 
 ## 9. Known Risks and Mitigation
 
-> Traces PRD §7. Probability/impact are the design's assessment.
+> Sources: PRD risks; SDD trust, registry, and rollout design
 
-| Risk | Prob | Impact | Design Mitigation |
-|------|------|--------|-------------------|
-| **R-1 Branch divergence on #153** — cherry-picking the diverged belt-factory index reintroduces stale reconcile assumptions | Med | High | FR-2 mandates **re-implement fresh on main**; the reindex runbook is the reconcile path, not a merge (§3.4) |
-| **R-2 Value-parity divergence on sales** — re-derived seller/buyer/price diverges from legacy `fetchMiberaBuyers/Sellers`; the consumer *scores* on those values; GREEN presence-parity hides it | Med | High | FR-3b makes value-parity a **separate, explicit** go-live step; `verbDisagreements` (demoted sale) is a HARD block (§5.3) |
-| **R-3 Over-emit surplus (MAJOR-3)** — extra `verb=transfer` routing hops → consumer double-counts | Med | Med | FR-3c: quantify by verb via `parity.ts`, DECIDE tolerate/suppress with real topology BEFORE go-live (§6.2) |
-| **R-4 Prev-hash re-genesis on restart** — in-memory store re-genesis-es the chain; a verifying consumer sees `prev-hash-broken` | Med | High | FR-4a: durable store OR consumer chain-reset handshake before flip; canonical's value IS verifiability (§5.4) |
-| **R-5 Two watermark contracts** — belt `sync_status` vs a new onboarding watermark | Low | Med | §3.6: define ONE watermark read model; **OQ-1 [VERIFY]** with belt-PRD owner (neither exists yet → no collision to inherit) |
-| **R-6 Reindex touches prod serving** — downtime during #153 landing | Med | High | Scoped reindex (FR-2b) behind the STABLE Caddy alias (belt §7.4); operator-run, not agent-run |
-| **R-7 Generic `Transfer` join-miss** — S4 adapter joins the generic `Transfer` table → 100% silent sale join-miss | Med | High | Design mandate: join **`MintActivity × MiberaTransfer`** (§1.5); validated 1,984/1,984, 0 misses |
-| **R-8 Enumerability at ~100 collections** — `@index`-only may not scale owner→tokenIds | Low | Med | FR-5c spike decides `@index`-only vs derived projection entity (OQ-2); default `@index`-only, projection is a v2 lever |
-| **R-9 Cross-chain SALE contamination (FR-6)** — `MintActivity.id` omits chainId; Base Seaport was DEFERRED until downstream added chainId filters (`config.yaml:685`); mainnet re-triggers it | Med | High | S4 projection + all downstream consumers MUST filter/carry the `chainId` column (present `seaport.ts:165`); chainId-filter work is the FR-6 un-block gate, not optional (§1.5) |
-| **R-10 Silent belt config drift (FR-6a)** — chain-1 binding added to `config.yaml` only; no `config.mibera.yaml` parity / `BELT_CONTRACTS` gate / `start_block` → prod indexing gap CI never catches | Med | High | sprint-bug-172 checklist: mirror to `config.mibera.yaml`, add `BELT_CONTRACTS` entry, extend `azuki-chain1` test, `verify:belt-config` green, KF-013 post-merge |
-| **R-11 Seaport registration-path mismatch** — belt `EventHandlers.mibera.ts:51` imports `handleSeaportOrderFulfilled` but `seaport.ts` self-registers via `indexer.onEvent` with no export on this branch → handler may not fire for chain-1 Azuki | Med | High | Reconcile the registration path (Phase 1.5) before relying on FR-6; a decode that never runs is a silent 0-sales miss |
-| **R-12 Checksummed WETH mis-config (FR-6a)** — PRD gives WETH checksummed (`0xC02aaA39…`); `TRACKED_COLLECTIONS` compares lowercase (`seaport.ts:110`) → WETH sales silently sum to 0, priced-sale dropped | Med | Med | Store WETH + Azuki keys LOWERCASED (§5.5); the `amountPaid>0n` guard (`seaport.ts:146`) makes the miss silent — a unit test on a WETH-settled Azuki fixture catches it |
-
----
+| Risk | Mitigation |
+|---|---|
+| Contract shape passes while behavior is wrong | Behavioral invariants, executable assertions, reconciliation, and negative fixtures are inside the root closure. |
+| Partial publication mixes generations | Immutable objects precede one signed compare-and-swap root. |
+| Quiet collections hide starvation | Require independent head/cursor/heartbeat evidence plus signed activity profiles. |
+| Biased samples hide defects | Independent committed CSPRNG seed, mandatory strata, and census escalation on any semantic mismatch. |
+| Reorg or revocation leaves stale consumers green | Explicit dependency DAG, bounded fan-out, dead-letter fail-closed projection. |
+| Storage writer fabricates truth | Ed25519 verification, out-of-band roots, non-exportable production keys, append-only audit. |
+| Environment artifacts are relabeled into production | Separate roots/namespaces and fresh environment-bound receipts. |
+| Score treats Sonar completion as user truth | Mandatory `NOT_CONSUMED` stub; distinct Score receipt and live assertion gate. |
+| Effect wiring becomes fragmented | Focused services, named layers, one boundary runtime, aligned Effect tests. |
+| Production work mutates indexing controls | Read-only staged rollout and invariant checks; separate authorization for every production adapter/deploy. |
 
 ## 10. Open Questions
 
-| # | Question | Design default / recommendation | Owner | Status |
-|---|----------|--------------------------------|-------|--------|
-| OQ-1 | Does FR-5b coverage watermark reuse belt `sync_status` or a distinct read model? | **ONE** read model `(collectionKey, chainId)→lastIndexedBlock`, co-owned with belt (§3.6); neither exists today so no collision to inherit | belt-PRD owner + sonar | **Resolve before Approved** |
-| OQ-2 | #153 index: `@index`-only, or a derived owner→tokenIds projection entity for scale? | `@index`-only (peer pattern); projection is a v2 lever pulled only if FR-5c query headroom fails | sonar + FR-5c spike | Open |
-| OQ-3 | Capacity envelope: real per-collection cost + query headroom at ~100 collections? | BOEHM-shaped spike; commit the envelope, not fixed numbers | sonar (spike) | Open |
-| OQ-4 | Consumer migration order after score-mibera (v2 boundary); does inventory-api read canonical or stay on the Token read model? | inventory-api stays on P1 (Token read model) — it needs enumerable ownership, not the activity stream; canonical migration order is v2 | sonar | Open (v2) |
-| OQ-5 | Is the S4 SALE-row adapter chain-scoped — must mainnet SALE rows be added *there* for map-evm to surface Azuki's price as canonical `value`? | **Resolved: NO new mainnet wiring inside S4.** `map-evm` is pure + per-collection (`ctx.{chainId,contract}`); the S4 SALE projection is **contract-scoped** (keyed by the onboarding descriptor's address), so Azuki chain-1 rows are picked up for free once FR-6a/b produce them. The adapter MUST be chainId-aware (filter + carry `chainId`) to avoid cross-chain contamination (R-9); it must NOT hard-filter `chainId IN (80094,8453)`. The real prerequisite is upstream (Seaport handler + config binding), not S4. | sonar (FR-6) | **Resolved** |
+> Sources: authority boundary and separate Score governance
 
----
+### 10.1 Open operator-owned decisions
 
-## 11. Appendix
+> Sources: authority boundary and separate Score governance
 
-### A. Glossary
+The implementation sprint may prepare fixtures and interfaces, but cannot
+decide:
 
-| Term | Definition |
-|------|------------|
-| P1 / ownership read model | `Token` entity (owner→tokenIds) served over Hasura GraphQL (pull) — inventory-api's plane |
-| P2 / activity event stream | canonical `NftActivity` over NATS (push) — score-mibera's plane |
-| Carrier leg | the deterministic MIN-logIndex non-zero matched leg of a `(tx,tokenId)` sale — exactly one `verb=sale` per sale |
-| NEVER-DROP | a mapping failure is an observable `Either.Left`, never a silent drop (the cardinal sin) |
-| S5 | the executable consumer-parity gate (`parity.ts`) — presence parity by `(tx,asset_ref,verb)` |
-| S6 | go-live: the 4 prerequisites + flip `SONAR_CANONICAL_EMIT_ENABLED=true` |
-| Presence parity | `legacyOnly` empty — canonical covers the consumer's tuples; NOT field-value fidelity |
-| Value parity | a SEPARATE pass confirming re-derived sale `from`/`to`/`value` equals legacy (FR-3b) |
-| INERT / deployed-but-unconsumed | merged + tested but gate OFF; nothing emits live ahead of a validated consumer (F7) |
+1. production KMS/HSM provider and recovery-quorum members;
+2. production registry storage adapter;
+3. authority identities for `LIVE_PROVEN` and `GRADUATED`;
+4. Score policy denominators or borrowing/custody rulings;
+5. production publication, Score deployment, or rollout timing.
 
-### B. References
-
-- PRD: `grimoires/loa/prd.md`
-- Agent door: `grimoires/loa/ARRIVAL.md`
-- Handoff runbook (authoritative S5/S6): `grimoires/loa/runbooks/canonical-s5-s6-handoff.md`
-- Reindex precedent: `grimoires/loa/runbooks/candies-holder-balance-reindex.md`, `apiculture-green-belt-reindex.md`
-- Sibling SDD (belt zero-downtime, §7.4 cutover): `grimoires/loa/sdd-belt-zero-downtime.md`
-- Source: `src/canonical/{map-evm,map-svm,emit,parity,errors}.ts`; `src/handlers/tracked-erc721.ts`; `src/handlers/seaport.ts` (FR-6 decode + `TRACKED_COLLECTIONS`); `config.yaml` (chain-1 network `:558`, Base Seaport deferral `:685`, Berachain Seaport `:901`), `config.mibera.yaml`; `schema.graphql:350`
-- FR-6 grounding: `test/azuki-chain1-tracked-erc721.test.ts`, `test/verify-belt-config.test.ts` (`BELT_CONTRACTS`), `grimoires/loa/feedback/sprint-bug-172.yaml` (belt config-drift checklist, KF-013)
-- Contract package: `@0xhoneyjar/events` (sealed `NftActivitySchema`)
-- Issues: #153, inventory-api#27, #151, #115 (+ comment 4911466984 → FR-6), #121, #135, #120, #95, #85 (event-fact boundary), #118 (belt config-drift)
-
-### C. Change Log
-
-| Version | Date | Changes | Author |
-|---------|------|---------|--------|
-| 1.0 | 2026-07-07 | Initial SDD from prd-evm-onboarding-contract.md — two-plane structure, FR-2 index design, S5/S6 phases | Architecture Designer |
-| 1.1 | 2026-07-07 | Integrated FR-6 (uniform priced EVM sale decode, #115 comment 4911466984): §1.1 P2 value-feeder note, §1.4 Seaport decode component, §1.5 priced-sale ingress + S4 contract-scoping resolution, §5.5 FR-6a/b/c/d config+handler design, Phase 1.5, R-9..R-12, OQ-5 resolved. OQ-1 (watermark) preserved open. Belt SDD untouched. | Architecture Designer |
-
----
-
-*Generated by Architecture Designer Agent*
+These are explicit later gates, not hidden implementation defaults.
