@@ -28,7 +28,9 @@ setup() {
   },
   "upstream_pin": {
     "pr": 1228,
-    "status": "CI_GREEN_PENDING_MERGE"
+    "status": "CI_GREEN_PENDING_MERGE",
+    "commit": "bfb3d81cbe4121a9f652793b861a5af95bbfc5e3",
+    "expires_at": "2099-01-01T00:00:00Z"
   },
   "artifact_manifest": {
     "complete": true,
@@ -111,4 +113,14 @@ JSON
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"ENVIO_RESTART must be unset"* ]]
+}
+
+@test "rejects an expired unmerged upstream pin" {
+  jq '.upstream_pin.expires_at = "2020-01-01T00:00:00Z"' "$RECEIPT" >"$RECEIPT.tmp"
+  mv "$RECEIPT.tmp" "$RECEIPT"
+
+  run node "$CHECKER" "$RECEIPT"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"expires_at must be a future timestamp"* ]]
 }

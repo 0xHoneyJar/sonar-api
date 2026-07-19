@@ -94,6 +94,17 @@ function validate(receipt, repoRoot) {
       `upstream_pin.status must be one of ${ALLOWED_PIN_STATES.join(", ")}`,
     );
   }
+  if (!/^[a-f0-9]{40}$/.test(receipt.upstream_pin?.commit ?? "")) {
+    violations.push("upstream_pin.commit must be a full Git commit SHA");
+  }
+  if (receipt.upstream_pin?.status === "CI_GREEN_PENDING_MERGE") {
+    const expiry = Date.parse(receipt.upstream_pin?.expires_at ?? "");
+    if (!Number.isFinite(expiry) || expiry <= Date.now()) {
+      violations.push(
+        "upstream_pin.expires_at must be a future timestamp while merge is pending",
+      );
+    }
+  }
 
   requireEqual(
     receipt.production_invariants?.ethereum_start_block,
