@@ -51,8 +51,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 10.11.0
+        # Version comes from package.json "packageManager"; pnpm/action-setup v4
+        # errors if it is ALSO pinned here (ERR_PNPM_BAD_PM_VERSION).
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
