@@ -23,6 +23,7 @@ export const TRUTH_NORMATIVE_OBJECT_KINDS = [
   "security_profile",
   "network_finality_policy",
   "activity_profiles",
+  "statistical_policy",
   "serving_policy",
   "issuer_metadata",
 ] as const;

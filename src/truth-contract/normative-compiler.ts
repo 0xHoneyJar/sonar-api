@@ -13,6 +13,7 @@ import {
 import {
   TRUTH_AUTHORITY_ACTIONS,
   TRUTH_COMPATIBILITY_CHANGE_KINDS,
+  TRUTH_HIGH_RISK_RECONCILIATION_CLASSES,
   TRUTH_SERVING_FAILURE_CLASSES,
   TruthNormativeObjectV1,
   type TruthNormativeObjectV1 as TruthNormativeObject,
@@ -57,6 +58,101 @@ const validateCompatibility = (
   });
   return invalid
     ? Effect.fail(semanticFailure("compatibility outcome contradicts v1 policy"))
+    : Effect.void;
+};
+
+const validateServingPolicy = (
+  value: Extract<TruthNormativeObject, { readonly kind: "serving_policy" }>,
+): Effect.Effect<void, TruthIntegrityError> => {
+  if (!exactSet(value.rules.map((rule) => rule.failure_class), TRUTH_SERVING_FAILURE_CLASSES)) {
+    return Effect.fail(semanticFailure("serving failure matrix is not total"));
+  }
+  const expected = (
+    failureClass: (typeof TRUTH_SERVING_FAILURE_CLASSES)[number],
+  ) => {
+    const maximum = value.environment === "production" ? "900" : "1800";
+    switch (failureClass) {
+      case "temporary_source_transport_loss":
+        return [
+          "DEGRADED",
+          "SAME_VERSION_WITHIN_TTL",
+          maximum,
+          "0",
+          "degraded/stale timestamp",
+          "fresh-source-and-readiness-evidence",
+        ] as const;
+      case "stale_projection_or_evidence":
+        return [
+          "EXPIRED",
+          "SAME_VERSION_ONE_EXTRA_TTL",
+          maximum,
+          "0",
+          "stale",
+          "fresh-reconciliation-and-serving-observation",
+        ] as const;
+      case "source_cursor_not_advancing":
+        return [
+          "UNKNOWN",
+          "PRIOR_PROJECTION_ONLY",
+          maximum,
+          "120",
+          "delayed/unknown",
+          "independent-head-cursor-and-coverage-proof",
+        ] as const;
+      case "reorg_behind_watermark":
+        return [
+          "NOT_READY",
+          "FORBIDDEN",
+          "0",
+          "0",
+          "temporarily unavailable",
+          "replacement-watermark-and-all-dependent-receipts",
+        ] as const;
+      case "reconciliation_count_breach":
+        return [
+          "NOT_READY",
+          "PRIOR_GENERATION_ONLY",
+          "0",
+          "0",
+          "update held",
+          "completed-census-pass",
+        ] as const;
+      default:
+        return [
+          "SUSPENDED",
+          "FORBIDDEN",
+          "0",
+          "0",
+          failureClass === "incompatible_producer_consumer"
+            ? "update required"
+            : "unavailable",
+          failureClass === "semantic_provenance_mismatch"
+            ? "corrected-bundle-and-new-score-receipt"
+            : failureClass === "identity_revoked_or_contested"
+              ? "identity-readmission-and-new-evidence"
+              : failureClass === "signer_root_compromise"
+                ? "recovered-root-and-fresh-evidence"
+                : "compatible-build-and-receipt",
+        ] as const;
+    }
+  };
+  const invalid = value.rules.some((rule) => {
+    const [status, lastGood, maximum, escalation, userLabel, recoveryEvidence] =
+      expected(rule.failure_class);
+    return (
+      rule.effective_status !== status ||
+      rule.last_good_policy !== lastGood ||
+      String(rule.maximum_last_good_seconds) !== maximum ||
+      String(rule.escalation_seconds) !== escalation ||
+      rule.user_label !== userLabel ||
+      rule.recovery_evidence.length !== 1 ||
+      rule.recovery_evidence[0] !== recoveryEvidence ||
+      rule.last_good_allowed !== (lastGood !== "FORBIDDEN") ||
+      rule.graduation_eligible !== false
+    );
+  });
+  return invalid
+    ? Effect.fail(semanticFailure("serving failure rule weakens frozen policy"))
     : Effect.void;
 };
 
@@ -134,6 +230,10 @@ const validateNetworkPolicy = (
   const invalidQuorum = value.networks.some((network) => {
     const quorum = BigInt(network.required_provider_quorum);
     const providerIds = network.providers.map((provider) => String(provider.provider_id));
+    const providerKeyIds = network.providers.map((provider) => String(provider.key_id));
+    const providerPublicKeys = network.providers.map((provider) =>
+      String(provider.public_key_hex),
+    );
     const operators = network.providers.map((provider) => String(provider.operator));
     const controlDomains = network.providers.map((provider) =>
       String(provider.control_domain),
@@ -155,6 +255,8 @@ const validateNetworkPolicy = (
         network.require_distinct_client_family,
       ) ||
       new Set(providerIds).size !== providerIds.length ||
+      new Set(providerKeyIds).size !== providerKeyIds.length ||
+      new Set(providerPublicKeys).size !== providerPublicKeys.length ||
       new Set(operators).size < Number(quorum) ||
       new Set(controlDomains).size < Number(quorum) ||
       (network.require_distinct_asn && new Set(asns).size < Number(quorum)) ||
@@ -295,13 +397,15 @@ const validateObjectSemantics = (
       return validateNetworkPolicy(value);
     case "activity_profiles":
       return validateActivityProfiles(value);
-    case "serving_policy":
+    case "statistical_policy":
       return exactSet(
-        value.rules.map((rule) => rule.failure_class),
-        TRUTH_SERVING_FAILURE_CLASSES,
+        value.high_risk_classes,
+        TRUTH_HIGH_RISK_RECONCILIATION_CLASSES,
       )
         ? Effect.void
-        : Effect.fail(semanticFailure("serving failure matrix is not total"));
+        : Effect.fail(semanticFailure("statistical high-risk classes are not total"));
+    case "serving_policy":
+      return validateServingPolicy(value);
     default:
       return Effect.void;
   }

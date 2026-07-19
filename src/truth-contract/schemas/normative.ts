@@ -293,6 +293,8 @@ export class ProviderIndependenceV1 extends Schema.Class<ProviderIndependenceV1>
   asn: TruthIdentifier,
   client_family: TruthIdentifier,
   upstream_source: TruthIdentifier,
+  key_id: TruthIdentifier,
+  public_key_hex: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/)),
 }) {}
 
 export class NetworkPolicyV1 extends Schema.Class<NetworkPolicyV1>("NetworkPolicyV1")({
@@ -360,6 +362,46 @@ export class ActivityProfilesObjectV1 extends Schema.Class<ActivityProfilesObjec
   profiles: Schema.Array(ActivityProfileV1).pipe(Schema.maxItems(10_000)),
 }) {}
 
+export const TRUTH_HIGH_RISK_RECONCILIATION_CLASSES = [
+  "CUSTODY_STAKING",
+  "PROXY_UPGRADE",
+  "SALE",
+  "MINT_BURN",
+] as const;
+
+export class StatisticalPolicyObjectV1 extends Schema.Class<StatisticalPolicyObjectV1>(
+  "StatisticalPolicyObjectV1",
+)({
+  kind: Schema.Literal("statistical_policy"),
+  schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
+  version: Schema.Literal("statistical-policy.v1"),
+  population_version: TruthIdentifier,
+  strata_dimensions: Schema.Tuple(
+    Schema.Literal("contract"),
+    Schema.Literal("event_kind"),
+    Schema.Literal("semantic_leg"),
+  ),
+  estimand: Schema.Literal("SEMANTIC_DEFECT_PREVALENCE"),
+  tolerable_defect_rate_ppm: Schema.Literal("10000"),
+  adverse_defect_rate_ppm: Schema.Literal("50000"),
+  family_wise_alpha_ppm: Schema.Literal("50000"),
+  multiple_testing_correction: Schema.Literal("BONFERRONI"),
+  minimum_power_ppm: Schema.Literal("800000"),
+  one_sided_test: Schema.Literal(true),
+  finite_population_correction: Schema.Literal("EXACT_HYPERGEOMETRIC"),
+  selection: Schema.Literal("DETERMINISTIC_HYPERGEOMETRIC_WITHOUT_REPLACEMENT"),
+  sample_size_algorithm_version: Schema.Literal("hypergeometric-sha256-order.v1"),
+  golden_vectors_sha256: Sha256Digest,
+  authorized_sampling_scope_digest: Sha256Digest,
+  missing_observation_treatment: Schema.Literal("DEFECT"),
+  integer_rounding: Schema.Literal("CEILING"),
+  defect_rate_prior: Schema.Null,
+  historical_n_300_is_acceptance_threshold: Schema.Literal(false),
+  high_risk_classes: Schema.Tuple(
+    ...TRUTH_HIGH_RISK_RECONCILIATION_CLASSES.map(Schema.Literal),
+  ),
+}) {}
+
 export class ServingFailureRuleV1 extends Schema.Class<ServingFailureRuleV1>(
   "ServingFailureRuleV1",
 )({
@@ -372,7 +414,16 @@ export class ServingFailureRuleV1 extends Schema.Class<ServingFailureRuleV1>(
     "EXPIRED",
   ),
   last_good_allowed: Schema.Boolean,
-  user_label: TruthIdentifier,
+  last_good_policy: Schema.Literal(
+    "SAME_VERSION_WITHIN_TTL",
+    "SAME_VERSION_ONE_EXTRA_TTL",
+    "PRIOR_PROJECTION_ONLY",
+    "PRIOR_GENERATION_ONLY",
+    "FORBIDDEN",
+  ),
+  maximum_last_good_seconds: DecimalUint64,
+  graduation_eligible: Schema.Literal(false),
+  user_label: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(128)),
   escalation_seconds: DecimalUint64,
   recovery_evidence: IdentifierList.pipe(Schema.minItems(1)),
 }) {}
@@ -415,6 +466,7 @@ export const TruthNormativeObjectV1 = Schema.Union(
   SecurityProfileObjectV1,
   NetworkFinalityPolicyObjectV1,
   ActivityProfilesObjectV1,
+  StatisticalPolicyObjectV1,
   ServingPolicyObjectV1,
   IssuerMetadataObjectV1,
 ).annotations({ identifier: "TruthNormativeObjectV1" });

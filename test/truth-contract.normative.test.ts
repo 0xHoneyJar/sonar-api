@@ -212,6 +212,8 @@ const normativeObjects = (): ReadonlyArray<unknown> => [
             asn: "asn-a",
             client_family: "geth",
             upstream_source: "source-a",
+            key_id: "provider-a-key",
+            public_key_hex: "11".repeat(32),
           },
           {
             provider_id: "provider-b",
@@ -222,6 +224,8 @@ const normativeObjects = (): ReadonlyArray<unknown> => [
             asn: "asn-b",
             client_family: "nethermind",
             upstream_source: "source-b",
+            key_id: "provider-b-key",
+            public_key_hex: "22".repeat(32),
           },
         ],
       },
@@ -256,6 +260,36 @@ const normativeObjects = (): ReadonlyArray<unknown> => [
     ],
   },
   {
+    kind: "statistical_policy",
+    schema_version: 1,
+    version: "statistical-policy.v1",
+    population_version: "fixture-population.v1",
+    strata_dimensions: ["contract", "event_kind", "semantic_leg"],
+    estimand: "SEMANTIC_DEFECT_PREVALENCE",
+    tolerable_defect_rate_ppm: "10000",
+    adverse_defect_rate_ppm: "50000",
+    family_wise_alpha_ppm: "50000",
+    multiple_testing_correction: "BONFERRONI",
+    minimum_power_ppm: "800000",
+    one_sided_test: true,
+    finite_population_correction: "EXACT_HYPERGEOMETRIC",
+    selection: "DETERMINISTIC_HYPERGEOMETRIC_WITHOUT_REPLACEMENT",
+    sample_size_algorithm_version: "hypergeometric-sha256-order.v1",
+    golden_vectors_sha256:
+      "cc4ad7a72660885c82ad6105c944602a625b17623054d27f5a2f0129cd065418",
+    authorized_sampling_scope_digest: digest("authorized-sampling-scope"),
+    missing_observation_treatment: "DEFECT",
+    integer_rounding: "CEILING",
+    defect_rate_prior: null,
+    historical_n_300_is_acceptance_threshold: false,
+    high_risk_classes: [
+      "CUSTODY_STAKING",
+      "PROXY_UPGRADE",
+      "SALE",
+      "MINT_BURN",
+    ],
+  },
+  {
     kind: "serving_policy",
     schema_version: 1,
     version: "serving.v1",
@@ -276,10 +310,60 @@ const normativeObjects = (): ReadonlyArray<unknown> => [
       last_good_allowed:
         failure_class === "temporary_source_transport_loss" ||
         failure_class === "stale_projection_or_evidence" ||
-        failure_class === "source_cursor_not_advancing",
-      user_label: failure_class.includes("stale") ? "stale" : "unavailable",
-      escalation_seconds: "0",
-      recovery_evidence: ["replacement_evidence"],
+        failure_class === "source_cursor_not_advancing" ||
+        failure_class === "reconciliation_count_breach",
+      last_good_policy:
+        failure_class === "temporary_source_transport_loss"
+          ? "SAME_VERSION_WITHIN_TTL"
+          : failure_class === "stale_projection_or_evidence"
+            ? "SAME_VERSION_ONE_EXTRA_TTL"
+            : failure_class === "source_cursor_not_advancing"
+              ? "PRIOR_PROJECTION_ONLY"
+              : failure_class === "reconciliation_count_breach"
+                ? "PRIOR_GENERATION_ONLY"
+                : "FORBIDDEN",
+      maximum_last_good_seconds:
+        failure_class === "temporary_source_transport_loss" ||
+        failure_class === "stale_projection_or_evidence" ||
+        failure_class === "source_cursor_not_advancing"
+          ? "1800"
+          : "0",
+      graduation_eligible: false,
+      user_label:
+        failure_class === "temporary_source_transport_loss"
+          ? "degraded/stale timestamp"
+          : failure_class === "stale_projection_or_evidence"
+            ? "stale"
+            : failure_class === "source_cursor_not_advancing"
+              ? "delayed/unknown"
+              : failure_class === "reorg_behind_watermark"
+                ? "temporarily unavailable"
+                : failure_class === "reconciliation_count_breach"
+                  ? "update held"
+                  : failure_class === "incompatible_producer_consumer"
+                    ? "update required"
+                    : "unavailable",
+      escalation_seconds:
+        failure_class === "source_cursor_not_advancing" ? "120" : "0",
+      recovery_evidence: [
+        failure_class === "temporary_source_transport_loss"
+          ? "fresh-source-and-readiness-evidence"
+          : failure_class === "stale_projection_or_evidence"
+            ? "fresh-reconciliation-and-serving-observation"
+            : failure_class === "source_cursor_not_advancing"
+              ? "independent-head-cursor-and-coverage-proof"
+              : failure_class === "reorg_behind_watermark"
+                ? "replacement-watermark-and-all-dependent-receipts"
+                : failure_class === "reconciliation_count_breach"
+                  ? "completed-census-pass"
+                  : failure_class === "semantic_provenance_mismatch"
+                    ? "corrected-bundle-and-new-score-receipt"
+                    : failure_class === "identity_revoked_or_contested"
+                      ? "identity-readmission-and-new-evidence"
+                      : failure_class === "signer_root_compromise"
+                        ? "recovered-root-and-fresh-evidence"
+                        : "compatible-build-and-receipt",
+      ],
     })),
   },
   {
@@ -385,10 +469,10 @@ describe("truth normative closure and traceability", () => {
     const overlapNetworks = overlapPolicy.networks as Array<Record<string, unknown>>;
     overlapNetworks[0]!.required_provider_quorum = "3";
     overlapNetworks[0]!.providers = [
-      { provider_id: "a-x", operator: "operator-a", legal_entity: "entity-a", control_domain: "domain-x", network_path: "path-1", asn: "asn-1", client_family: "geth", upstream_source: "source-1" },
-      { provider_id: "a-y", operator: "operator-a", legal_entity: "entity-a", control_domain: "domain-y", network_path: "path-2", asn: "asn-2", client_family: "geth", upstream_source: "source-2" },
-      { provider_id: "b-z", operator: "operator-b", legal_entity: "entity-b", control_domain: "domain-z", network_path: "path-3", asn: "asn-3", client_family: "nethermind", upstream_source: "source-3" },
-      { provider_id: "c-z", operator: "operator-c", legal_entity: "entity-c", control_domain: "domain-z", network_path: "path-4", asn: "asn-4", client_family: "reth", upstream_source: "source-4" },
+      { provider_id: "a-x", operator: "operator-a", legal_entity: "entity-a", control_domain: "domain-x", network_path: "path-1", asn: "asn-1", client_family: "geth", upstream_source: "source-1", key_id: "key-a-x", public_key_hex: "31".repeat(32) },
+      { provider_id: "a-y", operator: "operator-a", legal_entity: "entity-a", control_domain: "domain-y", network_path: "path-2", asn: "asn-2", client_family: "geth", upstream_source: "source-2", key_id: "key-a-y", public_key_hex: "32".repeat(32) },
+      { provider_id: "b-z", operator: "operator-b", legal_entity: "entity-b", control_domain: "domain-z", network_path: "path-3", asn: "asn-3", client_family: "nethermind", upstream_source: "source-3", key_id: "key-b-z", public_key_hex: "33".repeat(32) },
+      { provider_id: "c-z", operator: "operator-c", legal_entity: "entity-c", control_domain: "domain-z", network_path: "path-4", asn: "asn-4", client_family: "reth", upstream_source: "source-4", key_id: "key-c-z", public_key_hex: "34".repeat(32) },
     ];
     expect(expectFailure(compileNormativeClosure(overlappingPairs))).toBeInstanceOf(
       TruthIntegrityError,
@@ -480,6 +564,6 @@ describe("truth normative closure and traceability", () => {
       TRUTH_REQUIREMENT_TRACEABILITY.filter(
         (entry) => entry.status === "implemented",
       ).map((entry) => entry.requirement),
-    ).toEqual(["FR-1", "FR-2", "FR-3", "FR-4", "FR-11"]);
+    ).toEqual(["FR-1", "FR-2", "FR-3", "FR-4", "FR-5", "FR-9", "FR-11"]);
   });
 });

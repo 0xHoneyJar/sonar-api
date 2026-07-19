@@ -1,13 +1,17 @@
 import { Effect } from "effect";
 
 import type { TrustEnvelopeSigner } from "../collection-resolver/trust-protocol.js";
-import { sha256Hex } from "../collection-resolver/trust-protocol.js";
+import {
+  jcsCanonicalize,
+  sha256Hex,
+} from "../collection-resolver/trust-protocol.js";
 import { canonicalizeTruthJson } from "./canonical.js";
 import { compileTruthBundleRoot } from "./bundle-compiler.js";
 import { TruthIntegrityError } from "./errors.js";
 import { compileNormativeClosure } from "./normative-compiler.js";
 import { evaluateTruthReadiness } from "./readiness-evaluator.js";
 import { compileFinalizedEvmIdentity } from "./identity-compiler.js";
+import { samplingUniverseAuthorizationDigestV1 } from "./reconciliation.js";
 import {
   TRUTH_AUTHORITY_ACTIONS,
   TRUTH_COMPATIBILITY_CHANGE_KINDS,
@@ -40,6 +44,57 @@ export const MIBERA_ADAPTER_BYTES_SHA256 =
 const digest = (value: string): string => sha256Hex(`truth-fixture:${value}`);
 const addMilliseconds = (timestamp: string, milliseconds: number): string =>
   new Date(new Date(timestamp).getTime() + milliseconds).toISOString();
+
+const MIBERA_FIXTURE_ORDINARY_MEMBERS = Array.from({ length: 1_000 }, (_, index) =>
+  `ordinary-${String(index).padStart(4, "0")}`,
+);
+const MIBERA_FIXTURE_HIGH_RISK_MEMBERS = Array.from({ length: 5 }, (_, index) =>
+  `custody-${String(index).padStart(2, "0")}`,
+);
+const MIBERA_FIXTURE_UNIVERSE = [
+  ...MIBERA_FIXTURE_ORDINARY_MEMBERS.map((member_id) => ({
+    member_id,
+    stratum_id: "mibera.transfer.direct",
+  })),
+  ...MIBERA_FIXTURE_HIGH_RISK_MEMBERS.map((member_id) => ({
+    member_id,
+    stratum_id: "mibera.transfer.staking",
+  })),
+];
+const MIBERA_FIXTURE_STRATA = [
+  {
+    stratum_id: "mibera.transfer.direct",
+    contract: MIBERA_INITIAL_ADDRESS,
+    event_kind: "mibera.erc721.transfer",
+    semantic_leg: "DIRECT_TRANSFER",
+    population: String(MIBERA_FIXTURE_ORDINARY_MEMBERS.length),
+    universe_members_digest: sha256Hex(
+      jcsCanonicalize(MIBERA_FIXTURE_ORDINARY_MEMBERS),
+    ),
+    high_risk: false,
+    empty_proof_hash: null,
+  },
+  {
+    stratum_id: "mibera.transfer.staking",
+    contract: MIBERA_INITIAL_ADDRESS,
+    event_kind: "mibera.erc721.transfer",
+    semantic_leg: "STAKING_INGRESS",
+    population: String(MIBERA_FIXTURE_HIGH_RISK_MEMBERS.length),
+    universe_members_digest: sha256Hex(
+      jcsCanonicalize(MIBERA_FIXTURE_HIGH_RISK_MEMBERS),
+    ),
+    high_risk: true,
+    empty_proof_hash: null,
+  },
+] as const;
+const MIBERA_FIXTURE_AUTHORIZED_SAMPLING_SCOPE_DIGEST =
+  samplingUniverseAuthorizationDigestV1({
+    producer_snapshot_id: "mibera-fixture-snapshot-1",
+    universe_digest: sha256Hex(jcsCanonicalize(MIBERA_FIXTURE_UNIVERSE)),
+    universe_size: String(MIBERA_FIXTURE_UNIVERSE.length),
+    mandatory_stratum_count: String(MIBERA_FIXTURE_STRATA.length),
+    strata: MIBERA_FIXTURE_STRATA,
+  });
 
 export const MIBERA_DENOMINATOR_MEMBER = Object.freeze({
   canonical_collection_id: MIBERA_INITIAL_COLLECTION_ID,
@@ -317,6 +372,9 @@ export const buildMiberaFixtureNormativeObjects = (
             asn: "asn-a",
             client_family: "reth",
             upstream_source: "independent-node-a",
+            key_id: "sonar-fixture-revoked",
+            public_key_hex:
+              "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
           },
           {
             provider_id: "berachain-provider-b",
@@ -327,6 +385,9 @@ export const buildMiberaFixtureNormativeObjects = (
             asn: "asn-b",
             client_family: "nethermind",
             upstream_source: "independent-node-b",
+            key_id: "ordering-fixture-replay",
+            public_key_hex:
+              "17cb79fb2b4120f2b1ec65e4198d6e08b28e813feb01e4a400839b85e18080ce",
           },
         ],
       },
@@ -361,6 +422,37 @@ export const buildMiberaFixtureNormativeObjects = (
     ],
   },
   {
+    kind: "statistical_policy",
+    schema_version: 1,
+    version: "statistical-policy.v1",
+    population_version: "mibera-transfer-population.v1",
+    strata_dimensions: ["contract", "event_kind", "semantic_leg"],
+    estimand: "SEMANTIC_DEFECT_PREVALENCE",
+    tolerable_defect_rate_ppm: "10000",
+    adverse_defect_rate_ppm: "50000",
+    family_wise_alpha_ppm: "50000",
+    multiple_testing_correction: "BONFERRONI",
+    minimum_power_ppm: "800000",
+    one_sided_test: true,
+    finite_population_correction: "EXACT_HYPERGEOMETRIC",
+    selection: "DETERMINISTIC_HYPERGEOMETRIC_WITHOUT_REPLACEMENT",
+    sample_size_algorithm_version: "hypergeometric-sha256-order.v1",
+    golden_vectors_sha256:
+      "cc4ad7a72660885c82ad6105c944602a625b17623054d27f5a2f0129cd065418",
+    authorized_sampling_scope_digest:
+      MIBERA_FIXTURE_AUTHORIZED_SAMPLING_SCOPE_DIGEST,
+    missing_observation_treatment: "DEFECT",
+    integer_rounding: "CEILING",
+    defect_rate_prior: null,
+    historical_n_300_is_acceptance_threshold: false,
+    high_risk_classes: [
+      "CUSTODY_STAKING",
+      "PROXY_UPGRADE",
+      "SALE",
+      "MINT_BURN",
+    ],
+  },
+  {
     kind: "serving_policy",
     schema_version: 1,
     version: "serving.v1",
@@ -381,10 +473,60 @@ export const buildMiberaFixtureNormativeObjects = (
       last_good_allowed:
         failureClass === "temporary_source_transport_loss" ||
         failureClass === "stale_projection_or_evidence" ||
-        failureClass === "source_cursor_not_advancing",
-      user_label: failureClass.includes("stale") ? "stale" : "unavailable",
-      escalation_seconds: "0",
-      recovery_evidence: ["replacement_evidence"],
+        failureClass === "source_cursor_not_advancing" ||
+        failureClass === "reconciliation_count_breach",
+      last_good_policy:
+        failureClass === "temporary_source_transport_loss"
+          ? "SAME_VERSION_WITHIN_TTL"
+          : failureClass === "stale_projection_or_evidence"
+            ? "SAME_VERSION_ONE_EXTRA_TTL"
+            : failureClass === "source_cursor_not_advancing"
+              ? "PRIOR_PROJECTION_ONLY"
+              : failureClass === "reconciliation_count_breach"
+                ? "PRIOR_GENERATION_ONLY"
+                : "FORBIDDEN",
+      maximum_last_good_seconds:
+        failureClass === "temporary_source_transport_loss" ||
+        failureClass === "stale_projection_or_evidence" ||
+        failureClass === "source_cursor_not_advancing"
+          ? "1800"
+          : "0",
+      graduation_eligible: false,
+      user_label:
+        failureClass === "temporary_source_transport_loss"
+          ? "degraded/stale timestamp"
+          : failureClass === "stale_projection_or_evidence"
+            ? "stale"
+            : failureClass === "source_cursor_not_advancing"
+              ? "delayed/unknown"
+              : failureClass === "reorg_behind_watermark"
+                ? "temporarily unavailable"
+                : failureClass === "reconciliation_count_breach"
+                  ? "update held"
+                  : failureClass === "incompatible_producer_consumer"
+                    ? "update required"
+                    : "unavailable",
+      escalation_seconds:
+        failureClass === "source_cursor_not_advancing" ? "120" : "0",
+      recovery_evidence: [
+        failureClass === "temporary_source_transport_loss"
+          ? "fresh-source-and-readiness-evidence"
+          : failureClass === "stale_projection_or_evidence"
+            ? "fresh-reconciliation-and-serving-observation"
+            : failureClass === "source_cursor_not_advancing"
+              ? "independent-head-cursor-and-coverage-proof"
+              : failureClass === "reorg_behind_watermark"
+                ? "replacement-watermark-and-all-dependent-receipts"
+                : failureClass === "reconciliation_count_breach"
+                  ? "completed-census-pass"
+                  : failureClass === "semantic_provenance_mismatch"
+                    ? "corrected-bundle-and-new-score-receipt"
+                    : failureClass === "identity_revoked_or_contested"
+                      ? "identity-readmission-and-new-evidence"
+                      : failureClass === "signer_root_compromise"
+                        ? "recovered-root-and-fresh-evidence"
+                        : "compatible-build-and-receipt",
+      ],
     })),
   },
   {

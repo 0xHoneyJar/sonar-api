@@ -3,16 +3,16 @@
     "schema_version": 1,
     "environment": "staging",
     "generation": "1",
-    "root_hash": "529deb5041a0a37993324d556cb6a581d9be3e66a39912a2f6d89375c64a699d",
-    "activation_hash": "774562c99c023ccb3a23c2dbcc030788889f4e1033c75b7eb27ed39d51b9ed6c",
-    "object_count": 12,
-    "closure_bytes": "636",
+    "root_hash": "cf6082a1d0a6ff972b45a992832bb2a33dec741499cba14e03228e9ae33fa5bc",
+    "activation_hash": "245f0636fbb13b24ccb59d520f8e92fcfea1f365a0b0c9f547f985452142bfc0",
+    "object_count": 13,
+    "closure_bytes": "690",
     "activation_audit_sequence": "1",
     "revocation_epoch": "1",
     "revocation_sequence": "1",
     "revoked_targets": [
-      "529deb5041a0a37993324d556cb6a581d9be3e66a39912a2f6d89375c64a699d"
+      "cf6082a1d0a6ff972b45a992832bb2a33dec741499cba14e03228e9ae33fa5bc"
     ]
   },
-  "projection_sha256": "ac85e205bcf7a369f3d6e77c76bee925ddae32ae58f3e545fc45aa019ebfd4f3"
+  "projection_sha256": "984922815a9cde872254a5989fe1b230350e70944646862810e16f8020d6c702"
 }

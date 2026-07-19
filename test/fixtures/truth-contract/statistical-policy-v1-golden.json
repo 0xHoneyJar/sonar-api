@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "policy_version": "statistical-policy.v1",
+  "arithmetic": "exact-integer-rational",
+  "vectors": [
+    {
+      "population": "1000",
+      "mandatory_strata": 2,
+      "high_risk": false,
+      "target": "284",
+      "mode": "SAMPLE",
+      "alpha_ppm": "25000",
+      "achieved_power_ppm": "999999",
+      "reason": "POWERED_SAMPLE"
+    },
+    {
+      "population": "5",
+      "mandatory_strata": 2,
+      "high_risk": true,
+      "target": "5",
+      "mode": "CENSUS",
+      "alpha_ppm": "25000",
+      "achieved_power_ppm": "1000000",
+      "reason": "HIGH_RISK_CENSUS"
+    },
+    {
+      "population": "1",
+      "mandatory_strata": 1,
+      "high_risk": false,
+      "target": "1",
+      "mode": "CENSUS",
+      "alpha_ppm": "50000",
+      "achieved_power_ppm": "1000000",
+      "reason": "UNDERSIZED_CENSUS"
+    },
+    {
+      "population": "500",
+      "mandatory_strata": 1,
+      "high_risk": false,
+      "target": "196",
+      "mode": "SAMPLE",
+      "alpha_ppm": "50000",
+      "achieved_power_ppm": "999997",
+      "reason": "POWERED_SAMPLE"
+    },
+    {
+      "population": "10000",
+      "mandatory_strata": 50,
+      "high_risk": false,
+      "target": "658",
+      "mode": "SAMPLE",
+      "alpha_ppm": "1000",
+      "achieved_power_ppm": "999999",
+      "reason": "POWERED_SAMPLE"
+    }
+  ]
+}
