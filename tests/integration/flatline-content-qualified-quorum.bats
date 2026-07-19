@@ -44,14 +44,18 @@ write_voice() {
         }' > "$file"
 }
 
+reasoned_empty_review() {
+    printf '%s' '{"improvements":[],"summary":"0 improvements identified","no_findings_reason":"The acceptance criteria, dependencies, and rollback path are complete and internally consistent.","reviewed_sections":["Acceptance Criteria","Dependencies","Rollback"]}'
+}
+
 @test "CQ-1: schema-invalid exit-0 prose cannot produce APPROVED 3-of-3 quorum" {
     local first="$SCRATCH/first.json"
     local cursor="$SCRATCH/cursor.json"
     local third="$SCRATCH/third.json"
-    write_voice "$first" "claude-headless" '{"improvements":[]}'
+    write_voice "$first" "claude-headless" "$(reasoned_empty_review)"
     write_voice "$cursor" "cursor-headless" \
         'Reviewing the sprint plan. Delivering the Flatline review as required.'
-    write_voice "$third" "codex-headless" '{"improvements":[]}'
+    write_voice "$third" "codex-headless" "$(reasoned_empty_review)"
 
     qualify_and_aggregate_reviews "sprint" "$first" "$cursor" "$third"
 
@@ -68,9 +72,9 @@ write_voice() {
     local first="$SCRATCH/first.json"
     local second="$SCRATCH/second.json"
     local third="$SCRATCH/third.json"
-    write_voice "$first" "claude-headless" '{"improvements":[]}'
-    write_voice "$second" "cursor-headless" '{"improvements":[]}'
-    write_voice "$third" "codex-headless" '{"improvements":[]}'
+    write_voice "$first" "claude-headless" "$(reasoned_empty_review)"
+    write_voice "$second" "cursor-headless" "$(reasoned_empty_review)"
+    write_voice "$third" "codex-headless" "$(reasoned_empty_review)"
 
     qualify_and_aggregate_reviews "sprint" "$first" "$second" "$third"
 
@@ -108,7 +112,7 @@ write_voice() {
 
 @test "CQ-4: malformed multi-success input cannot impersonate one clean voice" {
     local forged="$SCRATCH/forged.json"
-    write_voice "$forged" "forged" '{"improvements":[]}'
+    write_voice "$forged" "forged" "$(reasoned_empty_review)"
     jq '
       .verdict_quality.voices_planned = 3 |
       .verdict_quality.voices_succeeded = 3 |
@@ -138,4 +142,14 @@ write_voice() {
 
     run rg -n 'exit 6' "$ORCH"
     [ "$status" -eq 0 ]
+}
+
+@test "CQ-6: schema-valid shape with hollow empty findings is rejected" {
+    local hollow="$SCRATCH/hollow.json"
+    write_voice "$hollow" "cursor-headless" '{"improvements":[]}'
+
+    run qualify_and_aggregate_reviews "sprint" "$hollow" "" ""
+
+    [ "$status" -ne 0 ]
+    [ ! -e "$LOA_FLATLINE_OUTPUT_DIR_OVERRIDE/sprint-final_consensus.json" ]
 }

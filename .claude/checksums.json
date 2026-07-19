@@ -1,5 +1,5 @@
 {
-  "generated": "2026-07-19T01:16:16Z",
+  "generated": "2026-07-19T01:48:02Z",
   "algorithm": "sha256",
   "files": {
     ".claude/adapters/cheval.py": "a9a23861c6481755255f653a8502c0c3191b2fef981cce468b26d8c83e257fc7",
@@ -1098,7 +1098,7 @@
     ".claude/scripts/lib/model-probe-cache.sh": "2f9788067f609e441bc9c1df3c15dc690a4a957b7095c58ec96d4c73be672dbc",
     ".claude/scripts/lib/model-resolver.py": "6dde2fe2fe39e2919cc60d925845a88cd510e2f5d365be1712cbea97e32f0d06",
     ".claude/scripts/lib/model-resolver.sh": "d815e11bd2e5b0425b0153be2875554577db7e5d1bf25850341587cf9a0b4598",
-    ".claude/scripts/lib/normalize-json.sh": "cc52902fd52b94b81a9285389c8112d7c4ad4bb4de94d912b6337f7d4c02c6f5",
+    ".claude/scripts/lib/normalize-json.sh": "71c79f25fb80b21321ac9cdb1b6aa3d1b5c8d3297daae40fe35764d2f1e85535",
     ".claude/scripts/lib/overlay-source-helper.sh": "30a852a84c7c7d1b979db192eca40b30aeaca7439d6de982c92234ff6c5538da",
     ".claude/scripts/lib/portable-realpath.sh": "29aa07387dbbd705554504a7a854e2fedcf1789bf57e02564398c092be47e5ce",
     ".claude/scripts/lib/protected-class-router.sh": "df56642ad9daf054b8b2e927401fa755c340c9778168df818a0ee2e6fd237b1e",
@@ -1761,7 +1761,7 @@
     ".claude/skills/flatline-knowledge/resources/auth-setup.md": "e762418ad0efef14669ffd916e2db958d3eaacc97d9d1f2be3a60375ced6147b",
     ".claude/skills/flatline-knowledge/resources/notebooklm-query.py": "232503f651df1be1fda7627cb4db7b0346f37a60a2b1d9f03633a6e6eb8aed69",
     ".claude/skills/flatline-knowledge/resources/requirements.txt": "57fa1b658f1507d674d43f4cc879c6e3a0d0065f7d3ba09c1a8cd144b93c40c3",
-    ".claude/skills/flatline-reviewer/persona.md": "7de7f9205398f319e46cd5b4527a5904502b165a5872355ca1c51eccc060f6f2",
+    ".claude/skills/flatline-reviewer/persona.md": "058557fe16a90de33f195582501e3bd56f004aefbdf8da9f3938c03ba1fc7c59",
     ".claude/skills/flatline-scorer/persona.md": "c2be65471b4308d9f4e8cd9d6cadc3d4dfe18bb56f3506ab59e9086b31072088",
     ".claude/skills/flatline-skeptic/persona.md": "ab39cd84dca0ac2da9bc12d2cdbfdc9efe75fd7b7043bb2b2823f1d0b97150bf",
     ".claude/skills/gpt-reviewer/persona.md": "9ff7b2b1efdeced6e2483843609212526c1e8dc4a2f4c2434ab1268d15462113",
@@ -1896,7 +1896,7 @@
     ".claude/tests/hounfour/run-tests.sh": "5e44db9151a8732171df435454b375f9a0c31b676b625881769747bd71669cde",
     ".claude/tests/hounfour/test-env-loading.sh": "782785d02bbc73cfe0a8b986b396a0eacce3986fc84af4e19557be534efb9c3d",
     ".claude/tests/hounfour/test-feedback-routing.sh": "0e42051a5ac4870b6ea7813c15289a2b0e0897b9c4b60ac27bd1ad65d53594e8",
-    ".claude/tests/hounfour/test-normalize-json.sh": "7d80ba93bbfaaa7dea01309368419d3b6613a4c369477a44a468aee3405b5a64",
+    ".claude/tests/hounfour/test-normalize-json.sh": "706aa73939b1dd82db8124db9ae4678f301aedaa9921aa9dcf5c602d6a03fa35",
     ".claude/tests/hounfour/test-persona-loading.sh": "ff9a2d0af4d31fd1a23442d3368ac801a873c8c0bc5d8d17a5305c263397f7f6",
     ".claude/tests/hounfour/test-qmd-sync.sh": "e7bd365578f45eb53991d0e4b021842efb5631bde16b7a65c5d211339c6a052f",
     ".claude/workflow-chain.yaml": "5a48c70c4f167a16abfaf4f0fdc937e0a8d0f2964d9b2c1659c9b695ef0bb9ee"
