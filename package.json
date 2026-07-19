@@ -40,6 +40,7 @@
     "validate:evm-sales": "tsx scripts/validate-evm-sales-live.ts",
     "codegen:mibera": "envio codegen --config config.mibera.yaml",
     "typecheck:mibera": "tsc -p tsconfig.mibera.json",
+    "prepare": "./scripts/prepare-effect.sh",
     "postinstall": "bash scripts/rebuild-events-dist.sh"
   },
   "devDependencies": {
