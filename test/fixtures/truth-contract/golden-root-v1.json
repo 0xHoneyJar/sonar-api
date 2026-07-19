@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "vector_id": "sonar-score-truth-root-v1-fixture",
+  "fixture_only": true,
+  "jcs_input": {
+    "z": "雪",
+    "a": "é"
+  },
+  "jcs_canonical": "{\"a\":\"é\",\"z\":\"雪\"}",
+  "jcs_sha256": "ccc30233d1305ca4c5b248e73fed97a47471682a84dbf39ddc0fcbc5f247ee39",
+  "environment": "staging",
+  "generation": "9007199254740992",
+  "root_hash": "398d090738199ac59c8d471e37d30140191086262e09f30a6c6f4ba2b147f6ed",
+  "signing_domain_hex": "736f6e61722e74727574682d636f6e74726163742e76310073746167696e6700393030373139393235343734303939320033393864303930373338313939616335396338643437316533376433303134303139313038363236326530396633306136633666346261326231343766366564",
+  "fixture_key_id": "sonar-fixture-primary",
+  "fixture_public_key_hex": "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29",
+  "signature": "4p-uRgIQCHwhOCjsxuLgOvqXI4gA6VThgTto8R1AcqXC76PNlUHlS6fixIVok_NLNy1fCw2u_MaAFVJFAB_2DA"
+}

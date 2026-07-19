@@ -791,3 +791,13 @@ future condition); key rotation from last session still pending.
 
 **Spend**: model voices ran on subscription-auth headless adapters (MODELINV cost 0);
 Helius untouched tonight; no Dune. SQD Portal remains free/open.
+## Session Continuity — Sonar Score truth contract Run Mode (2026-07-18)
+
+- Active run: `run-20260718-19763105`; plan `plan-20260718-06ab4334`; branch `feature/sprint-plan`.
+- Task 1.1 gate committed at `03e0b273`; exact document digests, floor, and unset `ENVIO_RESTART` verify.
+- Sprint 1 owns strict Effect schemas, non-circular signed root, normative closure, and FR traceability.
+- Reuse vendored trust protocol JCS/SHA-256/Ed25519; never redefine cryptographic primitives.
+- All protocol-sized integers are canonical decimal uint64 strings; unsafe numbers and excess keys fail.
+- Resource bounds: root 256 KiB, 128 objects, object 4 MiB, closure 32 MiB, graph 10k/50k/depth64.
+- Existing strict-decoder precedent: capability registry and kitchen protocol use Effect Schema with excess-property errors.
+- Production authority remains excluded: no deployment, signer activation, database/index mutation, restart, wipe, or floor change.

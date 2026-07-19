@@ -33,6 +33,8 @@
     "verify:historical-floors:enforce": "node scripts/verify-historical-floors.mjs --enforce",
     "verify:truth-promotion": "bash scripts/verify-truth-promotion.sh",
     "test:truth-promotion": "node --test test/truth-promotion-gate.test.mjs",
+    "verify:truth-traceability": "tsx scripts/verify-truth-traceability.ts",
+    "verify:truth-contract": "tsc -p tsconfig.truth-contract.json && vitest run test/truth-contract.schemas.test.ts test/truth-contract.bundle.test.ts test/truth-contract.normative.test.ts && tsx scripts/verify-truth-traceability.ts",
     "test:mission-01-stall": "python3 scripts/profiling/test_stall_classify.py",
     "verify:svm-contract": "node scripts/verify-svm-contract.mjs",
     "verify:action-contract": "node scripts/verify-svm-contract.mjs --manifest scripts/action-contract.json",

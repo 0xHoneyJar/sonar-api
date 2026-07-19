@@ -1,0 +1,67 @@
+{
+  "findings": [
+    {
+      "id": "DISS-001",
+      "severity": "BLOCKING",
+      "category": "spec-violation",
+      "anchor": "src/truth-contract/traceability.ts:validateTruthRequirementTraceability",
+      "anchor_type": "function",
+      "scope": "diff",
+      "description": "The traceability gate validates only that module and test-description arrays are nonempty. It never verifies that the named modules or corresponding tests exist, and several entries currently name modules absent from this change. The advertised executable FR traceability gate therefore passes placeholder mappings.",
+      "failure_mode": "CI reports PASS for FR-1 through FR-13 even when a requirement has no implementation or test artifact, allowing incomplete contract requirements to be promoted as traceable.",
+      "suggested_fix": "Resolve module and test entries to repository paths or stable test identifiers, verify their existence, and fail the gate when any referenced implementation or test is missing. Avoid accepting prose-only test descriptions as evidence.",
+      "anchor_status": "valid",
+      "anchor_stability": "symbol"
+    },
+    {
+      "id": "DISS-002",
+      "severity": "BLOCKING",
+      "category": "spec-violation",
+      "anchor": "src/truth-contract/normative-compiler.ts:validateNetworkPolicy",
+      "anchor_type": "function",
+      "scope": "diff",
+      "description": "Provider quorum validation counts unique operators and unique control domains independently, but does not prove that a quorum-sized subset has both properties simultaneously. For example, providers A/X, A/Y, B/Z, C/Z with quorum 3 pass because there are three operators and three domains, although no three-provider selection has three distinct operators and three distinct domains.",
+      "failure_mode": "An unsatisfiable independence policy can be compiled, hashed, and signed as normative truth; runtime quorum selection can then never meet the signed requirement or may weaken independence to proceed.",
+      "suggested_fix": "Validate a quorum-sized matching between distinct operators and distinct control domains, or explicitly require every provider to have globally unique operator and control_domain values if that is the intended policy. Add an adversarial overlapping-pairs fixture.",
+      "anchor_status": "valid",
+      "anchor_stability": "symbol"
+    }
+  ],
+  "metadata": {
+    "type": "review",
+    "model": "codex-headless",
+    "sprint_id": "sprint-1",
+    "timestamp": "2026-07-19T03:56:47Z",
+    "tokens_input": 44931,
+    "tokens_output": 868,
+    "cost_usd": 0,
+    "latency_ms": 31903,
+    "status": "reviewed",
+    "degraded": false,
+    "rejected_count": 0,
+    "rejected_sidecar": "grimoires/loa/a2a/sprint-1/adversarial-rejected-review.jsonl",
+    "model_attempts": [
+      "codex-headless:reviewed"
+    ],
+    "final_model": "codex-headless",
+    "hallucination_filter": {
+      "applied": true,
+      "downgraded": 0
+    }
+  },
+  "verdict_quality": {
+    "consensus_outcome": "consensus",
+    "truncation_waiver_applied": false,
+    "voices_planned": 1,
+    "voices_succeeded": 1,
+    "voices_succeeded_ids": [
+      "codex-headless"
+    ],
+    "voices_dropped": [],
+    "chain_health": "ok",
+    "confidence_floor": "high",
+    "rationale": "multi-voice aggregate (1/1 succeeded); chain_health=ok",
+    "single_voice_call": true,
+    "status": "APPROVED"
+  }
+}

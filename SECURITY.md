@@ -68,6 +68,20 @@ The `main` branch is protected with:
 - `.env` files are gitignored
 - Secret rotation procedures documented
 
+### Sonar→Score Truth Contract
+
+- Normative v1 uses RFC 8785 JCS, SHA-256, and Ed25519 through the independently
+  pinned vendored trust protocol. Algorithm fallback is forbidden.
+- External signed roots must enter through `verifyTruthBundleRootBytes`, which
+  enforces the byte ceiling, canonical JSON, environment/key binding, a trusted
+  generation high-water mark, and an injected trusted clock.
+- Committed signing vectors are fixture-only public test material. Production
+  private keys must be non-exportable KMS/HSM keys behind the `TruthSigner`
+  service and require a separately approved activation path.
+- The detached Loa promotion receipt authorizes implementation only. It does
+  not authorize production signing, registry publication, deployment, Score
+  graduation, index/database mutation, restart, wipe, or floor changes.
+
 ## Security Best Practices for Contributors
 
 ### When Adding New Features

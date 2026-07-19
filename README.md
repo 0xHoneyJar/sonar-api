@@ -155,6 +155,8 @@ Visit **http://localhost:8080** for the GraphQL Playground (local dev password: 
 | `pnpm self` / `self:check` / `self:write` | Emit / verify / write the `beacon.yaml` territory manifest |
 | `pnpm verify:belt-config` | Validate `config.yaml` before a source addition |
 | `pnpm verify:belt-contract` / `verify:svm-contract` | Verify the served GraphQL contract (EVM / SVM) |
+| `pnpm verify:truth-promotion` | Verify the detached Sonar→Score planning promotion receipt (never grants production authority) |
+| `pnpm verify:truth-contract` | Type-check and test the signed truth-contract kernel and FR traceability |
 | `pnpm validate:evm-canonical` / `validate:svm-canonical` / `validate:evm-sales` | Live canonical-parity validators |
 | `pnpm cost` | Railway cost model |
 | `pnpm pulse` | Sync-health pulse (`scripts/sonar-pulse.sh`) |

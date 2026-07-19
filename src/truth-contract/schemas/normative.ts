@@ -1,0 +1,337 @@
+import { Schema } from "effect";
+
+import {
+  DecimalUint64,
+  PositiveDecimalUint64,
+  Sha256Digest,
+  TRUTH_CONTRACT_PROTOCOL,
+  TRUTH_CONTRACT_SCHEMA_VERSION,
+  TruthEnvironmentId,
+  TruthFreeText,
+  TruthIdentifier,
+  TruthIsoTimestamp,
+} from "./common.js";
+import { TRUTH_NORMATIVE_OBJECT_KINDS } from "./bundle.js";
+import { TruthEffectiveStatus } from "./readiness.js";
+
+const Version = TruthIdentifier;
+const IdentifierList = Schema.Array(TruthIdentifier).pipe(Schema.maxItems(128));
+
+export const TRUTH_COMPATIBILITY_CHANGE_KINDS = [
+  "OPTIONAL_FIELD_ADDED",
+  "EVENT_KIND_ADDED",
+  "REQUIRED_FIELD_REMOVED",
+  "MEANING_CHANGED",
+  "PROVENANCE_CHANGED",
+  "IDENTITY_REINTERPRETED",
+] as const;
+
+export const TRUTH_AUTHORITY_ACTIONS = [
+  "publish_contract",
+  "admit_identity",
+  "contest_identity",
+  "issue_receipt",
+  "revoke_receipt",
+  "change_compatibility",
+  "approve_rollback",
+  "approve_supersession",
+  "promote_live_proven",
+  "graduate",
+  "change_activity_profile",
+  "change_reconciliation_strata",
+  "change_trust_root",
+  "approve_serving_exception",
+  "retire_not_consumed_stub",
+] as const;
+
+export const TRUTH_SERVING_FAILURE_CLASSES = [
+  "temporary_source_transport_loss",
+  "stale_projection_or_evidence",
+  "source_cursor_not_advancing",
+  "reorg_behind_watermark",
+  "reconciliation_count_breach",
+  "semantic_provenance_mismatch",
+  "identity_revoked_or_contested",
+  "signer_root_compromise",
+  "incompatible_producer_consumer",
+] as const;
+
+export class BundleSchemaObjectV1 extends Schema.Class<BundleSchemaObjectV1>(
+  "BundleSchemaObjectV1",
+)({
+  kind: Schema.Literal("bundle_schema"),
+  schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
+  protocol: Schema.Literal(TRUTH_CONTRACT_PROTOCOL),
+  object_kinds: Schema.Tuple(...TRUTH_NORMATIVE_OBJECT_KINDS.map(Schema.Literal)),
+}) {}
+
+export class IdentityBindingV1 extends Schema.Class<IdentityBindingV1>(
+  "IdentityBindingV1",
+)({
+  canonical_collection_id: TruthIdentifier,
+  chain_family: Schema.Literal("EVM", "SOLANA"),
+  chain_id: TruthIdentifier,
+  canonical_address: TruthIdentifier,
+  aliases: IdentifierList,
+  config_digest: Sha256Digest,
+  observed_height: DecimalUint64,
+  observed_hash: Sha256Digest,
+  observed_at: TruthIsoTimestamp,
+  finality_policy_version: Version,
+  deployed_identity_hash: Sha256Digest,
+  effective_status: TruthEffectiveStatus,
+}) {}
+
+export class IdentitySnapshotObjectV1 extends Schema.Class<IdentitySnapshotObjectV1>(
+  "IdentitySnapshotObjectV1",
+)({
+  kind: Schema.Literal("identity_snapshot"),
+  schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
+  version: Version,
+  bindings: Schema.Array(IdentityBindingV1).pipe(Schema.maxItems(10_000)),
+}) {}
+
+export class EventKindContractV1 extends Schema.Class<EventKindContractV1>(
+  "EventKindContractV1",
+)({
+  event_kind: TruthIdentifier,
+  semantic_version: Version,
+  source_entities: IdentifierList,
+  identity_fields: IdentifierList,
+  required_provenance: IdentifierList.pipe(Schema.minItems(1)),
+  user_meaning: TruthFreeText,
+  non_user_legs: IdentifierList,
+  denominator_membership: TruthIdentifier,
+  breaking_change_rules: IdentifierList.pipe(Schema.minItems(1)),
+}) {}
+
+export class EventVocabularyObjectV1 extends Schema.Class<EventVocabularyObjectV1>(
+  "EventVocabularyObjectV1",
+)({
+  kind: Schema.Literal("event_vocabulary"),
+  schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
+  version: Version,
+  events: Schema.Array(EventKindContractV1).pipe(Schema.minItems(1), Schema.maxItems(512)),
+}) {}
+
+export class ProvenanceRequirementV1 extends Schema.Class<ProvenanceRequirementV1>(
+  "ProvenanceRequirementV1",
+)({
+  event_kind: TruthIdentifier,
+  required_fields: IdentifierList.pipe(Schema.minItems(1)),
+  address_classes: IdentifierList,
+  symmetric_ingress_egress: Schema.Boolean,
+  score_rpc_recovery_allowed: Schema.Literal(false),
+}) {}
+
+export class ProvenanceRulesObjectV1 extends Schema.Class<ProvenanceRulesObjectV1>(
+  "ProvenanceRulesObjectV1",
+)({
+  kind: Schema.Literal("provenance_rules"),
+  schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
+  version: Version,
+  requirements: Schema.Array(ProvenanceRequirementV1).pipe(
+    Schema.minItems(1),
+    Schema.maxItems(512),
+  ),
+}) {}
+
+export class BehavioralInvariantV1 extends Schema.Class<BehavioralInvariantV1>(
+  "BehavioralInvariantV1",
+)({
+  invariant_id: TruthIdentifier,
+  statement: TruthFreeText,
+  severity: Schema.Literal("MUST", "MUST_NOT"),
+  assertion_fixture: TruthIdentifier,
+}) {}
+
+export class BehavioralInvariantsObjectV1 extends Schema.Class<BehavioralInvariantsObjectV1>(
+  "BehavioralInvariantsObjectV1",
+)({
+  kind: Schema.Literal("behavioral_invariants"),
+  schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
+  version: Version,
+  invariants: Schema.Array(BehavioralInvariantV1).pipe(
+    Schema.minItems(1),
+    Schema.maxItems(512),
+  ),
+}) {}
+
+export class CompatibilityRuleV1 extends Schema.Class<CompatibilityRuleV1>(
+  "CompatibilityRuleV1",
+)({
+  change_kind: Schema.Literal(...TRUTH_COMPATIBILITY_CHANGE_KINDS),
+  result: Schema.Literal("COMPATIBLE", "CONDITIONAL", "BREAKING"),
+  consumer_support_required: Schema.Boolean,
+}) {}
+
+export class CompatibilityMatrixObjectV1 extends Schema.Class<CompatibilityMatrixObjectV1>(
+  "CompatibilityMatrixObjectV1",
+)({
+  kind: Schema.Literal("compatibility_matrix"),
+  schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
+  version: Version,
+  producer_protocol: Schema.Literal(TRUTH_CONTRACT_PROTOCOL),
+  rules: Schema.Array(CompatibilityRuleV1).pipe(Schema.minItems(6), Schema.maxItems(64)),
+  trust_namespaces: Schema.Tuple(
+    Schema.Literal("development"),
+    Schema.Literal("staging"),
+    Schema.Literal("production"),
+  ),
+}) {}
+
+export class AuthorityGrantV1 extends Schema.Class<AuthorityGrantV1>(
+  "AuthorityGrantV1",
+)({
+  action: Schema.Literal(...TRUTH_AUTHORITY_ACTIONS),
+  role: TruthIdentifier,
+  approval_rule: TruthIdentifier,
+  owner: TruthIdentifier,
+}) {}
+
+export class AuthorityMatrixObjectV1 extends Schema.Class<AuthorityMatrixObjectV1>(
+  "AuthorityMatrixObjectV1",
+)({
+  kind: Schema.Literal("authority_matrix"),
+  schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
+  version: Version,
+  grants: Schema.Array(AuthorityGrantV1).pipe(
+    Schema.minItems(TRUTH_AUTHORITY_ACTIONS.length),
+    Schema.maxItems(256),
+  ),
+  planning_agent_can_graduate: Schema.Literal(false),
+}) {}
+
+export class SecurityProfileObjectV1 extends Schema.Class<SecurityProfileObjectV1>(
+  "SecurityProfileObjectV1",
+)({
+  kind: Schema.Literal("security_profile"),
+  schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
+  version: Version,
+  signature_algorithm: Schema.Literal("Ed25519"),
+  digest_algorithm: Schema.Literal("SHA-256"),
+  canonicalization: Schema.Literal("RFC8785-JCS"),
+  production_key_custody: Schema.Literal("KMS_OR_HSM_NON_EXPORTABLE"),
+  revocation_cache_seconds: Schema.Literal(300),
+  max_future_skew_seconds: Schema.Literal(60),
+}) {}
+
+export class ProviderIndependenceV1 extends Schema.Class<ProviderIndependenceV1>(
+  "ProviderIndependenceV1",
+)({
+  provider_id: TruthIdentifier,
+  operator: TruthIdentifier,
+  control_domain: TruthIdentifier,
+  network_path: TruthIdentifier,
+  client_family: TruthIdentifier,
+}) {}
+
+export class NetworkPolicyV1 extends Schema.Class<NetworkPolicyV1>("NetworkPolicyV1")({
+  network: TruthIdentifier,
+  chain_family: Schema.Literal("EVM"),
+  chain_id: DecimalUint64,
+  finality_policy_version: Version,
+  confirmations: DecimalUint64,
+  poll_interval_seconds: Schema.Literal(60),
+  required_provider_quorum: DecimalUint64,
+  providers: Schema.Array(ProviderIndependenceV1).pipe(
+    Schema.minItems(1),
+    Schema.maxItems(16),
+  ),
+}) {}
+
+export class NetworkFinalityPolicyObjectV1 extends Schema.Class<NetworkFinalityPolicyObjectV1>(
+  "NetworkFinalityPolicyObjectV1",
+)({
+  kind: Schema.Literal("network_finality_policy"),
+  schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
+  version: Version,
+  runtime_scope: Schema.Literal("EVM_ONLY"),
+  networks: Schema.Array(NetworkPolicyV1).pipe(Schema.minItems(1), Schema.maxItems(64)),
+}) {}
+
+export class ActivityProfileV1 extends Schema.Class<ActivityProfileV1>(
+  "ActivityProfileV1",
+)({
+  collection_id: TruthIdentifier,
+  owner: TruthIdentifier,
+  expected_event_window_seconds: PositiveDecimalUint64,
+  source_head_cadence_seconds: PositiveDecimalUint64,
+  cursor_cadence_seconds: PositiveDecimalUint64,
+  evidence_window_start: TruthIsoTimestamp,
+  evidence_window_end: TruthIsoTimestamp,
+  denominator: PositiveDecimalUint64,
+  backtest_digest: Sha256Digest,
+  approval: TruthIdentifier,
+  effective_from: TruthIsoTimestamp,
+  supersedes_version: Schema.NullOr(Version),
+}) {}
+
+export class ActivityProfilesObjectV1 extends Schema.Class<ActivityProfilesObjectV1>(
+  "ActivityProfilesObjectV1",
+)({
+  kind: Schema.Literal("activity_profiles"),
+  schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
+  version: Version,
+  profiles: Schema.Array(ActivityProfileV1).pipe(Schema.maxItems(10_000)),
+}) {}
+
+export class ServingFailureRuleV1 extends Schema.Class<ServingFailureRuleV1>(
+  "ServingFailureRuleV1",
+)({
+  failure_class: Schema.Literal(...TRUTH_SERVING_FAILURE_CLASSES),
+  effective_status: Schema.Literal(
+    "DEGRADED",
+    "NOT_READY",
+    "UNKNOWN",
+    "SUSPENDED",
+    "EXPIRED",
+  ),
+  last_good_allowed: Schema.Boolean,
+  user_label: TruthIdentifier,
+  escalation_seconds: DecimalUint64,
+  recovery_evidence: IdentifierList.pipe(Schema.minItems(1)),
+}) {}
+
+export class ServingPolicyObjectV1 extends Schema.Class<ServingPolicyObjectV1>(
+  "ServingPolicyObjectV1",
+)({
+  kind: Schema.Literal("serving_policy"),
+  schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
+  version: Version,
+  environment: TruthEnvironmentId,
+  rules: Schema.Array(ServingFailureRuleV1).pipe(
+    Schema.minItems(TRUTH_SERVING_FAILURE_CLASSES.length),
+    Schema.maxItems(64),
+  ),
+}) {}
+
+export class IssuerMetadataObjectV1 extends Schema.Class<IssuerMetadataObjectV1>(
+  "IssuerMetadataObjectV1",
+)({
+  kind: Schema.Literal("issuer_metadata"),
+  schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
+  version: Version,
+  service_id: TruthIdentifier,
+  key_id: TruthIdentifier,
+  build_id: TruthIdentifier,
+  repository: TruthIdentifier,
+  source_commit: Sha256Digest,
+  issued_at: TruthIsoTimestamp,
+}) {}
+
+export const TruthNormativeObjectV1 = Schema.Union(
+  BundleSchemaObjectV1,
+  IdentitySnapshotObjectV1,
+  EventVocabularyObjectV1,
+  ProvenanceRulesObjectV1,
+  BehavioralInvariantsObjectV1,
+  CompatibilityMatrixObjectV1,
+  AuthorityMatrixObjectV1,
+  SecurityProfileObjectV1,
+  NetworkFinalityPolicyObjectV1,
+  ActivityProfilesObjectV1,
+  ServingPolicyObjectV1,
+  IssuerMetadataObjectV1,
+).annotations({ identifier: "TruthNormativeObjectV1" });
+export type TruthNormativeObjectV1 = Schema.Schema.Type<typeof TruthNormativeObjectV1>;

@@ -1,0 +1,373 @@
+import { Effect, Exit } from "effect";
+import { describe, expect, it } from "vitest";
+
+import {
+  TRUTH_CONTRACT_PROTOCOL,
+  TRUTH_AUTHORITY_ACTIONS,
+  TRUTH_NORMATIVE_OBJECT_KINDS,
+  TRUTH_SERVING_FAILURE_CLASSES,
+  TRUTH_REQUIREMENT_TRACEABILITY,
+  TruthDecodeError,
+  TruthIntegrityError,
+  compileNormativeClosure,
+  compileTruthBundleRoot,
+  validateTruthRequirementTraceability,
+} from "../src/truth-contract/index.js";
+import {
+  fixtureSigners,
+  sha256Hex,
+} from "../src/collection-resolver/trust-protocol.js";
+
+const signer = fixtureSigners().sonarPrimary;
+const digest = (value: string) => sha256Hex(`normative:${value}`);
+const timestamp = "2026-07-19T03:00:00.000Z";
+
+const normativeObjects = (): ReadonlyArray<unknown> => [
+  {
+    kind: "bundle_schema",
+    schema_version: 1,
+    protocol: TRUTH_CONTRACT_PROTOCOL,
+    object_kinds: [...TRUTH_NORMATIVE_OBJECT_KINDS],
+  },
+  {
+    kind: "identity_snapshot",
+    schema_version: 1,
+    version: "identity.v1",
+    bindings: [],
+  },
+  {
+    kind: "event_vocabulary",
+    schema_version: 1,
+    version: "events.v1",
+    events: [
+      {
+        event_kind: "hold721",
+        semantic_version: "1.0.0",
+        source_entities: ["Transfer"],
+        identity_fields: ["chain_id", "contract", "token_id"],
+        required_provenance: ["transaction_hash", "log_index", "address_class"],
+        user_meaning: "Effective ownership changed after classified custody legs.",
+        non_user_legs: ["custody_ingress", "custody_egress"],
+        denominator_membership: "erc721_ownership",
+        breaking_change_rules: ["meaning_change", "required_provenance_change"],
+      },
+    ],
+  },
+  {
+    kind: "provenance_rules",
+    schema_version: 1,
+    version: "provenance.v1",
+    requirements: [
+      {
+        event_kind: "hold721",
+        required_fields: ["transaction_hash", "log_index", "address_class"],
+        address_classes: ["wallet", "custody", "staking", "marketplace"],
+        symmetric_ingress_egress: true,
+        score_rpc_recovery_allowed: false,
+      },
+    ],
+  },
+  {
+    kind: "behavioral_invariants",
+    schema_version: 1,
+    version: "invariants.v1",
+    invariants: [
+      {
+        invariant_id: "hold721-custody-symmetry",
+        statement: "Custody and staking ingress and egress are classified symmetrically.",
+        severity: "MUST",
+        assertion_fixture: "hold721-custody-symmetry.v1",
+      },
+    ],
+  },
+  {
+    kind: "compatibility_matrix",
+    schema_version: 1,
+    version: "compatibility.v1",
+    producer_protocol: TRUTH_CONTRACT_PROTOCOL,
+    rules: [
+      ["OPTIONAL_FIELD_ADDED", "CONDITIONAL", true],
+      ["EVENT_KIND_ADDED", "CONDITIONAL", true],
+      ["REQUIRED_FIELD_REMOVED", "BREAKING", false],
+      ["MEANING_CHANGED", "BREAKING", false],
+      ["PROVENANCE_CHANGED", "BREAKING", false],
+      ["IDENTITY_REINTERPRETED", "BREAKING", false],
+    ].map(([change_kind, result, consumer_support_required]) => ({
+      change_kind,
+      result,
+      consumer_support_required,
+    })),
+    trust_namespaces: ["development", "staging", "production"],
+  },
+  {
+    kind: "authority_matrix",
+    schema_version: 1,
+    version: "authority.v1",
+    grants: TRUTH_AUTHORITY_ACTIONS.map((action) => ({
+      action,
+      role: action === "graduate" ? "governance" : "authorized_service",
+      approval_rule: action === "graduate" ? "signed_quorum" : "active_root",
+      owner: action === "graduate" ? "governance" : "sonar-ops",
+    })),
+    planning_agent_can_graduate: false,
+  },
+  {
+    kind: "security_profile",
+    schema_version: 1,
+    version: "security.v1",
+    signature_algorithm: "Ed25519",
+    digest_algorithm: "SHA-256",
+    canonicalization: "RFC8785-JCS",
+    production_key_custody: "KMS_OR_HSM_NON_EXPORTABLE",
+    revocation_cache_seconds: 300,
+    max_future_skew_seconds: 60,
+  },
+  {
+    kind: "network_finality_policy",
+    schema_version: 1,
+    version: "networks.v1",
+    runtime_scope: "EVM_ONLY",
+    networks: [
+      {
+        network: "ethereum",
+        chain_family: "EVM",
+        chain_id: "1",
+        finality_policy_version: "ethereum.v1",
+        confirmations: "64",
+        poll_interval_seconds: 60,
+        required_provider_quorum: "2",
+        providers: [
+          {
+            provider_id: "provider-a",
+            operator: "operator-a",
+            control_domain: "domain-a",
+            network_path: "path-a",
+            client_family: "geth",
+          },
+          {
+            provider_id: "provider-b",
+            operator: "operator-b",
+            control_domain: "domain-b",
+            network_path: "path-b",
+            client_family: "nethermind",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    kind: "activity_profiles",
+    schema_version: 1,
+    version: "activity.v1",
+    profiles: [],
+  },
+  {
+    kind: "serving_policy",
+    schema_version: 1,
+    version: "serving.v1",
+    environment: "staging",
+    rules: TRUTH_SERVING_FAILURE_CLASSES.map((failure_class) => ({
+      failure_class,
+      effective_status:
+        failure_class === "temporary_source_transport_loss"
+          ? "DEGRADED"
+          : failure_class === "stale_projection_or_evidence"
+            ? "EXPIRED"
+            : failure_class === "source_cursor_not_advancing"
+              ? "UNKNOWN"
+              : failure_class === "reorg_behind_watermark" ||
+                  failure_class === "reconciliation_count_breach"
+                ? "NOT_READY"
+                : "SUSPENDED",
+      last_good_allowed:
+        failure_class === "temporary_source_transport_loss" ||
+        failure_class === "stale_projection_or_evidence" ||
+        failure_class === "source_cursor_not_advancing",
+      user_label: failure_class.includes("stale") ? "stale" : "unavailable",
+      escalation_seconds: "0",
+      recovery_evidence: ["replacement_evidence"],
+    })),
+  },
+  {
+    kind: "issuer_metadata",
+    schema_version: 1,
+    version: "issuer.v1",
+    service_id: "sonar-api",
+    key_id: signer.keyId,
+    build_id: "fixture-build",
+    repository: "0xHoneyJar/sonar-api",
+    source_commit: digest("source"),
+    issued_at: timestamp,
+  },
+];
+
+const expectFailure = <A, E>(effect: Effect.Effect<A, E>): E => {
+  const exit = Effect.runSyncExit(effect);
+  if (Exit.isSuccess(exit)) throw new Error("expected typed failure");
+  if (exit.cause._tag !== "Fail") throw new Error(`expected Fail, got ${exit.cause._tag}`);
+  return exit.cause.error;
+};
+
+describe("truth normative closure and traceability", () => {
+  it("compiles every required normative object into one signed closed root", () => {
+    const closure = Effect.runSync(compileNormativeClosure(normativeObjects()));
+    expect(closure.map((object) => object.ref.kind)).toEqual(
+      [...TRUTH_NORMATIVE_OBJECT_KINDS].sort(),
+    );
+    const refs = closure.map((object) => object.ref);
+    const byKind = new Map(refs.map((ref) => [ref.kind, ref]));
+    const root = Effect.runSync(
+      compileTruthBundleRoot(
+        {
+          schema_version: 1,
+          protocol: TRUTH_CONTRACT_PROTOCOL,
+          environment: "staging",
+          generation: "1",
+          supersedes_generation: null,
+          objects: refs,
+          issuer: { service_id: "sonar-api", key_id: signer.keyId },
+          issued_at: timestamp,
+          valid_from: timestamp,
+          compatibility_version: "compatibility.v1",
+          authority_matrix_hash: byKind.get("authority_matrix")!.sha256,
+          security_profile_hash: byKind.get("security_profile")!.sha256,
+        },
+        signer,
+      ),
+    );
+    expect(root.unsigned_root.objects).toHaveLength(TRUTH_NORMATIVE_OBJECT_KINDS.length);
+  });
+
+  it("fails closed when a required normative object is absent", () => {
+    const failure = expectFailure(
+      compileNormativeClosure(normativeObjects().slice(1)),
+    );
+    expect(failure).toBeInstanceOf(TruthIntegrityError);
+  });
+
+  it("rejects semantically incomplete signed policy matrices", () => {
+    const duplicateCompatibility = structuredClone(normativeObjects()) as Array<
+      Record<string, unknown>
+    >;
+    const compatibility = duplicateCompatibility.find(
+      (object) => object.kind === "compatibility_matrix",
+    )!;
+    const compatibilityRules = compatibility.rules as Array<Record<string, unknown>>;
+    compatibilityRules[0] = { ...compatibilityRules[1] };
+    expect(
+      expectFailure(compileNormativeClosure(duplicateCompatibility)),
+    ).toBeInstanceOf(TruthIntegrityError);
+
+    const duplicateAuthority = structuredClone(normativeObjects()) as Array<
+      Record<string, unknown>
+    >;
+    const authority = duplicateAuthority.find(
+      (object) => object.kind === "authority_matrix",
+    )!;
+    const grants = authority.grants as Array<Record<string, unknown>>;
+    grants[0] = { ...grants[1] };
+    expect(expectFailure(compileNormativeClosure(duplicateAuthority))).toBeInstanceOf(
+      TruthIntegrityError,
+    );
+
+    const invalidQuorum = structuredClone(normativeObjects()) as Array<
+      Record<string, unknown>
+    >;
+    const networkPolicy = invalidQuorum.find(
+      (object) => object.kind === "network_finality_policy",
+    )!;
+    const networks = networkPolicy.networks as Array<Record<string, unknown>>;
+    networks[0]!.required_provider_quorum = "3";
+    expect(expectFailure(compileNormativeClosure(invalidQuorum))).toBeInstanceOf(
+      TruthIntegrityError,
+    );
+
+    const overlappingPairs = structuredClone(normativeObjects()) as Array<
+      Record<string, unknown>
+    >;
+    const overlapPolicy = overlappingPairs.find(
+      (object) => object.kind === "network_finality_policy",
+    )!;
+    const overlapNetworks = overlapPolicy.networks as Array<Record<string, unknown>>;
+    overlapNetworks[0]!.required_provider_quorum = "3";
+    overlapNetworks[0]!.providers = [
+      { provider_id: "a-x", operator: "operator-a", control_domain: "domain-x", network_path: "path-1", client_family: "geth" },
+      { provider_id: "a-y", operator: "operator-a", control_domain: "domain-y", network_path: "path-2", client_family: "geth" },
+      { provider_id: "b-z", operator: "operator-b", control_domain: "domain-z", network_path: "path-3", client_family: "nethermind" },
+      { provider_id: "c-z", operator: "operator-c", control_domain: "domain-z", network_path: "path-4", client_family: "reth" },
+    ];
+    expect(expectFailure(compileNormativeClosure(overlappingPairs))).toBeInstanceOf(
+      TruthIntegrityError,
+    );
+
+    const duplicateIdentity = structuredClone(normativeObjects()) as Array<
+      Record<string, unknown>
+    >;
+    const identity = duplicateIdentity.find(
+      (object) => object.kind === "identity_snapshot",
+    )!;
+    const binding = {
+      canonical_collection_id: "mibera",
+      chain_family: "EVM",
+      chain_id: "80094",
+      canonical_address: "0x1234",
+      aliases: ["legacy-mibera"],
+      config_digest: digest("config"),
+      observed_height: "1",
+      observed_hash: digest("block"),
+      observed_at: timestamp,
+      finality_policy_version: "berachain.v1",
+      deployed_identity_hash: digest("code"),
+      effective_status: {
+        _tag: "READY",
+        reasons: ["identity_verified"],
+        evidence: [],
+        evaluated_at: timestamp,
+        expires_at: "2026-07-19T04:00:00.000Z",
+        invalidation_epoch: "0",
+      },
+    };
+    identity.bindings = [binding, { ...binding }];
+    expect(expectFailure(compileNormativeClosure(duplicateIdentity))).toBeInstanceOf(
+      TruthIntegrityError,
+    );
+
+    const zeroActivity = structuredClone(normativeObjects()) as Array<
+      Record<string, unknown>
+    >;
+    const activity = zeroActivity.find(
+      (object) => object.kind === "activity_profiles",
+    )!;
+    activity.profiles = [
+      {
+        collection_id: "mibera",
+        owner: "sonar-ops",
+        expected_event_window_seconds: "0",
+        source_head_cadence_seconds: "60",
+        cursor_cadence_seconds: "60",
+        evidence_window_start: timestamp,
+        evidence_window_end: "2026-07-20T03:00:00.000Z",
+        denominator: "1",
+        backtest_digest: digest("backtest"),
+        approval: "governance",
+        effective_from: timestamp,
+        supersedes_version: null,
+      },
+    ];
+    expect(expectFailure(compileNormativeClosure(zeroActivity))).toBeInstanceOf(
+      TruthDecodeError,
+    );
+  });
+
+  it("executes the FR-1 through FR-13 traceability gate", () => {
+    expect(Effect.runSync(validateTruthRequirementTraceability())).toBeUndefined();
+    expect(
+      TRUTH_REQUIREMENT_TRACEABILITY.every((entry) => entry.owner.startsWith("bd-")),
+    ).toBe(true);
+    expect(
+      TRUTH_REQUIREMENT_TRACEABILITY.filter(
+        (entry) => entry.status === "implemented",
+      ).map((entry) => entry.requirement),
+    ).toEqual(["FR-1"]);
+  });
+});
