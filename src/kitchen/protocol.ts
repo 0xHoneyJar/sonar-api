@@ -42,7 +42,12 @@ export const CanonicalPreparationResponseSchema = Schema.Struct({
     capability_id: Schema.Literal("ownership_index.v1"),
     capability_version: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/)),
     token_standard: KitchenTokenStandard,
-    prepare_adapter_id: Schema.Literal("belt.eth-erc721", "belt.evm-erc721", "unsupported"),
+    prepare_adapter_id: Schema.Literal(
+      "belt.eth-erc721",
+      "belt.evm-erc721",
+      "belt.evm-erc721.robinhood-sidecar",
+      "unsupported",
+    ),
     prepare_adapter_version: NonEmptyString,
     source_sequence: Schema.String.pipe(Schema.pattern(/^(0|[1-9][0-9]*)$/)),
     finality_policy_version: NonEmptyString,

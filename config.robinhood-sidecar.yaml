@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+#
+# Robinhood Chain ownership sidecar — StonkBrokers only (eip155:4663).
+#
+# Isolation: dedicated Railway service + dedicated Postgres. NEVER point this
+# process at monobelt or Kitchen credentials. NEVER set ROBINHOOD_RPC_URL here
+# (HyperSync-only; RPC fallback is a canary kill).
+#
+# See:
+#   grimoires/loa/coordination/collection-report/adr.robinhood-hyperindex-sidecar.md
+#   grimoires/loa/coordination/collection-report/robinhood-sidecar-canary.md
+#
+name: stonkbrokers-robinhood-sidecar
+rollback_on_reorg: true
+
+# Scope Envio handler autoload to this belt entrypoint only (mibera pattern).
+handlers: src/sidecars/robinhood
+
+contracts:
+  - name: TrackedErc721
+    handler: src/sidecars/robinhood/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+
+chains:
+  - id: 4663
+    start_block: 12493793
+    # Explicit HyperSync — no `rpc_config` / no RPC URL env on this service.
+    hypersync_config:
+      url: https://4663.hypersync.xyz
+    contracts:
+      - name: TrackedErc721
+        address:
+          - "0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0" # StonkBrokers
+        start_block: 12493793

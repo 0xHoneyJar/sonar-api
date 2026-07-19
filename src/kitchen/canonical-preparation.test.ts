@@ -175,7 +175,7 @@ describe("canonical collection preparation", () => {
       error: { code: "unsupported_network" },
     });
 
-    // Robinhood (4663) is preparation-available after CR-RECOG-RH belt wiring.
+    // Robinhood (4663): recognize live; ownership prep disabled until sidecar canary.
     const robinhood = await request(evmRequest({
       network: {
         schema_version: 1,
@@ -184,9 +184,9 @@ describe("canonical collection preparation", () => {
       },
       address: "0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0",
     }));
-    expect(robinhood.status).toBe(202);
+    expect(robinhood.status).toBe(409);
     await expect(robinhood.json()).resolves.toMatchObject({
-      status: "queued",
+      error: { code: "capability_disabled" },
     });
 
     const degradedApp = createKitchenApp({

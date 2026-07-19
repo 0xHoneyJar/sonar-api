@@ -58,6 +58,7 @@
     "validate:evm-sales": "tsx scripts/validate-evm-sales-live.ts",
     "codegen:mibera": "envio codegen --config config.mibera.yaml",
     "typecheck:mibera": "tsc -p tsconfig.mibera.json",
+    "codegen:robinhood-sidecar": "envio codegen --config config.robinhood-sidecar.yaml",
     "prepare": "./scripts/prepare-effect.sh",
     "postinstall": "bash scripts/rebuild-events-dist.sh"
   },

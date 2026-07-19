@@ -353,7 +353,7 @@ describe("CR-401 EVM NFT probe fixture", () => {
 });
 
 describe("CR-401 Kitchen preparation boundary (honest production gate)", () => {
-  it("enables Kitchen prepare once config.yaml index wiring lands (CR-RECOG-RH)", async () => {
+  it("keeps Kitchen prepare disabled until RH sidecar canary (contract truth)", async () => {
     const preparation = await resolvePreparationCapability({
       network: {
         schema_version: 1,
@@ -363,10 +363,11 @@ describe("CR-401 Kitchen preparation boundary (honest production gate)", () => {
       tokenStandard: "erc721",
     });
     expect(preparation).toMatchObject({
-      enabled: true,
-      health: "available",
-      reasonClass: "healthy",
-      prepareAdapterId: "belt.evm-erc721",
+      enabled: false,
+      health: "disabled",
+      reasonClass: "supply_lane_pending",
+      prepareAdapterId: "belt.evm-erc721.robinhood-sidecar",
+      prepareAdapterVersion: "rh-hyperindex-sidecar.v1",
       finalityPolicyVersion: "robinhood-finalized.v1",
     });
   });

@@ -3,9 +3,11 @@ import { Effect } from "effect";
 import { digestVersioned, type NetworkRef } from "../collection-resolver/protocol.js";
 import type { PreparationCapability, TokenStandard } from "./types.js";
 
+type PrepareAdapterId = PreparationCapability["prepareAdapterId"];
+
 const EVM_CAPABILITIES: Record<
   string,
-  { sourceSequence: string; finalityPolicyVersion: string; adapter: "belt.eth-erc721" | "belt.evm-erc721" }
+  { sourceSequence: string; finalityPolicyVersion: string; adapter: PrepareAdapterId }
 > = {
   "1": { sourceSequence: "2", finalityPolicyVersion: "ethereum-finalized.v1", adapter: "belt.eth-erc721" },
   "10": { sourceSequence: "21", finalityPolicyVersion: "optimism-finalized.v1", adapter: "belt.evm-erc721" },
@@ -14,14 +16,18 @@ const EVM_CAPABILITIES: Record<
   "80094": { sourceSequence: "41", finalityPolicyVersion: "berachain-finalized.v1", adapter: "belt.evm-erc721" },
   "7777777": { sourceSequence: "51", finalityPolicyVersion: "zora-finalized.v1", adapter: "belt.evm-erc721" },
   "4663": {
-    sourceSequence: "221",
+    sourceSequence: "222",
     finalityPolicyVersion: "robinhood-finalized.v1",
-    adapter: "belt.evm-erc721",
+    adapter: "belt.evm-erc721.robinhood-sidecar",
   },
 };
 
 const CAPABILITY_ID = "ownership_index.v1" as const;
 const ADAPTER_VERSION = "belt-config-erc721.v1";
+const ROBINHOOD_SIDECAR_ADAPTER_VERSION = "rh-hyperindex-sidecar.v1";
+
+/** Flip after `robinhood-sidecar-canary.md` passes and Kitchen routes 4663 readiness. */
+const ROBINHOOD_OWNERSHIP_SUPPLY_LANE_READY = false;
 
 async function versionFor(args: {
   network: NetworkRef;
@@ -29,6 +35,7 @@ async function versionFor(args: {
   sourceSequence: string;
   finalityPolicyVersion: string;
   adapterId: string;
+  adapterVersion?: string;
 }): Promise<string> {
   const digest = await Effect.runPromise(
     digestVersioned("kitchen.ownership-index-capability", 1, {
@@ -38,7 +45,7 @@ async function versionFor(args: {
       source_sequence: args.sourceSequence,
       finality_policy_version: args.finalityPolicyVersion,
       prepare_adapter_id: args.adapterId,
-      prepare_adapter_version: ADAPTER_VERSION,
+      prepare_adapter_version: args.adapterVersion ?? ADAPTER_VERSION,
     }),
   );
   return digest.digest;
@@ -114,6 +121,38 @@ export async function resolvePreparationCapability(args: {
     };
   }
 
+  const adapterVersion =
+    configured.adapter === "belt.evm-erc721.robinhood-sidecar"
+      ? ROBINHOOD_SIDECAR_ADAPTER_VERSION
+      : ADAPTER_VERSION;
+
+  // Contract truth: recognize is live; ownership supply lane is the sidecar canary.
+  if (
+    network.network_reference === "4663" &&
+    !ROBINHOOD_OWNERSHIP_SUPPLY_LANE_READY
+  ) {
+    return {
+      capabilityId: CAPABILITY_ID,
+      capabilityVersion: await versionFor({
+        network,
+        standard: tokenStandard,
+        sourceSequence: configured.sourceSequence,
+        finalityPolicyVersion: configured.finalityPolicyVersion,
+        adapterId: configured.adapter,
+        adapterVersion,
+      }),
+      health: "disabled",
+      enabled: false,
+      reasonClass: "supply_lane_pending",
+      reason:
+        "Robinhood ownership_index awaits HyperIndex sidecar canary (config.robinhood-sidecar.yaml); recognize remains live",
+      sourceSequence: configured.sourceSequence,
+      finalityPolicyVersion: configured.finalityPolicyVersion,
+      prepareAdapterId: configured.adapter,
+      prepareAdapterVersion: adapterVersion,
+    };
+  }
+
   return {
     capabilityId: CAPABILITY_ID,
     capabilityVersion: await versionFor({
@@ -122,6 +161,7 @@ export async function resolvePreparationCapability(args: {
       sourceSequence: configured.sourceSequence,
       finalityPolicyVersion: configured.finalityPolicyVersion,
       adapterId: configured.adapter,
+      adapterVersion,
     }),
     health: "available",
     enabled: true,
@@ -130,6 +170,6 @@ export async function resolvePreparationCapability(args: {
     sourceSequence: configured.sourceSequence,
     finalityPolicyVersion: configured.finalityPolicyVersion,
     prepareAdapterId: configured.adapter,
-    prepareAdapterVersion: ADAPTER_VERSION,
+    prepareAdapterVersion: adapterVersion,
   };
 }

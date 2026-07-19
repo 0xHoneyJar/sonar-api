@@ -48,7 +48,11 @@ export interface PreparationCapability {
   reason: string;
   sourceSequence: string;
   finalityPolicyVersion: string;
-  prepareAdapterId: "belt.eth-erc721" | "belt.evm-erc721" | "unsupported";
+  prepareAdapterId:
+    | "belt.eth-erc721"
+    | "belt.evm-erc721"
+    | "belt.evm-erc721.robinhood-sidecar"
+    | "unsupported";
   prepareAdapterVersion: string;
 }
 

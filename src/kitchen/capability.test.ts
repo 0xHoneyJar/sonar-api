@@ -42,14 +42,16 @@ describe("operation-scoped preparation capability", () => {
     ]).size).toBe(3);
   });
 
-  it("enables Robinhood Chain preparation for erc721", async () => {
+  it("declares Robinhood sidecar adapter but keeps preparation disabled until canary", async () => {
     const rh = await resolvePreparationCapability({
       network: network("4663"),
       tokenStandard: "erc721",
     });
-    expect(rh.enabled).toBe(true);
-    expect(rh.health).toBe("available");
+    expect(rh.enabled).toBe(false);
+    expect(rh.health).toBe("disabled");
+    expect(rh.reasonClass).toBe("supply_lane_pending");
     expect(rh.finalityPolicyVersion).toBe("robinhood-finalized.v1");
-    expect(rh.prepareAdapterId).toBe("belt.evm-erc721");
+    expect(rh.prepareAdapterId).toBe("belt.evm-erc721.robinhood-sidecar");
+    expect(rh.prepareAdapterVersion).toBe("rh-hyperindex-sidecar.v1");
   });
 });
