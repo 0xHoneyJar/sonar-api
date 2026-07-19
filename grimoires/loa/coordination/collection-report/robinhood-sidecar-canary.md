@@ -5,6 +5,22 @@ touching the Henlo monobelt.
 
 **Scaffold:** `config.robinhood-sidecar.yaml`, `src/sidecars/robinhood/`
 
+## Live Railway cut (2026-07-19)
+
+| Resource | Name | Notes |
+|----------|------|-------|
+| Indexer | `belt-indexer-robinhood` | `BELT_CONFIG=config.robinhood-sidecar.yaml`, `Dockerfile.belt` |
+| Postgres | `Postgres` (private `postgres.railway.internal`) | Dedicated — **not** `Postgres-6J4w` |
+| Hasura | `belt-hasura-robinhood` | Dedicated — **not** monobelt Hasura |
+
+First deploy used KF-013: `ENVIO_RESTART=1` seed → delete var → resume. HyperSync selected
+(`is_hyper_sync=true`). Observed catch-up to tip (~14.25M) with ~4.4k `Token` rows /
+~470 `TrackedHolder` rows for StonkBrokers. Monobelt `chain_metadata` still has no 4663.
+
+Remaining canary work: digest proof vs independent HyperSync client, Kitchen readiness
+router + flip `ROBINHOOD_OWNERSHIP_SUPPLY_LANE_READY`, Hasura permission WARN cleanup
+(`public` role).
+
 ## Setup (do not touch monobelt)
 
 ```text
