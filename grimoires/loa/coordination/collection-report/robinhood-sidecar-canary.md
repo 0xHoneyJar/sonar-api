@@ -17,9 +17,16 @@ First deploy used KF-013: `ENVIO_RESTART=1` seed → delete var → resume. Hype
 (`is_hyper_sync=true`). Observed catch-up to tip (~14.25M) with ~4.4k `Token` rows /
 ~470 `TrackedHolder` rows for StonkBrokers. Monobelt `chain_metadata` still has no 4663.
 
-Remaining canary work: digest proof vs independent HyperSync client, Kitchen readiness
-router + flip `ROBINHOOD_OWNERSHIP_SUPPLY_LANE_READY`, Hasura permission WARN cleanup
-(`public` role).
+**Digest canary (2026-07-19): PASSED** — HyperSync Transfer stream vs sidecar `Token`
+owner map: 7247 events, 4444 alive tokens, digests identical, `is_hyper_sync=true`.
+
+```bash
+ENVIO_API_TOKEN=… RH_DATABASE_URL=… pnpm canary:robinhood-digest
+```
+
+Kitchen: route `ROBINHOOD_BELT_GRAPHQL_URL` + `ROBINHOOD_HASURA_ADMIN_SECRET`; prep
+auto-enables when the GraphQL URL is set. RH Hasura tables `Token` /
+`TrackedHolder` / `chain_metadata` tracked manually (Envio metadata path WARN).
 
 ## Setup (do not touch monobelt)
 

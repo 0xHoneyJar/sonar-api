@@ -15,6 +15,11 @@ import { createKitchenApp } from "./routes.js";
 import { preparationRuntimeFromEnv } from "./preparation-runtime.js";
 import type { ChainProgressRow } from "./indexing-status.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
+import {
+  createRoutedCollectionStatusReader,
+  ROBINHOOD_CHAIN_ID,
+  robinhoodGraphqlUrlFromEnv,
+} from "./routed-status-reader.js";
 import type { CollectionStatusReader } from "./status.js";
 
 async function resolveIngestStore(): Promise<IngestJobStorePort> {
@@ -69,55 +74,16 @@ function loadFloorRegistry(): Map<string, CoverageFloorRecord> {
   return map;
 }
 
-function createStatusReader(): CollectionStatusReader {
-  const inner = createHasuraCollectionStatusReader();
-  if (process.env.KITCHEN_COVERAGE_READINESS?.trim() !== "1") {
-    return inner;
-  }
-
-  const floors = loadFloorRegistry();
-  const graphqlUrl = beltGraphqlUrlFromEnv();
-
-  return createCoverageAwareStatusReader({
-    inner,
-    resolveFloor: (key) => floors.get(`${key.chainId}:${key.contract}`) ?? null,
-    readChainProgress: async (chainId) => {
-      try {
-        const response = await fetch(graphqlUrl, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            query:
-              "{ chain_metadata { chain_id latest_processed_block } }",
-          }),
-        });
-        if (!response.ok) return { processedThroughBlock: 0, sensorFailed: true };
-        const payload = (await response.json()) as {
-          data?: { chain_metadata?: Array<{ chain_id: number; latest_processed_block: number }> };
-          errors?: unknown[];
-        };
-        if (payload.errors?.length) {
-          return { processedThroughBlock: 0, sensorFailed: true };
-        }
-        const row = payload.data?.chain_metadata?.find((c) => Number(c.chain_id) === chainId);
-        if (!row) return { processedThroughBlock: 0, sensorFailed: true };
-        return { processedThroughBlock: Number(row.latest_processed_block) };
-      } catch {
-        return { processedThroughBlock: 0, sensorFailed: true };
-      }
-    },
-    // Job digest binding must be supplied by the worker path in a follow-up;
-    // without it the coverage wrapper refuses to invent readiness (inner rows alone).
-    resolveJobBinding: () => null,
-  });
-}
-
-async function readChainProgressViaGraphql(): Promise<ChainProgressRow[]> {
-  const graphqlUrl = beltGraphqlUrlFromEnv();
+async function fetchChainProgressRows(
+  graphqlUrl: string,
+  adminSecret?: string,
+): Promise<ChainProgressRow[]> {
   try {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (adminSecret) headers["x-hasura-admin-secret"] = adminSecret;
     const response = await fetch(graphqlUrl, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify({
         query:
           "{ chain_metadata { chain_id start_block latest_processed_block latest_fetched_block_number num_events_processed } }",
@@ -149,6 +115,65 @@ async function readChainProgressViaGraphql(): Promise<ChainProgressRow[]> {
   } catch {
     return [];
   }
+}
+
+function createStatusReader(): CollectionStatusReader {
+  const monobelt = createHasuraCollectionStatusReader();
+  const rhUrl = robinhoodGraphqlUrlFromEnv();
+  const rhAdmin = process.env.ROBINHOOD_HASURA_ADMIN_SECRET?.trim();
+  const inner = rhUrl
+    ? createRoutedCollectionStatusReader({
+        defaultReader: monobelt,
+        robinhoodReader: createHasuraCollectionStatusReader({
+          url: rhUrl,
+          adminSecret: rhAdmin,
+        }),
+      })
+    : monobelt;
+
+  if (process.env.KITCHEN_COVERAGE_READINESS?.trim() !== "1") {
+    return inner;
+  }
+
+  const floors = loadFloorRegistry();
+  const monobeltGraphql = beltGraphqlUrlFromEnv();
+
+  return createCoverageAwareStatusReader({
+    inner,
+    resolveFloor: (key) => floors.get(`${key.chainId}:${key.contract}`) ?? null,
+    readChainProgress: async (chainId) => {
+      const useRh = chainId === ROBINHOOD_CHAIN_ID && rhUrl;
+      const url = useRh ? rhUrl : monobeltGraphql;
+      try {
+        const rows = await fetchChainProgressRows(url, useRh ? rhAdmin : undefined);
+        const row = rows.find((c) => c.chain_id === chainId);
+        if (!row) return { processedThroughBlock: 0, sensorFailed: true };
+        return { processedThroughBlock: row.latest_processed_block };
+      } catch {
+        return { processedThroughBlock: 0, sensorFailed: true };
+      }
+    },
+    // Job digest binding must be supplied by the worker path in a follow-up;
+    // without it the coverage wrapper refuses to invent readiness (inner rows alone).
+    resolveJobBinding: () => null,
+  });
+}
+
+/** Monobelt chains + RH sidecar 4663 when ROBINHOOD_BELT_GRAPHQL_URL is set. */
+async function readChainProgressViaGraphql(): Promise<ChainProgressRow[]> {
+  const mono = await fetchChainProgressRows(beltGraphqlUrlFromEnv());
+  const rhUrl = robinhoodGraphqlUrlFromEnv();
+  const rhAdmin = process.env.ROBINHOOD_HASURA_ADMIN_SECRET?.trim();
+  if (!rhUrl) return mono.filter((r) => r.chain_id !== ROBINHOOD_CHAIN_ID);
+  const rh = await fetchChainProgressRows(rhUrl, rhAdmin);
+  const byId = new Map<number, ChainProgressRow>();
+  for (const row of mono) {
+    if (row.chain_id !== ROBINHOOD_CHAIN_ID) byId.set(row.chain_id, row);
+  }
+  for (const row of rh) {
+    if (row.chain_id === ROBINHOOD_CHAIN_ID) byId.set(row.chain_id, row);
+  }
+  return [...byId.values()].sort((a, b) => a.chain_id - b.chain_id);
 }
 
 export async function createKitchenServer() {

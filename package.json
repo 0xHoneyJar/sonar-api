@@ -59,6 +59,7 @@
     "codegen:mibera": "envio codegen --config config.mibera.yaml",
     "typecheck:mibera": "tsc -p tsconfig.mibera.json",
     "codegen:robinhood-sidecar": "envio codegen --config config.robinhood-sidecar.yaml",
+    "canary:robinhood-digest": "node scripts/robinhood-sidecar-digest-canary.mjs",
     "prepare": "./scripts/prepare-effect.sh",
     "postinstall": "bash scripts/rebuild-events-dist.sh"
   },

@@ -5,7 +5,7 @@
  * enable/disable registry transitions, EVM probe fixture, and honest index bounds.
  */
 import { Effect, Exit } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   applyCapabilityRegistryTransition,
   CAPABILITY_REGISTRY_SCHEMA_VERSION,
@@ -353,7 +353,11 @@ describe("CR-401 EVM NFT probe fixture", () => {
 });
 
 describe("CR-401 Kitchen preparation boundary (honest production gate)", () => {
-  it("keeps Kitchen prepare disabled until RH sidecar canary (contract truth)", async () => {
+  it("enables Kitchen prepare when ROBINHOOD_BELT_GRAPHQL_URL is configured", async () => {
+    vi.stubEnv(
+      "ROBINHOOD_BELT_GRAPHQL_URL",
+      "http://belt-hasura-robinhood.railway.internal:8080/v1/graphql",
+    );
     const preparation = await resolvePreparationCapability({
       network: {
         schema_version: 1,
@@ -363,12 +367,12 @@ describe("CR-401 Kitchen preparation boundary (honest production gate)", () => {
       tokenStandard: "erc721",
     });
     expect(preparation).toMatchObject({
-      enabled: false,
-      health: "disabled",
-      reasonClass: "supply_lane_pending",
+      enabled: true,
+      health: "available",
       prepareAdapterId: "belt.evm-erc721.robinhood-sidecar",
       prepareAdapterVersion: "rh-hyperindex-sidecar.v1",
       finalityPolicyVersion: "robinhood-finalized.v1",
     });
+    vi.unstubAllEnvs();
   });
 });

@@ -26,8 +26,17 @@ const CAPABILITY_ID = "ownership_index.v1" as const;
 const ADAPTER_VERSION = "belt-config-erc721.v1";
 const ROBINHOOD_SIDECAR_ADAPTER_VERSION = "rh-hyperindex-sidecar.v1";
 
-/** Flip after `robinhood-sidecar-canary.md` passes and Kitchen routes 4663 readiness. */
-const ROBINHOOD_OWNERSHIP_SUPPLY_LANE_READY = false;
+/**
+ * Supply lane ready when Kitchen can route 4663 reads to the RH sidecar
+ * (`ROBINHOOD_BELT_GRAPHQL_URL`), or when explicitly forced with
+ * `ROBINHOOD_OWNERSHIP_SUPPLY_LANE=1`. Emergency off: `=0`.
+ */
+function robinhoodOwnershipSupplyLaneReady(): boolean {
+  const flag = process.env.ROBINHOOD_OWNERSHIP_SUPPLY_LANE?.trim();
+  if (flag === "0") return false;
+  if (flag === "1") return true;
+  return Boolean(process.env.ROBINHOOD_BELT_GRAPHQL_URL?.trim());
+}
 
 async function versionFor(args: {
   network: NetworkRef;
@@ -129,7 +138,7 @@ export async function resolvePreparationCapability(args: {
   // Contract truth: recognize is live; ownership supply lane is the sidecar canary.
   if (
     network.network_reference === "4663" &&
-    !ROBINHOOD_OWNERSHIP_SUPPLY_LANE_READY
+    !robinhoodOwnershipSupplyLaneReady()
   ) {
     return {
       capabilityId: CAPABILITY_ID,

@@ -53,15 +53,20 @@ export function beltGraphqlUrlFromEnv(): string {
 export function createHasuraCollectionStatusReader(args?: {
   url?: string;
   fetchFn?: typeof fetch;
+  /** When set, sent as x-hasura-admin-secret (RH sidecar Hasura). */
+  adminSecret?: string;
 }): CollectionStatusReader {
   const url = args?.url ?? beltGraphqlUrlFromEnv();
   const fetchFn = args?.fetchFn ?? fetch;
+  const adminSecret = args?.adminSecret?.trim();
 
   return {
     async readIndexedSnapshot(key: CollectionKey): Promise<IndexedSnapshot> {
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (adminSecret) headers["x-hasura-admin-secret"] = adminSecret;
       const response = await fetchFn(url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify({
           query: COLLECTION_SNAPSHOT_QUERY,
           variables: { chainId: key.chainId, contract: key.contract },
