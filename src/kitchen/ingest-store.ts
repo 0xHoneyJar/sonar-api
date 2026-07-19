@@ -27,6 +27,8 @@ export interface IngestJobStorePort {
     limit?: number,
     opts?: { unleasedOnly?: boolean },
   ): Promise<IngestJobRecord[]>;
+  /** Counts rows with a physical job id per status (operator dashboards). */
+  countByStatus(): Promise<Partial<Record<IngestJobStatus, number>>>;
   claimQueued(args: {
     workerId: string;
     limit?: number;
@@ -233,6 +235,14 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
       .sort((a, b) => a.createdAtMs - b.createdAtMs)
       .slice(0, limit)
       .map(cloneJob);
+  }
+
+  async countByStatus(): Promise<Partial<Record<IngestJobStatus, number>>> {
+    const out: Partial<Record<IngestJobStatus, number>> = {};
+    for (const job of this.jobsById.values()) {
+      out[job.status] = (out[job.status] ?? 0) + 1;
+    }
+    return out;
   }
 
   async claimQueued(args: {

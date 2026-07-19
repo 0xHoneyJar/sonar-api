@@ -540,6 +540,24 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
     return Promise.all(result.rows.map(rowToRecord));
   }
 
+  async countByStatus(): Promise<Partial<Record<IngestJobStatus, number>>> {
+    const result = await this.pool.query<{ status: IngestJobStatus; n: string | number }>(
+      `SELECT status, count(*)::int AS n FROM kitchen_ingest_jobs
+       WHERE physical_job_id IS NOT NULL
+       GROUP BY status`,
+    );
+    const out: Partial<Record<IngestJobStatus, number>> = {};
+    for (const row of result.rows) {
+      out[row.status] = Number(row.n);
+    }
+    return out;
+  }
+
+  /** Expose pool for operator reads that join belt chain_metadata (same DB today). */
+  getPool(): pg.Pool {
+    return this.pool;
+  }
+
   async claimQueued(args: {
     workerId: string;
     limit?: number;

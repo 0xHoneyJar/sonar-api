@@ -25,8 +25,10 @@ import {
   resolveProbeRuntimeFromEnv,
   type ResolveProbeRuntime,
 } from "./resolve-probe-runtime.js";
-import { isIndexedSnapshotReady, resolveCollectionStatus, toStatusResponse, type CollectionStatusReader } from "./status.js";
+import { buildIndexingStatus, readChainProgress } from "./indexing-status.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
+import { PostgresIngestJobStore } from "./postgres-ingest-store.js";
+import { isIndexedSnapshotReady, resolveCollectionStatus, toStatusResponse, type CollectionStatusReader } from "./status.js";
 import type {
   AdmissionFailure,
   AdmissionResult,
@@ -586,5 +588,24 @@ export function createKitchenApp(deps: {
   });
   app.route("/v1/collections", createCollectionRoutes(deps));
   app.route("/v2/collection-preparations", createCanonicalPreparationRoutes(deps));
+
+  // Operator snapshot — belt chain_metadata + Kitchen active jobs (service token).
+  const indexing = new Hono();
+  indexing.use("*", requireServiceToken);
+  indexing.get("/", async (c) => {
+    const body = await buildIndexingStatus({
+      countByStatus: () => deps.store.countByStatus(),
+      listByStatus: (status, limit) => deps.store.listByStatus(status, limit),
+      readChains: async () => {
+        if (deps.store instanceof PostgresIngestJobStore) {
+          return readChainProgress(deps.store.getPool());
+        }
+        return [];
+      },
+    });
+    return c.json(body, 200);
+  });
+  app.route("/v2/indexing-status", indexing);
+
   return app;
 }
