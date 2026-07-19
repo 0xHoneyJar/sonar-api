@@ -13,6 +13,11 @@ const EVM_CAPABILITIES: Record<
   "42161": { sourceSequence: "31", finalityPolicyVersion: "arbitrum-finalized.v1", adapter: "belt.evm-erc721" },
   "80094": { sourceSequence: "41", finalityPolicyVersion: "berachain-finalized.v1", adapter: "belt.evm-erc721" },
   "7777777": { sourceSequence: "51", finalityPolicyVersion: "zora-finalized.v1", adapter: "belt.evm-erc721" },
+  "4663": {
+    sourceSequence: "221",
+    finalityPolicyVersion: "robinhood-finalized.v1",
+    adapter: "belt.evm-erc721",
+  },
 };
 
 const CAPABILITY_ID = "ownership_index.v1" as const;
@@ -61,28 +66,6 @@ export async function resolvePreparationCapability(args: {
       reason: "Solana ownership_index preparation is unsupported until CR-402",
       sourceSequence: "101",
       finalityPolicyVersion: "solana-finalized.v1",
-      prepareAdapterId: "unsupported",
-      prepareAdapterVersion: ADAPTER_VERSION,
-    };
-  }
-
-  if (network.network_reference === "4663") {
-    return {
-      capabilityId: CAPABILITY_ID,
-      capabilityVersion: await versionFor({
-        network,
-        standard: tokenStandard,
-        sourceSequence: "201",
-        finalityPolicyVersion: "robinhood-unproven.v1",
-        adapterId: "unsupported",
-      }),
-      health: "disabled",
-      enabled: false,
-      reasonClass: "kill_switch",
-      reason:
-        "Robinhood Chain preparation remains registry-disabled until config.yaml index wiring",
-      sourceSequence: "201",
-      finalityPolicyVersion: "robinhood-unproven.v1",
       prepareAdapterId: "unsupported",
       prepareAdapterVersion: ADAPTER_VERSION,
     };

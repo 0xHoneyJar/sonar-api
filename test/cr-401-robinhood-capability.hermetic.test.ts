@@ -120,20 +120,21 @@ describe("CR-401 recognize versus index declarations", () => {
     expect(snapshot.networks[0]?.index_support).toBe(true);
   });
 
-  it("keeps default catalog kill-switched and absent from default search", () => {
+  it("default catalog enables Robinhood in default search (CR-RECOG-RH)", () => {
     const snapshot = expectSuccess(
       decodeCapabilityRegistrySnapshot(defaultMainnetRegistryInput()),
     );
     const robinhood = snapshot.networks.find(
       (network) => network.network.network_reference === ROBINHOOD_MAINNET_CHAIN_ID,
     )!;
-    expect(robinhood.kill_switch).toBe(true);
-    expect(robinhood.operations.recognize.enabled).toBe(false);
+    expect(robinhood.kill_switch).toBe(false);
+    expect(robinhood.operations.recognize.enabled).toBe(true);
+    expect(robinhood.index_support).toBe(true);
 
     const keys = selectDefaultRecognizeNetworks(snapshot).map(
       (hit) => `${hit.network.network.network_namespace}:${hit.network.network.network_reference}`,
     );
-    expect(keys).not.toContain("eip155:4663");
+    expect(keys).toContain("eip155:4663");
     expect(keys).not.toContain("eip155:46630");
   });
 
@@ -352,7 +353,7 @@ describe("CR-401 EVM NFT probe fixture", () => {
 });
 
 describe("CR-401 Kitchen preparation boundary (honest production gate)", () => {
-  it("keeps Kitchen prepare disabled until config.yaml index wiring lands", async () => {
+  it("enables Kitchen prepare once config.yaml index wiring lands (CR-RECOG-RH)", async () => {
     const preparation = await resolvePreparationCapability({
       network: {
         schema_version: 1,
@@ -362,10 +363,11 @@ describe("CR-401 Kitchen preparation boundary (honest production gate)", () => {
       tokenStandard: "erc721",
     });
     expect(preparation).toMatchObject({
-      enabled: false,
-      health: "disabled",
-      reasonClass: "kill_switch",
-      prepareAdapterId: "unsupported",
+      enabled: true,
+      health: "available",
+      reasonClass: "healthy",
+      prepareAdapterId: "belt.evm-erc721",
+      finalityPolicyVersion: "robinhood-finalized.v1",
     });
   });
 });

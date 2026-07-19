@@ -175,16 +175,18 @@ describe("canonical collection preparation", () => {
       error: { code: "unsupported_network" },
     });
 
-    const disabled = await request(evmRequest({
+    // Robinhood (4663) is preparation-available after CR-RECOG-RH belt wiring.
+    const robinhood = await request(evmRequest({
       network: {
         schema_version: 1,
         network_namespace: "eip155",
         network_reference: "4663",
       },
+      address: "0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0",
     }));
-    expect(disabled.status).toBe(409);
-    await expect(disabled.json()).resolves.toMatchObject({
-      error: { code: "capability_disabled", reason_class: "kill_switch" },
+    expect(robinhood.status).toBe(202);
+    await expect(robinhood.json()).resolves.toMatchObject({
+      status: "queued",
     });
 
     const degradedApp = createKitchenApp({

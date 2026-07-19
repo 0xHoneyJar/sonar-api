@@ -41,4 +41,15 @@ describe("operation-scoped preparation capability", () => {
       unsupportedStandard.capabilityVersion,
     ]).size).toBe(3);
   });
+
+  it("enables Robinhood Chain preparation for erc721", async () => {
+    const rh = await resolvePreparationCapability({
+      network: network("4663"),
+      tokenStandard: "erc721",
+    });
+    expect(rh.enabled).toBe(true);
+    expect(rh.health).toBe("available");
+    expect(rh.finalityPolicyVersion).toBe("robinhood-finalized.v1");
+    expect(rh.prepareAdapterId).toBe("belt.evm-erc721");
+  });
 });

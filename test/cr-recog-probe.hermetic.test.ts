@@ -51,10 +51,10 @@ const networkKeys = (
   );
 
 describe("CR-RECOG-PROBE default live recognize set", () => {
-  it("includes Eth / Base / OP / Arb / Berachain when healthy (≤8)", () => {
+  it("includes Eth / Base / OP / Arb / Berachain / Robinhood when healthy (≤8)", () => {
     const networks = defaultLiveRecognizeNetworkCapabilities();
     expect(networks.length).toBeLessThanOrEqual(8);
-    expect(networks.length).toBe(5);
+    expect(networks.length).toBe(6);
 
     const snapshot = expectSuccess(
       decodeCapabilityRegistrySnapshot({
@@ -74,12 +74,14 @@ describe("CR-RECOG-PROBE default live recognize set", () => {
       "eip155:8453",
       "eip155:10",
       "eip155:42161",
+      "eip155:4663", // robinhood priority 55
     ]);
     expect(keys).toContain("eip155:80094");
+    expect(keys).toContain("eip155:4663");
     expect(keys.length).toBeLessThanOrEqual(8);
   });
 
-  it("full default catalog still surfaces Berachain for bare EVM search", () => {
+  it("full default catalog surfaces Berachain and Robinhood for bare EVM search", () => {
     const snapshot = expectSuccess(
       decodeCapabilityRegistrySnapshot(defaultMainnetRegistryInput()),
     );
@@ -92,8 +94,8 @@ describe("CR-RECOG-PROBE default live recognize set", () => {
     expect(keys).toContain("eip155:8453");
     expect(keys).toContain("eip155:10");
     expect(keys).toContain("eip155:42161");
+    expect(keys).toContain("eip155:4663");
     expect(keys.every((k) => k.startsWith("eip155:"))).toBe(true);
-    expect(keys).not.toContain("eip155:4663");
   });
 
   it("excludes Berachain from default search when recognize is degraded", () => {
@@ -194,6 +196,7 @@ describe("CR-RECOG-PROBE CAIP-10 / chain-qualified identifiers", () => {
         "eip155:10": { kind: "miss" },
         "eip155:42161": { kind: "miss" },
         "eip155:80094": { kind: "miss" },
+        "eip155:4663": { kind: "miss" },
       } as never,
     });
 
@@ -215,6 +218,46 @@ describe("CR-RECOG-PROBE CAIP-10 / chain-qualified identifiers", () => {
     ).toEqual(["eip155:80094"]);
   });
 
+  it("CAIP-10 Robinhood qualifier pins StonkBrokers chain only", () => {
+    const snapshot = expectSuccess(
+      decodeCapabilityRegistrySnapshot({
+        schema_version: CAPABILITY_REGISTRY_SCHEMA_VERSION,
+        version: {
+          registry_epoch: DEFAULT_REGISTRY_EPOCH,
+          registry_sequence: "4",
+        },
+        networks: defaultLiveRecognizeNetworkCapabilities(),
+      }),
+    );
+    const { deps, config } = createHermeticBoundedDeps({
+      capabilitySnapshot: snapshot,
+      script: {
+        "eip155:1": { kind: "miss" },
+        "eip155:8453": { kind: "miss" },
+        "eip155:10": { kind: "miss" },
+        "eip155:42161": { kind: "miss" },
+        "eip155:80094": { kind: "miss" },
+        "eip155:4663": { kind: "miss" },
+      } as never,
+    });
+
+    const response = expectSuccess(
+      resolveBounded({
+        request: hermeticResolveRequest(
+          "eip155:4663:0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0",
+        ),
+        config: config ?? defaultBoundedResolverConfig(),
+        deps,
+      }),
+    );
+
+    expect(
+      response.diagnostics.searched.map(
+        (n) => `${n.network_namespace}:${n.network_reference}`,
+      ),
+    ).toEqual(["eip155:4663"]);
+  });
+
   it("bare address fanout lists every searched live-default chain in diagnostics", () => {
     const snapshot = expectSuccess(
       decodeCapabilityRegistrySnapshot({
@@ -234,6 +277,7 @@ describe("CR-RECOG-PROBE CAIP-10 / chain-qualified identifiers", () => {
         "eip155:10": { kind: "miss" },
         "eip155:42161": { kind: "miss" },
         "eip155:80094": { kind: "miss" },
+        "eip155:4663": { kind: "miss" },
       } as never,
     });
 
@@ -255,6 +299,7 @@ describe("CR-RECOG-PROBE CAIP-10 / chain-qualified identifiers", () => {
       "eip155:1",
       "eip155:10",
       "eip155:42161",
+      "eip155:4663",
       "eip155:80094",
       "eip155:8453",
     ]);
@@ -340,6 +385,7 @@ describe("CR-RECOG-PROBE Kitchen catalog runtime", () => {
       "eip155:1",
       "eip155:10",
       "eip155:42161",
+      "eip155:4663",
       "eip155:80094",
       "eip155:8453",
     ]);

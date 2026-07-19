@@ -75,9 +75,10 @@ custody is CR-013; this worktree uses fixture keys only.
 - Baseline epoch resets require a signature over the complete baseline
   **binding digest** (predecessor identity + candidate identity + snapshot digest);
   this worktree ships the port + hermetic verifier, not production signing keys.
-- Robinhood Chain `eip155:4663` is disabled (or recognize-only in staging
-  fixtures) until CR-401. Solana prepare/index awaits CR-402.
-  Downstream Ordering/report wiring: CR-103 / CR-104.
+- Robinhood Chain `eip155:4663` is enabled for recognize + index
+  (`robinhoodMainnetCapability`; belt `config.yaml` id 4663). Disabled /
+  recognize-only fixtures remain for hermetic kill-switch tests. Solana
+  prepare/index awaits CR-402. Downstream Ordering/report wiring: CR-103 / CR-104.
 
 ## Bounded resolver core (CR-102)
 

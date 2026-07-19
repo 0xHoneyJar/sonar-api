@@ -2,9 +2,9 @@
  * CR-101 mainnet capability fixtures.
  *
  * Only networks with current Sonar adapter/indexer evidence are marked live.
- * Robinhood Chain (EIP-155 4663) ships disabled in the default catalog; CR-401
- * proven fixtures (`robinhoodMainnetCapability`) exercise enable/disable paths.
- * Testnets are omitted from the default catalog.
+ * Robinhood Chain (EIP-155 4663) ships enabled in the default catalog and live
+ * recognize fanout (CR-RECOG-RH). Disabled / recognize-only fixtures remain for
+ * hermetic kill-switch and staging tests. Testnets are omitted from the default catalog.
  */
 import {
   COLLECTION_PROTOCOL_SCHEMA_VERSION,
@@ -583,10 +583,10 @@ export const robinhoodRecognizeOnlyCapability = (): NetworkCapability => ({
 });
 
 /**
- * Kitchen live resolve-probe default recognize set (CR-RECOG-PROBE).
+ * Kitchen live resolve-probe default recognize set (CR-RECOG-PROBE + CR-RECOG-RH).
  *
  * Bare EVM addresses fan out across these healthy mainnet rows (≤ SEAM max 8).
- * Berachain is included so Score-indexed belt NFTs are searchable without a
+ * Berachain + Robinhood are included so belt NFTs are searchable without a
  * CAIP-10 qualifier. Zora / Solana remain in the full default catalog but are
  * not required for the Ordering tenderly-style multi-chain cut.
  */
@@ -596,9 +596,10 @@ export const defaultLiveRecognizeNetworkCapabilities = (): NetworkCapability[] =
   baseMainnetCapability(),
   optimismMainnetCapability(),
   arbitrumMainnetCapability(),
+  robinhoodMainnetCapability(),
 ];
 
-/** Default mainnet catalog: live evidence networks + Robinhood disabled placeholder. */
+/** Default mainnet catalog: live evidence networks including Robinhood index-capable. */
 export const defaultMainnetNetworkCapabilities = (): NetworkCapability[] => [
   berachainMainnetCapability(),
   ethereumMainnetCapability(),
@@ -607,7 +608,7 @@ export const defaultMainnetNetworkCapabilities = (): NetworkCapability[] => [
   optimismMainnetCapability(),
   arbitrumMainnetCapability(),
   zoraMainnetCapability(),
-  robinhoodDisabledCapability(),
+  robinhoodMainnetCapability(),
 ];
 
 export const DEFAULT_REGISTRY_EPOCH = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
