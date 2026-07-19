@@ -5,7 +5,15 @@
 > This file contains project-specific customizations that take precedence over the framework instructions.
 > The framework instructions are loaded via the `@` import above.
 
-## Context Intake Discipline (read FIRST at session start)
+## Agent Arrival (read FIRST — before KF, PRD, or grep)
+
+**Door:** [`grimoires/loa/ARRIVAL.md`](grimoires/loa/ARRIVAL.md)
+
+That file is the compressed intake: load order, closed questions (Envio not
+Ponder, Node ≥22, NftActivity is not a GraphQL entity, which PRD), alias card,
+and an explicit DO-NOT-READ list. Prefer erasure over opening more docs.
+
+## Context Intake Discipline (read SECOND — KF index only)
 
 Before any substantive work — before reading PRD/SDD/sprint, before grepping
 the codebase, before drafting a plan — every agent in this repo MUST read:
@@ -35,7 +43,9 @@ it only works if every session contributes.
 
 ## Project Overview
 
-THJ Envio is a blockchain indexer built with the Envio framework for indexing on-chain events related to The Honey Jar ecosystem on Berachain.
+**freeside-sonar** (package `envio-indexer`, config `thj-indexer`) — self-hosted
+Envio HyperIndex belt for The Honey Jar / Freeside: **6 EVM chains + Solana**,
+Hasura GraphQL, Kitchen onboarding, promote/gateway ops. Details: `ARRIVAL.md`.
 
 ## How This Works
 
@@ -46,6 +56,8 @@ THJ Envio is a blockchain indexer built with the Envio framework for indexing on
 
 ## Related Documentation
 
+- `grimoires/loa/ARRIVAL.md` - **Agent door** (start here)
+- `grimoires/loa/reality/` - Code-map spokes (`/reality`)
 - `.claude/loa/CLAUDE.loa.md` - Framework-managed instructions (auto-updated)
 - `.loa.config.yaml` - User configuration file
 - `PROCESS.md` - Detailed workflow documentation
