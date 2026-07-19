@@ -84,10 +84,26 @@ jq -e '
 ' "$RECEIPT" >/dev/null ||
   fail "RECEIPT_SCHEMA_INVALID" "Promotion receipt fields or invariants are invalid"
 
+normalize_remote() {
+  # Compare repositories by identity, not exact URL spelling. A local clone
+  # yields "https://github.com/OWNER/REPO.git" while GitHub Actions checkout
+  # yields "https://github.com/OWNER/REPO" (and SSH/token remotes add a
+  # "user@" prefix or "host:owner" form). Reduce every variant to a
+  # scheme-less "host/owner/repo" so the same approved repo matches in every
+  # environment. This narrows nothing security-relevant: host/owner/repo is
+  # the repository identity, so two different repos can never collide.
+  local url="$1"
+  url="${url%.git}"     # drop a trailing .git
+  url="${url#*://}"     # drop the scheme (https:// / ssh://)
+  url="${url##*@}"      # drop optional userinfo (user:token@ / git@)
+  url="${url/:/\/}"     # ssh "host:owner" → "host/owner"
+  printf '%s' "$url"
+}
+
 expected_remote="$(jq -r '.remote' "$RECEIPT")"
 actual_remote="$(git -C "$ROOT" remote get-url origin 2>/dev/null)" ||
   fail "REMOTE_MISSING" "Git origin is unavailable"
-[[ "$actual_remote" == "$expected_remote" ]] ||
+[[ "$(normalize_remote "$actual_remote")" == "$(normalize_remote "$expected_remote")" ]] ||
   fail "REMOTE_MISMATCH" "Git origin does not match the approved repository"
 
 base_commit="$(jq -r '.base_commit' "$RECEIPT")"
