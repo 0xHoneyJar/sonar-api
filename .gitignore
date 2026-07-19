@@ -164,8 +164,12 @@ grimoires/loa/decisions.yaml
 grimoires/loa/consistency-report.md
 grimoires/loa/drift-report.md
 grimoires/loa/gaps.md
+# Track gaps.md when present — closed-questions ledger for agents (ARRIVAL).
+!grimoires/loa/gaps.md
 grimoires/loa/governance-report.md
 grimoires/loa/trajectory-audit.md
+# Agent door (never ignore)
+!grimoires/loa/ARRIVAL.md
 
 # /schedule skill runtime locks
 .claude/scheduled_tasks.lock
@@ -192,6 +196,8 @@ grimoires/loa/**/sdd*.md.*-bak
 
 # Archived development cycles (project-specific history)
 grimoires/loa/archive/
+# Keep the NOTES erasure archive discoverable (pointer from NOTES.md / ARRIVAL)
+!grimoires/loa/archive/NOTES-ledger-*.md
 
 # Agent-to-Agent communication (sprint-specific, generated)
 # README.md files are kept to explain the directory purpose
@@ -216,9 +222,12 @@ grimoires/loa/a2a/subagent-reports/*.md
 grimoires/loa/deployment/*
 !grimoires/loa/deployment/README.md
 
-# Reality extraction (codebase-specific)
+# Reality extraction (codebase-specific raw dumps stay local)
 grimoires/loa/reality/*
 !grimoires/loa/reality/README.md
+# Track the agent hub + spokes (ARRIVAL load-order depends on these)
+!grimoires/loa/reality/*.md
+!grimoires/loa/reality/.reality-meta.json
 
 # Analytics (usage tracking, developer-specific)
 grimoires/loa/analytics/*

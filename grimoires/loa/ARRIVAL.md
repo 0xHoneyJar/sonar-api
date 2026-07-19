@@ -34,7 +34,7 @@ Optional fifth (ops scars only): `INDEX.md` → jump to one `KF-NNN` **Reading g
 | Is `NftActivity` a GraphQL entity? | **No.** Package DTO from `@0xhoneyjar/events`, mapped in `src/canonical/`. PG ownership surface includes `Token` (`schema.graphql:350`). | `src/canonical/map-evm.ts` |
 | Which PRD? | **Feature work → `prd.md`/`sdd.md` on this branch tip (main: Sonar→Score truth contract).** Named siblings (`prd-belt-zero-downtime.md`, onboarding drafts) are parallel tracks. Code snapshot → `reality/as-built-*.md`. | `prd.md` header |
 | Semver tags? | **None by design here.** Identity = git SHA + Railway deploy, not `v*`. | `git tag` empty; governance-report |
-| SQD parallel loader? | **Present** (`src/svm/sqd-parallel-loader.ts`, 13/13 tests). Restored 2026-07-19 from `9c33df84`. | GAP-002 closed |
+| SQD parallel loader? | **Present** (`src/svm/sqd-parallel-loader.ts`). Tests: `pnpm test:sqd-parallel`. Run: `pnpm sqd:parallel -- --collection <key> --from-slot 0 --concurrency 20`. Restored from `9c33df84`. | GAP-002 closed |
 
 ## Alias card (erase naming thrash)
 
@@ -46,6 +46,7 @@ Optional fifth (ops scars only): `INDEX.md` → jump to one `KF-NNN` **Reading g
 | green belt | `config.yaml` + `src/EventHandlers.ts` | Live multi-chain indexer |
 | Kitchen | `src/kitchen/` | HTTP collection onboarding |
 | promote | `scripts/promote.sh` | Swap `BELT_UPSTREAM` after gate |
+| sqd:parallel | `package.json` script | GATE-3 range-partitioned SVM backfill CLI |
 
 ## DO NOT READ (unless the task names them)
 

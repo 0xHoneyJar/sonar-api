@@ -32,4 +32,12 @@ _None. Prefer ARRIVAL.md closed-questions over inventing new intake gaps._
 
 ### GAP-006-4d9f: Active planning PRD vs as-built ride docs dual SoT
 - **Status**: RESOLVED · **Closed**: 2026-07-19
-- **Resolution**: Single routing card in `ARRIVAL.md` + `reality/index.md`. Planning = `prd.md`/`sdd.md`; as-built = `reality/as-built-*.md`; belt sibling named. Fixed `sdd.md` hallucinated self-sibling + wrong PRD path.
+- **Resolution**: Single routing card in `ARRIVAL.md` + `reality/index.md`. On **main**, planning = Sonar→Score `prd.md`/`sdd.md` (door pointer only — do not overwrite). As-built = `reality/as-built-*.md`. Named siblings are parallel tracks.
+
+### GAP-007-4d9f: reality/README claimed empty template while hub existed
+- **Status**: RESOLVED · **Closed**: 2026-07-19
+- **Resolution**: Rewrote `reality/README.md` to point at ARRIVAL + `index.md`. Gitignore allowlists hub/spokes + `gaps.md` + NOTES archive so the door cannot rot out of git.
+
+### GAP-008-4d9f: Parallel loader unrestorable-by-name (no package script)
+- **Status**: RESOLVED · **Closed**: 2026-07-19
+- **Resolution**: Added `pnpm test:sqd-parallel` + `pnpm sqd:parallel` and linked them from ARRIVAL closed questions.

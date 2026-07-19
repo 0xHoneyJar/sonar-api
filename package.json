@@ -12,6 +12,8 @@
     "test": "vitest run",
     "test:hasura": "vitest run test/hasura-contract",
     "test:gate": "vitest run test/sqd-45-gate-integration.test.ts",
+    "test:sqd-parallel": "vitest run src/svm/sqd-parallel-loader.test.ts",
+    "sqd:parallel": "tsx src/svm/sqd-parallel-loader.ts",
     "test:collection-resolver": "vitest run test/collection-resolver.hermetic.test.ts",
     "test:capability-registry": "vitest run test/capability-registry.hermetic.test.ts",
     "test:bounded-resolver": "vitest run test/bounded-resolver.hermetic.test.ts",

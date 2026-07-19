@@ -8,6 +8,7 @@
 |--------|---------|
 | `codegen` / `dev` / `start` | Envio codegen / dev / start |
 | `test` / `test:hasura` / `test:gate` | Vitest suite + Hasura contract + SQD §4.5 gate |
+| `test:sqd-parallel` / `sqd:parallel` | GATE-3 parallel SQD loader tests / CLI |
 | `verify:belt-*` / `verify:svm-contract` / `verify:action-contract` | Contract guards |
 | `validate:*-canonical` / `validate:evm-sales` | Live canonical validators |
 | `s5:parity-dryrun` | Canonical parity dry-run |
