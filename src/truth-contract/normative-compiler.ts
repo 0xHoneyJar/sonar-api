@@ -94,6 +94,32 @@ const maximumIndependentProviderSet = (
   return matched;
 };
 
+const hasSimultaneousIndependentQuorum = (
+  providers: ReadonlyArray<Provider>,
+  quorum: number,
+  requireDistinctAsn: boolean,
+  requireDistinctClient: boolean,
+): boolean => {
+  const choose = (start: number, selected: Array<Provider>): boolean => {
+    if (selected.length === quorum) {
+      const distinct = (field: (provider: Provider) => string): boolean =>
+        new Set(selected.map(field)).size === quorum;
+      return (
+        distinct((provider) => String(provider.operator)) &&
+        distinct((provider) => String(provider.control_domain)) &&
+        (!requireDistinctAsn || distinct((provider) => String(provider.asn))) &&
+        (!requireDistinctClient ||
+          distinct((provider) => String(provider.client_family)))
+      );
+    }
+    for (let index = start; index < providers.length; index += 1) {
+      if (choose(index + 1, [...selected, providers[index]!])) return true;
+    }
+    return false;
+  };
+  return quorum > 0 && choose(0, []);
+};
+
 const validateNetworkPolicy = (
   value: Extract<TruthNormativeObject, { readonly kind: "network_finality_policy" }>,
 ): Effect.Effect<void, TruthIntegrityError> => {
@@ -107,10 +133,34 @@ const validateNetworkPolicy = (
   }
   const invalidQuorum = value.networks.some((network) => {
     const quorum = BigInt(network.required_provider_quorum);
+    const providerIds = network.providers.map((provider) => String(provider.provider_id));
+    const operators = network.providers.map((provider) => String(provider.operator));
+    const controlDomains = network.providers.map((provider) =>
+      String(provider.control_domain),
+    );
+    const asns = network.providers.map((provider) => String(provider.asn));
+    const clients = network.providers.map((provider) => String(provider.client_family));
+    const methodInvalid =
+      network.finality_method === "FINALIZED_TAG"
+        ? network.finalized_tag !== "finalized" || network.minimum_block_depth !== null
+        : network.finalized_tag !== null || network.minimum_block_depth === null;
     return (
       quorum === 0n ||
       quorum > BigInt(network.providers.length) ||
-      quorum > BigInt(maximumIndependentProviderSet(network.providers))
+      quorum > BigInt(maximumIndependentProviderSet(network.providers)) ||
+      !hasSimultaneousIndependentQuorum(
+        network.providers,
+        Number(quorum),
+        network.require_distinct_asn,
+        network.require_distinct_client_family,
+      ) ||
+      new Set(providerIds).size !== providerIds.length ||
+      new Set(operators).size < Number(quorum) ||
+      new Set(controlDomains).size < Number(quorum) ||
+      (network.require_distinct_asn && new Set(asns).size < Number(quorum)) ||
+      (network.require_distinct_client_family &&
+        new Set(clients).size < Number(quorum)) ||
+      methodInvalid
     );
   });
   return invalidQuorum
@@ -125,7 +175,10 @@ const validateActivityProfiles = (
   const invalidWindow = value.profiles.some(
     (profile) =>
       new Date(profile.evidence_window_end).getTime() <=
-      new Date(profile.evidence_window_start).getTime(),
+        new Date(profile.evidence_window_start).getTime() ||
+      (profile.effective_until !== null &&
+        new Date(profile.effective_until).getTime() <=
+          new Date(profile.effective_from).getTime()),
   );
   return new Set(ids).size !== ids.length || invalidWindow
     ? Effect.fail(
@@ -145,13 +198,71 @@ const validateIdentitySnapshot = (
   );
   const aliases = value.bindings.flatMap((binding) => binding.aliases.map(String));
   const canonicalIds = new Set(collectionIds);
+  const invalidBinding = value.bindings.some((binding) => {
+    const hasImplementation =
+      binding.implementation_address !== null &&
+      binding.implementation_code_hash !== null;
+    const proxyComplete =
+      (binding.proxy_kind === "NONE" &&
+        binding.implementation_address === null &&
+          binding.implementation_code_hash === null &&
+        binding.upgrade_mechanism === "IMMUTABLE") ||
+      (binding.proxy_kind === "MINIMAL" &&
+        hasImplementation &&
+        binding.upgrade_mechanism === "IMMUTABLE") ||
+      (binding.proxy_kind === "EIP1967" &&
+        hasImplementation &&
+        binding.upgrade_mechanism === "ADMIN") ||
+      (binding.proxy_kind === "BEACON" &&
+        hasImplementation &&
+        binding.upgrade_mechanism === "BEACON");
+    const validity =
+      binding.valid_until === null ||
+      new Date(binding.valid_until).getTime() > new Date(binding.valid_from).getTime();
+    const contestCoherent =
+      binding.contest_state === "CLEAR"
+        ? binding.effective_status._tag !== "SUSPENDED"
+        : binding.effective_status._tag !== "READY";
+    return !proxyComplete || !validity || !contestCoherent;
+  });
   const invalid =
     new Set(collectionIds).size !== collectionIds.length ||
     new Set(deployedIdentities).size !== deployedIdentities.length ||
     new Set(aliases).size !== aliases.length ||
-    aliases.some((alias) => canonicalIds.has(alias));
+    aliases.some((alias) => canonicalIds.has(alias)) ||
+    invalidBinding;
   return invalid
     ? Effect.fail(semanticFailure("identity snapshot contains conflicting bindings"))
+    : Effect.void;
+};
+
+const validateEventVocabulary = (
+  value: Extract<TruthNormativeObject, { readonly kind: "event_vocabulary" }>,
+): Effect.Effect<void, TruthIntegrityError> => {
+  const eventKinds = value.events.map((event) => String(event.event_kind));
+  const denominatorKeys = value.denominator_members.map((member) =>
+    [
+      member.canonical_collection_id,
+      member.chain_id,
+      member.canonical_address,
+      member.event_signature,
+    ].join("\0"),
+  );
+  const invalidLegs = value.events.some((event) => {
+    const kinds = event.semantic_legs.map((leg) => String(leg.leg_kind));
+    const precedence = event.semantic_legs.map((leg) => String(leg.precedence));
+    return (
+      new Set(kinds).size !== kinds.length ||
+      new Set(precedence).size !== precedence.length ||
+      event.semantic_legs.some((leg) => !leg.denominator_member)
+    );
+  });
+  return new Set(eventKinds).size !== eventKinds.length ||
+    new Set(denominatorKeys).size !== denominatorKeys.length ||
+    invalidLegs
+    ? Effect.fail(
+        semanticFailure("event vocabulary or closed denominator is ambiguous"),
+      )
     : Effect.void;
 };
 
@@ -163,10 +274,7 @@ const validateObjectSemantics = (
     case "identity_snapshot":
       return validateIdentitySnapshot(value);
     case "event_vocabulary":
-      return requireUnique(
-        value.events.map((event) => String(event.event_kind)),
-        "duplicate event vocabulary kind",
-      );
+      return validateEventVocabulary(value);
     case "provenance_rules":
       return requireUnique(
         value.requirements.map((rule) => String(rule.event_kind)),
@@ -265,6 +373,68 @@ const validateEventProvenanceAgreement = (
     : Effect.void;
 };
 
+const validateProducerObjectAgreement = (
+  compiled: ReadonlyArray<CompiledNormativeObjectV1>,
+): Effect.Effect<void, TruthIntegrityError> => {
+  const identity = compiled.find((object) => object.value.kind === "identity_snapshot");
+  const events = compiled.find((object) => object.value.kind === "event_vocabulary");
+  const networks = compiled.find(
+    (object) => object.value.kind === "network_finality_policy",
+  );
+  const activities = compiled.find(
+    (object) => object.value.kind === "activity_profiles",
+  );
+  if (
+    identity?.value.kind !== "identity_snapshot" ||
+    events?.value.kind !== "event_vocabulary" ||
+    networks?.value.kind !== "network_finality_policy" ||
+    activities?.value.kind !== "activity_profiles"
+  ) {
+    return Effect.fail(closureFailure("producer closure object is missing"));
+  }
+  const bindings = new Map(
+    identity.value.bindings.map((binding) => [
+      String(binding.canonical_collection_id),
+      binding,
+    ]),
+  );
+  const members = new Map(
+    events.value.denominator_members.map((member) => [
+      String(member.canonical_collection_id),
+      member,
+    ]),
+  );
+  const profiles = new Map(
+    activities.value.profiles.map((profile) => [
+      String(profile.collection_id),
+      profile,
+    ]),
+  );
+  const networkPolicies = networks.value.networks;
+  const ids = [...bindings.keys()];
+  const exactCollections =
+    exactSet([...members.keys()], ids) && exactSet([...profiles.keys()], ids);
+  const mismatchedIdentity = ids.some((id) => {
+    const binding = bindings.get(id)!;
+    const member = members.get(id);
+    return (
+      member === undefined ||
+      String(member.chain_id) !== String(binding.chain_id) ||
+      member.canonical_address !== binding.canonical_address ||
+      !networkPolicies.some(
+        (network) => String(network.chain_id) === String(binding.chain_id),
+      )
+    );
+  });
+  return exactCollections && !mismatchedIdentity
+    ? Effect.void
+    : Effect.fail(
+        closureFailure(
+          "identity, denominator, network, and activity closure do not agree",
+        ),
+      );
+};
+
 const sortCompiledClosure = (
   compiled: ReadonlyArray<CompiledNormativeObjectV1>,
 ): ReadonlyArray<CompiledNormativeObjectV1> =>
@@ -318,5 +488,6 @@ export const compileNormativeClosure = (
     for (const input of inputs) compiled.push(yield* compileNormativeObject(input));
     yield* validateClosureShape(compiled);
     yield* validateEventProvenanceAgreement(compiled);
+    yield* validateProducerObjectAgreement(compiled);
     return sortCompiledClosure(compiled);
   });

@@ -386,7 +386,7 @@ export const berachainMainnetCapability = (): NetworkCapability => ({
   finality_policy: evmFinality({
     policyVersion: "berachain-finalized.v1",
     providerSetId: "berachain-source-head.v1",
-    confirmation: { kind: "block_depth", min_depth: 16 },
+    confirmation: { kind: "finalized_tag", finalized_tag: "finalized" },
     invalidationDepth: 32,
   }),
   kill_switch: false,

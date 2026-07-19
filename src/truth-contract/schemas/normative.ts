@@ -12,7 +12,7 @@ import {
   TruthIsoTimestamp,
 } from "./common.js";
 import { TRUTH_NORMATIVE_OBJECT_KINDS } from "./bundle.js";
-import { TruthEffectiveStatus } from "./readiness.js";
+import { TruthEffectiveStatus, TruthEvidenceRef } from "./readiness.js";
 
 const Version = TruthIdentifier;
 const IdentifierList = Schema.Array(TruthIdentifier).pipe(Schema.maxItems(128));
@@ -74,11 +74,34 @@ export class IdentityBindingV1 extends Schema.Class<IdentityBindingV1>(
   canonical_address: TruthIdentifier,
   aliases: IdentifierList,
   config_digest: Sha256Digest,
+  config_source: TruthIdentifier,
   observed_height: DecimalUint64,
   observed_hash: Sha256Digest,
   observed_at: TruthIsoTimestamp,
   finality_policy_version: Version,
   deployed_identity_hash: Sha256Digest,
+  deployed_code_hash: Sha256Digest,
+  proxy_kind: Schema.Literal(
+    "NONE",
+    "EIP1967",
+    "BEACON",
+    "MINIMAL",
+    "UNRESOLVABLE",
+  ),
+  implementation_address: Schema.NullOr(TruthIdentifier),
+  implementation_code_hash: Schema.NullOr(Sha256Digest),
+  upgrade_mechanism: Schema.Literal(
+    "IMMUTABLE",
+    "ADMIN",
+    "BEACON",
+    "METAMORPHIC",
+    "UNRESOLVABLE",
+  ),
+  valid_from: TruthIsoTimestamp,
+  valid_until: Schema.NullOr(TruthIsoTimestamp),
+  supersedes_snapshot: Schema.NullOr(Version),
+  contest_state: Schema.Literal("CLEAR", "CONTESTED", "UNSUPPORTED"),
+  evidence: Schema.Array(TruthEvidenceRef).pipe(Schema.minItems(1), Schema.maxItems(128)),
   effective_status: TruthEffectiveStatus,
 }) {}
 
@@ -101,8 +124,45 @@ export class EventKindContractV1 extends Schema.Class<EventKindContractV1>(
   required_provenance: IdentifierList.pipe(Schema.minItems(1)),
   user_meaning: TruthFreeText,
   non_user_legs: IdentifierList,
+  semantic_legs: Schema.Array(
+    Schema.Struct({
+      leg_kind: Schema.Literal(
+        "MINT",
+        "BURN",
+        "STAKING_INGRESS",
+        "STAKING_EGRESS",
+        "DIRECT_TRANSFER",
+        "UNCLASSIFIED_INTERMEDIARY",
+      ),
+      precedence: DecimalUint64,
+      user_meaning: Schema.Boolean,
+      ownership_effect: Schema.Literal(
+        "ACQUIRE",
+        "RELEASE",
+        "PRESERVE_EFFECTIVE_OWNER",
+        "TRANSFER",
+        "UNKNOWN",
+      ),
+      required_provenance: IdentifierList.pipe(Schema.minItems(1)),
+      denominator_member: Schema.Boolean,
+    }),
+  ).pipe(Schema.minItems(1), Schema.maxItems(32)),
   denominator_membership: TruthIdentifier,
   breaking_change_rules: IdentifierList.pipe(Schema.minItems(1)),
+}) {}
+
+export class EventDenominatorMemberV1 extends Schema.Class<EventDenominatorMemberV1>(
+  "EventDenominatorMemberV1",
+)({
+  canonical_collection_id: TruthIdentifier,
+  chain_id: DecimalUint64,
+  contract_name: TruthIdentifier,
+  canonical_address: TruthIdentifier,
+  event_name: TruthIdentifier,
+  event_signature: TruthFreeText,
+  topic0: Sha256Digest,
+  start_height: DecimalUint64,
+  handler_reference: TruthIdentifier,
 }) {}
 
 export class EventVocabularyObjectV1 extends Schema.Class<EventVocabularyObjectV1>(
@@ -111,6 +171,12 @@ export class EventVocabularyObjectV1 extends Schema.Class<EventVocabularyObjectV
   kind: Schema.Literal("event_vocabulary"),
   schema_version: Schema.Literal(TRUTH_CONTRACT_SCHEMA_VERSION),
   version: Version,
+  denominator_scope: Schema.Literal("CLOSED"),
+  denominator_manifest_hash: Sha256Digest,
+  denominator_members: Schema.Array(EventDenominatorMemberV1).pipe(
+    Schema.minItems(1),
+    Schema.maxItems(10_000),
+  ),
   events: Schema.Array(EventKindContractV1).pipe(Schema.minItems(1), Schema.maxItems(512)),
 }) {}
 
@@ -221,9 +287,12 @@ export class ProviderIndependenceV1 extends Schema.Class<ProviderIndependenceV1>
 )({
   provider_id: TruthIdentifier,
   operator: TruthIdentifier,
+  legal_entity: TruthIdentifier,
   control_domain: TruthIdentifier,
   network_path: TruthIdentifier,
+  asn: TruthIdentifier,
   client_family: TruthIdentifier,
+  upstream_source: TruthIdentifier,
 }) {}
 
 export class NetworkPolicyV1 extends Schema.Class<NetworkPolicyV1>("NetworkPolicyV1")({
@@ -231,9 +300,17 @@ export class NetworkPolicyV1 extends Schema.Class<NetworkPolicyV1>("NetworkPolic
   chain_family: Schema.Literal("EVM"),
   chain_id: DecimalUint64,
   finality_policy_version: Version,
-  confirmations: DecimalUint64,
+  finality_method: Schema.Literal("FINALIZED_TAG", "BLOCK_DEPTH"),
+  finalized_tag: Schema.NullOr(Schema.Literal("finalized")),
+  minimum_block_depth: Schema.NullOr(DecimalUint64),
+  ethereum_depth_fallback_allowed: Schema.Literal(false),
   poll_interval_seconds: Schema.Literal(60),
   required_provider_quorum: DecimalUint64,
+  require_distinct_asn: Schema.Boolean,
+  require_distinct_client_family: Schema.Boolean,
+  observation_ttl_seconds: PositiveDecimalUint64,
+  readiness_ttl_seconds: PositiveDecimalUint64,
+  max_future_skew_seconds: Schema.Literal(60),
   providers: Schema.Array(ProviderIndependenceV1).pipe(
     Schema.minItems(1),
     Schema.maxItems(16),
@@ -256,14 +333,21 @@ export class ActivityProfileV1 extends Schema.Class<ActivityProfileV1>(
   collection_id: TruthIdentifier,
   owner: TruthIdentifier,
   expected_event_window_seconds: PositiveDecimalUint64,
+  collection_launch_interval_seconds: PositiveDecimalUint64,
   source_head_cadence_seconds: PositiveDecimalUint64,
   cursor_cadence_seconds: PositiveDecimalUint64,
+  provider_heartbeat_cadence_seconds: PositiveDecimalUint64,
+  cross_source_availability_required: Schema.Boolean,
+  quiet_window_permitted: Schema.Boolean,
+  expected_event_distribution: TruthIdentifier,
   evidence_window_start: TruthIsoTimestamp,
   evidence_window_end: TruthIsoTimestamp,
   denominator: PositiveDecimalUint64,
   backtest_digest: Sha256Digest,
+  confidence_basis: TruthIdentifier,
   approval: TruthIdentifier,
   effective_from: TruthIsoTimestamp,
+  effective_until: Schema.NullOr(TruthIsoTimestamp),
   supersedes_version: Schema.NullOr(Version),
 }) {}
 

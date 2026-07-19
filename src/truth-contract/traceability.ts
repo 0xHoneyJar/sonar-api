@@ -13,9 +13,9 @@ export interface TruthRequirementTrace {
 export const TRUTH_REQUIREMENT_TRACEABILITY: ReadonlyArray<TruthRequirementTrace> =
   Object.freeze([
     { requirement: "FR-1", status: "implemented", modules: ["src/truth-contract/schemas/bundle.ts", "src/truth-contract/canonical.ts", "src/truth-contract/bundle-compiler.ts"], tests: ["test/truth-contract.bundle.test.ts"], owner: "bd-v54z.15.3" },
-    { requirement: "FR-2", status: "planned", modules: ["src/truth-contract/identity-snapshot.ts"], tests: ["test/truth-contract.identity-snapshot.test.ts"], owner: "bd-v54z.17.1" },
-    { requirement: "FR-3", status: "planned", modules: ["src/truth-contract/event-vocabulary.ts", "src/truth-contract/provenance.ts"], tests: ["test/truth-contract.event-provenance.test.ts"], owner: "bd-v54z.17.2" },
-    { requirement: "FR-4", status: "planned", modules: ["src/truth-contract/readiness-evaluator.ts"], tests: ["test/truth-contract.readiness.test.ts"], owner: "bd-v54z.17.3" },
+    { requirement: "FR-2", status: "implemented", modules: ["src/truth-contract/schemas/normative.ts", "src/truth-contract/identity-compiler.ts", "src/truth-contract/producer-generation.ts"], tests: ["test/truth-contract.identity-compiler.test.ts", "test/truth-contract.producer-generation.test.ts"], owner: "bd-v54z.17.1" },
+    { requirement: "FR-3", status: "implemented", modules: ["src/truth-contract/schemas/normative.ts", "src/truth-contract/normative-compiler.ts", "src/truth-contract/producer-generation.ts"], tests: ["test/truth-contract.normative.test.ts", "test/truth-contract.producer-generation.test.ts"], owner: "bd-v54z.17.2" },
+    { requirement: "FR-4", status: "implemented", modules: ["src/truth-contract/schemas/readiness.ts", "src/truth-contract/readiness-evaluator.ts"], tests: ["test/truth-contract.readiness.test.ts"], owner: "bd-v54z.17.3" },
     { requirement: "FR-5", status: "planned", modules: ["src/truth-contract/reconciliation.ts"], tests: ["test/truth-contract.reconciliation.test.ts"], owner: "bd-v54z.18.2" },
     { requirement: "FR-6", status: "planned", modules: ["src/truth-contract/consumption.ts"], tests: ["test/truth-contract.consumption.test.ts"], owner: "bd-v54z.19.2" },
     { requirement: "FR-7", status: "planned", modules: ["src/truth-contract/compatibility.ts"], tests: ["test/truth-contract.compatibility.test.ts"], owner: "bd-v54z.19.2" },
