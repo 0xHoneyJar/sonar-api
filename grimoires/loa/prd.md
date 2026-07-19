@@ -13,8 +13,6 @@ implementation_authorized: true
 
 # Product Requirements Document — Sonar to Score Truth Contract
 
-> **Agent door**: [`grimoires/loa/ARRIVAL.md`](ARRIVAL.md) — load order + closed questions before expanding context.
-
 ## 1. Product truth
 
 > Sources: `sonar-score-issue-registry-2026-07-18.md`; `sonar-score-lineage-2026-07-18.md`

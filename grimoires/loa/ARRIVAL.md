@@ -14,6 +14,8 @@ CODE  >  reality/  >  planning prd/sdd  >  legacy docs / NOTES sludge
 
 Nothing below overrides `src/`, `config.yaml`, `schema.graphql`, `package.json`.
 
+> **Note:** `prd.md` / `sdd.md` are digest-sealed by `promotion-receipt.sonar-score-v1.json`. Do not add banners there — this file is the door.
+
 ## Load order (max 4 files before coding)
 
 | # | If you need… | Load |

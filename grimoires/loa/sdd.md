@@ -13,8 +13,6 @@ implementation_authorized: true
 
 # Software Design Document — Sonar to Score Truth Contract
 
-> **Agent door**: [`grimoires/loa/ARRIVAL.md`](ARRIVAL.md) — load order + closed questions before expanding context.
-
 ## 1. Project Architecture
 
 > Sources: `grimoires/loa/prd.md`; Sonar/Score issue registry and lineage packet
