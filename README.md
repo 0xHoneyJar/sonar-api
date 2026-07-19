@@ -9,6 +9,8 @@
 
 Repo `0xHoneyJar/thj-envio` · upstream `moose-code/thj` · config name `thj-indexer` · maintainer **zerker**.
 
+**Agents:** start at [`grimoires/loa/ARRIVAL.md`](grimoires/loa/ARRIVAL.md) — compressed intake (load order, closed questions, what *not* to read). Do not begin in `NOTES.md`.
+
 **Try it now** — query live production (no auth for reads):
 
 ```bash
@@ -51,18 +53,10 @@ curl -s -X POST https://sonar.0xhoneyjar.xyz/v1/graphql \
 ```
 
 ```bash
-# 4. Kitchen: is a collection indexed? then enqueue (set KITCHEN_API_URL to your kitchen host)
-curl -s -H "authorization: Bearer $SERVICE_TOKEN" \
-  "$KITCHEN_API_URL/v1/collections/1/0xed5af388653567af2f388e6224dc7c4b3241c544/status"
-# Batch admit (preferred for multi-collection waves; 1–50 items). Inspect `results[]`
-# even on HTTP 202 — mixed create/reject batches may return 207.
-curl -s -X POST "$KITCHEN_API_URL/v2/collection-preparations/batch" \
-  -H "authorization: Bearer $SERVICE_TOKEN" -H "content-type: application/json" \
-  -d '{"schema_version":1,"correlation":{"source":"ops","correlation_id":"w1"},"items":[{"network":{"schema_version":1,"network_namespace":"eip155","network_reference":"1"},"address":"0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d","token_standard":"erc721"}]}'
-# After SCALE config apply (external_scale drain), ack jobs so they enter indexing:
-curl -s -X POST "$KITCHEN_API_URL/v2/collection-preparations/ack" \
-  -H "authorization: Bearer $SERVICE_TOKEN" -H "content-type: application/json" \
-  -d '{"schema_version":1,"drain_mode":"external_scale","physical_job_ids":["ingest_…"]}'
+# 4. Kitchen: is a collection indexed? then enqueue one for indexing
+curl -s https://sonar.0xhoneyjar.xyz/v1/collections/1/0xed5af388653567af2f388e6224dcc93746104133/status
+curl -s -X POST https://sonar.0xhoneyjar.xyz/v1/collections/1/0x.../ingest \
+  -H "authorization: Bearer $SERVICE_TOKEN"
 ```
 
 ---
@@ -155,8 +149,6 @@ Visit **http://localhost:8080** for the GraphQL Playground (local dev password: 
 | `pnpm self` / `self:check` / `self:write` | Emit / verify / write the `beacon.yaml` territory manifest |
 | `pnpm verify:belt-config` | Validate `config.yaml` before a source addition |
 | `pnpm verify:belt-contract` / `verify:svm-contract` | Verify the served GraphQL contract (EVM / SVM) |
-| `pnpm verify:truth-promotion` | Verify the detached Sonar→Score planning promotion receipt (never grants production authority) |
-| `pnpm verify:truth-contract` | Type-check and test the signed truth-contract kernel and FR traceability |
 | `pnpm validate:evm-canonical` / `validate:svm-canonical` / `validate:evm-sales` | Live canonical-parity validators |
 | `pnpm cost` | Railway cost model |
 | `pnpm pulse` | Sync-health pulse (`scripts/sonar-pulse.sh`) |
