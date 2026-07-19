@@ -1,0 +1,469 @@
+{
+  "generated_at": "2026-07-19T22:05:08.974399+00:00",
+  "stats": {
+    "nft_new": 61,
+    "nft_skip_existing": 15,
+    "nft_skip_other": 4,
+    "erc20_new": 14,
+    "erc20_skip_existing": 0,
+    "erc20_skip_other": 0
+  },
+  "added": [
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x0427743df720801825a5c82e0582b1e915e0f750",
+      "name": "0xmons"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xec0a7a26456b8451aefc4b00393ce1beff5eb3e9",
+      "name": "Allstarz"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xbad6186e92002e312078b5a1dafd5ddf63d3f731",
+      "name": "Anonymice"
+    },
+    {
+      "kind": "erc20",
+      "chain": "1",
+      "addr": "0x594daad7d77592a2b97b725a7ad59d7e188b5bfa",
+      "name": "APU"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xef1a89cbfabe59397ffda11fc5df293e9bc5db90",
+      "name": "Based Ghouls"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0xe6f67000ecc765cb51d9a63d47be94b0cbcba8e2",
+      "name": "Beraboyz"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0x67c7dcf406134688d1ffdd2eb761435e4a9a73bd",
+      "name": "Beracid"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0x2a2d56802ecb44eac0110f76731981131219667c",
+      "name": "BeracPOL"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0x0851ad1bf43d3a61226af3e38d012e986c5d5c2a",
+      "name": "Beradoge"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xf4ded30b6ca5a6a40f56d9fe066a9951571c6e3c",
+      "name": "BeraHorse"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xb44adddbf9b19bcdd12f978df8b36723488b9b8b",
+      "name": "Beramonium"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0xc46233dd3775c858a926b2b2d398bea7ca69499c",
+      "name": "Berapunk"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x89b2249d7fbb30765d94c163929cd04b5afa77e3",
+      "name": "BeraTone Founders Sailcloth"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0xaf2a7da72eb8bfc1c6a0b6b0217037e1c7ea8548",
+      "name": "Big Fat Beras"
+    },
+    {
+      "kind": "erc20",
+      "chain": "1",
+      "addr": "0x72e4f9f808c49a2a61de9c5896298920dc4eeea9",
+      "name": "BITCOIN"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x32bb5a147b5371fd901aa4a72b7f82c58a87e36d",
+      "name": "Bong Bears and rebases"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0x6ba79f573edfe305e7dbd79902bc69436e197834",
+      "name": "Booga Beras"
+    },
+    {
+      "kind": "erc20",
+      "chain": "8453",
+      "addr": "0x532f27101965dd16442e59d40670faf5ebb142e4",
+      "name": "BRETT"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0x26a3c7bfe8c1a6def5f70006e6a89a9f503fa362",
+      "name": "Bruuvvprint"
+    },
+    {
+      "kind": "nft",
+      "chain": "80094",
+      "addr": "0x333814f5e16eee61d0c0b03a5b6abbd424b381c2",
+      "name": "Bullas Moolalist"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x80336ad7a747236ef41f47ed2c7641828a480baa",
+      "name": "Chimpers"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x5946aeaab44e65eb370ffaa6a7ef2218cff9b47d",
+      "name": "Creepz"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x1cb1a5e65610aeff2551a50f76a87a7d3fb649c6",
+      "name": "Cryptoadz"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x57a204aa1042f6e66dd7730813f4024114d74f37",
+      "name": "CyberKongz"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x8821bee2ba0df28761afff119d66390d594cd280",
+      "name": "DeGods"
+    },
+    {
+      "kind": "erc20",
+      "chain": "1",
+      "addr": "0x8b0e6f19ee57089f7649a455d89d7bc6314d04e8",
+      "name": "DMT"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x7f312a75b62846033bc5471c5bcb94b1abfaf06d",
+      "name": "Ethlizards"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0x06d7ce587bd94583070192cabc5ae3fc06d43a90",
+      "name": "Fable Beras"
+    },
+    {
+      "kind": "nft",
+      "chain": "7777777",
+      "addr": "0xe03ef4b9db1a47464de84fb476f9baf493b3e886",
+      "name": "Farcaster OG"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x521f9c7505005cfa19a8e5786a9c3c9c9f5e6f42",
+      "name": "ForgottenRunesWizardsCult"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x1fafd33d882e1c275c61066019a23c1999b5006e",
+      "name": "Funkari"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x7eeb9b28833934aa9f79da82d29aebfa29b779f3",
+      "name": "GLHFers"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x606e017d1fed04d7f540694eb4ce8e86a8ff1081",
+      "name": "GOMBLE SpaceKids"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0x7c2f99c405fa3102519f2637f186c5a06c074a0f",
+      "name": "HoneyGenesis"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0xac59f7e7e5da0dc4f416a7aeff7a49ac284f10ca",
+      "name": "HungryBera"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xb5af0c7f3885c1007e6699c357566610291585cb",
+      "name": "Infinex Patrons"
+    },
+    {
+      "kind": "nft",
+      "chain": "10",
+      "addr": "0xaff376b6a630b07b57f676a939748a321ff14734",
+      "name": "Insurgence"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x0c2e57efddba8c768147d1fdf9176a0a6ebd5d83",
+      "name": "Kaiju Kingz"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xacf63e56fd08970b43401492a02f6f38b6635c91",
+      "name": "Kanpai Pandas"
+    },
+    {
+      "kind": "erc20",
+      "chain": "1",
+      "addr": "0xf3768d6e78e65fc64b8f12ffc824452130bd5394",
+      "name": "KEROSENE"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x026224a2940bfe258d0dbe947919b62fe321f042",
+      "name": "LobsterDAO"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x6efc003d3f3658383f06185503340c2cf27a57b6",
+      "name": "Memeland MVP"
+    },
+    {
+      "kind": "nft",
+      "chain": "10",
+      "addr": "0xbf848dbcb1f0e5c644e614404172f21e411af364",
+      "name": "Mijani"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x59325733eb952a92e069c87f0a6168b29e80627f",
+      "name": "Mocaverse"
+    },
+    {
+      "kind": "erc20",
+      "chain": "1",
+      "addr": "0xaaee1a9723aadb7afa2810263653a34ba2c21c7a",
+      "name": "MOG"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xcf13b1564ffe1a1749ea9838f5222393e7a526f5",
+      "name": "Moni Wizards"
+    },
+    {
+      "kind": "erc20",
+      "chain": "1",
+      "addr": "0x64aa3364f17a4d01c6f1751fd97c2bd3d7e7f1d5",
+      "name": "OHM"
+    },
+    {
+      "kind": "nft",
+      "chain": "8453",
+      "addr": "0xa449b4f43d9a33fcdcf397b9cc7aa909012709fd",
+      "name": "Onchain Gaias"
+    },
+    {
+      "kind": "erc20",
+      "chain": "1",
+      "addr": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "name": "PEPE"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x32973908faee0bf825a343000fe412ebe56f802a",
+      "name": "Pixelmon"
+    },
+    {
+      "kind": "erc20",
+      "chain": "1",
+      "addr": "0x231a6bd8eb88cfa42776b7ac575cecaf82bf1e21",
+      "name": "PLUG"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x39ee2c7b3cb80254225884ca001f57118c8f21b6",
+      "name": "Potatoz"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xc374a204334d4edd4c6a62f0867c752d65e9579c",
+      "name": "Project AEON"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x49de69f69cd6c4bbb533083c234c5e1e80ca5465",
+      "name": "Pudgy Puppets"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x364c828ee171616a39897688a831c2499ad972ec",
+      "name": "Sappy Seals"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xbfe47d6d4090940d1c7a0066b63d23875e3e2ac5",
+      "name": "SchizoPosters"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0x136798606e85fb4086001ab065e5298fa0c37904",
+      "name": "Smilee Beras"
+    },
+    {
+      "kind": "erc20",
+      "chain": "1",
+      "addr": "0x3e6648c5a70a150a88bce65f4ad4d506fe15d2af",
+      "name": "SPELL"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xeeca64ea9fcf99a22806cd99b3d29cf6e8d54925",
+      "name": "Sproto Gremlins"
+    },
+    {
+      "kind": "erc20",
+      "chain": "1",
+      "addr": "0xe0f63a424a4439cbe457d80e4f4b51ad25b2c56c",
+      "name": "SPX6900"
+    },
+    {
+      "kind": "nft",
+      "chain": "80094",
+      "addr": "0x88888888a9361f15aadbaca355a6b2938c6a674e",
+      "name": "Steady Teddy WL"
+    },
+    {
+      "kind": "erc20",
+      "chain": "1",
+      "addr": "0x470ebf5f030ed85fc1ed4c2d36b9dd02e77cf1b7",
+      "name": "TEMPLE"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xd65f95a40b6de26f6c390fcb8e3377d382fe678b",
+      "name": "THC"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x86ba9ec85eebe10a9b01af64e89f9d76d25cea18",
+      "name": "The Ape List"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x769272677fab02575e84945f03eca517acc544cc",
+      "name": "The Captainz"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xe127ce638293fa123be79c25782a5652581db234",
+      "name": "The Llamas"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0xc379e535caff250a01caa6c3724ed1359fe5c29b",
+      "name": "The Plague"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0x17798ba794ad94dad0b7d3f4b9bc2e9f6486d4b9",
+      "name": "Tour de Berance"
+    },
+    {
+      "kind": "erc20",
+      "chain": "8453",
+      "addr": "0x8d827b672432900e837a9419990166bbcf449496",
+      "name": "UWU"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0x4ab2577e36945da81d0c420143a6621ef2f14c87",
+      "name": "Vol Surfers"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x1d20a51f088492a0f1c57f047a9e30c9ab5c07ea",
+      "name": "Wassies"
+    },
+    {
+      "kind": "nft",
+      "chain": "42161",
+      "addr": "0x2e660787bceccd39f67b8190a5bc4fc3ad3b64f7",
+      "name": "Yeetards"
+    },
+    {
+      "kind": "nft",
+      "chain": "1",
+      "addr": "0x73382b19fe136907e9fd4cb1d55228237566324c",
+      "name": "Zooverse"
+    },
+    {
+      "kind": "erc20",
+      "chain": "42161",
+      "addr": "0x6985884c4392d348587b19cb9eaaf157f13271cd",
+      "name": "ZRO Voters"
+    },
+    {
+      "kind": "nft",
+      "chain": "4663",
+      "addr": "0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0",
+      "name": "StonkBrokers"
+    }
+  ],
+  "skips": {
+    "cryptopunks": "non-standard Transfer (config BB F-004)",
+    "solana": "SVM path",
+    "erc1155": "belt.evm-erc721 admit only",
+    "blast": "chain not on monobelt"
+  }
+}

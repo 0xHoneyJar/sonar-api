@@ -611,6 +611,45 @@ chains:
       - name: EthTrackedErc721
         address:
           - 0xed5af388653567af2f388e6224dc7c4b3241c544 # azuki (canonical, verified on Etherscan)
+          - 0x0427743df720801825a5c82e0582b1e915e0f750 # henlo_0xmons
+          - 0xec0a7a26456b8451aefc4b00393ce1beff5eb3e9 # henlo_Allstarz
+          - 0xbad6186e92002e312078b5a1dafd5ddf63d3f731 # henlo_Anonymice
+          - 0xef1a89cbfabe59397ffda11fc5df293e9bc5db90 # henlo_Based Ghouls
+          - 0xf4ded30b6ca5a6a40f56d9fe066a9951571c6e3c # henlo_BeraHorse
+          - 0xb44adddbf9b19bcdd12f978df8b36723488b9b8b # henlo_Beramonium
+          - 0x89b2249d7fbb30765d94c163929cd04b5afa77e3 # henlo_BeraTone Founders Sailcloth
+          - 0x32bb5a147b5371fd901aa4a72b7f82c58a87e36d # henlo_Bong Bears and rebases
+          - 0x80336ad7a747236ef41f47ed2c7641828a480baa # henlo_Chimpers
+          - 0x5946aeaab44e65eb370ffaa6a7ef2218cff9b47d # henlo_Creepz
+          - 0x1cb1a5e65610aeff2551a50f76a87a7d3fb649c6 # henlo_Cryptoadz
+          - 0x57a204aa1042f6e66dd7730813f4024114d74f37 # henlo_CyberKongz
+          - 0x8821bee2ba0df28761afff119d66390d594cd280 # henlo_DeGods
+          - 0x7f312a75b62846033bc5471c5bcb94b1abfaf06d # henlo_Ethlizards
+          - 0x521f9c7505005cfa19a8e5786a9c3c9c9f5e6f42 # henlo_ForgottenRunesWizardsCult
+          - 0x1fafd33d882e1c275c61066019a23c1999b5006e # henlo_Funkari
+          - 0x7eeb9b28833934aa9f79da82d29aebfa29b779f3 # henlo_GLHFers
+          - 0x606e017d1fed04d7f540694eb4ce8e86a8ff1081 # henlo_GOMBLE SpaceKids
+          - 0xb5af0c7f3885c1007e6699c357566610291585cb # henlo_Infinex Patrons
+          - 0x0c2e57efddba8c768147d1fdf9176a0a6ebd5d83 # henlo_Kaiju Kingz
+          - 0xacf63e56fd08970b43401492a02f6f38b6635c91 # henlo_Kanpai Pandas
+          - 0x026224a2940bfe258d0dbe947919b62fe321f042 # henlo_LobsterDAO
+          - 0x6efc003d3f3658383f06185503340c2cf27a57b6 # henlo_Memeland MVP
+          - 0x59325733eb952a92e069c87f0a6168b29e80627f # henlo_Mocaverse
+          - 0xcf13b1564ffe1a1749ea9838f5222393e7a526f5 # henlo_Moni Wizards
+          - 0x32973908faee0bf825a343000fe412ebe56f802a # henlo_Pixelmon
+          - 0x39ee2c7b3cb80254225884ca001f57118c8f21b6 # henlo_Potatoz
+          - 0xc374a204334d4edd4c6a62f0867c752d65e9579c # henlo_Project AEON
+          - 0x49de69f69cd6c4bbb533083c234c5e1e80ca5465 # henlo_Pudgy Puppets
+          - 0x364c828ee171616a39897688a831c2499ad972ec # henlo_Sappy Seals
+          - 0xbfe47d6d4090940d1c7a0066b63d23875e3e2ac5 # henlo_SchizoPosters
+          - 0xeeca64ea9fcf99a22806cd99b3d29cf6e8d54925 # henlo_Sproto Gremlins
+          - 0xd65f95a40b6de26f6c390fcb8e3377d382fe678b # henlo_THC
+          - 0x86ba9ec85eebe10a9b01af64e89f9d76d25cea18 # henlo_The Ape List
+          - 0x769272677fab02575e84945f03eca517acc544cc # henlo_The Captainz
+          - 0xe127ce638293fa123be79c25782a5652581db234 # henlo_The Llamas
+          - 0xc379e535caff250a01caa6c3724ed1359fe5c29b # henlo_The Plague
+          - 0x1d20a51f088492a0f1c57f047a9e30c9ab5c07ea # henlo_Wassies
+          - 0x73382b19fe136907e9fd4cb1d55228237566324c # henlo_Zooverse
           # CR-OPS-IDX W1 hot-set (2026-07-18) — one SCALE batch; Kitchen admits via
           # POST /v2/collection-preparations/batch + belt_config_batch drain.
           - 0x306b1ea3ecdf94ab739f1910bbda052ed4a9f949 # azuki BEANZ Official
@@ -640,6 +679,20 @@ chains:
         start_block: 14162194 # Azuki deployment — no relevant Azuki trades before
 
   # Arbitrum
+      # Henlo pressure wipe — TrackedErc20
+      - name: TrackedErc20
+        address:
+          - 0x594daad7d77592a2b97b725a7ad59d7e188b5bfa # henlo_APU_erc20
+          - 0x72e4f9f808c49a2a61de9c5896298920dc4eeea9 # henlo_BITCOIN_erc20
+          - 0x8b0e6f19ee57089f7649a455d89d7bc6314d04e8 # henlo_DMT_erc20
+          - 0xf3768d6e78e65fc64b8f12ffc824452130bd5394 # henlo_KEROSENE_erc20
+          - 0xaaee1a9723aadb7afa2810263653a34ba2c21c7a # henlo_MOG_erc20
+          - 0x64aa3364f17a4d01c6f1751fd97c2bd3d7e7f1d5 # henlo_OHM_erc20
+          - 0x6982508145454ce325ddbe47a25d4ec3d2311933 # henlo_PEPE_erc20
+          - 0x231a6bd8eb88cfa42776b7ac575cecaf82bf1e21 # henlo_PLUG_erc20
+          - 0x3e6648c5a70a150a88bce65f4ad4d506fe15d2af # henlo_SPELL_erc20
+          - 0xe0f63a424a4439cbe457d80e4f4b51ad25b2c56c # henlo_SPX6900_erc20
+          - 0x470ebf5f030ed85fc1ed4c2d36b9dd02e77cf1b7 # henlo_TEMPLE_erc20
   - id: 42161
     start_block: 102894033
     contracts:
@@ -648,6 +701,28 @@ chains:
           - 0x1b2751328f41d1a0b91f3710edcd33e996591b72 # HoneyJar2
 
   # Zora
+      # Henlo pressure wipe — TrackedErc721
+      - name: TrackedErc721
+        address:
+          - 0xe6f67000ecc765cb51d9a63d47be94b0cbcba8e2 # henlo_Beraboyz
+          - 0x67c7dcf406134688d1ffdd2eb761435e4a9a73bd # henlo_Beracid
+          - 0x2a2d56802ecb44eac0110f76731981131219667c # henlo_BeracPOL
+          - 0x0851ad1bf43d3a61226af3e38d012e986c5d5c2a # henlo_Beradoge
+          - 0xc46233dd3775c858a926b2b2d398bea7ca69499c # henlo_Berapunk
+          - 0xaf2a7da72eb8bfc1c6a0b6b0217037e1c7ea8548 # henlo_Big Fat Beras
+          - 0x6ba79f573edfe305e7dbd79902bc69436e197834 # henlo_Booga Beras
+          - 0x26a3c7bfe8c1a6def5f70006e6a89a9f503fa362 # henlo_Bruuvvprint
+          - 0x06d7ce587bd94583070192cabc5ae3fc06d43a90 # henlo_Fable Beras
+          - 0x7c2f99c405fa3102519f2637f186c5a06c074a0f # henlo_HoneyGenesis
+          - 0xac59f7e7e5da0dc4f416a7aeff7a49ac284f10ca # henlo_HungryBera
+          - 0x136798606e85fb4086001ab065e5298fa0c37904 # henlo_Smilee Beras
+          - 0x17798ba794ad94dad0b7d3f4b9bc2e9f6486d4b9 # henlo_Tour de Berance
+          - 0x4ab2577e36945da81d0c420143a6621ef2f14c87 # henlo_Vol Surfers
+          - 0x2e660787bceccd39f67b8190a5bc4fc3ad3b64f7 # henlo_Yeetards
+      # Henlo pressure wipe — TrackedErc20
+      - name: TrackedErc20
+        address:
+          - 0x6985884c4392d348587b19cb9eaaf157f13271cd # henlo_ZRO Voters_erc20
   - id: 7777777
     start_block: 18071873
     contracts:
@@ -656,6 +731,10 @@ chains:
           - 0xe798c4d40bc050bc93c7f3b149a0dfe5cfc49fb0 # HoneyJar3
 
   # Optimism
+      # Henlo pressure wipe — TrackedErc721
+      - name: TrackedErc721
+        address:
+          - 0xe03ef4b9db1a47464de84fb476f9baf493b3e886 # henlo_Farcaster OG
   - id: 10
     start_block: 107558369  # Mirror Observability deployment (July 30, 2023) - earliest for Mibera articles
     contracts:
@@ -687,6 +766,8 @@ chains:
           - 0x6ca29eed22f04c1ec6126c59922844811dcbcdfa # lore_5_initiation_ritual
           - 0x7988434e1469d35fa5f442e649de45d47c3df23c # lore_6_miberamaker_design
           - 0x96c200ec4cca0bc57444cfee888cfba78a1ddbd8 # lore_7_miberamaker_design
+          - 0xaff376b6a630b07b57f676a939748a321ff14734 # henlo_Insurgence
+          - 0xbf848dbcb1f0e5c644e614404172f21e411af364 # henlo_Mijani
 
   # Base
   - id: 8453
@@ -704,6 +785,8 @@ chains:
       - name: TrackedErc20
         address:
           - 0x120756ccc6f0cefb43a753e1f2534377c2694bb4 # MiberaMaker333
+          - 0x532f27101965dd16442e59d40670faf5ebb142e4 # henlo_BRETT_erc20
+          - 0x8d827b672432900e837a9419990166bbcf449496 # henlo_UWU_erc20
         start_block: 33657372 # MiberaMaker333 deployment
       # THJ APAC / Purupuru ERC-1155 collections (party.app mints + Zora)
       - name: PuruApiculture1155
@@ -724,6 +807,7 @@ chains:
           - 0x9e7a06c281355f60570e47a12650c89fe1d36ff3 # based_onchain_punks (deploy 2883449)
           - 0x95bc4c2e01c2e2d9e537e7a9fe58187e88dd8019 # nodes_by_hunter (deploy 33916538)
           - 0x20fd75eccd7bb9c4eb9e3bb4c09c6b382e15d63e # veecon_2024_tickets (deploy 14459222)
+          - 0xa449b4f43d9a33fcdcf397b9cc7aa909012709fd # henlo_Onchain Gaias
         start_block: 2883449 # earliest deploy in the batch (based_onchain_punks)
       # Seaport on Base — DEFERRED until downstream repos add chainId filters
       # See: grimoires/loa/NOTES.md for required downstream changes
@@ -786,6 +870,8 @@ chains:
       # ============================================================
       - name: TrackedErc721
         address:
+          - 0x333814f5e16eee61d0c0b03a5b6abbd424b381c2 # henlo_Bullas Moolalist
+          - 0x88888888a9361f15aadbaca355a6b2938c6a674e # henlo_Steady Teddy WL
           # NOTE: mibera main collection (0x6666397...) is handled by MiberaCollection handler
           # to avoid handler conflicts and enable full tracking (TrackedHolder + MiberaTransfer + MintActivity)
 
@@ -972,5 +1058,17 @@ chains:
   # (full wipe) or a second indexer schema. Kitchen recognize for 4663 stays
   # live; belt admission waits on a SCALE / operator wipe window.
   # See grimoires/loa/coordination/collection-report/prd.robinhood-live-recognize.md
+
+# Robinhood Chain mainnet — pressure wipe cut (CR-RECOG-RH + Henlo batch)
+  - id: 4663
+    start_block: 12493793 # StonkBrokers deployment
+    rpc:
+      - url: https://rpc.mainnet.chain.robinhood.com
+        for: sync
+    contracts:
+      - name: TrackedErc721
+        address:
+          - 0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0 # StonkBrokers STONK
+        start_block: 12493793
 
 # V3: unordered multichain and preload are now defaults (removed deprecated flags)
