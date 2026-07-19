@@ -301,6 +301,45 @@ extract_json_content() {
     echo "$normalized"
 }
 
+# A transport-successful response is not a successful Flatline voice until its
+# content satisfies the phase contract. Keep this check before verdict-quality
+# aggregation so an exit-0 prose response cannot vote as clean.
+qualify_flatline_content() {
+    local file="$1"
+    local agent="$2"
+    local voice="$3"
+    local phase="$4"
+    local reason=""
+    local content=""
+    local normalized=""
+
+    if [[ ! -s "$file" ]]; then
+        reason="missing_or_empty_envelope"
+    else
+        content=$(jq -r '.content // ""' "$file" 2>/dev/null) || content=""
+        if [[ -z "$content" || "$content" == "null" ]]; then
+            reason="empty_content"
+        elif ! normalized=$(normalize_json_response "$content" 2>/dev/null); then
+            reason="normalization_failed"
+        elif ! validate_agent_response "$normalized" "$agent" 2>/dev/null; then
+            reason="schema_invalid"
+        fi
+    fi
+
+    if [[ -z "$reason" ]]; then
+        return 0
+    fi
+
+    log "[content-qualification] rejected $voice ($reason)"
+    log_trajectory "consensus.voice_rejected" "$(jq -n \
+        --arg voice "$voice" \
+        --arg reason "$reason" \
+        --arg agent "$agent" \
+        --arg phase "$phase" \
+        '{voice: $voice, reason: $reason, agent: $agent, phase: $phase}')"
+    return 1
+}
+
 # Normalize skeptic prepared JSON to the {"concerns":[...]} envelope expected
 # by scoring-engine.sh. Skeptic prompts request the object form, but some
 # adapters emit a bare top-level array of concern objects. scoring-engine's
@@ -596,7 +635,7 @@ declare -A MODEL_TO_PROVIDER_ID=(
 # logic), and writes the aggregated multi-voice envelope to
 # final_consensus.json alongside the existing phase artifacts.
 #
-# Usage: aggregate_and_write_final_consensus <phase> <file1> [<file2> ...]
+# Usage: aggregate_and_write_final_consensus <phase> <expected-count> <file1> [<file2> ...]
 # Files are phase1 output JSON files; each is expected to carry a
 # verdict_quality field (legacy / pre-T2.3 cheval emits omit the field;
 # such voices are silently skipped from the aggregate).
@@ -606,16 +645,23 @@ declare -A MODEL_TO_PROVIDER_ID=(
 # consensus calculation runs regardless.
 aggregate_and_write_final_consensus() {
     local phase="$1"
-    shift
+    local expected_voices_count="$2"
+    shift 2
     local -a input_files=("$@")
-    if [[ ${#input_files[@]} -eq 0 ]]; then
-        log "[vq-aggregate] no input files supplied — skipping"
-        return 0
-    fi
 
     local output_dir="$PROJECT_ROOT/grimoires/loa/a2a/flatline"
     mkdir -p "$output_dir"
     local target="$output_dir/${phase}-final_consensus.json"
+
+    # A consensus artifact describes only the current run. Clear a prior result
+    # before any fail-soft return so stale APPROVED evidence cannot survive a
+    # later run with no usable inputs or a failed aggregation.
+    rm -f "$target"
+
+    if [[ ${#input_files[@]} -eq 0 ]]; then
+        log "[vq-aggregate] no input files supplied — skipping"
+        return 0
+    fi
 
     # Extract verdict_quality from each input file into per-voice tmp files.
     local -a vq_files=()
@@ -652,15 +698,15 @@ aggregate_and_write_final_consensus() {
     # Shell out to the canonical Python aggregator. PYTHONPATH points at
     # .claude/adapters so loa_cheval is importable without an install step.
     #
-    # PR #896 BB iter-1 FIND-003 closure: pass `--expected-voices-count`
-    # = ${#input_files[@]} (the EXPECTED cohort size, not the count of
-    # envelopes that actually arrived). Missing voices are recorded in
-    # voices_dropped[] instead of silently shrinking voices_planned —
-    # which would have turned "2-of-3 degraded" into "APPROVED 2-of-2".
+    # PR #896 BB iter-1 FIND-003 closure: pass the explicit planned cohort
+    # size, not the count of qualified envelopes that actually arrived.
+    # Missing voices are recorded in voices_dropped[] instead of silently
+    # shrinking voices_planned — which would have turned "2-of-3 degraded"
+    # into "APPROVED 2-of-2".
     local agg_out agg_rc=0
     agg_out=$(PYTHONPATH="$PROJECT_ROOT/.claude/adapters" \
         python3 -m loa_cheval.verdict.aggregate \
-            --expected-voices-count "${#input_files[@]}" \
+            --expected-voices-count "$expected_voices_count" \
             "${vq_files[@]}" 2>&1) || agg_rc=$?
     if [[ $agg_rc -ne 0 ]]; then
         log "[vq-aggregate] aggregator failed (rc=$agg_rc): $agg_out"
@@ -671,7 +717,7 @@ aggregate_and_write_final_consensus() {
         if [[ -s "$target" ]]; then
             local final_status
             final_status=$(jq -r '.status' "$target" 2>/dev/null || echo "?")  # check-no-swallowed-jq: ok (pending #1025 sweep)
-            log "[vq-aggregate] wrote $target (status=$final_status, voices=${#vq_files[@]}/${#input_files[@]})"
+            log "[vq-aggregate] wrote $target (status=$final_status, voices=${#vq_files[@]}/$expected_voices_count)"
 
             # cycle-117 item D (#1177): uniform DEGRADED/FAILED trajectory
             # record + page. $phase (prd/sdd/sprint) is the closest
@@ -2289,11 +2335,26 @@ main() {
     # canonical adversarial cohort voices that compute_blocker_risk and
     # the schema-conformance suite (T2.8) anchor on. Skeptic / tertiary
     # paths are inferential, not first-class voices.
-    local -a vq_phase1_files=("$gpt_review_file" "$opus_review_file")
-    if [[ -n "$tertiary_review_file" && -s "$tertiary_review_file" ]]; then
+    local expected_review_voices=2
+    [[ -n "$tertiary_review_file" ]] && expected_review_voices=3
+
+    local -a vq_phase1_files=()
+    if qualify_flatline_content "$gpt_review_file" "flatline-reviewer" "gpt-review" "$phase"; then
+        vq_phase1_files+=("$gpt_review_file")
+    fi
+    if qualify_flatline_content "$opus_review_file" "flatline-reviewer" "opus-review" "$phase"; then
+        vq_phase1_files+=("$opus_review_file")
+    fi
+    if [[ -n "$tertiary_review_file" ]] && \
+       qualify_flatline_content "$tertiary_review_file" "flatline-reviewer" "tertiary-review" "$phase"; then
         vq_phase1_files+=("$tertiary_review_file")
     fi
-    aggregate_and_write_final_consensus "$phase" "${vq_phase1_files[@]}" || true
+    if [[ ${#vq_phase1_files[@]} -eq 0 ]]; then
+        aggregate_and_write_final_consensus "$phase" "$expected_review_voices" || true
+        error "No Phase 1 review voice produced schema-valid content"
+        exit 3
+    fi
+    aggregate_and_write_final_consensus "$phase" "$expected_review_voices" "${vq_phase1_files[@]}" || true
 
     # Check budget before Phase 2
     if ! check_budget 100 "$budget"; then
