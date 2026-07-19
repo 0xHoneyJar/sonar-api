@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-07-19T22:20:00Z",
+  "generated_by": "riding-codebase (/ride --enriched --force-restore)",
+  "repo": "0xHoneyJar/sonar-api (thj-envio / freeside-sonar)",
+  "loa_version": "1.196.0",
+  "staleness_days": 7,
+  "scope": "full re-ride; preserved active planning prd.md/sdd.md; wrote as-built companions + enrichment",
+  "source_of_truth": "code",
+  "force_restore": {
+    "remote": "loa/main",
+    "checksums_files": 5981,
+    "preserved": ["overrides", "constructs"]
+  },
+  "files": {
+    "index.md": {"tokens_est": 380},
+    "api-surface.md": {"tokens_est": 520},
+    "types.md": {"tokens_est": 480},
+    "interfaces.md": {"tokens_est": 400},
+    "structure.md": {"tokens_est": 350},
+    "entry-points.md": {"tokens_est": 280},
+    "architecture-overview.md": {"tokens_est": 420},
+    "as-built-prd.md": {"tokens_est": 450},
+    "as-built-sdd.md": {"tokens_est": 480},
+    "decisions.md": {"tokens_est": 700},
+    "terminology.md": {"tokens_est": 550},
+    "over-engineering.md": {"tokens_est": 400}
+  },
+  "total_tokens_est": 5410,
+  "budget_tokens": 8500,
+  "within_budget": true,
+  "grounding": {
+    "entities": 95,
+    "src_files": 143,
+    "test_files": 541,
+    "chains": ["ethereum:1", "optimism:10", "base:8453", "arbitrum:42161", "zora:7777777", "berachain:80094"],
+    "drift_score": 72
+  }
+}
