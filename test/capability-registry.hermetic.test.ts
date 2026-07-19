@@ -77,7 +77,7 @@ const audit = {
 };
 
 describe("CR-101 capability registry fixtures", () => {
-  it("decodes representative EVM + Solana mainnets and Robinhood disabled", () => {
+  it("decodes representative EVM + Solana mainnets and Robinhood enabled", () => {
     const snapshot = expectSuccess(
       decodeCapabilityRegistrySnapshot(defaultMainnetRegistryInput()),
     );
@@ -96,9 +96,10 @@ describe("CR-101 capability registry fixtures", () => {
     const robinhood = snapshot.networks.find(
       (n) => n.network.network_reference === "4663",
     )!;
-    expect(robinhood.kill_switch).toBe(true);
-    expect(robinhood.operations.recognize.enabled).toBe(false);
-    expect(robinhood.source_provenance.kind).toBe("placeholder_until_capability");
+    expect(robinhood.kill_switch).toBe(false);
+    expect(robinhood.operations.recognize.enabled).toBe(true);
+    expect(robinhood.index_support).toBe(true);
+    expect(robinhood.source_provenance.kind).toBe("operator_ratified");
 
     const solana = snapshot.networks.find(
       (n) => n.network.network_namespace === "solana",
@@ -138,7 +139,7 @@ describe("CR-101 default search", () => {
     const keys = hits.map(
       (h) => `${h.network.network.network_namespace}:${h.network.network.network_reference}`,
     );
-    expect(keys).not.toContain("eip155:4663");
+    expect(keys).toContain("eip155:4663");
     expect(keys).toContain("eip155:1");
     expect(keys).toContain("solana:mainnet-beta");
     expect(hits.every((h) => h.snapshot_identity === snapshot.version)).toBe(true);
@@ -266,10 +267,10 @@ describe("CR-101 default search", () => {
       )?.index,
     ).toBe(true);
     expect(
-      baselineCapabilities.some(
+      baselineCapabilities.find(
         (capability) => capability.network.network_reference === "4663",
-      ),
-    ).toBe(false);
+      )?.index,
+    ).toBe(true);
 
     const prepareDegraded: NetworkCapability = {
       ...ethereumMainnetCapability(),
@@ -909,10 +910,10 @@ describe("CR-101 probe 3 — epoch reset binding signatures", () => {
     const robinhood = candidateNetworks.find(
       (network) => network.network.network_reference === "4663",
     )!;
-    expect(robinhood.kill_switch).toBe(true);
-    expect(robinhood.operations.recognize.reason_class).toBe("kill_switch");
-    expect(robinhood.operations.prepare.reason_class).toBe("kill_switch");
-    expect(robinhood.operations.read_evidence.reason_class).toBe("kill_switch");
+    expect(robinhood.kill_switch).toBe(false);
+    expect(robinhood.operations.recognize.reason_class).toBe("epoch_reset");
+    expect(robinhood.operations.prepare.reason_class).toBe("epoch_reset");
+    expect(robinhood.operations.read_evidence.reason_class).toBe("epoch_reset");
     for (const operation of Object.values(robinhood.operations)) {
       expect(operation.source_sequence).toBe(INITIAL_SOURCE_SEQUENCE);
       expect(operation.effective_at).toBe(resetAt);
@@ -973,7 +974,7 @@ describe("CR-101 probe 3 — epoch reset binding signatures", () => {
     expect(
       lookupNetwork(reset.snapshot, "eip155:4663").network!.operations.recognize
         .reason_class,
-    ).toBe("kill_switch");
+    ).toBe("epoch_reset");
   });
 
   it("binds predecessor identity into binding_digest and rejects cross-predecessor reuse", () => {

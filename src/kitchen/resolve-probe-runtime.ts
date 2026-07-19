@@ -7,7 +7,7 @@
  * - unavailable — explicit disable
  *
  * Set RESOLVER_MODE=live and optionally ETH_RPC_URL / BASE_RPC_URL /
- * OPTIMISM_RPC_URL / ARBITRUM_RPC_URL / BERACHAIN_RPC_URL.
+ * OPTIMISM_RPC_URL / ARBITRUM_RPC_URL / BERACHAIN_RPC_URL / ROBINHOOD_RPC_URL.
  *
  * Live default recognize set (CR-RECOG-PROBE): Ethereum, Base, Optimism,
  * Arbitrum, Berachain — within SEAM ≤8 networks / concurrency ≤6.
@@ -288,6 +288,9 @@ function createLiveDeps(env: NodeJS.ProcessEnv): {
       "eip155:80094": operatorRpcUrls(env, "BERACHAIN_RPC_URL", [
         "https://berachain-rpc.publicnode.com",
         "https://rpc.berachain.com",
+      ]),
+      "eip155:4663": operatorRpcUrls(env, "ROBINHOOD_RPC_URL", [
+        "https://rpc.mainnet.chain.robinhood.com",
       ]),
     },
   });
