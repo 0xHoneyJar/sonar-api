@@ -602,6 +602,8 @@ describe("sonar-truth CLI", () => {
     });
   });
 
+  // Cold-starts `pnpm exec tsx` three times (oversized / invalid / missing),
+  // which exceeds vitest's default 5s on slower CI runners. Give it headroom.
   it("separates source size, source I/O, and source trust failures", () => {
     const directory = mkdtempSync(join(tmpdir(), "sonar-truth-source-"));
     const oversizedPath = join(directory, "oversized.json");
@@ -661,5 +663,5 @@ describe("sonar-truth CLI", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });
