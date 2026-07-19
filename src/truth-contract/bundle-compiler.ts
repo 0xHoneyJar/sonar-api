@@ -7,7 +7,11 @@ import {
   TruthTrustError,
 } from "./errors.js";
 import { assertAcyclicJson, canonicalizeTruthJson } from "./canonical.js";
-import { signTruthRoot, verifyTruthRootSignature } from "./crypto.js";
+import {
+  signTruthRoot,
+  truthRootSigningBytes,
+  verifyTruthRootSignature,
+} from "./crypto.js";
 import {
   TRUTH_RESOURCE_LIMITS,
   TRUTH_MAX_FUTURE_SKEW_MILLISECONDS,
@@ -287,6 +291,60 @@ export const verifyTruthBundleRoot = (
     yield* validateRootLineage(root.unsigned_root);
     yield* validateVerifierBindings(root, options);
     yield* verifyRootCryptography(root, options.publicKeyHex);
+    return root;
+  });
+
+export interface VerifyTruthBundleWithSignatureServiceOptions {
+  readonly expectedEnvironment: TruthEnvironmentId;
+  readonly expectedKeyId: string;
+  readonly trustedGenerationHighWater: DecimalUint64;
+  readonly now: TruthIsoTimestamp;
+  readonly verifySignature: (
+    environment: TruthEnvironmentId,
+    payload: Uint8Array,
+    signature: string,
+  ) => Effect.Effect<void, TruthTrustError | TruthIntegrityError>;
+}
+
+/**
+ * Complete root verification for signer services that keep public-key
+ * handling behind a verification boundary (for example KMS/HSM adapters).
+ */
+export const verifyTruthBundleRootWithSignatureService = (
+  input: unknown,
+  options: VerifyTruthBundleWithSignatureServiceOptions,
+): Effect.Effect<
+  TruthBundleRootV1,
+  TruthDecodeError | TruthIntegrityError | TruthTrustError
+> =>
+  Effect.gen(function* () {
+    yield* assertAcyclicJson(input, "truth.bundle.signed");
+    const root = yield* decodeStrict(TruthBundleRootV1, "truth.bundle.signed", input);
+    yield* validateClosure(root.unsigned_root.objects, true);
+    yield* validateRootPins(root.unsigned_root);
+    yield* validateRootLineage(root.unsigned_root);
+    yield* validateVerifierBindings(root, {
+      ...options,
+      publicKeyHex: "",
+    });
+    const canonical = yield* canonicalizeTruthJson(
+      root.unsigned_root,
+      "truth.bundle.unsigned",
+    );
+    if (sha256Hex(canonical) !== root.root_hash) {
+      return yield* Effect.fail(
+        integrityFailure("root hash does not match unsigned root"),
+      );
+    }
+    yield* options.verifySignature(
+      root.unsigned_root.environment,
+      truthRootSigningBytes(
+        root.unsigned_root.environment,
+        root.unsigned_root.generation,
+        root.root_hash,
+      ),
+      root.signature,
+    );
     return root;
   });
 

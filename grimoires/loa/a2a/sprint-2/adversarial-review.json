@@ -1,0 +1,135 @@
+{
+  "findings": [
+    {
+      "id": "DISS-001",
+      "severity": "BLOCKING",
+      "category": "concurrency",
+      "anchor": "src/truth-contract/filesystem-registry-store.ts:acquireLock",
+      "anchor_type": "function",
+      "scope": "diff",
+      "description": "Stale-lock recovery renames the lock path without re-validating that the on-disk lock still matches the stale owner that was read. Two recoverers that both observed the same dead lock can interleave as: A renames+creates, then B renames A's newly created lock away (POSIX rename replaces a file destination) and creates its own lock. Both callers then enter withPublisherLock critical sections concurrently.",
+      "failure_mode": "Concurrent compareAndSwapRoot / appendAuditEvent / appendRevocation mutations corrupt generation pointers, audit/revocation contiguity, or produce split-brain publisher writes despite the lock.",
+      "suggested_fix": "Make recovery compare-and-swap: after reading the stale owner, only rename/unlink if the current lock bytes still match that owner (or use an O_EXCL recovery claim). Treat mismatch/ENOENT as contention and retry from a fresh acquire, never assume rename of a previously observed stale lock is still valid.",
+      "anchor_status": "valid",
+      "anchor_stability": "symbol"
+    },
+    {
+      "id": "DISS-002",
+      "severity": "BLOCKING",
+      "category": "concurrency",
+      "anchor": "src/truth-contract/filesystem-registry-store.ts:makeFilesystemService",
+      "anchor_type": "function",
+      "scope": "diff",
+      "description": "putObjectIfAbsent is not under the publisher lock and treats existsSync as the only race gate before durableCreate(..., \"wx\"). A concurrent second put of the same digest loses on EEXIST and surfaces a hard filesystem failure instead of the idempotent success path used when the object already exists.",
+      "failure_mode": "Parallel publishers/reconciler puts of identical content fail closed with a non-retryable registry error even though the object was correctly created, breaking if-absent semantics and stalling activation.",
+      "suggested_fix": "On EEXIST from durableCreate, re-read and succeed iff sha256 matches digest (else integrity-fail). Mirror the in-memory store's digest-equal idempotency.",
+      "anchor_status": "valid",
+      "anchor_stability": "symbol"
+    },
+    {
+      "id": "DISS-003",
+      "severity": "BLOCKING",
+      "category": "authz",
+      "anchor": "src/truth-contract/revocation-control-plane.ts:makeRevocationConsumer",
+      "anchor_type": "function",
+      "scope": "diff",
+      "description": "Consumer state only tracks greenTargets. ingest deletes a revoked target from the green cache, but cacheGreen unconditionally re-adds any targetId and isGreen only checks greenTargets membership. No durable revoked-target set is consulted.",
+      "failure_mode": "After a verified emergency revocation, any later cacheGreen(target) makes isGreen(target) true again, re-authorizing a revoked key/artifact.",
+      "suggested_fix": "Persist revoked target IDs (or deny-list) in consumer state on ingest/repair; make cacheGreen/isGreen refuse or ignore targets present in that set.",
+      "anchor_status": "valid",
+      "anchor_stability": "symbol"
+    },
+    {
+      "id": "DISS-004",
+      "severity": "BLOCKING",
+      "category": "spec-violation",
+      "anchor": "src/truth-contract/filesystem-certification.ts:evaluateFilesystemCertification",
+      "anchor_type": "function",
+      "scope": "cross_file",
+      "trigger_anchor": "src/truth-contract/filesystem-certification.ts:evaluateFilesystemCertification",
+      "cross_file_justification": "openCertifiedFilesystemTruthRegistryStore (filesystem-registry-store.ts) treats evaluateFilesystemCertification success as deployment qualification authority, while the schema distinguishes FIXTURE_VALID vs STAGED_VALID and the fixture opener is documented as having no qualification authority.",
+      "description": "evaluateFilesystemCertification never requires validity === \"STAGED_VALID\" (or rejects FIXTURE_VALID). A FIXTURE_VALID certificate with status QUALIFIED and passing probe/dedicated-runner fields is accepted, then openCertifiedFilesystemTruthRegistryStore opens the production-shaped adapter.",
+      "failure_mode": "Fixture/local evidence can authorize the certified filesystem registry path, violating fail-closed deployment qualification.",
+      "suggested_fix": "Fail closed unless validity is STAGED_VALID (and keep FIXTURE_VALID only for explicitly non-certified test helpers).",
+      "anchor_status": "valid",
+      "anchor_stability": "symbol"
+    },
+    {
+      "id": "DISS-005",
+      "severity": "BLOCKING",
+      "category": "data-loss",
+      "anchor": "src/truth-contract/filesystem-registry-store.ts:makeFilesystemService",
+      "anchor_type": "function",
+      "scope": "cross_file",
+      "trigger_anchor": "src/truth-contract/filesystem-registry-store.ts:makeFilesystemService",
+      "cross_file_justification": "registry-store.ts:makeInMemoryTruthRegistryStore.appendRevocation enforces unique event_id for the same TruthRegistryStoreService contract; the filesystem adapter omits that check.",
+      "description": "appendRevocation only checks prior-sequence file existence before durableCreate. Duplicate event_id values at different sequences are accepted on disk.",
+      "failure_mode": "Filesystem-backed registries can store duplicate revocation identities that the in-memory reference rejects, breaking cross-backend integrity equivalence and allowing conflicting revoke records for the same event_id.",
+      "suggested_fix": "Before create, scan existing revocation records (or maintain an event_id index) and fail if event_id already exists, matching the in-memory store.",
+      "anchor_status": "valid",
+      "anchor_stability": "symbol"
+    },
+    {
+      "id": "DISS-006",
+      "severity": "BLOCKING",
+      "category": "spec-violation",
+      "anchor": "src/truth-contract/revocation-control-plane.ts:verifyEmergencyRevocationEnvelope",
+      "anchor_type": "function",
+      "scope": "diff",
+      "description": "Body/header sequence and epoch equality uses Number(record.sequence/epoch) without a Number.isSafeInteger guard. DecimalUint64 values above MAX_SAFE_INTEGER coerce, so distinct body integers can compare equal to header numbers.",
+      "failure_mode": "Exact envelope↔body sequence/epoch binding required by the trust-envelope contract can pass for non-identical large decimals, accepting a mismatched stream position vs revocation record.",
+      "suggested_fix": "Compare with BigInt (or decimal-string equality) and reject values outside the envelope header's representable domain; align with emitEmergencyRevocationEnvelope's safe-integer check.",
+      "anchor_status": "valid",
+      "anchor_stability": "symbol"
+    },
+    {
+      "id": "DISS-007",
+      "severity": "ADVISORY",
+      "category": "error-handling",
+      "anchor": "src/truth-contract/filesystem-registry-store.ts:acquireLock",
+      "anchor_type": "function",
+      "scope": "diff",
+      "description": "Lock files are JSON.parse'd as LockOwner without schema validation. If created_at_ms is missing/non-numeric, oldEnough becomes false and the lock is treated as live forever even when the pid is dead.",
+      "failure_mode": "A corrupt publisher.lock permanently returns STORE_UNAVAILABLE until manual deletion.",
+      "suggested_fix": "Validate lock shape; on invalid lock contents, treat as reclaimable stale/corrupt and replace under exclusive create.",
+      "anchor_status": "valid"
+    }
+  ],
+  "metadata": {
+    "type": "review",
+    "model": "cursor-headless",
+    "sprint_id": "sprint-2",
+    "timestamp": "2026-07-19T04:28:44Z",
+    "tokens_input": 48508,
+    "tokens_output": 9657,
+    "cost_usd": 0,
+    "latency_ms": 112274,
+    "status": "reviewed",
+    "degraded": false,
+    "rejected_count": 0,
+    "rejected_sidecar": "grimoires/loa/a2a/sprint-2/adversarial-rejected-review.jsonl",
+    "model_attempts": [
+      "cursor-headless:reviewed"
+    ],
+    "final_model": "cursor-headless",
+    "hallucination_filter": {
+      "applied": true,
+      "downgraded": 0
+    }
+  },
+  "verdict_quality": {
+    "consensus_outcome": "consensus",
+    "truncation_waiver_applied": false,
+    "voices_planned": 1,
+    "voices_succeeded": 1,
+    "voices_succeeded_ids": [
+      "composer-2.5"
+    ],
+    "voices_dropped": [],
+    "chain_health": "ok",
+    "confidence_floor": "high",
+    "rationale": "multi-voice aggregate (1/1 succeeded); chain_health=ok",
+    "single_voice_call": true,
+    "status": "APPROVED"
+  }
+}

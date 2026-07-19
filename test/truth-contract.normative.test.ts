@@ -368,6 +368,6 @@ describe("truth normative closure and traceability", () => {
       TRUTH_REQUIREMENT_TRACEABILITY.filter(
         (entry) => entry.status === "implemented",
       ).map((entry) => entry.requirement),
-    ).toEqual(["FR-1"]);
+    ).toEqual(["FR-1", "FR-11"]);
   });
 });

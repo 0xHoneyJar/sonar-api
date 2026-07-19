@@ -22,8 +22,8 @@ export const TRUTH_REQUIREMENT_TRACEABILITY: ReadonlyArray<TruthRequirementTrace
     { requirement: "FR-8", status: "planned", modules: ["src/truth-contract/status-reader.ts", "src/truth-contract/cli/sonar-truth.ts"], tests: ["test/truth-contract.cli.test.ts"], owner: "bd-v54z.19.1" },
     { requirement: "FR-9", status: "planned", modules: ["src/truth-contract/dependency-graph.ts", "src/truth-contract/effective-status.ts"], tests: ["test/truth-contract.invalidation.test.ts"], owner: "bd-v54z.18.3" },
     { requirement: "FR-10", status: "planned", modules: ["src/truth-contract/compatibility.ts"], tests: ["test/truth-contract.supersession.test.ts"], owner: "bd-v54z.19.2" },
-    { requirement: "FR-11", status: "planned", modules: ["src/truth-contract/trust-bootstrap.ts", "src/truth-contract/authority.ts"], tests: ["test/truth-contract.trust.test.ts"], owner: "bd-v54z.16.3" },
-    { requirement: "FR-12", status: "planned", modules: ["src/truth-contract/registry-store.ts", "src/truth-contract/publisher.ts"], tests: ["test/truth-contract.registry.test.ts"], owner: "bd-v54z.16.2" },
+    { requirement: "FR-11", status: "implemented", modules: ["src/truth-contract/trust-control-plane.ts", "src/truth-contract/trust-state-store.ts", "src/truth-contract/revocation-control-plane.ts"], tests: ["test/truth-contract.trust-control-plane.test.ts", "test/truth-contract.revocation-control-plane.test.ts"], owner: "bd-v54z.16.3" },
+    { requirement: "FR-12", status: "planned", modules: ["src/truth-contract/registry-store.ts", "src/truth-contract/filesystem-registry-store.ts", "src/truth-contract/registry-projection.ts"], tests: ["test/truth-contract.registry-in-memory.test.ts", "test/truth-contract.registry-filesystem.test.ts", "test/truth-contract.registry-trust-e2e.test.ts"], owner: "bd-v54z.16.2" },
     { requirement: "FR-13", status: "planned", modules: ["src/truth-contract/authority.ts"], tests: ["test/truth-contract.authority.test.ts"], owner: "bd-v54z.19.3" },
   ]);
 

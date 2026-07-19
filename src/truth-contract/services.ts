@@ -12,15 +12,54 @@ import type {
   TruthTransportError,
   TruthTrustError,
 } from "./errors.js";
+import type {
+  TruthAuditEventV1,
+  TruthGenerationActivationV1,
+  TruthRevocationRecordV1,
+} from "./schemas/registry.js";
 
 export interface TruthRegistryStoreService {
+  readonly putObjectIfAbsent: (
+    environment: TruthEnvironmentId,
+    digest: Sha256Digest,
+    canonicalBytes: Uint8Array,
+  ) => Effect.Effect<void, TruthRegistryError | TruthIntegrityError>;
   readonly readObject: (
     environment: TruthEnvironmentId,
     digest: Sha256Digest,
   ) => Effect.Effect<Uint8Array, TruthRegistryError>;
+  readonly appendAuditEvent: (
+    event: TruthAuditEventV1,
+  ) => Effect.Effect<
+    void,
+    TruthRegistryError | TruthIntegrityError | TruthTrustError
+  >;
+  readonly readAuditEvents: (
+    environment: TruthEnvironmentId,
+  ) => Effect.Effect<
+    ReadonlyArray<TruthAuditEventV1>,
+    TruthRegistryError | TruthIntegrityError | TruthTrustError
+  >;
+  readonly readRoot: (
+    environment: TruthEnvironmentId,
+  ) => Effect.Effect<TruthGenerationActivationV1, TruthRegistryError>;
+  readonly compareAndSwapRoot: (
+    environment: TruthEnvironmentId,
+    expectedGeneration: DecimalUint64,
+    activation: TruthGenerationActivationV1,
+  ) => Effect.Effect<
+    void,
+    TruthRegistryError | TruthIntegrityError | TruthTrustError
+  >;
   readonly readActiveGeneration: (
     environment: TruthEnvironmentId,
   ) => Effect.Effect<DecimalUint64, TruthRegistryError>;
+  readonly appendRevocation: (
+    revocation: TruthRevocationRecordV1,
+  ) => Effect.Effect<void, TruthRegistryError>;
+  readonly readRevocations: (
+    environment: TruthEnvironmentId,
+  ) => Effect.Effect<ReadonlyArray<TruthRevocationRecordV1>, TruthRegistryError>;
 }
 
 export const TruthRegistryStore = Context.GenericTag<TruthRegistryStoreService>(

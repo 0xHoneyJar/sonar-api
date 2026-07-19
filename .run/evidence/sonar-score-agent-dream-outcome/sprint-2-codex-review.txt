@@ -1,0 +1,39 @@
+The patch violates several core atomicity, rollback, recovery, and revocation invariants. In particular, incomplete generations can become active, recovery approvals are replayable or mutable, and revoked artifacts can return to green state.
+
+Full review comments:
+
+- [P1] Validate the complete object closure before CAS — /private/tmp/sonar-agent-dream-outcome/src/truth-contract/filesystem-registry-store.ts:378-380
+  When `compareAndSwapRoot` receives an activation whose referenced objects were not persisted, this pointer write still succeeds and `readRoot` exposes the incomplete generation. The new filesystem tests exercise exactly this path without writing the root's objects, violating the invariant that partial generations are unobservable; verify every referenced digest and byte length before activating the pointer.
+
+- [P1] Verify the nested signed root during activation checks — /private/tmp/sonar-agent-dream-outcome/src/truth-contract/trust-control-plane.ts:346-357
+  If an activation contains a modified `unsigned_root` with a stale `root_hash` or root signature, this function only recomputes the outer activation hash and verifies the activation signature. A freshly signed activation can therefore authenticate an internally invalid root; call the bundle-root verifier and enforce matching root/activation issuers before returning it as trusted.
+
+- [P1] Bind challenge timestamps into recovery approvals — /private/tmp/sonar-agent-dream-outcome/src/truth-contract/trust-control-plane.ts:243-249
+  For a signed recovery request, the approvals bind only environment, generation, nonce, and the opaque `evidence_hash`; the verifier never derives that hash from the request. An attacker can therefore replace `challenge_started_at` and `challenge_ends_at` with a backdated 24-hour interval and make a not-yet-mature ceremony pass immediately.
+
+- [P1] Compare recovery requests with persisted high-water state — /private/tmp/sonar-agent-dream-outcome/src/truth-contract/trust-control-plane.ts:225-230
+  After the trusted state has advanced, an older correctly signed recovery request still passes because these checks compare generation and nonce only with values inside the request. Since the function receives neither the persisted generation nor nonce and returns `ACTIVE`, a generation-2 ceremony can be replayed after generation 5; require and atomically compare the current high-water state.
+
+- [P1] Enforce quorum key validity windows — /private/tmp/sonar-agent-dream-outcome/src/truth-contract/trust-control-plane.ts:180-186
+  When a quorum key is not yet valid or its `valid_until` has passed, its signature is still counted because verification never checks either timestamp. This allows expired governance or recovery credentials to authorize rotation/recovery; pass the trusted current time and reject signatures outside each key's interval.
+
+- [P1] Prevent revoked artifacts from being cached green again — /private/tmp/sonar-agent-dream-outcome/src/truth-contract/revocation-control-plane.ts:335-339
+  After a revocation is ingested, a later readiness evaluation can call `cacheGreen` for the same artifact and re-add it because the consumer retains no revoked-target set. `isGreen` then returns true for an actively revoked artifact, so caching must refuse targets covered by prior revocations.
+
+- [P1] Evict artifacts affected by key revocations — /private/tmp/sonar-agent-dream-outcome/src/truth-contract/revocation-control-plane.ts:322-324
+  For `target_kind: "key"`, this deletes the key ID from a set containing artifact IDs, leaving every artifact signed by the compromised key green. Key revocations must resolve and evict the affected artifact set rather than treating the key ID as an artifact cache key.
+
+- [P1] Bind freshness to the current revocation epoch — /private/tmp/sonar-agent-dream-outcome/src/truth-contract/revocation-control-plane.ts:463-468
+  A current checkpoint with revocation epoch 1 can follow a previous checkpoint at epoch 2 and still return `FRESH`, because the epoch is never compared here. This permits revocation-state rollback despite fresh clocks and connected channels; require a nondecreasing epoch and equality with the consumer's trusted current epoch.
+
+- [P1] Make high-water updates inter-process atomic — /private/tmp/sonar-agent-dream-outcome/src/truth-contract/trust-state-store.ts:189-193
+  With two processes or two store instances, both bootstrap calls can observe the file as absent and then `writeState` renames over the destination, allowing the last writer's bootstrap digest to replace the first. The `SynchronizedRef` lock is instance-local, so bootstrap and advance need an inter-process create/CAS lock to preserve rollback defense.
+
+- [P1] Reject fixture-only filesystem certificates — /private/tmp/sonar-agent-dream-outcome/src/truth-contract/filesystem-registry-store.ts:448-450
+  When an ext4 certificate declares `validity: "FIXTURE_VALID"` but otherwise marks all probes qualified, evaluation succeeds and this function opens the certified adapter. That lets fixture evidence cross the deployment-certification gate; only staged deployment evidence should be accepted here, with fixture certificates restricted to the explicit test adapter.
+
+- [P1] Fail closed on revocation-log gaps — /private/tmp/sonar-agent-dream-outcome/src/truth-contract/filesystem-registry-store.ts:423-424
+  If a revocation file is missing while a later sequence file exists, this loop stops at the first absence and returns the valid-looking prefix. Registry fallback then cannot see or report the gap, allowing later revocations to remain unapplied; detect subsequent entries or maintain a signed sequence high-water and return a gap failure.
+
+- [P2] Preserve typed filesystem contention errors — /private/tmp/sonar-agent-dream-outcome/src/truth-contract/filesystem-registry-store.ts:56-62
+  When lock acquisition or root CAS throws a `TruthRegistryError` with `retryable: true`, this catch wraps it in a new default non-retryable error. Competing publishers therefore lose the intended contention classification and bounded retry behavior; pass existing typed errors through unchanged.

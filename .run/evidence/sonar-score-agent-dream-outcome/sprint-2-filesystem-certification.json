@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "status": "UNQUALIFIED",
+  "validity": "FIXTURE_VALID",
+  "runner_id": "local-interactive-macos",
+  "dedicated_runner": false,
+  "fingerprint": {
+    "os": "darwin",
+    "kernel": "25.3.0",
+    "mount_point": "/System/Volumes/Data",
+    "mount_identity": "/dev/disk3s5:16777230",
+    "filesystem_type": "apfs",
+    "mount_options": [
+      "local",
+      "journaled",
+      "nobrowse",
+      "protect",
+      "root-data"
+    ],
+    "storage_topology": "interactive developer host; no controlled power-loss apparatus"
+  },
+  "adapter_sha256": "10ac294c89eee6befdcf9dae6d94d3c714ba5418cef2c4db6a62f2d0b5c0c36b",
+  "probes": {
+    "exclusive_create": true,
+    "advisory_lock": true,
+    "same_directory_rename": true,
+    "file_fsync": true,
+    "directory_fsync": true,
+    "stale_lock_recovery": true,
+    "genesis_race": true,
+    "process_crash_injection": false,
+    "full_fsync": false,
+    "block_layer_fault_injection": false
+  },
+  "qualified_at": "2026-07-19T04:16:30.000Z",
+  "reasons": [
+    "dedicated macos-apfs-durability runner unavailable",
+    "Node adapter cannot issue F_FULLFSYNC",
+    "process-kill crash matrix not executed on a controlled runner",
+    "power-loss durability was not tested"
+  ],
+  "authority": {
+    "filesystem_adapter_enabled": false,
+    "production_authority": false
+  }
+}
