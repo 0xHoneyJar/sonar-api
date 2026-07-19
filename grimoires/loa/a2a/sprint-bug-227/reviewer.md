@@ -54,7 +54,7 @@ Flatline now qualifies each Phase 1 review against the `flatline-reviewer` conte
 ## Testing Summary
 
 - Focused Flatline, voice-drop, verdict aggregation, normalization, and Spiral Bats suites: 61 passed.
-- Cursor adapter and verdict aggregation Python suites: 78 passed, 1 skipped.
+- Cursor adapter and verdict aggregation Python suites: 121 passed, 1 skipped.
 - `bash -n .claude/scripts/flatline-orchestrator.sh`: passed.
 - `git diff --check`: passed.
 - Live Cursor Grok 4.5 `ask`-mode probe returned schema-valid `improvements` JSON under session `23f4abf9-d41e-48a0-97f5-f6de7d7ccb06`.
@@ -62,7 +62,7 @@ Flatline now qualifies each Phase 1 review against the `flatline-reviewer` conte
 ## Known Limitations
 
 - The default latest-consensus filename is phase-global. Tests and concurrent callers can isolate it with `LOA_FLATLINE_OUTPUT_DIR_OVERRIDE`; automatic run-scoped publication is a separate concurrency hardening.
-- Independent Fable, Cursor, and Codex re-review remains the next gate before audit.
+- Independent Fable, Cursor, and Codex re-review approved the patch 3/3.
 
 ## Verification Steps
 
@@ -78,7 +78,7 @@ Flatline now qualifies each Phase 1 review against the `flatline-reviewer` conte
 
 - **Consumer-visible false green**: resolved by skipping Phase 2 on non-APPROVED content quorum, embedding canonical verdict quality in `final_result`, returning exit 6, and enforcing APPROVED in `_verify_flatline_output`.
 - **Early stale evidence**: resolved by invalidating the phase artifact before `run_phase1` and using atomic replacement on success.
-- **Malformed single-voice verdict input**: resolved by `validate_single_voice_envelope` before aggregation.
+- **Malformed single-voice verdict input**: resolved by canonical-schema validation plus `validate_single_voice_envelope` before aggregation.
 - **Missing changelog**: resolved under `[Unreleased]`.
 - **Wiring coverage**: CQ-1/CQ-2 call the production participation helper, CQ-5 pins main integration, and Spiral tests pin the consuming gate.
 - **Telemetry robustness**: rejection trajectory logging now fails soft like voice-drop logging.

@@ -13,11 +13,11 @@
 Prevent schema-invalid model output from being counted as a successful Flatline voice, with a failing contract test proving the false green.
 
 ### Deliverables
-- [ ] Failing hermetic test reproducing the 3/3 false green
-- [ ] Content qualification before verdict-quality aggregation
-- [ ] Read-only Cursor Q&A mode for structured inference
-- [ ] Focused and existing tests pass
-- [ ] Triage analysis document
+- [x] Failing hermetic test reproducing the 3/3 false green
+- [x] Content qualification before verdict-quality aggregation
+- [x] Read-only Cursor Q&A mode for structured inference
+- [x] Focused and existing tests pass
+- [x] Triage analysis document
 
 ### Technical Tasks
 
@@ -60,11 +60,11 @@ Prevent schema-invalid model output from being counted as a successful Flatline 
 - Review findings are dispositioned before audit.
 
 ### Acceptance Criteria
-- [ ] Bug is no longer reproducible.
-- [ ] Failing test proves the fix.
-- [ ] Planned quorum never shrinks because content is invalid.
-- [ ] No APPROVED result is possible when any planned voice lacks valid review content.
-- [ ] Cursor safety boundaries remain intact.
+- [x] Bug is no longer reproducible.
+- [x] Failing test proves the fix.
+- [x] Planned quorum never shrinks because content is invalid.
+- [x] No APPROVED result is possible when any planned voice lacks valid review content.
+- [x] Cursor safety boundaries remain intact.
 
 ### Triage Reference
 See: `grimoires/loa/a2a/bug-20260718-i1227-cf7ca4/triage.md`
