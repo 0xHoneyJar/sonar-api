@@ -4,6 +4,7 @@ Read-only samplers from the Codex indexing-time-compression research.
 
 | Script | Use when |
 |--------|----------|
+| `../belt-progress.mjs` | **Agent mega-command** — `--robot-triage` / `--json` / `--tile` / stall+ETA; `pnpm belt:progress` |
 | `sample-progress-graphql.sh` | No DB URL; hits public/Hasura GraphQL (`BELT_GRAPHQL_URL`) |
 | `sample-progress.sh` | Direct `DATABASE_URL` to active Belt Postgres |
 | `stall_classify.py` | Shared stall classifier (Mission 1); used by GraphQL sampler |
@@ -11,6 +12,16 @@ Read-only samplers from the Codex indexing-time-compression research.
 | `floor-registry.w1.json` | Mission 2 W1 creation/required floors (source-backed) |
 | `../materialize-eth-historical-floor.mjs` | Governance: registry → Eth `start_block` (single source of truth) |
 | `../verify-historical-floors.mjs` | CI gate (`--enforce` fails on unsafe cohort placement) |
+
+Agent first call:
+
+```bash
+pnpm belt:progress -- --robot-triage --json
+pnpm belt:progress -- --tile
+pnpm test:belt-progress
+```
+
+GECKO skill: `.claude/skills/sensing-belt-progress/` (wraps the same substrate).
 
 Governance loop: update registry → `pnpm materialize:eth-floor` → `pnpm verify:historical-floors:enforce` → KF-013 wipe/resume for production.
 | `postgres-observability.sql` | `psql` WAL / wait / size snapshot |

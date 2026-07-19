@@ -13,6 +13,7 @@ import {
 } from "./postgres-ingest-store.js";
 import { createKitchenApp } from "./routes.js";
 import { preparationRuntimeFromEnv } from "./preparation-runtime.js";
+import type { ChainProgressRow } from "./indexing-status.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
 import type { CollectionStatusReader } from "./status.js";
 
@@ -111,11 +112,55 @@ function createStatusReader(): CollectionStatusReader {
   });
 }
 
+async function readChainProgressViaGraphql(): Promise<ChainProgressRow[]> {
+  const graphqlUrl = beltGraphqlUrlFromEnv();
+  try {
+    const response = await fetch(graphqlUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        query:
+          "{ chain_metadata { chain_id start_block latest_processed_block latest_fetched_block_number num_events_processed } }",
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) return [];
+    const payload = (await response.json()) as {
+      data?: {
+        chain_metadata?: Array<{
+          chain_id: number;
+          start_block?: number;
+          latest_processed_block: number;
+          latest_fetched_block_number: number;
+          num_events_processed: number;
+        }>;
+      };
+      errors?: unknown[];
+    };
+    if (payload.errors?.length) return [];
+    return (payload.data?.chain_metadata ?? []).map((row) => ({
+      chain_id: Number(row.chain_id),
+      start_block: Number(row.start_block ?? 0),
+      latest_processed_block: Number(row.latest_processed_block),
+      latest_fetched_block_number: Number(row.latest_fetched_block_number),
+      num_events_processed: Number(row.num_events_processed),
+      num_batches_fetched: 0,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export async function createKitchenServer() {
   const store = await resolveIngestStore();
   const reader = createStatusReader();
   const preparationRuntime = preparationRuntimeFromEnv();
-  const app = createKitchenApp({ reader, store, preparationRuntime });
+  const app = createKitchenApp({
+    reader,
+    store,
+    preparationRuntime,
+    readChainProgress: readChainProgressViaGraphql,
+  });
   return { app, store, reader };
 }
 

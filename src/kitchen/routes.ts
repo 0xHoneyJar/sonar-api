@@ -11,6 +11,10 @@ import { resolvePreparationCapability } from "./capability.js";
 import { collectionKeyFromParams, deploymentFromCollectionKey } from "./normalize.js";
 import { mapPool } from "./async-pool.js";
 import {
+  buildIndexingStatus,
+  type ChainProgressRow,
+} from "./indexing-status.js";
+import {
   BATCH_ADMIT_CONCURRENCY,
   decodeAckPreparationRequest,
   decodeBatchPreparationRequest,
@@ -25,16 +29,16 @@ import {
   resolveProbeRuntimeFromEnv,
   type ResolveProbeRuntime,
 } from "./resolve-probe-runtime.js";
-import { buildIndexingStatus, readChainProgress } from "./indexing-status.js";
-import type { IngestJobStorePort } from "./ingest-store.js";
-import { PostgresIngestJobStore } from "./postgres-ingest-store.js";
 import { isIndexedSnapshotReady, resolveCollectionStatus, toStatusResponse, type CollectionStatusReader } from "./status.js";
+import type { IngestJobStorePort } from "./ingest-store.js";
 import type {
   AdmissionFailure,
   AdmissionResult,
   IngestJobRecord,
   PreparationRuntimeState,
 } from "./types.js";
+
+export type ChainProgressReader = () => Promise<ChainProgressRow[]>;
 
 export type PreparationCapabilityResolver = typeof resolvePreparationCapability;
 
@@ -554,6 +558,8 @@ export function createKitchenApp(deps: {
   capabilityResolver?: PreparationCapabilityResolver;
   preparationRuntime?: PreparationRuntimeState;
   resolveProbeRuntime?: ResolveProbeRuntime;
+  /** Optional Belt chain_metadata reader (GraphQL or SQL). Defaults to []. */
+  readChainProgress?: ChainProgressReader;
 }): Hono {
   const app = new Hono();
   app.get("/health", (c) => c.json({
@@ -589,23 +595,16 @@ export function createKitchenApp(deps: {
   app.route("/v1/collections", createCollectionRoutes(deps));
   app.route("/v2/collection-preparations", createCanonicalPreparationRoutes(deps));
 
-  // Operator snapshot — belt chain_metadata + Kitchen active jobs (service token).
   const indexing = new Hono();
   indexing.use("*", requireServiceToken);
   indexing.get("/", async (c) => {
     const body = await buildIndexingStatus({
       countByStatus: () => deps.store.countByStatus(),
       listByStatus: (status, limit) => deps.store.listByStatus(status, limit),
-      readChains: async () => {
-        if (deps.store instanceof PostgresIngestJobStore) {
-          return readChainProgress(deps.store.getPool());
-        }
-        return [];
-      },
+      readChains: deps.readChainProgress ?? (async () => []),
     });
     return c.json(body, 200);
   });
   app.route("/v2/indexing-status", indexing);
-
   return app;
 }

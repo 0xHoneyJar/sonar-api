@@ -1,0 +1,34 @@
+slug: sensing-belt-progress
+name: "Belt Progress Sensor"
+version: 0.1.0
+
+description: |
+  Sense Belt sync progression (Envio chain_metadata) and optional Kitchen preparation
+  job load. Emits GECKO STATUS|SIGNAL|MISMATCH tile plus --json triage with stall class,
+  tip lag, and ETA. Sense-only — never sets ENVIO_RESTART, never mutates config or jobs.
+
+triggers:
+  - "/sensing-belt-progress"
+  - "belt progress"
+  - "indexing status"
+  - "chain sync eta"
+  - "envio stall"
+  - "is the belt catching up"
+
+entry: SKILL.md
+
+capabilities:
+  model_tier: sonnet
+  danger_level: safe
+  effort_hint: small
+  downgrade_allowed: true
+  execution_hint: sequential
+  requires:
+    tool_calling: true
+    native_runtime: false
+    thinking_traces: false
+    vision: false
+
+outputs:
+  - path: "scripts/belt-progress.mjs"
+    description: "Substrate CLI — the only execution path this skill wraps"

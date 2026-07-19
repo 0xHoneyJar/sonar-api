@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.1.0",
+  "tool_name": "sonar-api",
+  "tool_repo": "/Users/zksoju/Documents/GitHub/sonar-api",
+  "audit_workspace": "/Users/zksoju/Documents/GitHub/sonar-api/agent_ergonomics_audit",
+  "rubric_version": "<git SHA of references/rubric/SCORING-RUBRIC.md when scoring ran>",
+  "passes": [
+    {
+      "pass": 1,
+      "started_at": "2026-07-19T22:56:45Z",
+      "completed_at": null,
+      "mode": null,
+      "target_sha": "467b79549663dfac0db463da090b037d7a50ba67",
+      "target_branch": "main",
+      "feature_branch": null,
+      "summary": {
+        "surfaces_inventoried": 0,
+        "surfaces_scored": 0,
+        "recommendations_total": 0,
+        "recommendations_applied": 0,
+        "substantive_commits": 0,
+        "dimensions_touched": 0,
+        "ambition_bar_met": false,
+        "ambition_bar_self_prompt_run": false,
+        "median_uplift_pts": 0,
+        "regressions_count": 0,
+        "fresh_eyes_rounds": 0
+      },
+      "artifacts": {
+        "surface_inventory": "audit/surface_inventory.jsonl",
+        "agent_surfaces": "audit/agent_surfaces.jsonl",
+        "intent_corpus": "audit/intent_inference_corpus.jsonl",
+        "recommendations": "audit/recommendations.jsonl",
+        "playbook": "audit/playbook.md",
+        "applied_changes": "audit/applied_changes.jsonl",
+        "ambition_bar_check": "audit/ambition_bar_check.md",
+        "scorecard": "audit/scorecard_pass_N.md",
+        "heatmap": "audit/heatmap.svg",
+        "uplift_diff": "audit/uplift_diff.md",
+        "regression_alerts": "audit/regression_alerts.md",
+        "handoff": "audit/HANDOFF.md",
+        "simulations_pre": "audit/agent_simulations/pre_pass_N/",
+        "simulations_post": "audit/agent_simulations/post_pass_N/"
+      }
+    }
+  ],
+  "current_pass": 1,
+  "pass_N+1_ready": false,
+  "next_pass_focus": null,
+  "mode": "full",
+  "target": "/Users/zksoju/Documents/GitHub/sonar-api",
+  "binary": "scripts/belt-progress.mjs",
+  "notes": "Agent surface is belt-progress (not envio-indexer binary). Sense-only; never ENVIO_RESTART."
+}

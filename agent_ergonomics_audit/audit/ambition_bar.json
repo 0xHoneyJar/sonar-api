@@ -1,0 +1,34 @@
+{
+  "mode": "full",
+  "binary": "scripts/belt-progress.mjs",
+  "substantive_changes": [
+    "scripts/belt-progress.mjs mega-command (--robot-triage/--json/--tile/sample)",
+    "capabilities --json + robot-docs guide",
+    "exit-code contract + ENVIO_RESTART safety refusal",
+    "typo inference (--jsno → --json)",
+    "stall classify + tip RPC + ETA (auto second sample)",
+    "GET /v2/indexing-status Kitchen route wired",
+    "countByStatus on Memory + Postgres ingest stores",
+    "GraphQL chain progress reader in kitchen server",
+    ".claude/skills/sensing-belt-progress GECKO skill",
+    "construct-gecko skills/sensing-belt-progress mirror",
+    "test/belt-progress.cli.test.mjs regression pins",
+    "package.json belt:progress + test:belt-progress"
+  ],
+  "dimensions_touched": [
+    "agent_ease_of_use",
+    "output_parseability",
+    "intent_inference",
+    "self_documentation",
+    "error_quality",
+    "safety"
+  ],
+  "ambition_surfaces": {
+    "mega_command": true,
+    "capabilities_or_robot_docs": true,
+    "json_or_robot": true,
+    "error_rewrite_or_typo": true
+  },
+  "bar_met": true,
+  "notes": "Sense-only surface; never ENVIO_RESTART. Existing envio-indexer binary left alone — agent surface is belt-progress."
+}

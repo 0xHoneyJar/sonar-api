@@ -1,0 +1,15 @@
+{
+  "target_path": "/Users/zksoju/Documents/GitHub/sonar-api",
+  "discovered_at": "2026-07-19T22:56:45Z",
+  "languages": [
+    "typescript_or_javascript"
+  ],
+  "binaries": [],
+  "env_var_prefix": "",
+  "existing_surfaces": {
+    "robot_mode": false,
+    "capabilities": false,
+    "robot_docs": false
+  },
+  "recommended_mode": "full"
+}
