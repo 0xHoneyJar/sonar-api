@@ -23,3 +23,9 @@ One monobelt wipe carries the Henlo leaderboard extraction plus Robinhood:
 ## Procedure
 
 KF-013 / `belt-reinit.md`: `ENVIO_RESTART=1` seed → verify `chain_metadata` count = 7 → delete var → resume → batch-admit NFTs → ack.
+
+## Robinhood deferral (2026-07-19 ops)
+
+Chain `4663` was seeded then **removed**: Envio RPC datasource errors with
+`single wildcard event` and stalls the whole indexer. Henlo EVM NFT/ERC-20
+pressure set proceeds on the 6 HyperSync chains. Kitchen recognize for RH remains live.

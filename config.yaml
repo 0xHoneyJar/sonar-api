@@ -1052,23 +1052,8 @@ chains:
           - 0xE840929cd47c6a1cf0f5D9b6d0C6277075680A0b # APDAO Auction House Proxy
         start_block: 5206807 # ApdaoAuctionHouse deployment
 
-  # Robinhood Chain mainnet (eip155:4663 / StonkBrokers) is intentionally NOT
-  # in the live monobelt yet. Envio 3.2.1 treats new `evm.chains.*` as an
-  # incompatible config change and refuses resume without `envio start -r`
-  # (full wipe) or a second indexer schema. Kitchen recognize for 4663 stays
-  # live; belt admission waits on a SCALE / operator wipe window.
-  # See grimoires/loa/coordination/collection-report/prd.robinhood-live-recognize.md
-
-# Robinhood Chain mainnet — pressure wipe cut (CR-RECOG-RH + Henlo batch)
-  - id: 4663
-    start_block: 12493793 # StonkBrokers deployment
-    rpc:
-      - url: https://rpc.mainnet.chain.robinhood.com
-        for: sync
-    contracts:
-      - name: TrackedErc721
-        address:
-          - 0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0 # StonkBrokers STONK
-        start_block: 12493793
+  # Robinhood eip155:4663 deferred: Envio 3.2.1 RPC source rejects multi-filter
+  # queries ("single wildcard event"). No HyperSync for RH yet — keep Kitchen
+  # recognize live; re-add chain when RPC/HyperSync path works.
 
 # V3: unordered multichain and preload are now defaults (removed deprecated flags)
