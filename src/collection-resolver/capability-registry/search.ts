@@ -1,5 +1,10 @@
-import type { CollectionIdentifier } from "../protocol.js";
-import type { CapabilitySnapshot, RecognizeCapability } from "../identifier.js";
+import type { CollectionIdentifier, NetworkRef } from "../protocol.js";
+import type {
+  CapabilitySnapshot,
+  ClassifiedCollectionIdentifier,
+  RecognizeCapability,
+} from "../identifier.js";
+import { networkKey } from "../identifier.js";
 import {
   isOperationEnabledAndHealthy,
   networkIdentityKey,
@@ -11,6 +16,21 @@ export interface DefaultSearchHit {
   readonly snapshot_identity: CapabilityRegistrySnapshot["version"];
   readonly network: NetworkCapability;
 }
+
+/** Accept bare CollectionIdentifier or classified (CAIP-10) form. */
+export type RecognizeSearchIdentifier =
+  | CollectionIdentifier
+  | ClassifiedCollectionIdentifier;
+
+const asClassified = (
+  identifier?: RecognizeSearchIdentifier,
+): ClassifiedCollectionIdentifier | undefined => {
+  if (identifier === undefined) return undefined;
+  if ("identifier" in identifier && identifier.identifier !== undefined) {
+    return identifier;
+  }
+  return { identifier: identifier as CollectionIdentifier };
+};
 
 const sortHits = (
   hits: ReadonlyArray<DefaultSearchHit>,
@@ -30,17 +50,22 @@ const sortHits = (
 
 const matchesIdentifier = (
   network: NetworkCapability,
-  identifier?: CollectionIdentifier,
+  classified?: ClassifiedCollectionIdentifier,
 ): boolean => {
-  if (identifier === undefined) return true;
+  if (classified === undefined) return true;
+  const qualifier: NetworkRef | undefined = classified.network_qualifier;
+  if (qualifier !== undefined) {
+    return networkKey(network.network) === networkKey(qualifier);
+  }
+  const id = classified.identifier;
   if (
-    identifier.format === "evm_address" &&
+    id.format === "evm_address" &&
     network.network.network_namespace !== "eip155"
   ) {
     return false;
   }
   if (
-    identifier.format === "solana_public_key" &&
+    id.format === "solana_public_key" &&
     network.network.network_namespace !== "solana"
   ) {
     return false;
@@ -52,11 +77,15 @@ const matchesIdentifier = (
  * Default search: enabled healthy (state=available) mainnet recognize capabilities.
  * Kill-switched, testnet, disabled, and degraded rows are excluded.
  * Degraded entries are available only via `selectDiagnosticRecognizeNetworks`.
+ *
+ * When `identifier` carries a CAIP-10 `network_qualifier`, only that network is
+ * selected (if healthy). Bare addresses still fan out across the family set.
  */
 export const selectDefaultRecognizeNetworks = (
   snapshot: CapabilityRegistrySnapshot,
-  identifier?: CollectionIdentifier,
+  identifier?: RecognizeSearchIdentifier,
 ): ReadonlyArray<DefaultSearchHit> => {
+  const classified = asClassified(identifier);
   const hits: DefaultSearchHit[] = [];
 
   for (const network of snapshot.networks) {
@@ -65,7 +94,7 @@ export const selectDefaultRecognizeNetworks = (
 
     const recognize = network.operations.recognize;
     if (!isOperationEnabledAndHealthy(recognize)) continue;
-    if (!matchesIdentifier(network, identifier)) continue;
+    if (!matchesIdentifier(network, classified)) continue;
 
     hits.push({
       snapshot_identity: snapshot.version,
@@ -85,9 +114,10 @@ export const selectDiagnosticRecognizeNetworks = (
   snapshot: CapabilityRegistrySnapshot,
   options: {
     readonly include_degraded: true;
-    readonly identifier?: CollectionIdentifier;
+    readonly identifier?: RecognizeSearchIdentifier;
   },
 ): ReadonlyArray<DefaultSearchHit> => {
+  const classified = asClassified(options.identifier);
   const hits: DefaultSearchHit[] = [];
 
   for (const network of snapshot.networks) {
@@ -97,7 +127,7 @@ export const selectDiagnosticRecognizeNetworks = (
     const recognize = network.operations.recognize;
     if (!recognize.enabled) continue;
     if (recognize.state === "disabled") continue;
-    if (!matchesIdentifier(network, options.identifier)) continue;
+    if (!matchesIdentifier(network, classified)) continue;
 
     hits.push({
       snapshot_identity: snapshot.version,

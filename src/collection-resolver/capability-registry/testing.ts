@@ -8,6 +8,7 @@ export {
 export {
   defaultMainnetRegistryInput,
   defaultMainnetNetworkCapabilities,
+  defaultLiveRecognizeNetworkCapabilities,
   hermeticResolverRegistryInput,
   hermeticResolverNetworkCapabilities,
   ethereumMainnetCapability,

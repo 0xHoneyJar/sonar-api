@@ -3,6 +3,7 @@ export {
   InvalidCollectionIdentifierError,
   selectRecognizeCapabilities,
   type CapabilitySnapshot,
+  type ClassifiedCollectionIdentifier,
   type RecognizeCapability,
 } from "./identifier.js";
 export {

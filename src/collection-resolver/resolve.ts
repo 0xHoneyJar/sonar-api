@@ -83,8 +83,9 @@ export const resolveProbe = (input: {
   readonly probePort: NetworkProbePort;
 }): Effect.Effect<ResolveProbeResponse, ResolveProbeError> =>
   Effect.gen(function* () {
-    const identifier = yield* classifyCollectionIdentifier(input.request.identifier);
-    const selected = selectRecognizeCapabilities(input.capabilitySnapshot, identifier);
+    const classified = yield* classifyCollectionIdentifier(input.request.identifier);
+    const identifier = classified.identifier;
+    const selected = selectRecognizeCapabilities(input.capabilitySnapshot, classified);
 
     if (selected.length === 0) {
       return yield* Effect.fail(

@@ -582,6 +582,22 @@ export const robinhoodRecognizeOnlyCapability = (): NetworkCapability => ({
   },
 });
 
+/**
+ * Kitchen live resolve-probe default recognize set (CR-RECOG-PROBE).
+ *
+ * Bare EVM addresses fan out across these healthy mainnet rows (≤ SEAM max 8).
+ * Berachain is included so Score-indexed belt NFTs are searchable without a
+ * CAIP-10 qualifier. Zora / Solana remain in the full default catalog but are
+ * not required for the Ordering tenderly-style multi-chain cut.
+ */
+export const defaultLiveRecognizeNetworkCapabilities = (): NetworkCapability[] => [
+  berachainMainnetCapability(),
+  ethereumMainnetCapability(),
+  baseMainnetCapability(),
+  optimismMainnetCapability(),
+  arbitrumMainnetCapability(),
+];
+
 /** Default mainnet catalog: live evidence networks + Robinhood disabled placeholder. */
 export const defaultMainnetNetworkCapabilities = (): NetworkCapability[] => [
   berachainMainnetCapability(),

@@ -26,7 +26,10 @@ import {
 import type { NetworkCapability } from "../capability-registry/schemas.js";
 import type { CapabilityRegistrySnapshot } from "../capability-registry/snapshot.js";
 import { cloneFreeze } from "../capability-registry/immutable.js";
-import type { RecognizeCapability } from "../identifier.js";
+import type {
+  ClassifiedCollectionIdentifier,
+  RecognizeCapability,
+} from "../identifier.js";
 import {
   CapabilityRegistryVersion,
   decodeCollectionCandidate,
@@ -218,10 +221,10 @@ const pushUnique = (list: NetworkRef[], network: NetworkRef): void => {
 
 const selectBoundedTargets = (
   snapshot: CapabilityRegistrySnapshot,
-  identifier: CollectionIdentifier,
+  classified: ClassifiedCollectionIdentifier,
   maxNetworks: number,
 ): ReadonlyArray<DefaultSearchHit> => {
-  const hits = selectDefaultRecognizeNetworks(snapshot, identifier);
+  const hits = selectDefaultRecognizeNetworks(snapshot, classified);
   return hits.slice(0, maxNetworks);
 };
 
@@ -804,7 +807,7 @@ export const resolveBounded = (input: {
     );
 
     // 1. Structural preflight — BEFORE admission, rate limit, cache, coalesce, adapter.
-    const { identifier } = yield* structuralPreflight(request.identifier).pipe(
+    const { identifier, classified } = yield* structuralPreflight(request.identifier).pipe(
       Effect.tapError(() =>
         Effect.sync(() => {
           terminal.finalize(unclassifiedRejectedTerminal());
@@ -878,7 +881,7 @@ export const resolveBounded = (input: {
 
     const selectedTargets = selectBoundedTargets(
       capabilitySnapshot,
-      identifier,
+      classified,
       config.max_searched_networks,
     );
 

@@ -6,7 +6,11 @@
  * - live — CR-103 EVM NFT probe over operator-configured HTTP RPC
  * - unavailable — explicit disable
  *
- * Set RESOLVER_MODE=live and optionally ETH_RPC_URL / BASE_RPC_URL.
+ * Set RESOLVER_MODE=live and optionally ETH_RPC_URL / BASE_RPC_URL /
+ * OPTIMISM_RPC_URL / ARBITRUM_RPC_URL / BERACHAIN_RPC_URL.
+ *
+ * Live default recognize set (CR-RECOG-PROBE): Ethereum, Base, Optimism,
+ * Arbitrum, Berachain — within SEAM ≤8 networks / concurrency ≤6.
  */
 import { Effect, Exit } from "effect";
 
@@ -26,7 +30,7 @@ import {
   createEvmNftProbeAdapter,
 } from "../collection-resolver/adapters/evm/index.js";
 import {
-  ethereumMainnetCapability,
+  defaultLiveRecognizeNetworkCapabilities,
   DEFAULT_REGISTRY_EPOCH,
 } from "../collection-resolver/capability-registry/fixtures.js";
 import { CAPABILITY_REGISTRY_SCHEMA_VERSION } from "../collection-resolver/capability-registry/schemas.js";
@@ -212,29 +216,33 @@ function createCatalogDeps(): {
   const clock = createProcessMonotonicClock();
   const { deps, config } = createHermeticBoundedDeps({
     processClock: clock,
+    // Catalog hits are Ethereum-mainnet demo rows; other live-default chains miss.
+    capabilitySnapshot: loadLiveRecognizeCapabilitySnapshot("3"),
     script: {
       "eip155:1": catalogHit,
-      // Catalog is Ethereum-mainnet only for this cut; other networks miss.
       "eip155:8453": { kind: "miss" },
-      "solana:mainnet-beta": { kind: "miss" },
+      "eip155:10": { kind: "miss" },
+      "eip155:42161": { kind: "miss" },
+      "eip155:80094": { kind: "miss" },
     } as never,
   });
   return { deps, config };
 }
 
-function loadLiveEthereumCapabilitySnapshot() {
+/** Live Kitchen snapshot: Eth / Base / OP / Arb / Berachain (≤8 SEAM). */
+function loadLiveRecognizeCapabilitySnapshot(registrySequence = "4") {
   const exit = Effect.runSyncExit(
     decodeCapabilityRegistrySnapshot({
       schema_version: CAPABILITY_REGISTRY_SCHEMA_VERSION,
       version: {
         registry_epoch: DEFAULT_REGISTRY_EPOCH,
-        registry_sequence: "4",
+        registry_sequence: registrySequence,
       },
-      networks: [ethereumMainnetCapability()],
+      networks: defaultLiveRecognizeNetworkCapabilities(),
     }),
   );
   if (exit._tag === "Failure") {
-    throw new Error("live ethereum capability snapshot failed to decode");
+    throw new Error("live recognize capability snapshot failed to decode");
   }
   return exit.value;
 }
@@ -259,10 +267,27 @@ function createLiveDeps(env: NodeJS.ProcessEnv): {
   const rpc = createHttpEvmRpcPort({
     clock,
     urlsByNetwork: {
-      // Live cut: Ethereum mainnet only (keeps per-network budget for RPC fan-in).
+      // Multi-chain live cut (CR-RECOG-PROBE). Operator env overrides preferred;
+      // public HTTPS fallbacks keep local/dev probes unblocked.
       "eip155:1": operatorRpcUrls(env, "ETH_RPC_URL", [
         "https://ethereum-rpc.publicnode.com",
         "https://eth.drpc.org",
+      ]),
+      "eip155:8453": operatorRpcUrls(env, "BASE_RPC_URL", [
+        "https://base-rpc.publicnode.com",
+        "https://base.drpc.org",
+      ]),
+      "eip155:10": operatorRpcUrls(env, "OPTIMISM_RPC_URL", [
+        "https://optimism-rpc.publicnode.com",
+        "https://optimism.drpc.org",
+      ]),
+      "eip155:42161": operatorRpcUrls(env, "ARBITRUM_RPC_URL", [
+        "https://arbitrum-one-rpc.publicnode.com",
+        "https://arbitrum.drpc.org",
+      ]),
+      "eip155:80094": operatorRpcUrls(env, "BERACHAIN_RPC_URL", [
+        "https://berachain-rpc.publicnode.com",
+        "https://rpc.berachain.com",
       ]),
     },
   });
@@ -278,7 +303,7 @@ function createLiveDeps(env: NodeJS.ProcessEnv): {
   });
   const hermetic = createHermeticBoundedDeps({
     processClock: clock,
-    capabilitySnapshot: loadLiveEthereumCapabilitySnapshot(),
+    capabilitySnapshot: loadLiveRecognizeCapabilitySnapshot(),
   });
   return {
     deps: { ...hermetic.deps, adapter },
