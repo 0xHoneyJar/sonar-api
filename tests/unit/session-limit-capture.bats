@@ -9,6 +9,28 @@
 # never read or written.
 # =============================================================================
 
+# session-limit-capture.sh parses reset times through session-limit-lib.sh,
+# which requires GNU `date -d` and lives in System Zone. Tests that drive a real
+# capture skip cleanly where GNU date is absent (BSD/darwin) and run in full on
+# GNU platforms (Linux CI). TC-005 (PR #221).
+_require_gnu_date() {
+    date --version >/dev/null 2>&1 || \
+        skip "session-limit-capture.sh requires GNU date -d (System Zone); unavailable on this platform"
+}
+
+# Portable datetime→epoch (GNU auto-parse / BSD `date -j -f`). TC-005.
+_epoch() {
+    local fmt="$1" val="$2"
+    if date --version >/dev/null 2>&1; then
+        date -d "$val" +%s
+    else
+        case "$fmt" in
+            *%z) val="$(printf '%s' "$val" | sed -E 's/([+-][0-9]{2}):([0-9]{2})$/\1\2/')" ;;
+        esac
+        date -j -f "$fmt" "$val" +%s
+    fi
+}
+
 setup() {
     SCRIPT_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
     REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -24,12 +46,15 @@ _seed_sprint() {
 }
 
 @test "capture: writes state with correct reset fields + embedded scalars" {
+    _require_gnu_date
     _seed_sprint '{"state":"RUNNING","cycle":"cycle-117","plan_id":"plan-x","sprints":{"current":"sprint-9"}}'
     run "$CAP" --raw "You've hit your session limit · resets 3pm (Australia/Melbourne)"
     [ "$status" -eq 0 ]
     [ -f "$STATE" ]
     [ "$(jq -r '.reset_at' "$STATE")" != "null" ]
-    [[ "$(jq -r '.reset_at' "$STATE")" =~ ^2026-.*\+10:00$|^2026-.*\+11:00$ ]]
+    # Year-agnostic (TC-004): capture uses the real wall clock, so assert the
+    # ISO-8601 shape + Melbourne offset without pinning the year.
+    [[ "$(jq -r '.reset_at' "$STATE")" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\+10:00|\+11:00)$ ]]
     [[ "$(jq -r '.reset_at_epoch' "$STATE")" =~ ^[0-9]+$ ]]
     [ "$(jq -r '.hit_at' "$STATE")" != "null" ]
     # Embedded scalars, not bare path references.
@@ -42,6 +67,7 @@ _seed_sprint() {
 }
 
 @test "capture: no bare path references embedded in the snapshot" {
+    _require_gnu_date
     _seed_sprint '{"state":"RUNNING","sprints":{"current":"sprint-1"}}'
     run "$CAP" --raw "out of extra usage · resets 9:50pm (Australia/Melbourne)"
     [ "$status" -eq 0 ]
@@ -51,16 +77,18 @@ _seed_sprint() {
 }
 
 @test "capture: reset_at_epoch matches reset_at instant" {
+    _require_gnu_date
     _seed_sprint '{"state":"RUNNING","sprints":{"current":"s1"}}'
     run "$CAP" --raw "hit your session limit · resets 3pm (Australia/Melbourne)"
     [ "$status" -eq 0 ]
     local iso epoch
     iso="$(jq -r '.reset_at' "$STATE")"
     epoch="$(jq -r '.reset_at_epoch' "$STATE")"
-    [ "$epoch" = "$(date -d "$iso" +%s)" ]
+    [ "$epoch" = "$(_epoch '%Y-%m-%dT%H:%M:%S%z' "$iso")" ]
 }
 
 @test "capture: no active run state → snapshot uses defaults, still writes" {
+    _require_gnu_date
     run "$CAP" --raw "out of extra usage · resets 3pm (Australia/Melbourne)"
     [ "$status" -eq 0 ]
     [ -f "$STATE" ]
@@ -69,6 +97,7 @@ _seed_sprint() {
 }
 
 @test "capture: leaves no stray .tmp file behind on success" {
+    _require_gnu_date
     _seed_sprint '{"state":"RUNNING","sprints":{"current":"s1"}}'
     run "$CAP" --raw "hit your session limit · resets 3pm (Australia/Melbourne)"
     [ "$status" -eq 0 ]

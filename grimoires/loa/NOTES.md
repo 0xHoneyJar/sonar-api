@@ -801,3 +801,9 @@ Helius untouched tonight; no Dune. SQD Portal remains free/open.
 - Resource bounds: root 256 KiB, 128 objects, object 4 MiB, closure 32 MiB, graph 10k/50k/depth64.
 - Existing strict-decoder precedent: capability registry and kitchen protocol use Effect Schema with excess-property errors.
 - Production authority remains excluded: no deployment, signer activation, database/index mutation, restart, wipe, or floor change.
+
+## Bug Triage — 20260719-03b184 (sprint-bug-189, 2026-07-19)
+
+- Triaged from Bridgebuilder review of PR #221: TC-001 (HIGH) + TC-004/TC-005 (test hygiene). Beads: bd-di51. Ledger: cycle-bug-20260719-03b184, counter → 189.
+- TC-001 confirmed in code: validateEventBody (invalidation.ts:607-660) leaves LIFECYCLE_TRANSITION unconstrained on resolves_cause_event_ids/replacement_evidence; applyEvent resolution branch (:822) keys on array length, not kind === "RECOVERY"; PRODUCER sits in both allowedLifecycleAuthorities (DRAFT/PRODUCED) and SOURCE_TRANSPORT_LOSS.recovery_authorities (:128), so one event can advance lifecycle AND clear causes, bypassing the :792 "recovery changed lifecycle" invariant.
+- Observation: `.claude/scripts/validate-artifact.sh` validate_bug_triage fails on darwin — its grep/sed use GNU `\s` in ERE, which BSD sed treats literally, so bug_id extraction returns the whole line and validation always exits 1 regardless of artifact correctness. All four checks (id grammar, sibling state.json, schema_version, PII scan) replayed portably and PASS for this triage. Same GNU-ism defect class as TC-005. Upstream fix: `[[:space:]]` instead of `\s`.

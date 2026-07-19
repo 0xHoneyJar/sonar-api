@@ -617,6 +617,29 @@ const validateEventBody = (body: ProjectionEventBodyV1): void => {
     assert(body.authority === "REVOCATION", "revocation requires revocation authority");
     assert(body.state_floor === "SUSPENDED", "revocation must suspend");
   }
+  // TC-001 (PR #221): only RECOVERY may carry cause-resolution or replacement
+  // evidence. Without this fail-closed guard a LIFECYCLE_TRANSITION (or any
+  // future kind) could smuggle resolves_cause_event_ids + evidence and reach
+  // applyEvent's resolution path, clearing active causes while advancing
+  // lifecycle — bypassing the RECOVERY-kind invariants below.
+  if (body.kind !== "RECOVERY") {
+    assert(
+      body.resolves_cause_event_ids.length === 0,
+      "only recovery may resolve causes",
+    );
+    assert(
+      body.replacement_evidence_hash === null,
+      "only recovery may carry replacement evidence",
+    );
+    assert(
+      body.replacement_evidence_kinds === null,
+      "only recovery may carry replacement evidence kinds",
+    );
+    assert(
+      body.replacement_evidence === null,
+      "only recovery may carry replacement evidence object",
+    );
+  }
   if (
     body.kind === "INVALIDATION" ||
     body.kind === "REVOCATION" ||
@@ -818,7 +841,7 @@ const applyEvent = (
         signer_key_id: event.signer_key_id,
       },
     ].sort((left, right) => left.event_id.localeCompare(right.event_id));
-  } else if (body.resolves_cause_event_ids.length > 0) {
+  } else if (body.kind === "RECOVERY") {
     assert(!sameEpoch, "same-epoch recovery is forbidden");
     assert(body.replacement_evidence_hash !== null, "recovery evidence is required");
     const activeIds = priorCauses.map((cause) => cause.event_id).sort();

@@ -10,6 +10,31 @@
 # tomorrow depends entirely on now relative to the fixed reset string).
 # =============================================================================
 
+# TC-005 (PR #221): portable datetime→epoch. GNU `date -d` auto-parses; BSD
+# (darwin, the primary dev platform) needs `date -j -f <format>`. Callers pass
+# second-precision values + formats — BSD fills missing seconds from the wall
+# clock, so `%H:%M` alone drifts. TZ is honored from the environment.
+_epoch() {
+    local fmt="$1" val="$2"
+    if date --version >/dev/null 2>&1; then
+        date -d "$val" +%s
+    else
+        case "$fmt" in
+            *%z) val="$(printf '%s' "$val" | sed -E 's/([+-][0-9]{2}):([0-9]{2})$/\1\2/')" ;;
+        esac
+        date -j -f "$fmt" "$val" +%s
+    fi
+}
+
+# session-limit-lib.sh parses reset times with GNU `date -d` (+ `%:z`). It lives
+# in System Zone and cannot be portably replaced here, so tests that drive those
+# functions skip cleanly where GNU date is absent (BSD/darwin) and run in full
+# — DST boundaries included — on GNU platforms (Linux CI).
+_require_gnu_date() {
+    date --version >/dev/null 2>&1 || \
+        skip "session-limit-lib.sh requires GNU date -d (System Zone); unavailable on this platform"
+}
+
 setup() {
     SCRIPT_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
     PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -17,7 +42,7 @@ setup() {
     # shellcheck source=/dev/null
     source "$LIB"
     # 2026-07-06T06:00:00Z == 2026-07-06 16:00 AEST (+10:00)
-    NOW_JUL="$(date -u -d 2026-07-06T06:00:00Z +%s)"
+    NOW_JUL="$(TZ=UTC _epoch '%Y-%m-%dT%H:%M:%SZ' '2026-07-06T06:00:00Z')"
 }
 
 # --- session_limit_matches -------------------------------------------------
@@ -50,36 +75,42 @@ setup() {
 # --- session_limit_parse_reset: both observed shapes -----------------------
 
 @test "parse: 9:50pm colon-minute form, future today (no roll)" {
+    _require_gnu_date
     run session_limit_parse_reset "hit your session limit · resets 9:50pm (Australia/Melbourne)" "$NOW_JUL"
     [ "$status" -eq 0 ]
     [ "$output" = "2026-07-06T21:50:00+10:00" ]
 }
 
 @test "parse: 3pm bare-hour am/pm form, already passed → rolls forward" {
+    _require_gnu_date
     run session_limit_parse_reset "out of extra usage · resets 3pm (Australia/Melbourne)" "$NOW_JUL"
     [ "$status" -eq 0 ]
     [ "$output" = "2026-07-07T15:00:00+10:00" ]
 }
 
 @test "parse: bare 24h form (no am/pm) rolls forward" {
+    _require_gnu_date
     run session_limit_parse_reset "out of extra usage · resets 15:00 (Australia/Melbourne)" "$NOW_JUL"
     [ "$status" -eq 0 ]
     [ "$output" = "2026-07-07T15:00:00+10:00" ]
 }
 
 @test "parse: 9am rolls forward to tomorrow" {
+    _require_gnu_date
     run session_limit_parse_reset "hit your session limit · resets 9am (Australia/Melbourne)" "$NOW_JUL"
     [ "$status" -eq 0 ]
     [ "$output" = "2026-07-07T09:00:00+10:00" ]
 }
 
 @test "parse: 12am maps to 00:00" {
+    _require_gnu_date
     run session_limit_parse_reset "hit your session limit · resets 12am (Australia/Melbourne)" "$NOW_JUL"
     [ "$status" -eq 0 ]
     [ "$output" = "2026-07-07T00:00:00+10:00" ]
 }
 
 @test "parse: 12pm maps to noon" {
+    _require_gnu_date
     run session_limit_parse_reset "hit your session limit · resets 12pm (Australia/Melbourne)" "$NOW_JUL"
     [ "$status" -eq 0 ]
     [ "$output" = "2026-07-07T12:00:00+10:00" ]
@@ -88,8 +119,9 @@ setup() {
 # --- exact-equal boundary rolls forward ------------------------------------
 
 @test "parse: reset time exactly equal to now rolls forward one day" {
+    _require_gnu_date
     local nowe
-    nowe="$(TZ=Australia/Melbourne date -d '2026-07-06 21:50' +%s)"
+    nowe="$(TZ=Australia/Melbourne _epoch '%Y-%m-%d %H:%M:%S' '2026-07-06 21:50:00')"
     run session_limit_parse_reset "hit your session limit · resets 9:50pm (Australia/Melbourne)" "$nowe"
     [ "$status" -eq 0 ]
     [ "$output" = "2026-07-07T21:50:00+10:00" ]
@@ -98,28 +130,31 @@ setup() {
 # --- DST boundary (Australia/Melbourne spring-forward 2026-10-04) -----------
 
 @test "parse: DST — reset before Oct-04 transition carries AEST +10:00" {
+    _require_gnu_date
     # 2026-10-03 06:00 local; 3pm same day is future → no roll, still AEST.
     local nowe
-    nowe="$(TZ=Australia/Melbourne date -d '2026-10-03 06:00' +%s)"
+    nowe="$(TZ=Australia/Melbourne _epoch '%Y-%m-%d %H:%M:%S' '2026-10-03 06:00:00')"
     run session_limit_parse_reset "hit your session limit · resets 3pm (Australia/Melbourne)" "$nowe"
     [ "$status" -eq 0 ]
     [ "$output" = "2026-10-03T15:00:00+10:00" ]
 }
 
 @test "parse: DST — reset after Oct-04 transition carries AEDT +11:00" {
+    _require_gnu_date
     # 2026-10-05 06:00 local; 3pm same day is future → no roll, now AEDT.
     local nowe
-    nowe="$(TZ=Australia/Melbourne date -d '2026-10-05 06:00' +%s)"
+    nowe="$(TZ=Australia/Melbourne _epoch '%Y-%m-%d %H:%M:%S' '2026-10-05 06:00:00')"
     run session_limit_parse_reset "hit your session limit · resets 3pm (Australia/Melbourne)" "$nowe"
     [ "$status" -eq 0 ]
     [ "$output" = "2026-10-05T15:00:00+11:00" ]
 }
 
 @test "parse: DST — roll-forward across the Oct-04 transition day lands AEDT" {
+    _require_gnu_date
     # now = Oct-03 16:00 local (AEST); 3pm already passed → rolls to Oct-04,
     # which is the transition day and already AEDT (+11:00) at 15:00.
     local nowe
-    nowe="$(TZ=Australia/Melbourne date -d '2026-10-03 16:00' +%s)"
+    nowe="$(TZ=Australia/Melbourne _epoch '%Y-%m-%d %H:%M:%S' '2026-10-03 16:00:00')"
     run session_limit_parse_reset "hit your session limit · resets 3pm (Australia/Melbourne)" "$nowe"
     [ "$status" -eq 0 ]
     [ "$output" = "2026-10-04T15:00:00+11:00" ]
@@ -128,13 +163,15 @@ setup() {
 # --- epoch twin consistency ------------------------------------------------
 
 @test "parse_epoch: matches the ISO instant exactly" {
+    _require_gnu_date
     local iso epoch
     iso="$(session_limit_parse_reset "hit your session limit · resets 9:50pm (Australia/Melbourne)" "$NOW_JUL")"
     epoch="$(session_limit_parse_reset_epoch "hit your session limit · resets 9:50pm (Australia/Melbourne)" "$NOW_JUL")"
-    [ "$epoch" = "$(date -d "$iso" +%s)" ]
+    [ "$epoch" = "$(_epoch '%Y-%m-%dT%H:%M:%S%z' "$iso")" ]
 }
 
 @test "parse_epoch: emits a bare integer (jq --argjson-safe)" {
+    _require_gnu_date
     run session_limit_parse_reset_epoch "out of extra usage · resets 3pm (Australia/Melbourne)" "$NOW_JUL"
     [ "$status" -eq 0 ]
     [[ "$output" =~ ^[0-9]+$ ]]

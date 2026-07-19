@@ -1381,4 +1381,148 @@ describe("Sprint 4 invalidation and deterministic recovery", () => {
       rebuildTruthStatusProjectionV1("development", events, keys),
     ).toThrow(/depth limit/);
   });
+
+  // Regression: TC-001 (Bridgebuilder review of PR #221).
+  // A LIFECYCLE_TRANSITION carrying resolves_cause_event_ids + replacement
+  // evidence must NOT be able to act as a recovery. Recovery semantics
+  // (cause resolution, evidence checks) are reachable only via kind RECOVERY,
+  // at both the validation boundary and the projection layer.
+  describe("TC-001: LIFECYCLE_TRANSITION cannot masquerade as recovery", () => {
+    const transportEvidence = {
+      items: [
+        {
+          kind: "FRESH_READINESS_EVIDENCE" as const,
+          artifact_hashes: [sha256Hex("tc001-fresh-readiness")],
+          census_complete: null,
+          reconciliation_decision: null,
+        },
+      ],
+    };
+    const transportEvidenceHash = sha256Hex(jcsCanonicalize(transportEvidence));
+
+    // A DRAFT→PRODUCED transition is a legal PRODUCER lifecycle move
+    // (allowedLifecycleAuthorities[PRODUCED] === "PRODUCER"), and PRODUCER is
+    // inside SOURCE_TRANSPORT_LOSS.recovery_authorities — so without the guard
+    // one PRODUCER-signed event both advances lifecycle and clears the cause.
+    const draftedRoot = sha256Hex("tc001-draft-root");
+
+    const smugglingTransitionBody = (): ProjectionEventBodyV1 => ({
+      schema_version: 1,
+      event_id: "tc001-smuggling-transition",
+      kind: "LIFECYCLE_TRANSITION",
+      environment: "development",
+      artifact_hash: draftedRoot,
+      generation: "1",
+      invalidation_epoch: "2",
+      sequence: "3",
+      previous_event_hash: sha256Hex("tc001-prev"),
+      occurred_at: now,
+      authority: "PRODUCER",
+      lifecycle_state: "PRODUCED",
+      local_status: "READY",
+      state_floor: "READY",
+      reason_code: "TC001_SMUGGLED_RECOVERY",
+      cause_event_id: null,
+      resolves_cause_event_ids: ["tc001-transport-cause"],
+      replacement_evidence_hash: transportEvidenceHash,
+      replacement_evidence_kinds: ["FRESH_READINESS_EVIDENCE"],
+      replacement_evidence: transportEvidence,
+      depends_on: [],
+      production_authority: false,
+    });
+
+    it("rejects the smuggling event at the validation boundary", () => {
+      // Pre-fix: validateEventBody places no constraint on LIFECYCLE_TRANSITION,
+      // so this compiles cleanly. The fix must reject any non-RECOVERY kind that
+      // carries resolution fields.
+      expect(() =>
+        compileProjectionEventV1(smugglingTransitionBody(), producer),
+      ).toThrow(/resolve|recovery/i);
+    });
+
+    it("never enters the resolution path for a non-RECOVERY kind during rebuild", () => {
+      let events = append(baseEvents(), {
+        event_id: "tc001-activate-draft",
+        kind: "ARTIFACT_ACTIVATED",
+        environment: "development",
+        artifact_hash: draftedRoot,
+        generation: "1",
+        invalidation_epoch: "0",
+        authority: "PRODUCER",
+        lifecycle_state: "DRAFT",
+        local_status: "READY",
+        state_floor: "READY",
+        reason_code: "TC001_DRAFT",
+        depends_on: [],
+      });
+      events = append(events, {
+        event_id: "tc001-transport-cause",
+        kind: "INVALIDATION",
+        environment: "development",
+        artifact_hash: draftedRoot,
+        generation: "1",
+        invalidation_epoch: "1",
+        authority: "PRODUCER",
+        lifecycle_state: "DRAFT",
+        local_status: "DEGRADED",
+        state_floor: "DEGRADED",
+        reason_code: "SOURCE_TRANSPORT_LOSS",
+        depends_on: [],
+      });
+      const smuggle = (): SignedProjectionEventV1[] =>
+        append(events, {
+          event_id: "tc001-transition-clears-cause",
+          kind: "LIFECYCLE_TRANSITION",
+          environment: "development",
+          artifact_hash: draftedRoot,
+          generation: "1",
+          invalidation_epoch: "2",
+          authority: "PRODUCER",
+          lifecycle_state: "PRODUCED",
+          local_status: "READY",
+          state_floor: "READY",
+          reason_code: "TC001_TRANSITION_RECOVERY",
+          resolves_cause_event_ids: ["tc001-transport-cause"],
+          replacement_evidence_hash: transportEvidenceHash,
+          replacement_evidence_kinds: ["FRESH_READINESS_EVIDENCE"],
+          replacement_evidence: transportEvidence,
+          depends_on: [],
+        });
+
+      // A registry entry constructed as if the transition were a legitimate
+      // recovery — this is exactly the material the length-keyed resolution
+      // branch would consume. The guard must make the branch unreachable
+      // regardless of what the registry contains.
+      const forgedRegistry: VerifiedRecoveryEvidenceRegistryV1 = {
+        [transportEvidenceHash]: compileRecoveryEvidenceVerificationV1(
+          {
+            environment: "development",
+            artifact_hash: draftedRoot,
+            generation: "1",
+            invalidation_epoch: "2",
+            resolves_cause_event_ids: ["tc001-transport-cause"],
+            evidence_hash: transportEvidenceHash,
+            evidence: transportEvidence,
+            verified_artifact_hashes: [sha256Hex("tc001-fresh-readiness")],
+            verifier_service_id: "sonar-staged-recovery-verifier",
+            verified_at: now,
+          },
+          recoveryVerifier,
+        ),
+      };
+
+      // Pre-fix: the transition compiles, rebuild succeeds, the cause is
+      // cleared, and status flips READY — the smuggled transition acted as a
+      // recovery. Post-fix: the smuggling event is rejected at validation
+      // (compile time), so building/replaying the log throws.
+      expect(() =>
+        rebuildTruthStatusProjectionV1(
+          "development",
+          smuggle(),
+          keys,
+          forgedRegistry,
+        ),
+      ).toThrow(/resolve|recovery/i);
+    });
+  });
 });
