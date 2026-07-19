@@ -13,10 +13,11 @@ hivemind:
 # PRD — EVM Collection Onboarding Contract v1
 
 > **Status**: draft · **Date**: 2026-07-07 · **Repo**: 0xHoneyJar/sonar-api (thj-envio / freeside-sonar)
-> **Phase**: `/plan-and-analyze` output → feeds `/architect`.
-> **Sibling PRDs** (NOT superseded — parallel tracks): `grimoires/loa/prd.md` (EVM belt zero-downtime
-> re-platform). Point golden-path skills at THIS file explicitly for the onboarding track:
-> `/architect grimoires/loa/prd-evm-onboarding-contract.md`.
+> **Phase**: `/plan-and-analyze` output → feeds `/architect`. This is the **canonical** `grimoires/loa/prd.md`
+> (promoted 2026-07-07 when the belt cycle completed). Golden-path skills run against it directly.
+> **Sibling PRD** (NOT superseded — parallel track, archived by name): `grimoires/loa/prd-belt-zero-downtime.md`
+> (EVM belt zero-downtime re-platform).
+> **Agent door**: `grimoires/loa/ARRIVAL.md` — which doc to load (planning vs as-built vs belt sibling).
 > **Encoding**: Effect Schema / EffectTS — the estate already runs `effect@3.10` + `@effect/schema@0.75`;
 > the canonical layer (`src/canonical/`) is the reference.
 > **Doctrine**: contract-first — *schema-is-not-the-contract* (a schema is shape; the contract is shape
@@ -111,9 +112,9 @@ schema-versioned surface; adding the 100th collection is config + backfill, not 
   checklist selects; a durable store is a shared future improvement, not this scope.
 - **N4** — Re-backfilling all 6 EVM chains. The #153 index lands via a scoped reindex runbook, not a full
   re-ingest (that is the sibling belt-zero-downtime PRD's concern).
-- **N5** — New sale-price heuristics beyond what `map-evm.ts` already derives; #115 is answered by adopting
-  the existing derivation, and any heuristic improvement is a `schema_version` bump under the runbook, not
-  v1 scope.
+- **N5** — Sale-price *attribution beyond the ETH/WETH v1 baseline* (aggregator-sweep decomposition, non-ETH
+  ERC-20 currencies). The uniform priced-sale decode itself is now **in scope as FR-6** (un-deferred per #115
+  comment 4911466984); improving coverage past the ~71% ETH/WETH baseline is a later `schema_version` bump.
 
 ---
 
@@ -195,6 +196,29 @@ The lookup that replaces per-collection archaeology (covers #120, #95, #121, #13
   questions (per-collection cost, indexer/query headroom). [ASSUMPTION — concrete numbers are an SDD/spike
   task; v1 PRD commits to producing the envelope, not to specific limits.]
 
+### FR-6 — Uniform priced EVM sale decode (extends #115 to the whole EVM ramp)
+Per #115 comment 4911466984 (score-api, after onboarding Azuki): make **every** EVM collection emit the SAME
+classified, priced sale — the `evm_collection_event` twin of `svm_collection_event` — so score-api runs ONE
+consumer path instead of `operator`-vs-`viaMarketplace`-vs-SVM branches. Today the sale signal is
+per-collection: SVM `kind='sale'`+price ✓; purupuru `context.operator` (no price); Azuki
+`context.viaMarketplace` bool (no price — 107k transfers, 40%); Mibera/HoneyJar Seaport→`amountPaid` ✓. The
+uniform shape is the canonical `NftActivity` sale (FR-1: `verb="sale"` + `value` wei + `decimals` +
+`marketplace`) — this FR makes it actually *priced* across the ramp, not just shaped.
+
+- **FR-6a** — Extend the Seaport `OrderFulfilled` decode
+  (`src/handlers/seaport.ts::handleSeaportOrderFulfilled` — already sums native + wrapped-native into
+  `amountPaid` and emits priced SALE/PURCHASE) to **mainnet (chain 1)**: add the mainnet Seaport binding +
+  mainnet WETH (`0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`) to `SEAPORT_CONFIG` (today 80094 + 8453 only).
+  Copy-adapt, not a design — the consideration/offer split (listing vs accepted-bid) is already written.
+- **FR-6b** — Wire Azuki (`0xed5af388653567af2f388e6224dcc93746104133`, chain 1, key `azuki`) and the rest
+  of the indexed EVM queue so `OrderFulfilled` produces a priced SALE row that `map-evm.ts` surfaces as
+  canonical `value` (today null — the gap the comment reports).
+- **FR-6c** — ETH/WETH-only is acceptable for v1 (same ~71%-coverage rationale as the purupuru analysis;
+  null/skip aggregator sweeps + non-ETH ERC-20). Improving attribution beyond that is a `schema_version`
+  bump (N5).
+- **FR-6d** — Boundary unchanged (#85): the indexer emits only the event fact ("sale settled for X wei of
+  token Y on marketplace M"); score-api owns all downstream floor/filter/scoring.
+
 ---
 
 ## 5. Thread → Requirement Traceability
@@ -206,7 +230,7 @@ The lookup that replaces per-collection archaeology (covers #120, #95, #121, #13
 | **#153** | Land Token ownership index on main | **FR-2** (the urgent build gap) |
 | **inventory-api#27** | getNftsForOwner returns empty nfts[] | **FR-2c** acceptance |
 | **#151** | EVM action_type vocabulary | **FR-1** — subsumed by canonical verb (answered on-issue) |
-| **#115** | Decode + emit EVM sale price | **FR-1** — subsumed by canonical `value`/`decimals` (versioned) |
+| **#115** | Decode + emit EVM sale price — **now: uniform priced sale across the whole EVM ramp** (comment 4911466984) | **FR-1** (uniform *shape*) + **FR-6** (mainnet Seaport decode → *price* for Azuki + queue) |
 | **#121** | Ramp to ~100 collections — capacity | **FR-5c** capacity envelope |
 | **#135** | Ramp readiness — status-endpoint shape | **FR-5b** coverage watermark |
 | **#120** | Azuki still 0 holders post config | **FR-5a** onboarding config checklist |

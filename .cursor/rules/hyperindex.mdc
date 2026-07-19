@@ -22,7 +22,7 @@ Always include:
 
 Ensure the following are installed and used:
 
-- Node.js v20 only (no higher or lower versions)
+- Node.js v22+ (match `package.json` `engines.node`: `>=22.0.0`)
 - pnpm as the package manager
 - docker installed
 

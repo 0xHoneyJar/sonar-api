@@ -1,36 +1,16 @@
 # Context Directory
 
-This directory is for user-provided context that feeds into the PRD discovery process (`/plan-and-analyze`).
+User-provided context for `/plan-and-analyze` (mostly gitignored).
 
-## What to Put Here
+## Agents landing here
 
-- Product briefs, specs, or requirements documents
-- Market research or competitive analysis
-- Technical constraints or architecture notes
-- Stakeholder feedback or user research
-- Any documents that inform what you want to build
+**Wrong door.** Go to [`../ARRIVAL.md`](../ARRIVAL.md) first.
 
-## Important: Files Are Not Tracked
+Context files here are *hypotheses* for planning — they do not override `src/`,
+`config.yaml`, or `schema.graphql`. Lake/warehouse ADRs in this folder are
+valuable but secondary to ARRIVAL's closed questions.
 
-**All files in this directory (except this README) are gitignored.**
+## What operators put here
 
-This is intentional because:
-1. Context files are user-specific and project-specific
-2. They may contain sensitive business information
-3. Loa is a template - your context shouldn't pollute the framework
-
-## How It Works
-
-When you run `/plan-and-analyze`, the discovering-requirements agent will:
-1. Read all files in this directory
-2. Use them as input for generating your PRD
-3. Ask clarifying questions based on what it finds
-
-## Supported Formats
-
-- Markdown (`.md`)
-- Text files (`.txt`)
-- PDFs (`.pdf`)
-- Images (`.png`, `.jpg`) - for mockups or diagrams
-
-Place your context files here, then run `/plan-and-analyze` to begin discovery.
+Product briefs, spike notes, gate probes, tribal ADRs. Not tracked in git
+(except this README) so secrets and WIP stay local.

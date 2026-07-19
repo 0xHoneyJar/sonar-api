@@ -35,7 +35,7 @@ async function hasura<T>(query: string, variables: Record<string, unknown>): Pro
   return d.data as T;
 }
 
-async function fetchCursorSlot(collectionKey: string): Promise<number | null> {
+export async function fetchCursorSlot(collectionKey: string): Promise<number | null> {
   if (!HASURA || !SECRET) return null;
   // Durable cursor first (sprint-bug-173 DISS-001): MAX(slot) of ingested rows is NOT
   // coverage-safe — a capped run upserts chunk-0 events at high slots while later chunks
@@ -55,7 +55,7 @@ async function fetchCursorSlot(collectionKey: string): Promise<number | null> {
   return d.svm_collection_event?.[0]?.slot ?? null;
 }
 
-async function fetchKnownMints(collectionKey: string): Promise<string[]> {
+export async function fetchKnownMints(collectionKey: string): Promise<string[]> {
   if (!HASURA || !SECRET) return [];
   const d = await hasura<{ svm_collection_event: Array<{ nft_mint: string }> }>(
     `query M($k: String!) { svm_collection_event(where: {collection_key: {_eq: $k}}, distinct_on: nft_mint) { nft_mint } }`,

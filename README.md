@@ -9,6 +9,8 @@
 
 Repo `0xHoneyJar/thj-envio` · upstream `moose-code/thj` · config name `thj-indexer` · maintainer **zerker**.
 
+**Agents:** start at [`grimoires/loa/ARRIVAL.md`](grimoires/loa/ARRIVAL.md) — compressed intake (load order, closed questions, what *not* to read). Do not begin in `NOTES.md`.
+
 **Try it now** — query live production (no auth for reads):
 
 ```bash
