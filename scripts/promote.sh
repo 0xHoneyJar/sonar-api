@@ -67,8 +67,15 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 		--dry-run) DRY_RUN=1 ;;
 		--rollback) ROLLBACK=1 ;;
-		-h|--help) usage 0 ;;
-		*) log "promote.sh: unknown argument '$1'"; usage 2 ;;
+		-h|--help|help) usage 0 ;;
+		--dryrun|--dry) DRY_RUN=1; log "promote.sh: treating '$1' as --dry-run" ;;
+		--roll-back|--revert) ROLLBACK=1; log "promote.sh: treating '$1' as --rollback" ;;
+		*)
+			log "promote.sh: unknown argument '$1'"
+			log "  did you mean one of: --dry-run · --rollback · --help"
+			log "  exact: bash scripts/promote.sh --dry-run"
+			usage 2
+			;;
 	esac
 	shift
 done

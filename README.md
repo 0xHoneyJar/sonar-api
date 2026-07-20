@@ -152,6 +152,7 @@ Visit **http://localhost:8080** for the GraphQL Playground (local dev password: 
 | `pnpm validate:evm-canonical` / `validate:svm-canonical` / `validate:evm-sales` | Live canonical-parity validators |
 | `pnpm cost` | Railway cost model |
 | `pnpm pulse` | Sync-health pulse (`scripts/sonar-pulse.sh`) |
+| `pnpm care` / `care:json` | Care map mega-command — SLOs, floors, onboarding gaze (`CARE.md`) |
 
 A local read-only sync dashboard is available: `node scripts/sync-dashboard.cjs` → http://localhost:8787.
 

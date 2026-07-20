@@ -1,0 +1,11 @@
+{
+  "tool_name": "sonar-care",
+  "tool_repo": "0xHoneyJar/thj-envio",
+  "audit_workspace": "agent_ergonomics_audit",
+  "current_pass": 1,
+  "target_branch": "feat/belt-zero-downtime",
+  "mode": "full",
+  "scope": "Focused mega-command surface: scripts/sonar-care.sh + CARE.md + first-try hints on pulse/promote. Not a full inventory of all 30+ scripts.",
+  "contract_version": "sonar.care.v1",
+  "notes": "Pass 1 born from care-map + dreaming-as-consolidation + agent-ergonomics axioms. Ambition: first-try triage, capabilities, robot-docs, --json, intent inference, error pedagogy."
+}

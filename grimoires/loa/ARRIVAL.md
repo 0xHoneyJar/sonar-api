@@ -19,6 +19,7 @@ Nothing below overrides `src/`, `config.yaml`, `schema.graphql`, `package.json`.
 | # | If you need… | Load |
 |---|--------------|------|
 | 1 | Orientation | **this file** |
+| 1b | **What we stake attention on** | `CARE.md` + `pnpm care --json` (SLOs · floors · onboarding gaze) |
 | 2 | Code map | `reality/index.md` → one spoke only |
 | 3 | **Planning / implement a feature** | `prd.md` + `sdd.md` (EVM Collection Onboarding v1) |
 | 4 | **What the code actually is today** | `reality/as-built-prd.md` + `reality/as-built-sdd.md` |

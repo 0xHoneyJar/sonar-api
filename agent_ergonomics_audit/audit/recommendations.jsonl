@@ -1,0 +1,5 @@
+{"id":"R-001","title":"ship sonar-care mega-command (triage/capabilities/robot-docs/--json)","priority":1000,"applied":true,"dims":["agent_intuitiveness","agent_ergonomics","self_documentation","output_parseability"]}
+{"id":"R-002","title":"CARE.md compressed care card + ARRIVAL 1b pointer","priority":900,"applied":true,"dims":["self_documentation","agent_ease_of_use"]}
+{"id":"R-003","title":"promote/pulse error pedagogy + intent aliases","priority":700,"applied":true,"dims":["error_pedagogy","intent_inference"]}
+{"id":"R-004","title":"live S1 lag fields inside care triage --json (fail-soft)","priority":600,"applied":false,"dims":["agent_ergonomics"]}
+{"id":"R-005","title":"kitchen deferred_reason + batch_id for S4 honesty","priority":550,"applied":false,"dims":["agent_ergonomics"],"note":"feature work — file as implement, not pure ergonomics"}

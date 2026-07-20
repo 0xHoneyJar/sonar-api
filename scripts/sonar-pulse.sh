@@ -15,13 +15,44 @@
 # script exists to catch (BB review #105 F-001/F-002/F-003).
 #
 # Usage:  bash scripts/sonar-pulse.sh   (or: pnpm pulse)
+#         bash scripts/sonar-pulse.sh --help
 # Exit:   0 = COHERENT · 1 = DRIFT (gaps surfaced) · 2 = UNVERIFIED (a check could
 #         not run — e.g. no node_modules; the runnable checks still ran + reported)
 #
 # Identity it checks against: SOUL.md. Rules live in CLAUDE.md. This is the sensor.
+# Care map / SLOs live in CARE.md + `pnpm care` (not this script).
 
 set -uo pipefail
 cd "$(cd "$(dirname "$0")/.." && pwd)" || { echo "sonar-pulse: cannot cd to repo root"; exit 2; }
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "help" ]; then
+  cat <<'EOF'
+sonar-pulse — coherence self-check (honest-green sensor)
+
+Usage:
+  pnpm pulse
+  bash scripts/sonar-pulse.sh
+
+Exit:
+  0 COHERENT · 1 DRIFT · 2 UNVERIFIED
+
+Does NOT: measure block lag SLOs (see pnpm care slo), swap belts (promote.sh),
+or print agent care map (pnpm care --json).
+
+Related:
+  pnpm care triage --json
+  CARE.md
+  SOUL.md
+EOF
+  exit 0
+fi
+if [ -n "${1:-}" ]; then
+  echo "sonar-pulse: unknown argument '$1'" >&2
+  echo "  did you mean: bash scripts/sonar-pulse.sh   (no args)" >&2
+  echo "  or:           bash scripts/sonar-pulse.sh --help" >&2
+  echo "  care map:     pnpm care --json" >&2
+  exit 1
+fi
 
 BLUE="config.mibera.yaml"   # the Mibera belt
 GREEN="config.yaml"         # the full 6-chain belt (BELT_CONFIG=config.yaml on Railway)
