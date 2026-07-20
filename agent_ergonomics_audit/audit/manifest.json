@@ -1,12 +1,88 @@
 {
   "tool_name": "sonar-care",
-  "tool_repo": "0xHoneyJar/sonar-api",
+  "tool_repo": "0xHoneyJar/thj-envio",
   "audit_workspace": "agent_ergonomics_audit",
-  "current_pass": 1,
+  "current_pass": 5,
   "target_branch": "main",
   "mode": "full",
-  "scope": "Focused mega-command surface: scripts/sonar-care.sh + CARE.md + first-try hints on pulse/promote. Coexists with prior belt-progress scaffold in this workspace.",
+  "scope": "Focused mega-command surface: scripts/sonar-care.sh + CARE.md + first-try hints on pulse/promote. Not a full inventory of all 30+ scripts.",
   "contract_version": "sonar.care.v1",
-  "also_surfaces": ["scripts/belt-progress.mjs"],
-  "notes": "Pass 1 born from care-map + dreaming-as-consolidation + agent-ergonomics axioms. Ambition: first-try triage, capabilities, robot-docs, --json, intent inference, error pedagogy."
+  "notes": "Pass 1\u20135 complete for care surface. Ambition bar MET (see ambition_bar_check.md). Pass 5 = regression resistance (R-006 capabilities schema pin) + HANDOFF polish.",
+  "passes": [
+    {
+      "pass": 1,
+      "theme": "live_health",
+      "commit": "c96a087f",
+      "summary": "Fail-soft .live S1 probe on triage/slo",
+      "regression_tests": [
+        "R-001",
+        "R-002"
+      ]
+    },
+    {
+      "pass": 2,
+      "theme": "intent_pedagogy",
+      "commit": "b1016024",
+      "summary": "Intent inference + error pedagogy corpus (care/promote/pulse)",
+      "regression_tests": [
+        "R-003"
+      ]
+    },
+    {
+      "pass": 3,
+      "theme": "determinism",
+      "commit": "34db8532",
+      "summary": "jq -S key order, SOURCE_DATE_EPOCH, chain_id sort, NO_COLOR/non-TTY",
+      "regression_tests": [
+        "R-004"
+      ]
+    },
+    {
+      "pass": 4,
+      "theme": "cross_cli_discovery",
+      "commit": "d655f5cc",
+      "summary": "Mutual help renvoi; related + related_commands; robot-docs family",
+      "regression_tests": [
+        "R-005"
+      ]
+    },
+    {
+      "pass": 5,
+      "theme": "regression_resistance_polish",
+      "commit": null,
+      "summary": "R-006 capabilities schema pin; HANDOFF pass 1\u20135; ambition_bar_check.md; robot-docs --json revalidated",
+      "regression_tests": [
+        "R-006"
+      ],
+      "ambition_bar_met": true
+    }
+  ],
+  "regression_tests": [
+    "R-001__care-first-try-triage.test.sh",
+    "R-002__care-stdout-json-only.test.sh",
+    "R-003__intent-inference-errors.test.sh",
+    "R-004__output-determinism.test.sh",
+    "R-005__help-discoverability.test.sh",
+    "R-006__capabilities-schema-pin.test.sh"
+  ],
+  "polish_bar": {
+    "mega_command": true,
+    "capabilities_json": true,
+    "robot_docs": true,
+    "json_read_path": true,
+    "error_rewrite": true,
+    "intent_inference": true,
+    "determinism": true,
+    "schema_pin": true
+  },
+  "deferred": [
+    "kitchen deferred_reason + batch_id (S4 honesty) \u2014 feature",
+    "sonar-self / sonar-sense capabilities parity",
+    "SCALE.md alias renvoi",
+    "promote capabilities --json",
+    "CI wire-up of R-00x suite"
+  ],
+  "also_surfaces": [
+    "scripts/belt-progress.mjs"
+  ]
 }
