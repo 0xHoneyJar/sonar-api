@@ -35,17 +35,22 @@ cd "$ROOT" || {
   exit 3
 }
 
-# ── NO_COLOR / non-TTY ────────────────────────────────────────────────────────
+# ── NO_COLOR / CI / TERM=dumb / non-TTY ───────────────────────────────────────
+# no-color.org: NO_COLOR present (even empty) means no color.
+# Non-TTY stdout always suppresses color (piped agents never get ANSI).
 USE_COLOR=1
-if [ -n "${NO_COLOR:-}" ] || [ "${CI:-}" = "true" ] || [ "${TERM:-}" = "dumb" ] || [ ! -t 1 ]; then
+if [ -n "${NO_COLOR+x}" ] || [ "${CI:-}" = "true" ] || [ "${TERM:-}" = "dumb" ] || [ ! -t 1 ]; then
   USE_COLOR=0
 fi
-if [ "$USE_COLOR" -eq 1 ]; then
-  BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'
-  GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RED=$'\033[31m'; CYAN=$'\033[36m'
-else
-  BOLD=""; DIM=""; RESET=""; GREEN=""; YELLOW=""; RED=""; CYAN=""
-fi
+apply_color_vars() {
+  if [ "$USE_COLOR" -eq 1 ]; then
+    BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'
+    GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RED=$'\033[31m'; CYAN=$'\033[36m'
+  else
+    BOLD=""; DIM=""; RESET=""; GREEN=""; YELLOW=""; RED=""; CYAN=""
+  fi
+}
+apply_color_vars
 
 log() { printf '%s\n' "$*" >&2; }
 out() { printf '%s\n' "$*"; }
@@ -56,6 +61,35 @@ ALIAS="https://sonar.0xhoneyjar.xyz"
 # Live S1 probe: fail-soft, short timeout. Override endpoint for offline tests.
 # SONAR_GRAPHQL_URL may be full GraphQL URL or alias origin (we append /v1/graphql).
 CARE_PROBE_TIMEOUT_S="${SONAR_CARE_PROBE_TIMEOUT:-2}"
+
+# SOURCE_DATE_EPOCH → ISO-8601 UTC (for any dated field we emit). Portable macOS/Linux.
+care_format_epoch_iso() {
+  local e="$1"
+  # BSD date (macOS): -r SECONDS · GNU date: -d @SECONDS
+  date -u -r "$e" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -d "@$e" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || printf '1970-01-01T00:00:00Z'
+}
+
+# Optional generated_at JSON fragment (only when SOURCE_DATE_EPOCH is set — omit wall-clock).
+care_generated_at_json_field() {
+  if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+    printf ',\n  "generated_at": %s' "$(json_str "$(care_format_epoch_iso "$SOURCE_DATE_EPOCH")")"
+  fi
+}
+
+# Stable JSON stdout: sorted object keys (jq -S). Falls back to raw if jq missing/fails.
+# Agents re-running the same offline command get byte-identical stdout.
+emit_stable_json() {
+  local raw
+  raw=$(cat)
+  if command -v jq >/dev/null 2>&1; then
+    if printf '%s\n' "$raw" | jq -S . 2>/dev/null; then
+      return 0
+    fi
+  fi
+  printf '%s\n' "$raw"
+}
 
 # ── Intent inference (Levenshtein-ish: known verbs + common typos) ────────────
 KNOWN_VERBS=(
@@ -157,13 +191,17 @@ emit_care_json() {
       live_json_block="$(printf ',\n  "live": %s' "$(probe_live_s1_json)")"
       ;;
   esac
+  local generated_at_block
+  generated_at_block="$(care_generated_at_json_field)"
   # shellcheck disable=SC2016
-  cat <<EOF
+  # Fixed insertion order in the heredoc; emit_stable_json re-emits with jq -S
+  # (deterministic key order across jq versions / re-runs).
+  cat <<EOF | emit_stable_json
 {
   "schema": "${CONTRACT_VERSION}",
   "command": $(json_str "$command"),
   "git_sha": $(json_str "$GIT_SHA"),
-  "alias": $(json_str "$ALIAS"),
+  "alias": $(json_str "$ALIAS")${generated_at_block},
   "runtime": "self-hosted Envio HyperIndex belt on Railway (NOT managed Cloud, NOT Ponder)",
   "philosophy": [
     "Self-host the indexer; do not rent the reads",
@@ -377,6 +415,7 @@ probe_live_s1_json() {
   fi
 
   # Map lag against S1 targets; s1_status is observation-only (proposed SLO).
+  # chains/breaches always sorted by chain_id for deterministic JSON.
   printf '%s' "$body" | jq -c \
     --arg url "$url" \
     --argjson timeout_s "$timeout_s" \
@@ -385,7 +424,7 @@ probe_live_s1_json() {
     '
     ($targets) as $t
     | (.data.chain_metadata // []) as $rows
-    | [
+    | ([
         $rows[]
         | . as $c
         | ($c.block_height - $c.latest_processed_block) as $lag
@@ -399,8 +438,8 @@ probe_live_s1_json() {
             s1_within_target: (if $tgt == null then null else ($lag <= $tgt) end),
             primary: ($c.chain_id == $primary)
           }
-      ] as $chains
-    | [$chains[] | select(.s1_within_target == false)] as $breaches
+      ] | sort_by(.chain_id)) as $chains
+    | ([$chains[] | select(.s1_within_target == false)] | sort_by(.chain_id)) as $breaches
     | (
         if ($chains|length) == 0 then "unknown"
         elif ($breaches|length) > 0 then "breach"
@@ -628,13 +667,15 @@ human_renvoi() {
 }
 
 capabilities_json() {
-  cat <<EOF
+  local generated_at_block
+  generated_at_block="$(care_generated_at_json_field)"
+  cat <<EOF | emit_stable_json
 {
   "schema": "${CONTRACT_VERSION}",
   "name": "sonar-care",
   "version": "0.1.0",
   "contract_version": "${CONTRACT_VERSION}",
-  "git_sha": $(json_str "$GIT_SHA"),
+  "git_sha": $(json_str "$GIT_SHA")${generated_at_block},
   "description": "Compressed care map + robot triage for freeside-sonar",
   "features": {
     "robot_triage": true,
@@ -643,7 +684,9 @@ capabilities_json() {
     "robot_docs": true,
     "read_only": true,
     "live_s1_probe": true,
-    "live_s1_fail_soft": true
+    "live_s1_fail_soft": true,
+    "output_deterministic": true,
+    "source_date_epoch": true
   },
   "commands": [
     "triage", "slo", "queue", "dream", "floors", "renvoi",
@@ -659,9 +702,10 @@ capabilities_json() {
     "5": "conflict"
   },
   "env": {
-    "NO_COLOR": "suppress ANSI",
+    "NO_COLOR": "suppress ANSI when set (including empty); also non-TTY / CI=true / TERM=dumb",
     "CI": "when true, no color",
     "TERM": "dumb suppresses color",
+    "SOURCE_DATE_EPOCH": "when set, dated fields use this epoch (ISO-8601 UTC generated_at); omit wall-clock otherwise",
     "SONAR_GRAPHQL_URL": "override GraphQL endpoint for live S1 probe (default ${ALIAS}/v1/graphql)",
     "SONAR_CARE_PROBE_TIMEOUT": "live probe timeout seconds (default 2)"
   },
@@ -671,6 +715,12 @@ capabilities_json() {
     "promote": "bash scripts/promote.sh",
     "care_md": "CARE.md",
     "arrival": "grimoires/loa/ARRIVAL.md"
+  },
+  "determinism": {
+    "json_key_order": "sorted (jq -S)",
+    "live_chains_order": "sort_by(chain_id)",
+    "timestamps": "JSON fields only; never free-text wall-clock on stdout",
+    "volatile_fields": []
   }
 }
 EOF
@@ -779,6 +829,12 @@ if [ "$VERB" = "capabilities" ]; then
   JSON=1
 fi
 
+# --json / capabilities: never emit ANSI on the data path (even on a TTY).
+if [ "$JSON" -eq 1 ]; then
+  USE_COLOR=0
+  apply_color_vars
+fi
+
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 case "$VERB" in
   help)
@@ -791,11 +847,13 @@ case "$VERB" in
     ;;
   robot-docs)
     if [ "$JSON" -eq 1 ]; then
-      # still data: handbook as a field
-      printf '{\n  "schema": "%s",\n  "command": "robot-docs",\n  "guide": ' "$CONTRACT_VERSION"
-      print_robot_docs | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null \
-        || { print_robot_docs | sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' | tr -d '\n' | sed 's/^/"/; s/\\n$/"/'; }
-      printf '\n}\n'
+      # still data: handbook as a field; stabilize key order via emit_stable_json
+      {
+        printf '{\n  "schema": "%s",\n  "command": "robot-docs",\n  "guide": ' "$CONTRACT_VERSION"
+        print_robot_docs | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null \
+          || { print_robot_docs | sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' | tr -d '\n' | sed 's/^/"/; s/\\n$/"/'; }
+        printf '\n}\n'
+      } | emit_stable_json
     else
       print_robot_docs
     fi
