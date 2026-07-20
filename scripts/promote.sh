@@ -68,13 +68,36 @@ while [ $# -gt 0 ]; do
 		--dry-run) DRY_RUN=1 ;;
 		--rollback) ROLLBACK=1 ;;
 		-h|--help|help) usage 0 ;;
-		--dryrun|--dry) DRY_RUN=1; log "promote.sh: treating '$1' as --dry-run" ;;
-		--roll-back|--revert) ROLLBACK=1; log "promote.sh: treating '$1' as --rollback" ;;
+		# dry-run aliases / typos (inferred-and-acted with stderr breadcrumb)
+		--dryrun|--dry|--dry-runs|--dry_run|--drurun|--dry-ru)
+			DRY_RUN=1
+			log "promote.sh: treating '$1' as --dry-run"
+			;;
+		# rollback aliases / typos
+		--roll-back|--revert|--rollbak|--rolllback|--roll_back|--undopromote)
+			ROLLBACK=1
+			log "promote.sh: treating '$1' as --rollback"
+			;;
+		# help typos → teach exact command (do not silently succeed)
+		--hepl|--halp|--hlep|--hep|--helps)
+			log "promote.sh: unknown flag '$1' — did you mean '--help'?"
+			log "  exact: bash scripts/promote.sh --help"
+			exit 1
+			;;
+		# json-ish typos (promote has no --json; redirect to care)
+		--jsno|--jason|--json|-j)
+			log "promote.sh: unknown flag '$1' — promote has no --json surface"
+			log "  did you mean care triage for structured output?"
+			log "  exact: bash scripts/sonar-care.sh triage --json"
+			log "  or:    bash scripts/promote.sh --dry-run"
+			exit 1
+			;;
 		*)
 			log "promote.sh: unknown argument '$1'"
 			log "  did you mean one of: --dry-run · --rollback · --help"
 			log "  exact: bash scripts/promote.sh --dry-run"
-			usage 2
+			log "  or:    bash scripts/promote.sh --help"
+			exit 1
 			;;
 	esac
 	shift

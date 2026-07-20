@@ -25,8 +25,10 @@
 set -uo pipefail
 cd "$(cd "$(dirname "$0")/.." && pwd)" || { echo "sonar-pulse: cannot cd to repo root"; exit 2; }
 
-if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "help" ]; then
-  cat <<'EOF'
+# help (canonical + common typos that still mean help)
+case "${1:-}" in
+  -h|--help|help)
+    cat <<'EOF'
 sonar-pulse — coherence self-check (honest-green sensor)
 
 Usage:
@@ -44,15 +46,44 @@ Related:
   CARE.md
   SOUL.md
 EOF
-  exit 0
-fi
-if [ -n "${1:-}" ]; then
-  echo "sonar-pulse: unknown argument '$1'" >&2
-  echo "  did you mean: bash scripts/sonar-pulse.sh   (no args)" >&2
-  echo "  or:           bash scripts/sonar-pulse.sh --help" >&2
-  echo "  care map:     pnpm care --json" >&2
-  exit 1
-fi
+    exit 0
+    ;;
+  --hepl|--halp|--hlep|--hep|--helps)
+    echo "sonar-pulse: unknown flag '$1' — did you mean '--help'?" >&2
+    echo "  exact: bash scripts/sonar-pulse.sh --help" >&2
+    exit 1
+    ;;
+  --jsno|--jason|--json|-j|--JSON)
+    echo "sonar-pulse: unknown flag '$1' — pulse has no --json surface" >&2
+    echo "  did you mean care triage for structured output?" >&2
+    echo "  exact: bash scripts/sonar-care.sh triage --json" >&2
+    echo "  or:    bash scripts/sonar-pulse.sh" >&2
+    exit 1
+    ;;
+  --dry-run|--dryrun|--dry|--rollback|--robot-triage)
+    echo "sonar-pulse: unknown flag '$1' — pulse takes no flags (read-only sensor)" >&2
+    echo "  did you mean: bare pulse, or promote/care for those surfaces?" >&2
+    echo "  exact: bash scripts/sonar-pulse.sh" >&2
+    case "$1" in
+      --dry-run|--dryrun|--dry|--rollback)
+        echo "  promote: bash scripts/promote.sh $1" >&2 ;;
+      --robot-triage)
+        echo "  care:    bash scripts/sonar-care.sh --robot-triage --json" >&2 ;;
+    esac
+    exit 1
+    ;;
+  "")
+    : # bare invocation — fall through to sensor body
+    ;;
+  *)
+    echo "sonar-pulse: unknown argument '$1'" >&2
+    echo "  did you mean: bare pulse (no args)?" >&2
+    echo "  exact: bash scripts/sonar-pulse.sh" >&2
+    echo "  or:    bash scripts/sonar-pulse.sh --help" >&2
+    echo "  care:  bash scripts/sonar-care.sh triage --json" >&2
+    exit 1
+    ;;
+esac
 
 BLUE="config.mibera.yaml"   # the Mibera belt
 GREEN="config.yaml"         # the full 6-chain belt (BELT_CONFIG=config.yaml on Railway)
