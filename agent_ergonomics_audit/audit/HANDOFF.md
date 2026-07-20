@@ -1,36 +1,39 @@
-# agent-ergonomics pass 1 — HANDOFF
+# agent-ergonomics — HANDOFF
 
 ## What shipped
 
-| Surface | Change |
-|---------|--------|
-| `scripts/sonar-care.sh` | Mega-command: triage / slo / queue / dream / floors / renvoi / capabilities / robot-docs |
-| `CARE.md` | Compressed human care card (S1–S5, floors, onboarding, renvoi) |
-| `package.json` | `pnpm care`, `care:json`, `care:caps` |
-| `ARRIVAL.md` | Load-order row 1b → CARE |
-| `promote.sh` | Error pedagogy + dry-run/rollback aliases |
-| `sonar-pulse.sh` | `--help` + unknown-arg teach → care |
+| Pass | Surface | Change |
+|------|---------|--------|
+| 1 | `scripts/sonar-care.sh` | Mega-command: triage / slo / queue / dream / floors / renvoi / capabilities / robot-docs |
+| 1 | `CARE.md` | Compressed human care card (S1–S5, floors, onboarding, renvoi) |
+| 1 | `package.json` | `pnpm care`, `care:json`, `care:caps` |
+| 1 | `ARRIVAL.md` | Load-order row 1b → CARE |
+| 1 | `promote.sh` / `sonar-pulse.sh` | Error pedagogy + intent aliases |
+| 2 | `sonar-care.sh` | Live S1 lag probe → `.live` on triage/slo (fail-soft) |
+| 3 | `sonar-care.sh` + promote/pulse | Intent inference + error pedagogy corpus (R-003) |
+| **4** | **`sonar-care.sh`** | **Output contract: `jq -S` key order, `SOURCE_DATE_EPOCH`→`generated_at`, `.live.chains` sort_by chain_id, NO_COLOR empty-set + `--json` forces no ANSI** |
 
-## Ambition bar
+## Ambition bar (care surface)
 
 - Mega-command: yes (`pnpm care` / `--robot-triage`)
-- capabilities --json: yes
+- capabilities --json: yes (+ determinism features / SOURCE_DATE_EPOCH env)
 - robot-docs: yes
-- --json on read path: yes
-- Error rewrite: yes (care + promote + pulse)
-- Intent inference: yes (aliases + did-you-mean)
+- --json on read path: yes (stable key order)
+- Error rewrite: yes
+- Intent inference: yes
+- Determinism / SOURCE_DATE_EPOCH / NO_COLOR: yes (R-004)
 
-## Pass 2 queue (do not silently expand this pass)
-
-1. ~~Live S1 lag probe wired into `care triage --json` when GraphQL reachable (fail-soft if offline)~~ **DONE** — `.live` on triage/slo; `SONAR_GRAPHQL_URL` + 2s timeout; offline never non-zero; R-001/R-002 pin it
-2. Kitchen `deferred` + `batch_id` + `deferred_reason` (S4 honesty) — feature, not ergonomics-only
-3. Apply agent-ergonomics to `sonar-self` / `sonar-sense` incur CLIs (capabilities parity)
-4. Reconcile SCALE.md managed-Envio curls → alias (doc renvoi)
-
-## Re-score
+## Verify
 
 ```bash
 bash agent_ergonomics_audit/audit/regression_tests/R-001__care-first-try-triage.test.sh
 bash agent_ergonomics_audit/audit/regression_tests/R-002__care-stdout-json-only.test.sh
-pnpm care --json | jq .
+bash agent_ergonomics_audit/audit/regression_tests/R-003__intent-inference-errors.test.sh
+bash agent_ergonomics_audit/audit/regression_tests/R-004__output-determinism.test.sh
 ```
+
+## Pass queue (do not silently expand)
+
+1. Kitchen `deferred` + `batch_id` + `deferred_reason` (S4 honesty) — feature, not ergonomics-only
+2. Apply agent-ergonomics to `sonar-self` / `sonar-sense` incur CLIs (capabilities parity)
+3. Reconcile SCALE.md managed-Envio curls → alias (doc renvoi)
