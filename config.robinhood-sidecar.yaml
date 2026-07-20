@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=./node_modules/envio/evm.schema.json
 #
-# Robinhood Chain ownership sidecar — StonkBrokers only (eip155:4663).
+# Robinhood Chain ownership sidecar (eip155:4663) — HyperSync-only.
 #
 # Isolation: dedicated Railway service + dedicated Postgres. NEVER point this
 # process at monobelt or Kitchen credentials. NEVER set ROBINHOOD_RPC_URL here
@@ -10,7 +10,7 @@
 #   grimoires/loa/coordination/collection-report/adr.robinhood-hyperindex-sidecar.md
 #   grimoires/loa/coordination/collection-report/robinhood-sidecar-canary.md
 #
-name: stonkbrokers-robinhood-sidecar
+name: robinhood-ownership-sidecar
 rollback_on_reorg: true
 
 # Scope Envio handler autoload to this belt entrypoint only (mibera pattern).
@@ -27,12 +27,16 @@ contracts:
 
 chains:
   - id: 4663
-    start_block: 12493793
+    # Floor = earliest first-Transfer among tracked collections (OnChainHoodies).
+    start_block: 6209712
     # Explicit HyperSync — no `rpc_config` / no RPC URL env on this service.
     hypersync_config:
       url: https://4663.hypersync.xyz
     contracts:
       - name: TrackedErc721
         address:
-          - "0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0" # StonkBrokers
-        start_block: 12493793
+          - "0x9ec6c5b9f572a9b02138e553bc5f5882da735f45" # OnChainHoodies (first Transfer 6209712)
+          - "0x08dc7cb3f4ccc8eea782e2924d151e2130f22b28" # pyopyopyopyo (first Transfer 8740203)
+          - "0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0" # StonkBrokers (first Transfer ~12500546)
+          - "0xa34d46ab695e4751bfbb620bb3c78ff71793618b" # Slobos (first Transfer 13949155)
+        start_block: 6209712
