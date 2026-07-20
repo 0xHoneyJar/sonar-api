@@ -128,4 +128,38 @@ describe("kitchen outbox three proofs", () => {
     expect(body.events[0].event_type).toBe("ownership.ready");
   });
 
+  it("failed job commits prep.failed outbox (order-counter cue; not Score)", async () => {
+    const admit = await app().request("/v2/collection-preparations", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        schema_version: 1,
+        network: {
+          schema_version: 1,
+          network_namespace: "eip155",
+          network_reference: "8453",
+        },
+        address: ADDRESS,
+        token_standard: "erc721",
+      }),
+    });
+    expect(admit.status).toBe(202);
+    const body = await admit.json();
+    await store.updateStatus(body.physical_job_id as string, "failed", {
+      errorCode: "indexing_timeout",
+      errorMessage: "timed out",
+    });
+    const pending = await store.listOutbox({ publishState: "pending" });
+    expect(pending.some((r) => r.event_type === "prep.failed")).toBe(true);
+    const failed = pending.find((r) => r.event_type === "prep.failed");
+    expect(failed?.payload).toMatchObject({
+      event_type: "prep.failed",
+      error_code: "indexing_timeout",
+      plane: "sonar_kitchen_ownership",
+    });
+  });
+
 });

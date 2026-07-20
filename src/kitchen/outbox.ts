@@ -15,6 +15,7 @@ import { caip10ForJob } from "./ownership-ready.js";
 import type { IngestJobRecord } from "./types.js";
 
 export const OWNERSHIP_READY_EVENT_TYPE = "ownership.ready" as const;
+export const PREP_FAILED_EVENT_TYPE = "prep.failed" as const;
 
 export type OutboxPublishState =
   | "pending"
@@ -41,12 +42,37 @@ export type OwnershipReadyEnvelope = {
   };
 };
 
+/** Order counter Machine B compensation cue — never Score catalog mutation. */
+export type PrepFailedEnvelope = {
+  schema_version: 1;
+  event_type: typeof PREP_FAILED_EVENT_TYPE;
+  event_id: string;
+  idempotency_key: string;
+  occurred_at: string;
+  producer: "sonar_kitchen";
+  plane: "sonar_kitchen_ownership";
+  subject: {
+    caip10: string;
+    network_namespace: string;
+    network_reference: string;
+    address: string;
+    token_standard: string;
+    physical_job_id: string;
+    prepare_adapter_id: string;
+  };
+  error_code: string | null;
+  error_message: string | null;
+  correlation_id: string | null;
+};
+
+export type KitchenOutboxEnvelope = OwnershipReadyEnvelope | PrepFailedEnvelope;
+
 export type KitchenOutboxRow = {
   event_id: string;
   event_type: string;
   idempotency_key: string;
   aggregate_id: string;
-  payload: OwnershipReadyEnvelope;
+  payload: KitchenOutboxEnvelope;
   publish_state: OutboxPublishState;
   attempt: number;
   last_error: string | null;
@@ -65,6 +91,18 @@ export function ownershipReadyIdempotencyKey(job: IngestJobRecord): string {
   return createHash("sha256").update(material).digest("hex");
 }
 
+function subjectFromJob(job: IngestJobRecord) {
+  return {
+    caip10: caip10ForJob(job),
+    network_namespace: job.deployment.network.network_namespace,
+    network_reference: job.deployment.network.network_reference,
+    address: job.deployment.normalized_address,
+    token_standard: job.tokenStandard,
+    physical_job_id: job.physicalJobId,
+    prepare_adapter_id: job.prepareAdapterId,
+  };
+}
+
 export function buildOwnershipReadyEnvelope(
   job: IngestJobRecord,
   args?: { eventId?: string; occurredAtMs?: number },
@@ -78,26 +116,50 @@ export function buildOwnershipReadyEnvelope(
     occurred_at: new Date(occurredAtMs).toISOString(),
     producer: "sonar_kitchen",
     plane: "sonar_kitchen_ownership",
-    subject: {
-      caip10: caip10ForJob(job),
-      network_namespace: job.deployment.network.network_namespace,
-      network_reference: job.deployment.network.network_reference,
-      address: job.deployment.normalized_address,
-      token_standard: job.tokenStandard,
-      physical_job_id: job.physicalJobId,
-      prepare_adapter_id: job.prepareAdapterId,
-    },
+    subject: subjectFromJob(job),
+  };
+}
+
+export function prepFailedIdempotencyKey(job: IngestJobRecord): string {
+  const material = [
+    PREP_FAILED_EVENT_TYPE,
+    job.physicalJobId,
+    job.deployment.deployment_id.digest,
+    String(job.attempt),
+    job.errorCode ?? "",
+  ].join("|");
+  return createHash("sha256").update(material).digest("hex");
+}
+
+export function buildPrepFailedEnvelope(
+  job: IngestJobRecord,
+  args?: { eventId?: string; occurredAtMs?: number },
+): PrepFailedEnvelope {
+  const occurredAtMs = args?.occurredAtMs ?? job.updatedAtMs;
+  return {
+    schema_version: 1,
+    event_type: PREP_FAILED_EVENT_TYPE,
+    event_id: args?.eventId ?? randomUUID(),
+    idempotency_key: prepFailedIdempotencyKey(job),
+    occurred_at: new Date(occurredAtMs).toISOString(),
+    producer: "sonar_kitchen",
+    plane: "sonar_kitchen_ownership",
+    subject: subjectFromJob(job),
+    error_code: job.errorCode ?? null,
+    error_message: job.errorMessage ?? null,
+    // Correlations live in kitchen_job_correlations; enrich at relay if needed.
+    correlation_id: null,
   };
 }
 
 /** Transport port — accept ≠ consumer acted. Swallowing errors is forbidden. */
 export type OutboxTransport = {
   /** Return ok only when the broker/pull sink durably accepted the envelope. */
-  accept(envelope: OwnershipReadyEnvelope): Promise<{ ok: true } | { ok: false; error: string }>;
+  accept(envelope: KitchenOutboxEnvelope): Promise<{ ok: true } | { ok: false; error: string }>;
 };
 
 /** Pull sink: durable accept = recorded for consumers to fetch (not Score mutation). */
-export function createPullBufferTransport(buffer: OwnershipReadyEnvelope[]): OutboxTransport {
+export function createPullBufferTransport(buffer: KitchenOutboxEnvelope[]): OutboxTransport {
   return {
     async accept(envelope) {
       buffer.push(envelope);

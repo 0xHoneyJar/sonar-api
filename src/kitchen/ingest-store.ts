@@ -8,10 +8,11 @@ import {
 } from "./normalize.js";
 import {
   buildOwnershipReadyEnvelope,
+  buildPrepFailedEnvelope,
   ownershipReadyIdempotencyKey,
+  type KitchenOutboxEnvelope,
   type KitchenOutboxRow,
   type OutboxPublishState,
-  type OwnershipReadyEnvelope,
 } from "./outbox.js";
 import type {
   AdmissionRequest,
@@ -338,6 +339,8 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
       const cloned = cloneJob(record);
       if (status === "completed") {
         this.enqueueOwnershipReadySync(cloned, nowMs);
+      } else if (status === "failed") {
+        this.enqueuePrepFailedSync(cloned, nowMs);
       }
       return cloned;
     });
@@ -382,16 +385,16 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
     return 0;
   }
 
-  private enqueueOwnershipReadySync(job: IngestJobRecord, nowMs: number): KitchenOutboxRow {
-    const idempotency = ownershipReadyIdempotencyKey(job);
-    const existingId = this.outboxByIdempotency.get(idempotency);
+  private enqueueEnvelopeSync(
+    job: IngestJobRecord,
+    payload: KitchenOutboxEnvelope,
+    nowMs: number,
+  ): KitchenOutboxRow {
+    const existingId = this.outboxByIdempotency.get(payload.idempotency_key);
     if (existingId) {
       const existing = this.outboxById.get(existingId);
       if (existing) return structuredClone(existing);
     }
-    const payload: OwnershipReadyEnvelope = buildOwnershipReadyEnvelope(job, {
-      occurredAtMs: nowMs,
-    });
     const row: KitchenOutboxRow = {
       event_id: payload.event_id,
       event_type: payload.event_type,
@@ -406,8 +409,24 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
       published_at: null,
     };
     this.outboxById.set(row.event_id, row);
-    this.outboxByIdempotency.set(idempotency, row.event_id);
+    this.outboxByIdempotency.set(payload.idempotency_key, row.event_id);
     return structuredClone(row);
+  }
+
+  private enqueueOwnershipReadySync(job: IngestJobRecord, nowMs: number): KitchenOutboxRow {
+    return this.enqueueEnvelopeSync(
+      job,
+      buildOwnershipReadyEnvelope(job, { occurredAtMs: nowMs }),
+      nowMs,
+    );
+  }
+
+  private enqueuePrepFailedSync(job: IngestJobRecord, nowMs: number): KitchenOutboxRow {
+    return this.enqueueEnvelopeSync(
+      job,
+      buildPrepFailedEnvelope(job, { occurredAtMs: nowMs }),
+      nowMs,
+    );
   }
 
   async enqueueOwnershipReady(job: IngestJobRecord, nowMs?: number): Promise<KitchenOutboxRow> {

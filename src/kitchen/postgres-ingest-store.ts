@@ -11,10 +11,11 @@ import {
 import { resolvePreparationCapability } from "./capability.js";
 import {
   buildOwnershipReadyEnvelope,
+  buildPrepFailedEnvelope,
   ownershipReadyIdempotencyKey,
+  type KitchenOutboxEnvelope,
   type KitchenOutboxRow,
   type OutboxPublishState,
-  type OwnershipReadyEnvelope,
 } from "./outbox.js";
 import type {
   AdmissionRequest,
@@ -679,7 +680,19 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
       }
       const record = await rowToRecord(row);
       if (status === "completed") {
-        await insertOwnershipReadyOutbox(client, record, nowMs);
+        await insertKitchenOutbox(
+          client,
+          record,
+          buildOwnershipReadyEnvelope(record, { occurredAtMs: nowMs }),
+          nowMs,
+        );
+      } else if (status === "failed") {
+        await insertKitchenOutbox(
+          client,
+          record,
+          buildPrepFailedEnvelope(record, { occurredAtMs: nowMs }),
+          nowMs,
+        );
       }
       await client.query("COMMIT");
       return record;
@@ -779,7 +792,12 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const row = await insertOwnershipReadyOutbox(client, job, at);
+      const row = await insertKitchenOutbox(
+        client,
+        job,
+        buildOwnershipReadyEnvelope(job, { occurredAtMs: at }),
+        at,
+      );
       await client.query("COMMIT");
       return row;
     } catch (error) {
@@ -889,7 +907,7 @@ type OutboxDbRow = {
   event_type: string;
   idempotency_key: string;
   aggregate_id: string;
-  payload: OwnershipReadyEnvelope;
+  payload: KitchenOutboxEnvelope;
   publish_state: OutboxPublishState;
   attempt: number;
   last_error: string | null;
@@ -914,12 +932,12 @@ function mapOutboxRow(row: OutboxDbRow): KitchenOutboxRow {
   };
 }
 
-async function insertOwnershipReadyOutbox(
+async function insertKitchenOutbox(
   client: pg.PoolClient,
   job: IngestJobRecord,
+  payload: KitchenOutboxEnvelope,
   nowMs: number,
 ): Promise<KitchenOutboxRow> {
-  const payload = buildOwnershipReadyEnvelope(job, { occurredAtMs: nowMs });
   const result = await client.query<OutboxDbRow>(
     `INSERT INTO kitchen_outbox (
        event_id, event_type, idempotency_key, aggregate_id, payload,

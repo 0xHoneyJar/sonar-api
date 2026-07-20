@@ -17,7 +17,7 @@ import { buildOwnershipReadyInventory } from "./ownership-ready.js";
 import {
   createPullBufferTransport,
   relayOutboxRow,
-  type OwnershipReadyEnvelope,
+  type KitchenOutboxEnvelope,
 } from "./outbox.js";
 import { mapPool } from "./async-pool.js";
 import {
@@ -676,7 +676,7 @@ export function createKitchenApp(deps: {
   /** Pull transport accept — marks published only after sink accept (no swallow). */
   outbox.post("/relay-pull", async (c) => {
     const pending = await deps.store.listOutbox({ publishState: "pending", limit: 50 });
-    const accepted: OwnershipReadyEnvelope[] = [];
+    const accepted: KitchenOutboxEnvelope[] = [];
     const transport = createPullBufferTransport(accepted);
     const results: Array<{ event_id: string; result: string }> = [];
     for (const row of pending) {
