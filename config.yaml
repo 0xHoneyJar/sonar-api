@@ -627,6 +627,7 @@ chains:
           - 0x23581767a106ae21c074b2276d25e5c3e136a68b # moonbirds Moonbirds
           - 0x9c8ff314c9bc7f6e59a9d9225fb22946427edc03 # nouns Nouns
           - 0x79fcdef22feed20eddacbb2587640e45491b757f # mfers
+          - 0x902d94ba5bfc0cb408d1a6ca4b8f255d845e50e9 # kitchen_just_t00ns (eip155:1; physical_job ingest_8782378e4d8efdc03716488212ee7552_8153d3ff68e8a8e4)
       # Seaport — OpenSea marketplace, mainnet Azuki secondary sales (FR-6a).
       # Handler filters OrderFulfilled to TRACKED_COLLECTIONS (seaport.ts).
       # OrderFulfilled ABI is stable across Seaport versions, so one handler
