@@ -14,6 +14,11 @@ import {
   deploymentFromCollectionKey,
 } from "./normalize.js";
 import { buildOwnershipReadyInventory } from "./ownership-ready.js";
+import {
+  createPullBufferTransport,
+  relayOutboxRow,
+  type OwnershipReadyEnvelope,
+} from "./outbox.js";
 import { mapPool } from "./async-pool.js";
 import {
   buildIndexingStatus,
@@ -647,6 +652,55 @@ export function createKitchenApp(deps: {
     return c.json(inventory, 200);
   });
   app.route("/v2/ownership-ready", ownershipReady);
+
+  const outbox = new Hono();
+  outbox.use("*", requireServiceToken);
+  outbox.get("/", async (c) => {
+    const state = c.req.query("publish_state") ?? "pending";
+    const states = state.split(",").map((s) => s.trim()).filter(Boolean);
+    const rows = await deps.store.listOutbox({
+      publishState: states as ("pending" | "publishing" | "published" | "failed_terminal")[],
+      limit: 500,
+    });
+    return c.json(
+      {
+        schema_version: 1,
+        plane: "sonar_kitchen_ownership",
+        note: "Outbox committed ≠ broker accepted ≠ consumer acted",
+        count: rows.length,
+        events: rows,
+      },
+      200,
+    );
+  });
+  /** Pull transport accept — marks published only after sink accept (no swallow). */
+  outbox.post("/relay-pull", async (c) => {
+    const pending = await deps.store.listOutbox({ publishState: "pending", limit: 50 });
+    const accepted: OwnershipReadyEnvelope[] = [];
+    const transport = createPullBufferTransport(accepted);
+    const results: Array<{ event_id: string; result: string }> = [];
+    for (const row of pending) {
+      const result = await relayOutboxRow({
+        row,
+        transport,
+        markPublishing: (id) => deps.store.markOutboxPublishing(id),
+        markPublished: (id, at) => deps.store.markOutboxPublished(id, at),
+        markFailed: (id, err, terminal) => deps.store.markOutboxFailed(id, err, terminal),
+      });
+      results.push({ event_id: row.event_id, result });
+    }
+    return c.json(
+      {
+        schema_version: 1,
+        accepted_count: accepted.length,
+        accepted,
+        results,
+        note: "Pull accept only — Score/order consumers must act separately",
+      },
+      200,
+    );
+  });
+  app.route("/v2/outbox", outbox);
 
   return app;
 }

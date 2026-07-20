@@ -6,6 +6,13 @@ import {
   makePhysicalJobId,
   physicalJobKey,
 } from "./normalize.js";
+import {
+  buildOwnershipReadyEnvelope,
+  ownershipReadyIdempotencyKey,
+  type KitchenOutboxRow,
+  type OutboxPublishState,
+  type OwnershipReadyEnvelope,
+} from "./outbox.js";
 import type {
   AdmissionRequest,
   AdmissionResult,
@@ -63,6 +70,17 @@ export interface IngestJobStorePort {
    * owned by admission/backfill — not silently skipped by the worker.
    */
   reconcileUnbackfilledActiveJobs(nowMs?: number): Promise<number>;
+  /** Idempotent insert of ownership.ready outbox intent (proof 1). */
+  enqueueOwnershipReady(job: IngestJobRecord, nowMs?: number): Promise<KitchenOutboxRow>;
+  listOutbox(args?: {
+    publishState?: OutboxPublishState | OutboxPublishState[];
+    limit?: number;
+  }): Promise<KitchenOutboxRow[]>;
+  markOutboxPublishing(eventId: string, nowMs?: number): Promise<void>;
+  markOutboxPublished(eventId: string, publishedAtMs?: number): Promise<void>;
+  markOutboxFailed(eventId: string, error: string, terminal: boolean, nowMs?: number): Promise<void>;
+  /** Reconcile completed jobs missing outbox rows (no shared TX with indexer). */
+  reconcileOwnershipReadyOutbox(limit?: number, nowMs?: number): Promise<number>;
 }
 
 function cloneJob(job: IngestJobRecord): IngestJobRecord {
@@ -75,6 +93,8 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
   private readonly jobsById = new Map<string, IngestJobRecord>();
   private readonly legacyAliases = new Map<string, string>();
   private readonly correlations = new Map<string, JobCorrelation>();
+  private readonly outboxById = new Map<string, KitchenOutboxRow>();
+  private readonly outboxByIdempotency = new Map<string, string>();
   private authority: MigrationAuthorityState = {
     phase: "canonical",
     divergence: false,
@@ -315,7 +335,11 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
         record.leaseOwner = undefined;
         record.leaseUntilMs = undefined;
       }
-      return cloneJob(record);
+      const cloned = cloneJob(record);
+      if (status === "completed") {
+        this.enqueueOwnershipReadySync(cloned, nowMs);
+      }
+      return cloned;
     });
   }
 
@@ -358,6 +382,108 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
     return 0;
   }
 
+  private enqueueOwnershipReadySync(job: IngestJobRecord, nowMs: number): KitchenOutboxRow {
+    const idempotency = ownershipReadyIdempotencyKey(job);
+    const existingId = this.outboxByIdempotency.get(idempotency);
+    if (existingId) {
+      const existing = this.outboxById.get(existingId);
+      if (existing) return structuredClone(existing);
+    }
+    const payload: OwnershipReadyEnvelope = buildOwnershipReadyEnvelope(job, {
+      occurredAtMs: nowMs,
+    });
+    const row: KitchenOutboxRow = {
+      event_id: payload.event_id,
+      event_type: payload.event_type,
+      idempotency_key: payload.idempotency_key,
+      aggregate_id: job.physicalJobId,
+      payload,
+      publish_state: "pending",
+      attempt: 0,
+      last_error: null,
+      created_at: new Date(nowMs).toISOString(),
+      updated_at: new Date(nowMs).toISOString(),
+      published_at: null,
+    };
+    this.outboxById.set(row.event_id, row);
+    this.outboxByIdempotency.set(idempotency, row.event_id);
+    return structuredClone(row);
+  }
+
+  async enqueueOwnershipReady(job: IngestJobRecord, nowMs?: number): Promise<KitchenOutboxRow> {
+    return this.atomic(() => this.enqueueOwnershipReadySync(job, nowMs ?? Date.now()));
+  }
+
+  async listOutbox(args?: {
+    publishState?: OutboxPublishState | OutboxPublishState[];
+    limit?: number;
+  }): Promise<KitchenOutboxRow[]> {
+    const states = args?.publishState
+      ? new Set(Array.isArray(args.publishState) ? args.publishState : [args.publishState])
+      : null;
+    const rows = [...this.outboxById.values()]
+      .filter((r) => (states ? states.has(r.publish_state) : true))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .slice(0, args?.limit ?? 500)
+      .map((r) => structuredClone(r));
+    return rows;
+  }
+
+  async markOutboxPublishing(eventId: string, nowMs?: number): Promise<void> {
+    return this.atomic(() => {
+      const row = this.outboxById.get(eventId);
+      if (!row || row.publish_state === "published" || row.publish_state === "failed_terminal") {
+        return;
+      }
+      row.publish_state = "publishing";
+      row.attempt += 1;
+      row.updated_at = new Date(nowMs ?? Date.now()).toISOString();
+    });
+  }
+
+  async markOutboxPublished(eventId: string, publishedAtMs?: number): Promise<void> {
+    return this.atomic(() => {
+      const row = this.outboxById.get(eventId);
+      if (!row) return;
+      const at = publishedAtMs ?? Date.now();
+      row.publish_state = "published";
+      row.published_at = new Date(at).toISOString();
+      row.updated_at = new Date(at).toISOString();
+      row.last_error = null;
+    });
+  }
+
+  async markOutboxFailed(
+    eventId: string,
+    error: string,
+    terminal: boolean,
+    nowMs?: number,
+  ): Promise<void> {
+    return this.atomic(() => {
+      const row = this.outboxById.get(eventId);
+      if (!row || row.publish_state === "published") return;
+      row.publish_state = terminal ? "failed_terminal" : "pending";
+      row.last_error = error;
+      row.updated_at = new Date(nowMs ?? Date.now()).toISOString();
+    });
+  }
+
+  async reconcileOwnershipReadyOutbox(limit = 100, nowMs?: number): Promise<number> {
+    return this.atomic(() => {
+      const at = nowMs ?? Date.now();
+      let n = 0;
+      for (const job of this.jobsById.values()) {
+        if (n >= limit) break;
+        if (job.status !== "completed") continue;
+        const key = ownershipReadyIdempotencyKey(job);
+        if (this.outboxByIdempotency.has(key)) continue;
+        this.enqueueOwnershipReadySync(job, at);
+        n += 1;
+      }
+      return n;
+    });
+  }
+
   setMigrationDivergenceForTests(reason?: string): void {
     this.authority = {
       phase: "parity",
@@ -381,6 +507,8 @@ export class MemoryIngestJobStore implements IngestJobStorePort {
     this.jobsById.clear();
     this.legacyAliases.clear();
     this.correlations.clear();
+    this.outboxById.clear();
+    this.outboxByIdempotency.clear();
     this.authority = { phase: "canonical", divergence: false, updatedAtMs: 0 };
     this.serial = Promise.resolve();
   }

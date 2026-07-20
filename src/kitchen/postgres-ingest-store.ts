@@ -9,6 +9,13 @@ import {
   physicalJobKey,
 } from "./normalize.js";
 import { resolvePreparationCapability } from "./capability.js";
+import {
+  buildOwnershipReadyEnvelope,
+  ownershipReadyIdempotencyKey,
+  type KitchenOutboxRow,
+  type OutboxPublishState,
+  type OwnershipReadyEnvelope,
+} from "./outbox.js";
 import type {
   AdmissionRequest,
   AdmissionResult,
@@ -127,6 +134,28 @@ CREATE TABLE IF NOT EXISTS kitchen_job_identity_migration_state (
 );
 `;
 
+/** Always applied — even when identity migration phase is constrained (#236/#238). */
+const ENSURE_OUTBOX_SQL = `
+CREATE TABLE IF NOT EXISTS kitchen_outbox (
+  event_id text PRIMARY KEY,
+  event_type text NOT NULL,
+  idempotency_key text NOT NULL UNIQUE,
+  aggregate_id text NOT NULL,
+  payload jsonb NOT NULL,
+  publish_state text NOT NULL CHECK (
+    publish_state IN ('pending', 'publishing', 'published', 'failed_terminal')
+  ),
+  attempt integer NOT NULL DEFAULT 0,
+  last_error text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  published_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS kitchen_outbox_publish_state_updated_idx
+  ON kitchen_outbox (publish_state, updated_at);
+`;
+
 type JobRow = {
   chain_id: number | null;
   contract: string | null;
@@ -238,6 +267,9 @@ async function legacyRowToRecord(row: JobRow): Promise<IngestJobRecord> {
 }
 
 export async function ensureKitchenIngestTable(pool: pg.Pool): Promise<void> {
+  // Outbox must exist even when identity bootstrap short-circuits on constrained.
+  await pool.query(ENSURE_OUTBOX_SQL);
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -609,35 +641,54 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
       throw new Error("expectedAbsentLease and expectedLease are mutually exclusive");
     }
     const nowMs = args?.nowMs ?? Date.now();
-    const result = await this.pool.query<JobRow>(
-      `UPDATE kitchen_ingest_jobs SET status = $2, error_code = $3, error_message = $4,
-         lease_owner = CASE WHEN $6 THEN NULL ELSE lease_owner END,
-         lease_until = CASE WHEN $6 THEN NULL ELSE lease_until END,
-         updated_at = to_timestamp($5 / 1000.0)
-       WHERE physical_job_id = $1
-         AND ($9::text IS NULL OR status = $9)
-         AND ($10::boolean IS NOT TRUE OR lease_owner IS NULL)
-         AND (
-           $7::text IS NULL OR (
-             lease_owner = $7 AND lease_epoch = $8
-             AND lease_until > to_timestamp($5 / 1000.0)
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query<JobRow>(
+        `UPDATE kitchen_ingest_jobs SET status = $2, error_code = $3, error_message = $4,
+           lease_owner = CASE WHEN $6 THEN NULL ELSE lease_owner END,
+           lease_until = CASE WHEN $6 THEN NULL ELSE lease_until END,
+           updated_at = to_timestamp($5 / 1000.0)
+         WHERE physical_job_id = $1
+           AND ($9::text IS NULL OR status = $9)
+           AND ($10::boolean IS NOT TRUE OR lease_owner IS NULL)
+           AND (
+             $7::text IS NULL OR (
+               lease_owner = $7 AND lease_epoch = $8
+               AND lease_until > to_timestamp($5 / 1000.0)
+             )
            )
-         )
-       RETURNING ${JOB_COLUMNS}`,
-      [
-        physicalJobId,
-        status,
-        args?.errorCode ?? null,
-        args?.errorMessage ?? null,
-        nowMs,
-        args?.releaseLease !== false,
-        args?.expectedLease?.owner ?? null,
-        args?.expectedLease?.epoch ?? null,
-        args?.expectedStatus ?? null,
-        args?.expectedAbsentLease === true,
-      ],
-    );
-    return result.rows[0] ? rowToRecord(result.rows[0]) : undefined;
+         RETURNING ${JOB_COLUMNS}`,
+        [
+          physicalJobId,
+          status,
+          args?.errorCode ?? null,
+          args?.errorMessage ?? null,
+          nowMs,
+          args?.releaseLease !== false,
+          args?.expectedLease?.owner ?? null,
+          args?.expectedLease?.epoch ?? null,
+          args?.expectedStatus ?? null,
+          args?.expectedAbsentLease === true,
+        ],
+      );
+      const row = result.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        return undefined;
+      }
+      const record = await rowToRecord(row);
+      if (status === "completed") {
+        await insertOwnershipReadyOutbox(client, record, nowMs);
+      }
+      await client.query("COMMIT");
+      return record;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async renewLease(args: {
@@ -722,6 +773,175 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
     );
     return result.rowCount ?? 0;
   }
+
+  async enqueueOwnershipReady(job: IngestJobRecord, nowMs?: number): Promise<KitchenOutboxRow> {
+    const at = nowMs ?? Date.now();
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const row = await insertOwnershipReadyOutbox(client, job, at);
+      await client.query("COMMIT");
+      return row;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listOutbox(args?: {
+    publishState?: OutboxPublishState | OutboxPublishState[];
+    limit?: number;
+  }): Promise<KitchenOutboxRow[]> {
+    const states = args?.publishState
+      ? Array.isArray(args.publishState)
+        ? args.publishState
+        : [args.publishState]
+      : null;
+    const limit = args?.limit ?? 500;
+    const result = states
+      ? await this.pool.query<OutboxDbRow>(
+          `SELECT event_id, event_type, idempotency_key, aggregate_id, payload,
+                  publish_state, attempt, last_error, created_at, updated_at, published_at
+           FROM kitchen_outbox
+           WHERE publish_state = ANY($1::text[])
+           ORDER BY created_at ASC
+           LIMIT $2`,
+          [states, limit],
+        )
+      : await this.pool.query<OutboxDbRow>(
+          `SELECT event_id, event_type, idempotency_key, aggregate_id, payload,
+                  publish_state, attempt, last_error, created_at, updated_at, published_at
+           FROM kitchen_outbox
+           ORDER BY created_at ASC
+           LIMIT $1`,
+          [limit],
+        );
+    return result.rows.map(mapOutboxRow);
+  }
+
+  async markOutboxPublishing(eventId: string, nowMs?: number): Promise<void> {
+    const at = nowMs ?? Date.now();
+    await this.pool.query(
+      `UPDATE kitchen_outbox
+       SET publish_state = 'publishing',
+           attempt = attempt + 1,
+           updated_at = to_timestamp($2 / 1000.0)
+       WHERE event_id = $1
+         AND publish_state NOT IN ('published', 'failed_terminal')`,
+      [eventId, at],
+    );
+  }
+
+  async markOutboxPublished(eventId: string, publishedAtMs?: number): Promise<void> {
+    const at = publishedAtMs ?? Date.now();
+    await this.pool.query(
+      `UPDATE kitchen_outbox
+       SET publish_state = 'published',
+           published_at = to_timestamp($2 / 1000.0),
+           updated_at = to_timestamp($2 / 1000.0),
+           last_error = NULL
+       WHERE event_id = $1`,
+      [eventId, at],
+    );
+  }
+
+  async markOutboxFailed(
+    eventId: string,
+    error: string,
+    terminal: boolean,
+    nowMs?: number,
+  ): Promise<void> {
+    const at = nowMs ?? Date.now();
+    await this.pool.query(
+      `UPDATE kitchen_outbox
+       SET publish_state = $3,
+           last_error = $2,
+           updated_at = to_timestamp($4 / 1000.0)
+       WHERE event_id = $1
+         AND publish_state <> 'published'`,
+      [eventId, error, terminal ? "failed_terminal" : "pending", at],
+    );
+  }
+
+  async reconcileOwnershipReadyOutbox(limit = 100, nowMs?: number): Promise<number> {
+    const at = nowMs ?? Date.now();
+    const completed = await this.listByStatus("completed", limit);
+    let n = 0;
+    for (const job of completed) {
+      const before = await this.pool.query<{ exists: boolean }>(
+        `SELECT EXISTS(
+           SELECT 1 FROM kitchen_outbox WHERE idempotency_key = $1
+         ) AS exists`,
+        [ownershipReadyIdempotencyKey(job)],
+      );
+      if (before.rows[0]?.exists) continue;
+      await this.enqueueOwnershipReady(job, at);
+      n += 1;
+    }
+    return n;
+  }
+}
+
+type OutboxDbRow = {
+  event_id: string;
+  event_type: string;
+  idempotency_key: string;
+  aggregate_id: string;
+  payload: OwnershipReadyEnvelope;
+  publish_state: OutboxPublishState;
+  attempt: number;
+  last_error: string | null;
+  created_at: Date;
+  updated_at: Date;
+  published_at: Date | null;
+};
+
+function mapOutboxRow(row: OutboxDbRow): KitchenOutboxRow {
+  return {
+    event_id: row.event_id,
+    event_type: row.event_type,
+    idempotency_key: row.idempotency_key,
+    aggregate_id: row.aggregate_id,
+    payload: row.payload,
+    publish_state: row.publish_state,
+    attempt: row.attempt,
+    last_error: row.last_error,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
+    published_at: row.published_at ? row.published_at.toISOString() : null,
+  };
+}
+
+async function insertOwnershipReadyOutbox(
+  client: pg.PoolClient,
+  job: IngestJobRecord,
+  nowMs: number,
+): Promise<KitchenOutboxRow> {
+  const payload = buildOwnershipReadyEnvelope(job, { occurredAtMs: nowMs });
+  const result = await client.query<OutboxDbRow>(
+    `INSERT INTO kitchen_outbox (
+       event_id, event_type, idempotency_key, aggregate_id, payload,
+       publish_state, attempt, created_at, updated_at
+     ) VALUES (
+       $1, $2, $3, $4, $5::jsonb, 'pending', 0,
+       to_timestamp($6 / 1000.0), to_timestamp($6 / 1000.0)
+     )
+     ON CONFLICT (idempotency_key) DO UPDATE
+       SET updated_at = kitchen_outbox.updated_at
+     RETURNING event_id, event_type, idempotency_key, aggregate_id, payload,
+               publish_state, attempt, last_error, created_at, updated_at, published_at`,
+    [
+      payload.event_id,
+      payload.event_type,
+      payload.idempotency_key,
+      job.physicalJobId,
+      JSON.stringify(payload),
+      nowMs,
+    ],
+  );
+  return mapOutboxRow(result.rows[0]!);
 }
 
 export {

@@ -662,6 +662,17 @@ export async function runKitchenIngestWorkerTick(args: {
       error instanceof Error ? error.message : String(error),
     );
   }
+  try {
+    const reconciled = await args.store.reconcileOwnershipReadyOutbox(100, nowMs);
+    if (reconciled > 0) {
+      console.info("[kitchen] reconciled %d ownership.ready outbox row(s)", reconciled);
+    }
+  } catch (error) {
+    console.warn(
+      "[kitchen] reconcileOwnershipReadyOutbox failed — continuing tick (%s)",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 export function startKitchenIngestWorker(args: {
