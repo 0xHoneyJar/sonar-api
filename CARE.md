@@ -122,6 +122,23 @@ Exit codes for `sonar-care`: **0** ok · **1** bad input (stderr teaches exact f
 
 ---
 
+## Related CLIs
+
+Same-repo family; each `--help` points at the others.
+
+| CLI | First-try | Role |
+|-----|-----------|------|
+| **care** | `pnpm care triage --json` | Care map, SLOs, queue policy, live S1 probe |
+| **care contract** | `pnpm care capabilities --json` | Machine contract (`related` + `related_commands`) |
+| **care handbook** | `pnpm care robot-docs guide` | Paste-ready agent handbook |
+| **pulse** | `pnpm pulse` | Coherence sensor (exit 0/1/2) |
+| **promote** | `bash scripts/promote.sh --dry-run` | Sole gated BELT_UPSTREAM swap |
+| **self** | `pnpm self` / `pnpm self:check` | Territory beacon emit / drift-check |
+
+Queue policy verbs (via `pnpm care queue --json`): **produce · systemize · clarify · drain · renvoi**.
+
+---
+
 ## Still true / still open
 
 - **True:** self-hosted belt + stable alias is the sovereignty posture we chose.

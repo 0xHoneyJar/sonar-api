@@ -61,7 +61,24 @@ ROLLBACK=0
 
 log() { printf '%s\n' "$*" >&2; }
 
-usage() { sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() {
+	# Header comment is the usage body (lines 2–37); append mutual discovery footer.
+	sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+	cat <<'EOF'
+
+Related CLIs (mutual discovery):
+  pnpm care triage --json              care map + live S1 (structured; not this tool)
+  pnpm care capabilities --json        care machine contract
+  pnpm pulse                           coherence sensor (0=COHERENT · 1=DRIFT · 2=UNVERIFIED)
+  pnpm self / pnpm self:check          territory beacon emit / drift-check
+  CARE.md · grimoires/loa/ARRIVAL.md
+
+First-try (safe):
+  bash scripts/promote.sh --dry-run
+  bash scripts/promote.sh --help
+EOF
+	exit "${1:-0}"
+}
 
 while [ $# -gt 0 ]; do
 	case "$1" in
