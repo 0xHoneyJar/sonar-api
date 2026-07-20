@@ -288,6 +288,26 @@ function recommendations(snapshot, jobs) {
       });
     }
   }
+  const readyCount = jobs?.ownership_ready?.count ?? 0;
+  if (readyCount > 0) {
+    const sample = (jobs.ownership_ready.subjects ?? [])
+      .slice(0, 3)
+      .map((s) => s.caip10)
+      .join(", ");
+    recs.push({
+      priority: "info",
+      title: "Sonar kitchen ownership_ready subjects",
+      detail: `count=${readyCount}${sample ? ` sample=${sample}` : ""}`,
+      next: [
+        "GET /v2/ownership-ready (service token)",
+        "GET /v2/indexing-status → .ownership_ready (service token)",
+      ],
+      never: [
+        "Treat ownership_ready as Score Machine C active",
+        "Emit god-event collection.added across Score/orders/registry",
+      ],
+    });
+  }
   if (!recs.length) {
     recs.push({
       priority: "info",
@@ -316,10 +336,16 @@ function capabilitiesDoc() {
       "eta",
       "optional-tip-rpc",
       "optional-kitchen-jobs",
+      "ownership-ready",
     ],
     commands: [
       { name: "(default)", summary: "robot-triage snapshot", flags: ["--json", "--tile", "--robot-triage"] },
       { name: "sample", summary: "multi-sample NDJSON/JSON with rates", flags: ["--samples", "--interval", "--json"] },
+      {
+        name: "ownership-ready",
+        summary: "Sonar kitchen ownership_ready inventory (CAIP subjects; not Score Machine C)",
+        flags: ["--json"],
+      },
       { name: "capabilities", summary: "machine self-doc", flags: ["--json"] },
       { name: "robot-docs", summary: "agent guide", flags: ["guide"] },
     ],
@@ -365,11 +391,19 @@ TIP_FOLLOW · CATCHUP · SPARSE_NORMAL · FETCH_STALL · PROCESS_STALL · FULL_S
 - NEVER set ENVIO_RESTART from this tool or follow-ups unless operator cites KF-013 wipe authorization.
 - Prefer GraphQL over direct Postgres for production observation.
 - Kitchen jobs require KITCHEN_API_URL + SERVICE_TOKEN (optional merge).
+- ownership_ready is Sonar kitchen plane only — never Score Machine C / catalog active.
+
+## Ownership-ready triage
+\`\`\`
+node scripts/belt-progress.mjs ownership-ready --json
+# or: --robot-triage --json → .ownership_ready (when kitchen env set)
+\`\`\`
 
 ## Related
 - scripts/profiling/sample-progress-graphql.sh (NDJSON heartbeat)
 - scripts/profiling/stall_classify.py (Python twin of JS classifier)
 - GET /v2/indexing-status (Kitchen, service-auth)
+- GET /v2/ownership-ready (Kitchen, service-auth)
 `;
 }
 
@@ -379,6 +413,7 @@ function printHelp() {
 Usage:
   node scripts/belt-progress.mjs [--robot-triage] [--json] [--tile]
   node scripts/belt-progress.mjs sample [--samples N] [--interval SEC] [--json]
+  node scripts/belt-progress.mjs ownership-ready [--json]
   node scripts/belt-progress.mjs capabilities [--json]
   node scripts/belt-progress.mjs robot-docs [guide]
 
@@ -426,7 +461,7 @@ function parseArgs(argv) {
       continue;
     }
     if (a.startsWith("-")) return { error: "usage", detail: `unknown flag ${a}` };
-    if (["capabilities", "robot-docs", "sample", "help"].includes(a)) {
+    if (["capabilities", "robot-docs", "sample", "ownership-ready", "help"].includes(a)) {
       command = a;
       continue;
     }
@@ -473,9 +508,22 @@ function buildTriagePayload(snapshot, jobs, graphqlUrl) {
           active_count: jobs.jobs?.active?.length ?? 0,
         }
       : null,
+    ownership_ready: jobs?.ownership_ready
+      ? {
+          plane: jobs.ownership_ready.plane ?? "sonar_kitchen_ownership",
+          count: jobs.ownership_ready.count ?? 0,
+          subjects: (jobs.ownership_ready.subjects ?? []).map((s) => ({
+            caip10: s.caip10,
+            completed_at: s.completed_at,
+            holder_count: s.holder_count ?? null,
+            prepare_adapter_id: s.prepare_adapter_id,
+          })),
+        }
+      : null,
     recommendations: recommendations(snapshot, jobs),
     follow_ups: [
       "node scripts/belt-progress.mjs sample --samples 2 --interval 15 --json",
+      "node scripts/belt-progress.mjs ownership-ready --json",
       "node scripts/belt-progress.mjs --tile",
       "node scripts/belt-progress.mjs capabilities --json",
     ],
@@ -530,6 +578,44 @@ async function main() {
   if (parsed.command === "robot-docs") {
     process.stdout.write(robotDocsGuide());
     process.exit(EXIT.OK);
+  }
+  if (parsed.command === "ownership-ready") {
+    const kitchenUrl = process.env.KITCHEN_API_URL?.trim();
+    const token = process.env.SERVICE_TOKEN?.trim();
+    if (!kitchenUrl || !token) {
+      process.stderr.write(
+        "ownership-ready requires KITCHEN_API_URL + SERVICE_TOKEN\n",
+      );
+      process.exit(EXIT.USAGE);
+    }
+    try {
+      const status = await kitchenJobs(kitchenUrl, token);
+      const inventory = status?.ownership_ready ?? {
+        schema_version: 1,
+        plane: "sonar_kitchen_ownership",
+        count: 0,
+        subjects: [],
+        observed_at: new Date().toISOString(),
+      };
+      const payload = {
+        schema_version: 1,
+        tool: "belt-progress",
+        command: "ownership-ready",
+        sense_only: true,
+        plane: inventory.plane ?? "sonar_kitchen_ownership",
+        observed_at: inventory.observed_at ?? new Date().toISOString(),
+        count: inventory.count ?? 0,
+        subjects: inventory.subjects ?? [],
+        note: "Sonar kitchen ownership_ready — not Score Machine C / catalog active",
+      };
+      process.stdout.write(
+        JSON.stringify(payload, null, parsed.flags.has("json") ? 2 : 0) + "\n",
+      );
+      process.exit(EXIT.OK);
+    } catch (err) {
+      process.stderr.write(`ownership-ready: ${err?.message || err}\n`);
+      process.exit(EXIT.BLIND);
+    }
   }
 
   const graphqlUrl = process.env.BELT_GRAPHQL_URL?.trim() || DEFAULT_GRAPHQL;

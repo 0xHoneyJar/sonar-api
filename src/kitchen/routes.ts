@@ -8,7 +8,12 @@ import {
 } from "../collection-resolver/protocol.js";
 import { requireServiceToken } from "./auth.js";
 import { resolvePreparationCapability } from "./capability.js";
-import { collectionKeyFromParams, deploymentFromCollectionKey } from "./normalize.js";
+import {
+  collectionKeyFromDeployment,
+  collectionKeyFromParams,
+  deploymentFromCollectionKey,
+} from "./normalize.js";
+import { buildOwnershipReadyInventory } from "./ownership-ready.js";
 import { mapPool } from "./async-pool.js";
 import {
   buildIndexingStatus,
@@ -602,9 +607,46 @@ export function createKitchenApp(deps: {
       countByStatus: () => deps.store.countByStatus(),
       listByStatus: (status, limit) => deps.store.listByStatus(status, limit),
       readChains: deps.readChainProgress ?? (async () => []),
+      enrichOwnershipReady: async (job) => {
+        const key = collectionKeyFromDeployment(job.deployment);
+        if (!key) return { holderCount: null, indexedAtMs: null };
+        try {
+          const snap = await deps.reader.readIndexedSnapshot(key);
+          return {
+            holderCount: snap.holderCount,
+            indexedAtMs: snap.indexedAtMs,
+          };
+        } catch {
+          return { holderCount: null, indexedAtMs: null };
+        }
+      },
     });
     return c.json(body, 200);
   });
   app.route("/v2/indexing-status", indexing);
+
+  const ownershipReady = new Hono();
+  ownershipReady.use("*", requireServiceToken);
+  ownershipReady.get("/", async (c) => {
+    const inventory = await buildOwnershipReadyInventory({
+      listCompleted: (limit) => deps.store.listByStatus("completed", limit),
+      enrich: async (job) => {
+        const key = collectionKeyFromDeployment(job.deployment);
+        if (!key) return { holderCount: null, indexedAtMs: null };
+        try {
+          const snap = await deps.reader.readIndexedSnapshot(key);
+          return {
+            holderCount: snap.holderCount,
+            indexedAtMs: snap.indexedAtMs,
+          };
+        } catch {
+          return { holderCount: null, indexedAtMs: null };
+        }
+      },
+    });
+    return c.json(inventory, 200);
+  });
+  app.route("/v2/ownership-ready", ownershipReady);
+
   return app;
 }

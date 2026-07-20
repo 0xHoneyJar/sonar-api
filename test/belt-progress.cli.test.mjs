@@ -32,10 +32,21 @@ test("capabilities --json has required schema keys", () => {
   assert.ok(doc.version);
   assert.ok(doc.contract_version);
   assert.ok(Array.isArray(doc.features));
+  assert.ok(doc.features.includes("ownership-ready"));
   assert.ok(Array.isArray(doc.commands));
+  assert.ok(doc.commands.some((c) => c.name === "ownership-ready"));
   assert.ok(doc.exit_codes);
   assert.ok(Array.isArray(doc.env_vars));
   assert.equal(doc.sense_only, true);
+});
+
+test("ownership-ready requires kitchen env", () => {
+  const r = run(["ownership-ready", "--json"], {
+    KITCHEN_API_URL: "",
+    SERVICE_TOKEN: "",
+  });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /KITCHEN_API_URL/);
 });
 
 test("robot-docs guide mentions KF-013 / ENVIO_RESTART refusal", () => {

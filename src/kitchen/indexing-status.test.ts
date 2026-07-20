@@ -61,6 +61,12 @@ describe("GET /v2/indexing-status", () => {
     expect(body.jobs.active).toHaveLength(1);
     expect(body.jobs.active[0].address).toBe(ADDRESS);
     expect(body.jobs.active[0].network_reference).toBe("8453");
+    expect(body.ownership_ready).toMatchObject({
+      schema_version: 1,
+      plane: "sonar_kitchen_ownership",
+      count: 0,
+      subjects: [],
+    });
   });
 
   it("rejects unauthenticated reads", async () => {
@@ -143,5 +149,7 @@ describe("GET /v2/indexing-status", () => {
     expect(body.observed_at).toBe(new Date(5_000).toISOString());
     expect(body.chains).toHaveLength(1);
     expect(body.jobs.active[0].network_reference).toBe("1");
+    expect(body.ownership_ready.plane).toBe("sonar_kitchen_ownership");
+    expect(body.ownership_ready.count).toBe(0);
   });
 });

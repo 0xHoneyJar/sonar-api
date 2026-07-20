@@ -5,6 +5,10 @@
 
 import type pg from "pg";
 
+import {
+  buildOwnershipReadyInventory,
+  type OwnershipReadyInventory,
+} from "./ownership-ready.js";
 import type { IngestJobRecord, IngestJobStatus } from "./types.js";
 
 export type ChainProgressRow = {
@@ -39,6 +43,8 @@ export type IndexingStatusBody = {
     by_status: Partial<Record<IngestJobStatus, number>>;
     active: IndexingJobRow[];
   };
+  /** Completed prepare jobs — Sonar kitchen ownership_ready (not Score Machine C). */
+  ownership_ready: OwnershipReadyInventory;
 };
 
 export function jobToIndexingRow(job: IngestJobRecord): IndexingJobRow {
@@ -95,14 +101,24 @@ export async function buildIndexingStatus(args: {
   countByStatus: () => Promise<Partial<Record<IngestJobStatus, number>>>;
   listByStatus: (status: IngestJobStatus, limit?: number) => Promise<IngestJobRecord[]>;
   readChains: () => Promise<ChainProgressRow[]>;
+  enrichOwnershipReady?: (
+    job: IngestJobRecord,
+  ) => Promise<{ holderCount: number | null; indexedAtMs: number | null }>;
   activeJobLimit?: number;
+  ownershipReadyLimit?: number;
   nowMs?: number;
 }): Promise<IndexingStatusBody> {
   const limit = args.activeJobLimit ?? 500;
   const byStatus = await args.countByStatus();
-  const [queued, indexing] = await Promise.all([
+  const [queued, indexing, ownership_ready] = await Promise.all([
     args.listByStatus("queued", limit),
     args.listByStatus("indexing", limit),
+    buildOwnershipReadyInventory({
+      listCompleted: (lim) => args.listByStatus("completed", lim),
+      enrich: args.enrichOwnershipReady,
+      limit: args.ownershipReadyLimit ?? 500,
+      nowMs: args.nowMs,
+    }),
   ]);
   const active = [...queued, ...indexing]
     .map(jobToIndexingRow)
@@ -116,5 +132,6 @@ export async function buildIndexingStatus(args: {
       by_status: byStatus,
       active,
     },
+    ownership_ready,
   };
 }
