@@ -68,7 +68,7 @@ export function buildSonarSelfCli(self = makeLiveSonarSelf()) {
   const cli = Cli.create("sonar-self", {
     version: "0.1.0",
     description:
-      "Territory-derived beacon emitter and drift-check for sonar-api. Introspects config, GraphQL, and Railway; emits or validates root beacon.yaml v2.",
+      "Territory-derived beacon emitter and drift-check for sonar-api. Introspects config, GraphQL, and Railway; emits or validates root beacon.yaml v2. Related: pnpm care (care map / triage --json), pnpm pulse (coherence), bash scripts/promote.sh --dry-run (belt swap).",
   });
 
   cli.command("emit", {

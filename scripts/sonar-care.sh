@@ -535,8 +535,11 @@ ${BOLD}FIRST-TRY${RESET}
   pnpm care capabilities --json
   pnpm care robot-docs
 
-${BOLD}RELATED${RESET}
-  CARE.md · grimoires/loa/ARRIVAL.md · pnpm pulse · scripts/promote.sh --dry-run
+${BOLD}RELATED CLIs${RESET}  (mutual discovery — same repo family)
+  ${CYAN}pnpm pulse${RESET}                      coherence sensor (0=COHERENT · 1=DRIFT · 2=UNVERIFIED)
+  ${CYAN}bash scripts/promote.sh --dry-run${RESET}  sole BELT_UPSTREAM swap path (gate; dry-run first)
+  ${CYAN}pnpm self${RESET} / ${CYAN}pnpm self:check${RESET}     territory beacon emit / drift-check
+  CARE.md · grimoires/loa/ARRIVAL.md · SOUL.md
 EOF
 }
 
@@ -549,6 +552,7 @@ First command you guess should work. Prefer:
   pnpm care --json
   pnpm care triage --json
   pnpm care capabilities --json
+  pnpm care robot-docs guide
 
 ## What this system is
 Self-hosted Envio HyperIndex belt (6 EVM + Solana) for THJ/Freeside.
@@ -559,11 +563,13 @@ You index facts. You do not score/rank people (Score is separate).
 S1 freshness · S2 completeness · S3 contract stability · S4 onboarding latency · S5 promote safety
 Floors F1–F4 are non-compensatory — never bury primary-chain / promote-gate / honest-green.
 
-## Onboarding (taste × demand)
-produce: accept Kitchen orders freely
-systemize: batch by chain + reindex economics
-clarify: rank demand×taste; renvoi with explicit reason
-drain: only under S1 error budget
+## Queue policy verbs (onboarding · taste × demand)
+  produce    accept Kitchen orders freely (cheap write; status: queued)
+  systemize  batch by chain + reindex economics / shared window
+  clarify    rank demand×taste; renvoi with explicit reason
+  drain      only under S1 error budget (never lag-fire big batches)
+  renvoi     deliberate non-service with named reason (out_of_scope · spam_nft · …)
+Machine: pnpm care queue --json
 
 ## Dangerous ops
 promote: ONLY scripts/promote.sh (gate non-skippable). Always try --dry-run first.
@@ -573,20 +579,36 @@ Never bare-edit BELT_UPSTREAM.
 --json → stdout is data only. Human chrome → stdout without --json; errors always stderr.
 
 ## Exit codes
-0 ok · 1 user error (message names exact fix) · 3 env · never exit 1 for "empty but fine"
+0 success
+1 user-input-error (stderr names exact fix command)
+2 safety-block (reserved)
+3 tool-environment-error
+4 upstream-failure (reserved; live probe is fail-soft and does not use 4)
+5 conflict
+Never exit 1 for "empty but fine" — that is exit 0 with empty/structured data.
 
-## Door
-grimoires/loa/ARRIVAL.md then CARE.md. Do not start in NOTES.md.
+## Determinism
+SOURCE_DATE_EPOCH — when set, JSON dated fields use this epoch as ISO-8601 UTC
+  generated_at; wall-clock is omitted when unset. Dual-run --json is byte-stable
+  under offline GraphQL + SOURCE_DATE_EPOCH. Key order: jq -S sorted.
+NO_COLOR / CI=true / TERM=dumb / non-TTY suppress ANSI.
 
-## Coherence check
-pnpm pulse  (0=COHERENT · 1=DRIFT · 2=UNVERIFIED)
-
-## Live S1 (fail-soft)
+## Live S1 probe (fail-soft)
 pnpm care triage --json → .live
   status: ok | offline | error  (never fails the care exit code alone)
   chains[].lag = block_height - latest_processed_block
   s1_status: within | breach | unknown  (observation-only; S1 is proposed)
   Override: SONAR_GRAPHQL_URL  Timeout: SONAR_CARE_PROBE_TIMEOUT (default 2s)
+
+## Related CLIs (same repo family)
+  pnpm care / pnpm care --json          this tool — care map + robot triage
+  pnpm pulse                            coherence sensor (0=COHERENT · 1=DRIFT · 2=UNVERIFIED)
+  bash scripts/promote.sh --dry-run     sole BELT_UPSTREAM swap; always dry-run first
+  pnpm self / pnpm self:check           territory beacon emit / drift-check
+  pnpm care capabilities --json         machine contract (related + related_commands)
+
+## Door
+grimoires/loa/ARRIVAL.md then CARE.md. Do not start in NOTES.md.
 EOF
 }
 
@@ -716,10 +738,24 @@ capabilities_json() {
     "care_md": "CARE.md",
     "arrival": "grimoires/loa/ARRIVAL.md"
   },
+  "related_commands": {
+    "care_triage": "pnpm care triage --json",
+    "care_caps": "pnpm care capabilities --json",
+    "care_robot_docs": "pnpm care robot-docs guide",
+    "care_queue": "pnpm care queue --json",
+    "pulse": "pnpm pulse",
+    "pulse_help": "bash scripts/sonar-pulse.sh --help",
+    "promote_dry_run": "bash scripts/promote.sh --dry-run",
+    "promote_help": "bash scripts/promote.sh --help",
+    "self": "pnpm self",
+    "self_check": "pnpm self:check"
+  },
+  "queue_policy_verbs": ["produce", "systemize", "clarify", "drain", "renvoi"],
   "determinism": {
     "json_key_order": "sorted (jq -S)",
     "live_chains_order": "sort_by(chain_id)",
     "timestamps": "JSON fields only; never free-text wall-clock on stdout",
+    "source_date_epoch": "when set, generated_at is ISO-8601 UTC of that epoch; omit wall-clock otherwise",
     "volatile_fields": []
   }
 }

@@ -34,17 +34,20 @@ sonar-pulse — coherence self-check (honest-green sensor)
 Usage:
   pnpm pulse
   bash scripts/sonar-pulse.sh
+  bash scripts/sonar-pulse.sh --help
 
 Exit:
   0 COHERENT · 1 DRIFT · 2 UNVERIFIED
 
 Does NOT: measure block lag SLOs (see pnpm care slo), swap belts (promote.sh),
-or print agent care map (pnpm care --json).
+or print agent care map (pnpm care --json). Pulse has no --json surface.
 
-Related:
-  pnpm care triage --json
-  CARE.md
-  SOUL.md
+Related CLIs (mutual discovery):
+  pnpm care triage --json              care map + live S1 probe (structured)
+  pnpm care capabilities --json        machine contract for care
+  bash scripts/promote.sh --dry-run    sole BELT_UPSTREAM swap (always dry-run first)
+  pnpm self / pnpm self:check          territory beacon emit / drift-check
+  CARE.md · SOUL.md · grimoires/loa/ARRIVAL.md
 EOF
     exit 0
     ;;
