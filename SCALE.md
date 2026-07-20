@@ -128,6 +128,25 @@ Envio managed deployments don't have built-in alias swap. Until a stable consume
 
 ---
 
+## Guardrail 6 — Kitchen durable store ≠ belt wipe target
+
+**Rule**: Sonar kitchen job identity / prep state must never share the Postgres
+schema that Envio `--restart` / `ENVIO_RESTART=1` wipes. Shared co-location is an
+ops invariant failure (sonar-api#236), not a recoverable Kitchen bug.
+
+### Required
+
+- `kitchen-api` production: `KITCHEN_DATABASE_URL` → dedicated Postgres (or wipe-exempt service).
+- Production refuses silent `ENVIO_PG_*` fallback (code gate).
+- KF-013 sequence: run `node scripts/kitchen-survival-check.mjs` before and after wipe — see `grimoires/loa/runbooks/belt-reinit.md` §Kitchen survival.
+
+### Forbidden
+
+- Pointing Kitchen at the monobelt / sidecar wipe database “for convenience.”
+- Re-applying `migrations/kitchen/*` after every belt wipe as the steady-state recovery path.
+
+---
+
 ## Guardrail 2 — Sync-Lag SLO
 
 **Rule**: Per-chain block-lag must stay below the SLO threshold. Operator alert fires when threshold exceeded.

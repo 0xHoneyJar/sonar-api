@@ -724,19 +724,11 @@ export class PostgresIngestJobStore implements IngestJobStorePort {
   }
 }
 
-export function kitchenDatabaseUrlFromEnv(): string | undefined {
-  const direct = process.env.KITCHEN_DATABASE_URL?.trim();
-  if (direct) return direct;
-  const host = process.env.ENVIO_PG_HOST?.trim();
-  const port = process.env.ENVIO_PG_PORT?.trim();
-  const user = process.env.ENVIO_PG_USER?.trim();
-  const password = process.env.ENVIO_PG_PASSWORD?.trim();
-  const database = process.env.ENVIO_PG_DATABASE?.trim();
-  if (!host || !user || !database) return undefined;
-  const encodedPassword = password ? encodeURIComponent(password) : "";
-  const auth = encodedPassword ? `${user}:${encodedPassword}` : user;
-  return `postgresql://${auth}@${host}:${port ?? "5432"}/${database}`;
-}
+export {
+  resolveKitchenDatabaseUrl as kitchenDatabaseUrlFromEnv,
+  envioPgUrlFromEnv,
+  kitchenSharesBeltWipeTarget,
+} from "./kitchen-database-url.js";
 
 function pgPoolConfig(connectionString: string): pg.PoolConfig {
   const sslMode = process.env.ENVIO_PG_SSL_MODE?.trim();

@@ -53,6 +53,7 @@
     "test:mission-01-stall": "python3 scripts/profiling/test_stall_classify.py",
     "belt:progress": "node scripts/belt-progress.mjs",
     "test:belt-progress": "node --test test/belt-progress.cli.test.mjs",
+    "kitchen:survival": "node scripts/kitchen-survival-check.mjs",
     "verify:svm-contract": "node scripts/verify-svm-contract.mjs",
     "verify:action-contract": "node scripts/verify-svm-contract.mjs --manifest scripts/action-contract.json",
     "s5:parity-dryrun": "tsx scripts/s5-parity-dryrun.ts",

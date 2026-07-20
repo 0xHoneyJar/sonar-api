@@ -30,7 +30,9 @@ async function resolveIngestStore(): Promise<IngestJobStorePort> {
 
   const nodeEnv = process.env.NODE_ENV?.trim();
   if (nodeEnv === "production" || nodeEnv === "prod") {
-    throw new Error("KITCHEN_DATABASE_URL or ENVIO_PG_* required in production");
+    throw new Error(
+      "KITCHEN_DATABASE_URL required in production (dedicated Postgres; not belt ENVIO_PG wipe target — sonar-api#236)",
+    );
   }
 
   return new MemoryIngestJobStore();

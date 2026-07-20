@@ -113,6 +113,44 @@ thesis. Within a belt, however, `--restart` is all-or-nothing across its chains.
 
 ---
 
+## Kitchen survival (sonar-api#236 — mandatory around wipe)
+
+Belt `--restart` wipes the **Envio** Postgres schema. Kitchen durable state
+(`kitchen_ingest_jobs`, `kitchen_job_correlations`,
+`kitchen_job_identity_migration_state`) must **not** live on that wipe target.
+
+**Invariant:** `kitchen-api` production uses `KITCHEN_DATABASE_URL` on a
+**dedicated** Postgres (or wipe-exempt service). Silent `ENVIO_PG_*` fallback is
+refused in production. Co-location is a SCALE ops failure class — see SCALE.md
+Guardrail 6.
+
+### Pre-flight (before `ENVIO_RESTART=1`)
+
+```sh
+KITCHEN_DATABASE_URL=… \
+  ENVIO_PG_HOST=… ENVIO_PG_USER=… ENVIO_PG_DATABASE=… \
+  node scripts/kitchen-survival-check.mjs --json
+```
+
+Must report `ok: true` and `colocated_with_belt_wipe_target: false`. If
+colocated: **stop** — cut Kitchen to a dedicated DB and re-apply
+`migrations/kitchen/001*` before any wipe.
+
+### Post-flight (after resume is healthy)
+
+Re-run the same survival check. Kitchen admit
+(`POST /v2/collection-preparations`) must succeed without re-applying migrations
+by hand. If tables are missing, the wipe target was still shared — treat as
+#236 regression, not a Kitchen code bug.
+
+### DO-NOT (Kitchen)
+
+- **Do NOT** point `KITCHEN_DATABASE_URL` at the belt indexer wipe database.
+- **Do NOT** skip survival check because “Kitchen was fine last wipe.”
+- **Do NOT** set `KITCHEN_ALLOW_ENVIO_PG_FALLBACK=1` in production.
+
+---
+
 ## DO-NOT (KF-013 — recurrence-aware)
 
 - **Do NOT chase the password** on the 28P01. The creds are correct — the JS layer
