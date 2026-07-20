@@ -59,19 +59,24 @@ CARE_PROBE_TIMEOUT_S="${SONAR_CARE_PROBE_TIMEOUT:-2}"
 
 # ── Intent inference (Levenshtein-ish: known verbs + common typos) ────────────
 KNOWN_VERBS=(
-  triage robot-triage status health care gaze
-  slo slos objectives
-  queue onboard onboarding batch taste demand
+  triage robot-triage status health care gaze next
+  slo slos objectives metrics lag
+  queue onboard onboarding batch taste demand ingest
   dream renvoi floors clarify systemize produce
   capabilities caps robot-docs docs guide handbook
   help -h --help
 )
 
+# Map a bad verb/token → canonical verb (stdout). Return 0 if known.
 did_you_mean() {
   local bad="$1"
+  # strip leading dashes so --triage / -triage still resolve
+  bad="${bad#--}"
+  bad="${bad#-}"
+  # underscore ↔ hyphen (robot_triage, robot_docs)
+  bad="${bad//_/-}"
   local c
   for c in "${KNOWN_VERBS[@]}"; do
-    # exact prefix / contained
     case "$c" in
       "$bad"*) printf '%s' "$c"; return 0 ;;
     esac
@@ -79,20 +84,63 @@ did_you_mean() {
       "$c"*) printf '%s' "$c"; return 0 ;;
     esac
   done
-  # common agent typos / aliases
+  # common agent typos / aliases (explicit corpus — agents type these)
   case "$bad" in
-    triag|traige|triagee|robot|robot-triag|--robot-triage|--robot-triag) printf 'triage'; return 0 ;;
-    sl0|sloz|sla|slos?|metric|metrics|lag) printf 'slo'; return 0 ;;
-    que|queu|q|ingest|kitchen|orders) printf 'queue'; return 0 ;;
-    onbord|onbaord|on-board|collections) printf 'onboard'; return 0 ;;
-    capabilitie|capability|caps?|--capabilities) printf 'capabilities'; return 0 ;;
-    robot-doc|robotdocs|robot_docs|--robot-docs|--robot-help) printf 'robot-docs'; return 0 ;;
-    dreem|dreaming|consolidat*|night) printf 'dream'; return 0 ;;
-    renvoy|renvoid|forget|erase) printf 'renvoi'; return 0 ;;
-    flor|floor|safety) printf 'floors'; return 0 ;;
-    hepl|hlep|--h) printf 'help'; return 0 ;;
+    triag|traige|triagee|triage-|robot|robot-triag|robottriage|robt-triage)
+      printf 'triage'; return 0 ;;
+    sl0|sloz|sla|slos-|sloo|slso|metric|metrics|lagg)
+      printf 'slo'; return 0 ;;
+    que|queu|qeue|qeu|q|queeu|ingest|kitchen|orders)
+      printf 'queue'; return 0 ;;
+    onbord|onbaord|on-board|onboardingg|onboardin|onbording|collections)
+      printf 'onboard'; return 0 ;;
+    capa|capas|capabilitie|capabilites|capasities|capabilties|capabilty|capability|capabilitiees)
+      printf 'capabilities'; return 0 ;;
+    robot-doc|robto-docs|robotdocs|robot-docss|robt-docs|robotdoc)
+      printf 'robot-docs'; return 0 ;;
+    dreem|dreaming|consolidat*|night)
+      printf 'dream'; return 0 ;;
+    renvoy|renvoid|renvoii|renvo|forget|erase)
+      printf 'renvoi'; return 0 ;;
+    flor|floor|florrs|flooor|floorss|flors|safety)
+      printf 'floors'; return 0 ;;
+    hepl|hlep|halp|hep|--h)
+      printf 'help'; return 0 ;;
   esac
   return 1
+}
+
+# Map a bad flag (with leading --) → canonical flag. Return 0 if known.
+# Always printf '%s' so leading dashes are never parsed as printf options.
+did_you_mean_flag() {
+  local bad="$1"
+  case "$bad" in
+    --jsno|--jason|--jsoon|--jon|--jsom|--jonson|--jsson|--josn|--jnson|--JSON|--Json|--jso)
+      printf '%s' '--json'; return 0 ;;
+    --robot-triag|--robot_triage|--robottriage|--robot-nextt|--robt-triage)
+      printf '%s' '--robot-triage'; return 0 ;;
+    --capabilitie|--capasities|--capa|--capabilites|--capabilities-)
+      printf '%s' '--capabilities'; return 0 ;;
+    --robot-doc|--robto-docs|--robot_docs|--robotdocs|--robot-help)
+      printf '%s' '--robot-docs'; return 0 ;;
+    --hepl|--halp|--hlep|--hep|--helps)
+      printf '%s' '--help'; return 0 ;;
+    -j|--js)
+      printf '%s' '--json'; return 0 ;;
+  esac
+  return 1
+}
+
+# Exact corrected invocation for a canonical flag (copy-paste ready).
+exact_for_flag() {
+  case "$1" in
+    --json)          printf '%s' 'bash scripts/sonar-care.sh triage --json' ;;
+    --robot-triage)  printf '%s' 'bash scripts/sonar-care.sh --robot-triage --json' ;;
+    --capabilities)  printf '%s' 'bash scripts/sonar-care.sh capabilities --json' ;;
+    --robot-docs)    printf '%s' 'bash scripts/sonar-care.sh robot-docs guide' ;;
+    --help)          printf '%s' 'bash scripts/sonar-care.sh --help' ;;
+    *)               printf '%s' 'bash scripts/sonar-care.sh triage --json' ;;
+  esac
 }
 
 # ── Care model (the compressed dream — single source for human + --json) ──────
@@ -643,13 +691,28 @@ while [ $# -gt 0 ]; do
     -h|--help) VERB="help" ;;
     --*)
       log "sonar-care: unknown flag '$1'"
-      hint="$(did_you_mean "${1#--}" || true)"
-      if [ -n "${hint:-}" ]; then
-        log "  did you mean: bash scripts/sonar-care.sh ${hint} --json"
-      else
-        log "  try: bash scripts/sonar-care.sh --help"
-        log "  or:  bash scripts/sonar-care.sh triage --json"
+      flag_hint="$(did_you_mean_flag "$1" || true)"
+      if [ -n "${flag_hint:-}" ]; then
+        log "  did you mean '${flag_hint}'?"
+        log "  exact: $(exact_for_flag "$flag_hint")"
+        exit 1
       fi
+      # flag may be a verb mis-spelled as a flag (--triage, --slo, --capa, …)
+      verb_hint="$(did_you_mean "${1#--}" || true)"
+      if [ -n "${verb_hint:-}" ]; then
+        case "$verb_hint" in
+          help) log "  did you mean '${verb_hint}'?"
+                log "  exact: bash scripts/sonar-care.sh --help" ;;
+          capabilities|robot-docs)
+                log "  did you mean '${verb_hint}'?"
+                log "  exact: bash scripts/sonar-care.sh ${verb_hint} --json" ;;
+          *)    log "  did you mean '${verb_hint}'?"
+                log "  exact: bash scripts/sonar-care.sh ${verb_hint} --json" ;;
+        esac
+        exit 1
+      fi
+      log "  did you mean one of: --json · --robot-triage · --capabilities · --help"
+      log "  exact: bash scripts/sonar-care.sh triage --json"
       exit 1
       ;;
     *)
@@ -695,7 +758,9 @@ case "$VERB" in
         help|-h|--help) hint="help" ;;
       esac
       log "sonar-care: unknown command '$VERB' — did you mean '${hint}'?"
-      if [ "$JSON" -eq 1 ]; then
+      if [ "$hint" = "help" ]; then
+        log "  exact: bash scripts/sonar-care.sh --help"
+      elif [ "$JSON" -eq 1 ] || [ "$hint" = "capabilities" ]; then
         log "  exact: bash scripts/sonar-care.sh ${hint} --json"
       else
         log "  exact: bash scripts/sonar-care.sh ${hint}"
@@ -703,8 +768,8 @@ case "$VERB" in
       exit 1
     fi
     log "sonar-care: unknown command '$VERB'"
-    log "  try: bash scripts/sonar-care.sh --help"
-    log "  or:  bash scripts/sonar-care.sh triage --json"
+    log "  did you mean one of: triage · slo · queue · floors · renvoi · capabilities · robot-docs"
+    log "  exact: bash scripts/sonar-care.sh triage --json"
     exit 1
     ;;
 esac
