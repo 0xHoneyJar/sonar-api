@@ -14,6 +14,7 @@ import {
   deploymentFromCollectionKey,
 } from "./normalize.js";
 import { buildOwnershipReadyInventory } from "./ownership-ready.js";
+import type { OwnershipSnapshotReader } from "./ownership-snapshot-reader.js";
 import {
   createPullBufferTransport,
   relayOutboxRow,
@@ -570,6 +571,8 @@ export function createKitchenApp(deps: {
   resolveProbeRuntime?: ResolveProbeRuntime;
   /** Optional Belt chain_metadata reader (GraphQL or SQL). Defaults to []. */
   readChainProgress?: ChainProgressReader;
+  /** Gate Leak E1/E2 Ownership Snapshot (#240/#241). */
+  ownershipSnapshotReader?: OwnershipSnapshotReader;
 }): Hono {
   const app = new Hono();
   app.get("/health", (c) => c.json({
@@ -652,6 +655,54 @@ export function createKitchenApp(deps: {
     return c.json(inventory, 200);
   });
   app.route("/v2/ownership-ready", ownershipReady);
+
+  const ownershipSnapshot = new Hono();
+  ownershipSnapshot.use("*", requireServiceToken);
+  ownershipSnapshot.get("/", async (c) => {
+    const reader = deps.ownershipSnapshotReader;
+    if (!reader) {
+      return c.json(
+        {
+          schema_version: 1,
+          plane: "sonar_kitchen_ownership",
+          error: {
+            code: "ownership_snapshot_unavailable",
+            message: "Ownership Snapshot reader is not configured",
+          },
+        },
+        503,
+      );
+    }
+    const caip10 = c.req.query("caip10")?.trim() ?? "";
+    if (!caip10) {
+      return c.json(
+        {
+          schema_version: 1,
+          error: {
+            code: "invalid_request",
+            message: "caip10 query parameter is required (eip155:<chainId>:0x…)",
+          },
+        },
+        400,
+      );
+    }
+    const result = await reader.readOwnershipSnapshot({
+      caip10,
+      asOfRaw: c.req.query("as_of"),
+      referenceDateRaw: c.req.query("reference_date"),
+    });
+    if ("error" in result) {
+      return c.json(
+        {
+          schema_version: 1,
+          error: { code: result.error, message: result.message },
+        },
+        400,
+      );
+    }
+    return c.json(result, 200);
+  });
+  app.route("/v2/ownership-snapshot", ownershipSnapshot);
 
   const outbox = new Hono();
   outbox.use("*", requireServiceToken);
