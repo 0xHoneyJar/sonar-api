@@ -6,18 +6,25 @@ const CAIP10 = "eip155:1:0x902d94ba5bfc0cb408d1a6ca4b8f255d845e50e9";
 
 describe("createHasuraOwnershipSnapshotReader", () => {
   it("reads E2 holders from TrackedHolder and computes concentration", async () => {
-    const fetchFn = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: {
-          TrackedHolder: [
-            { address: "0xAaa", tokenCount: 50 },
-            { address: "0xBbb", tokenCount: 30 },
-            { address: "0xCcc", tokenCount: 20 },
-          ],
-        },
-      }),
-    });
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { TrackedHolder_aggregate: { aggregate: { count: 3 } } },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            TrackedHolder: [
+              { address: "0xAaa", tokenCount: 50 },
+              { address: "0xBbb", tokenCount: 30 },
+              { address: "0xCcc", tokenCount: 20 },
+            ],
+          },
+        }),
+      });
 
     const reader = createHasuraOwnershipSnapshotReader({
       url: "http://hasura.test/v1/graphql",
@@ -30,7 +37,28 @@ describe("createHasuraOwnershipSnapshotReader", () => {
     expect(snap.holder_count).toBe(3);
     expect(snap.concentration).toMatchObject({ top10_share: 1 });
     expect(snap.whale_candidate_count).toBe(1);
-    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses oversized E2 holder sets without silent truncation", async () => {
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: { TrackedHolder_aggregate: { aggregate: { count: 200_000 } } },
+      }),
+    });
+    const reader = createHasuraOwnershipSnapshotReader({
+      url: "http://hasura.test/v1/graphql",
+      fetchFn,
+      currentHolderLimit: 1000,
+    });
+    const snap = await reader.readOwnershipSnapshot({ caip10: CAIP10 });
+    expect("error" in snap).toBe(false);
+    if ("error" in snap) return;
+    expect(snap.metrics).toMatchObject({
+      status: "insufficient_data",
+      reason: expect.stringContaining("too large"),
+    });
   });
 
   it("replays hold721 for as_of E1", async () => {

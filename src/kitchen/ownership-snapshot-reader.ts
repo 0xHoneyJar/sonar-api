@@ -15,6 +15,16 @@ import {
 } from "./ownership-snapshot.js";
 import { beltGraphqlUrlFromEnv } from "./hasura-status-reader.js";
 
+const TRACKED_HOLDER_COUNT_QUERY = `
+query TrackedHolderCount($chainId: Int!, $contract: String!) {
+  TrackedHolder_aggregate(
+    where: { chainId: { _eq: $chainId }, contract: { _eq: $contract } }
+  ) {
+    aggregate { count }
+  }
+}
+`;
+
 const TRACKED_HOLDERS_QUERY = `
 query TrackedHolders($chainId: Int!, $contract: String!, $limit: Int!) {
   TrackedHolder(
@@ -28,6 +38,20 @@ query TrackedHolders($chainId: Int!, $contract: String!, $limit: Int!) {
 }
 `;
 
+const TOKEN_COUNT_QUERY = `
+query TokenCount($chainId: Int!, $contract: String!) {
+  Token_aggregate(
+    where: {
+      chainId: { _eq: $chainId }
+      collection: { _eq: $contract }
+      isBurned: { _eq: false }
+    }
+  ) {
+    aggregate { count }
+  }
+}
+`;
+
 const TOKEN_OWNERS_QUERY = `
 query TokenOwners($chainId: Int!, $contract: String!, $limit: Int!) {
   Token(
@@ -36,6 +60,7 @@ query TokenOwners($chainId: Int!, $contract: String!, $limit: Int!) {
       collection: { _eq: $contract }
       isBurned: { _eq: false }
     }
+    order_by: [{ id: asc }]
     limit: $limit
   ) {
     owner
@@ -43,9 +68,14 @@ query TokenOwners($chainId: Int!, $contract: String!, $limit: Int!) {
 }
 `;
 
-const ACTION_MIN_TS_QUERY = `
-query ActionMinTs($collection: String!) {
-  Action_aggregate(where: { primaryCollection: { _eq: $collection } }) {
+const HOLD721_MIN_TS_QUERY = `
+query Hold721MinTs($collection: String!) {
+  Action_aggregate(
+    where: {
+      primaryCollection: { _eq: $collection }
+      actionType: { _eq: "hold721" }
+    }
+  ) {
     aggregate {
       count
       min { timestamp }
@@ -183,21 +213,50 @@ export function createHasuraOwnershipSnapshotReader(args?: {
 
   async function readCurrentHolders(
     subject: OwnershipSnapshotSubject,
-  ): Promise<OwnershipHolderRow[]> {
+  ): Promise<
+    | { ok: true; holders: OwnershipHolderRow[] }
+    | { ok: false; reason: string }
+  > {
     const chainId = Number(subject.network_reference);
     const contract = subject.address;
-    const tracked = await gq<{
-      TrackedHolder?: Array<{ address: string; tokenCount: number | string }>;
-    }>(TRACKED_HOLDERS_QUERY, { chainId, contract, limit: currentHolderLimit });
+    const trackedCountPayload = await gq<{
+      TrackedHolder_aggregate?: { aggregate?: { count?: number | null } | null };
+    }>(TRACKED_HOLDER_COUNT_QUERY, { chainId, contract });
+    const trackedCount = toNumber(trackedCountPayload.TrackedHolder_aggregate?.aggregate?.count);
 
-    const trackedRows = tracked.TrackedHolder ?? [];
-    if (trackedRows.length > 0) {
-      return trackedRows
-        .map((r) => ({
-          address: r.address.toLowerCase(),
-          balance: toNumber(r.tokenCount),
-        }))
-        .filter((r) => r.balance > 0);
+    if (trackedCount > currentHolderLimit) {
+      return {
+        ok: false,
+        reason: `contract too large for on-demand ownership snapshot (${trackedCount} holders > ${currentHolderLimit})`,
+      };
+    }
+
+    if (trackedCount > 0) {
+      const tracked = await gq<{
+        TrackedHolder?: Array<{ address: string; tokenCount: number | string }>;
+      }>(TRACKED_HOLDERS_QUERY, { chainId, contract, limit: currentHolderLimit });
+
+      const trackedRows = tracked.TrackedHolder ?? [];
+      return {
+        ok: true,
+        holders: trackedRows
+          .map((r) => ({
+            address: r.address.toLowerCase(),
+            balance: toNumber(r.tokenCount),
+          }))
+          .filter((r) => r.balance > 0),
+      };
+    }
+
+    const tokenCountPayload = await gq<{
+      Token_aggregate?: { aggregate?: { count?: number | null } | null };
+    }>(TOKEN_COUNT_QUERY, { chainId, contract });
+    const tokenCount = toNumber(tokenCountPayload.Token_aggregate?.aggregate?.count);
+    if (tokenCount > currentHolderLimit) {
+      return {
+        ok: false,
+        reason: `contract too large for on-demand ownership snapshot (${tokenCount} tokens > ${currentHolderLimit})`,
+      };
     }
 
     const tokens = await gq<{ Token?: Array<{ owner: string }> }>(TOKEN_OWNERS_QUERY, {
@@ -205,7 +264,7 @@ export function createHasuraOwnershipSnapshotReader(args?: {
       contract,
       limit: currentHolderLimit,
     });
-    return aggregateTokenOwners(tokens.Token ?? []);
+    return { ok: true, holders: aggregateTokenOwners(tokens.Token ?? []) };
   }
 
   async function readAsOfHolders(
@@ -223,19 +282,19 @@ export function createHasuraOwnershipSnapshotReader(args?: {
           min?: { timestamp?: string | number | null } | null;
         } | null;
       };
-    }>(ACTION_MIN_TS_QUERY, { collection });
+    }>(HOLD721_MIN_TS_QUERY, { collection });
 
     const total = toNumber(agg.Action_aggregate?.aggregate?.count);
     if (total <= 0) {
       return {
         ok: false,
-        reason: "contract not indexed upstream (no ownership actions for this address)",
+        reason: "contract not indexed upstream (no hold721 actions for this address)",
       };
     }
     if (total > maxActions) {
       return {
         ok: false,
-        reason: `contract too large for on-demand as-of replay (${total} actions > ${maxActions})`,
+        reason: `contract too large for on-demand as-of replay (${total} hold721 actions > ${maxActions})`,
       };
     }
 
@@ -343,8 +402,17 @@ export function createHasuraOwnershipSnapshotReader(args?: {
           });
         }
 
-        const holders = await readCurrentHolders(subject);
-        if (holders.length === 0) {
+        const current = await readCurrentHolders(subject);
+        if (!current.ok) {
+          return buildOwnershipSnapshot({
+            subject,
+            holders: [],
+            asOfUnixSeconds: null,
+            observedAtMs: args.nowMs,
+            insufficient: { status: "insufficient_data", reason: current.reason },
+          });
+        }
+        if (current.holders.length === 0) {
           return buildOwnershipSnapshot({
             subject,
             holders: [],
@@ -358,12 +426,15 @@ export function createHasuraOwnershipSnapshotReader(args?: {
         }
         return buildOwnershipSnapshot({
           subject,
-          holders,
+          holders: current.holders,
           asOfUnixSeconds: null,
           observedAtMs: args.nowMs,
         });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        // Do not leak upstream URLs / GraphQL internals to API clients.
+        const kind = err instanceof Error && /HTTP \d+/.test(err.message)
+          ? "upstream_http_error"
+          : "upstream_error";
         return buildOwnershipSnapshot({
           subject,
           holders: [],
@@ -371,7 +442,7 @@ export function createHasuraOwnershipSnapshotReader(args?: {
           observedAtMs: args.nowMs,
           insufficient: {
             status: "insufficient_data",
-            reason: `ownership snapshot upstream error: ${message}`,
+            reason: `ownership snapshot ${kind}`,
           },
         });
       }
