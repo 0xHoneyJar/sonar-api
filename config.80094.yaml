@@ -1,0 +1,671 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+#
+# Runtime env vars (read by handlers, not by envio):
+#   NATS_URL                  — JetStream connection URI (TLS-only)
+#   NATS_TLS_CA               — path to CA bundle for the cluster's NATS instance
+#   SONAR_SIGNING_SEED_HEX    — 32-byte (64 hex chars) Ed25519 seed for the
+#                               events-pillar signer. Absent → publish layer
+#                               stays disabled (fail-soft); the indexer still
+#                               writes Envio entities as before.
+# See src/lib/events-publisher.ts and the cluster-events-pillar-v1 build doc.
+name: thj-indexer-80094
+# Cache-bust: Path ε rpc-fix deploy 2026-05-27 (Railway BuildKit cache evicted by content change)
+contracts:
+  - name: HoneyJar
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: Honeycomb
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: MoneycombVault
+    handler: src/EventHandlers.ts
+    events:
+      - event: AccountOpened(address indexed user, uint256 indexed accountIndex, uint256 indexed honeycombId)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: AccountClosed(address indexed user, uint256 indexed accountIndex, uint256 indexed honeycombId)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: HJBurned(address indexed user, uint256 indexed accountIndex, uint256 indexed hjGen)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: SharesMinted(address indexed user, uint256 accountIndex, uint256 shares)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: RewardClaimed(address indexed user, uint256 reward)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Aquabera Forwarder for wall tracking
+  - name: AquaberaVault
+    handler: src/EventHandlers.ts
+    events:
+      # Track deposits through the forwarder (DepositForwarded event)
+      - event: DepositForwarded(address indexed sender, address indexed vault, address indexed token, uint256 amount, uint256 shares, address to)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Direct Aquabera Vault events (for wall contract and other direct deposits)
+  - name: AquaberaVaultDirect
+    handler: src/EventHandlers.ts
+    events:
+      # Track direct deposits to vault (Uniswap V3 style pool)
+      - event: Deposit(address indexed sender, address indexed to, uint256 shares, uint256 amount0, uint256 amount1)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+      # Track withdrawals from vault (Uniswap V3 style pool)
+      - event: Withdraw(address indexed sender, address indexed to, uint256 shares, uint256 amount0, uint256 amount1)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+  # Crayons Factory emits new ERC721 collection deployments
+  - name: CrayonsFactory
+    handler: src/EventHandlers.ts
+    events:
+      - event: Factory__NewERC721Base(address indexed owner, address erc721Base)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Static ERC721 collections for holder tracking
+  - name: TrackedErc721
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  # General ERC721 mint tracking (mint events only)
+  - name: GeneralMints
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+      # VM-specific: Capture encoded trait data from Minted event
+      - event: Minted(address indexed user, uint256 tokenId, string traits)
+        field_selection:
+          transaction_fields:
+            - hash
+  # PaddleFi lending tracking (BERA supply + NFT pawn + liquidations)
+  - name: PaddleFi
+    handler: src/EventHandlers.ts
+    events:
+      # Mint = Supply BERA (lender deposits BERA, receives pTokens)
+      - event: Mint(address minter, uint256 mintAmount, uint256 mintTokens)
+        field_selection:
+          transaction_fields:
+            - hash
+      # Pawn = Deposit NFT as collateral (borrower pawns Mibera NFTs)
+      - event: Pawn(address borrower, uint256[] nftIds)
+        field_selection:
+          transaction_fields:
+            - hash
+      # LiquidateBorrow = Liquidation event (liquidator repays debt, seizes NFT collateral)
+      - event: LiquidateBorrow(address liquidator, address borrower, uint256 repayAmount, uint256[] nftIds)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: CandiesMarket1155
+    handler: src/EventHandlers.ts
+    events:
+      - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+            - value # BERA paid → CandiesBacking.amount (handler skips backing when tx.value absent)
+      - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+        field_selection:
+          transaction_fields:
+            - hash
+            - value # BERA paid → CandiesBacking.amount
+  - name: CubBadges1155
+    handler: src/EventHandlers.ts
+    events:
+      - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+        field_selection:
+          transaction_fields:
+            - hash
+  # MiberaTrade - ERC721 NFT trading contract
+  # MiberaTrade - Commented out until handlers are implemented
+  # - name: MiberaTrade
+  #   handler: src/EventHandlers.ts
+  #   events:
+  #     - event: TradeProposed(address indexed proposer, uint256 indexed offeredTokenId, uint256 indexed requestedTokenId, uint256 timestamp)
+  #       field_selection:
+  #         transaction_fields:
+  #           - hash
+  #     - event: TradeAccepted(address indexed acceptor, uint256 indexed offeredTokenId, uint256 indexed requestedTokenId, address originalProposer)
+  #       field_selection:
+  #         transaction_fields:
+  #           - hash
+  #     - event: TradeCancelled(address indexed canceller, uint256 indexed offeredTokenId, uint256 indexed requestedTokenId)
+  #       field_selection:
+  #         transaction_fields:
+  #           - hash
+  # CandiesTrade - ERC1155 Cargo/Drug trading contract - Commented out until handlers are implemented
+  # - name: CandiesTrade
+  #   handler: src/EventHandlers.ts
+  #   events:
+  #     - event: TradeProposed(address indexed proposer, uint256 indexed tradeId, uint256 offeredTokenId, uint256 offeredAmount, uint256 requestedTokenId, uint256 requestedAmount, address indexed requestedFrom, uint256 timestamp)
+  #       field_selection:
+  #         transaction_fields:
+  #           - hash
+  #     - event: TradeAccepted(address indexed acceptor, uint256 indexed tradeId, uint256 offeredTokenId, uint256 offeredAmount, uint256 requestedTokenId, uint256 requestedAmount, address originalProposer)
+  #       field_selection:
+  #         transaction_fields:
+  #           - hash
+  #     - event: TradeCancelled(address indexed canceller, uint256 indexed tradeId, uint256 offeredTokenId, uint256 offeredAmount, uint256 requestedTokenId, uint256 requestedAmount)
+  #       field_selection:
+  #         transaction_fields:
+  #           - hash
+  # MiberaPremint - Tracks participation and refunds in Mibera premint
+  - name: MiberaPremint
+    handler: src/EventHandlers.ts
+    events:
+      - event: Participated(uint256 indexed phase, address indexed user, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: Refunded(uint256 indexed phase, address indexed user, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+  # MiberaLiquidBacking - Liquid backing system (loans, RFV, marketplace for defaulted NFTs)
+  - name: MiberaLiquidBacking
+    handler: src/EventHandlers.ts
+    events:
+      # Loan lifecycle events
+      - event: LoanReceived(uint256 loanId, uint256[] ids, uint256 amount, uint256 expiry)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+      - event: BackingLoanPayedBack(uint256 loanId, uint256 newTotalBacking)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: BackingLoanExpired(uint256 loanId, uint256 newTotalBacking)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: ItemLoaned(uint256 loanId, uint256 itemId, uint256 expiry)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+      - event: LoanItemSentBack(uint256 loanId, uint256 newTotalBacking)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: ItemLoanExpired(uint256 loanId, uint256 newTotalBacking)
+        field_selection:
+          transaction_fields:
+            - hash
+      # Marketplace events
+      - event: ItemPurchased(uint256 itemId, uint256 newTotalBacking)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+      - event: ItemRedeemed(uint256 itemId, uint256 newTotalBacking)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+      - event: RFVChanged(uint256 indexed newRFV)
+        field_selection:
+          transaction_fields:
+            - hash
+  # MiberaCollection - Transfer tracking for mint activity
+  - name: MiberaCollection
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+            - value
+  # Seaport - OpenSea marketplace for secondary sales tracking
+  - name: Seaport
+    handler: src/EventHandlers.ts
+    events:
+      - event: OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8,address,uint256,uint256)[] offer, (uint8,address,uint256,uint256,address)[] consideration)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: FatBeraDeposits
+    # Merged FatBeraDeposits + FatBeraAccounting (same address 0xBAE1…91d4) per the
+    # PR #75 "H1" review intent (see src/handlers/fatbera.ts:146). The handler registers
+    # ALL five events under FatBeraDeposits; the former separate FatBeraAccounting entry
+    # left its 4 reward/withdrawal events configured-but-never-registered (bd-fssj:
+    # registration-coverage gaps=4/orphans=4). Network start_block uses the earlier
+    # 1066385 so the reward/withdrawal events (which predate deposits) are not missed.
+    handler: src/EventHandlers.ts
+    events:
+      - event: Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - to
+      - event: RewardAdded(address indexed token, uint256 rewardAmount)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: WithdrawalRequested(address indexed user, uint256 indexed batchId, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: BatchStarted(uint256 indexed batchId, uint256 totalAmount)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: WithdrawalFulfilled(address indexed user, uint256 indexed batchId, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: BeaconDeposit
+    handler: src/EventHandlers.ts
+    events:
+      - event: Deposit(bytes pubkey, bytes credentials, uint64 amount, bytes signature, uint64 index)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: BlockRewardController
+    handler: src/EventHandlers.ts
+    events:
+      - event: BlockRewardProcessed(bytes indexed pubkey, uint64 nextTimestamp, uint256 baseRate, uint256 rewardRate)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: AutomatedStake
+    handler: src/EventHandlers.ts
+    events:
+      - event: WithdrawUnwrapAndStakeExecuted(uint256 indexed amount, uint256 indexed validatorIndex, bytes indexed pubkey)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: ValidatorWithdrawalModule
+    handler: src/EventHandlers.ts
+    events:
+      - event: ValidatorWithdrawalRequested(address indexed safe, address indexed initiator, bytes indexed cometBFTPublicKey, uint256 withdrawAmount, uint256 fee)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: ValidatorDepositRouter
+    handler: src/EventHandlers.ts
+    events:
+      - event: ValidatorDepositRequested(address indexed depositor, address indexed receiver, uint256 amount, uint256 indexed validatorIndex)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: BgtToken
+    handler: src/EventHandlers.ts
+    events:
+      - event: QueueBoost(address indexed account, bytes indexed pubkey, uint128 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - input
+  # Set & Forgetti Vaults - ERC4626 vaults
+  - name: SFVaultERC4626
+    handler: src/EventHandlers.ts
+    events:
+      - event: Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: Withdraw(address indexed sender, address indexed receiver, address indexed owner, uint256 assets, uint256 shares)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: StrategyUpdated(address indexed oldStrategy, address indexed newStrategy)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Set & Forgetti MultiRewards - Staking and reward distribution
+  - name: SFMultiRewards
+    handler: src/EventHandlers.ts
+    events:
+      - event: Staked(address indexed user, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: Withdrawn(address indexed user, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: RewardPaid(address indexed user, address indexed rewardsToken, uint256 reward)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: RebatePaid(address indexed user, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Set & Forgetti Strategy Wrapper - emits when vault admin updates the MultiRewards contract
+  - name: SFVaultStrategyWrapper
+    handler: src/EventHandlers.ts
+    events:
+      - event: MultiRewardsUpdated(address indexed oldMultiRewards, address indexed newMultiRewards)
+        field_selection:
+          transaction_fields:
+            - hash
+  # HenloVault for tracking HENLOCKED token mints AND Henlocker vault system
+  - name: HenloVault
+    handler: src/EventHandlers.ts
+    events:
+      # Original Mint event for HENLOCKED token tracking
+      - event: Mint(address indexed user, uint256 indexed strike, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+      # Henlocker vault events
+      - event: RoundOpened(uint48 indexed epochId, uint64 indexed strike, uint256 depositLimit)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: RoundClosed(uint48 indexed epochId, uint64 indexed strike)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: DepositsPaused(uint48 indexed epochId, uint64 indexed strike)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: DepositsUnpaused(uint48 indexed epochId, uint64 indexed strike)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: MintFromReservoir(address indexed reservoir, uint64 indexed strike, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: Redeem(address indexed user, uint64 indexed strike, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: ReservoirSet(uint48 indexed epochId, uint64 indexed strike, address indexed reservoir)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Tracked ERC-20 tokens for balance + burn tracking (HENLO + HENLOCKED tiers)
+  - name: TrackedErc20
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from # Required for burn tracking
+            - to # Required for source detection
+  # APDAO Auction House — seat auction lifecycle + queue management
+  - name: ApdaoAuctionHouse
+    handler: src/EventHandlers.ts
+    events:
+      - event: AuctionCreated(uint256 indexed apdaoId, uint256 startTime, uint256 endTime)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: AuctionBid(uint256 indexed apdaoId, address sender, uint256 value, bool extended)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: AuctionExtended(uint256 indexed apdaoId, uint256 endTime)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: AuctionSettled(uint256 indexed apdaoId, address winner, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: TokensAddedToAuctionQueue(uint256[] tokenIds, address indexed owner)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: TokensRemovedFromAuctionQueue(uint256[] tokenIds, address indexed owner)
+        field_selection:
+          transaction_fields:
+            - hash
+chains:
+  - id: 80094
+    start_block: 8221 # BgtToken deployment — earliest contract on Berachain
+    # multi-upstream proxy alongside the free Berachain cluster (publicnode/official/
+    # Explicit HyperSync — auto-discovery misses Berachain (restored per 6ad33270; managed Cloud bundles HyperSync). G-A1.
+    hypersync_config:
+      url: https://berachain.hypersync.xyz
+    contracts:
+      # AquaberaVault forwarder on Berachain Mainnet
+      - name: AquaberaVault
+        address:
+          - '0xc0c6D4178410849eC9765B4267A73F4F64241832' # Aquabera forwarder (user deposits through UI)
+        start_block: 784898 # AquaberaVault forwarder deployment
+      # Direct vault contract for wall deposits and withdrawals
+      - name: AquaberaVaultDirect
+        address:
+          - '0x04fD6a7B02E2e48caedaD7135420604de5f834f8' # Aquabera HENLO/BERA vault (direct deposits/withdrawals)
+        start_block: 1871321 # AquaberaVaultDirect deployment
+      # HoneyJar contracts on Berachain Mainnet
+      - name: HoneyJar
+        address:
+          - '0xedc5dfd6f37464cc91bbce572b6fe2c97f1bc7b3' # HoneyJar1 Bera
+          - '0x1c6c24cac266c791c4ba789c3ec91f04331725bd' # HoneyJar2 Bera
+          - '0xf1e4a550772fabfc35b28b51eb8d0b6fcd1c4878' # HoneyJar3 Bera
+          - '0xdb602ab4d6bd71c8d11542a9c8c936877a9a4f45' # HoneyJar4 Bera
+          - '0x0263728e7f59f315c17d3c180aeade027a375f17' # HoneyJar5 Bera
+          - '0xb62a9a21d98478f477e134e175fd2003c15cb83a' # HoneyJar6 Bera
+        start_block: 2863795 # HoneyJar1 Bera deployment (earliest of the 6)
+      # Honeycomb on Berachain Mainnet
+      - name: Honeycomb
+        address:
+          - '0x886d2176d899796cd1affa07eff07b9b2b80f1be' # Honeycomb Bera
+        start_block: 887123 # Honeycomb Bera deployment
+      # MoneycombVault on Berachain Mainnet
+      - name: MoneycombVault
+        address:
+          - '0x9279b2227b57f349a0ce552b25af341e735f6309'
+        start_block: 6954915 # MoneycombVault deployment
+
+      # Crayons Factory (deploys ERC721 Base collections)
+      - name: CrayonsFactory
+        address:
+          - '0xF1c7d49B39a5aCa29ead398ad9A7024ed6837F87'
+        start_block: 8702687 # CrayonsFactory deployment
+
+      # Crayons ERC721 Collections (Transfer indexing)
+      # NOTE: CrayonsCollection commented out — no addresses yet, empty definition adds overhead
+      # - name: CrayonsCollection
+      #   address: []
+      # ============================================================
+      # Static tracked ERC721 collections
+      # ============================================================
+      - name: TrackedErc721
+        address:
+          # NOTE: mibera main collection (0x6666397...) is handled by MiberaCollection handler
+          # to avoid handler conflicts and enable full tracking (TrackedHolder + MiberaTransfer + MintActivity)
+
+          # ----- MIBERA TAROT (aka "Mibera Quiz") -----
+          # Tarot cards from a quiz users took - same thing, different names
+          - '0x4B08a069381EfbB9f08C73D6B2e975C9BE3c4684' # mibera_tarot / mibera_quiz
+
+          # ----- FRACTURES (10-piece SBFT collection) -----
+          # All 10 contracts below are part of the "Fractures" set
+          # These are SBFTs (soul bound fungible tokens) that form a complete collection
+          - '0x86Db98cf1b81E833447b12a077ac28c36b75c8E1' # fracture #1: miparcels
+          - '0x8D4972bd5D2df474e71da6676a365fB549853991' # fracture #2: miladies (Miladies on Berachain)
+          - '0x144B27b1A267eE71989664b3907030Da84cc4754' # fracture #3: mireveal_1_1
+          - '0x72DB992E18a1bf38111B1936DD723E82D0D96313' # fracture #4: mireveal_2_2
+          - '0x3A00301B713be83EC54B7B4Fb0f86397d087E6d3' # fracture #5: mireveal_3_3
+          - '0x419F25C4f9A9c730AAcf58b8401B5b3e566Fe886' # fracture #6: mireveal_4_20
+          - '0x81A27117bd894942BA6737402fB9e57e942C6058' # fracture #7: mireveal_5_5
+          - '0xaaB7b4502251aE393D0590bAB3e208E2d58F4813' # fracture #8: mireveal_6_6
+          - '0xc64126EA8dC7626c16daA2A29D375C33fcaa4C7c' # fracture #9: mireveal_7_7
+          - '0x24F4047d372139de8DACbe79e2fC576291Ec3ffc' # fracture #10: mireveal_8_8
+
+          # ----- APIOLOGY DAO SEAT NFT (governance membership) -----
+          # ApiologyDAO seat NFT — governance vote weight + delegate eligibility
+          # for apdao-auction-house (consumed via TrackedHolder for holder snapshots).
+          # name=ApiologyDAO · symbol=APDAO · paired with ApdaoAuctionHouse at 0xE840929c…0A0b.
+          - '0xFc2D7eBFEB2714fCE13CaF234A95dB129ecC43Da' # apdao_seat
+        start_block: 4029732 # fracture #1 deployment (earliest TrackedErc721 on Berachain)
+      # ============================================================
+      # General ERC721 Mint tracking (quest/missions)
+      # ============================================================
+      - name: GeneralMints
+        address:
+          # ----- MIBERA SHADOWS (aka "Mibera VM") -----
+          # The VM (Virtual Mibera) generative collection - also known as Mibera Shadows
+          - '0x048327A187b944ddac61c6e202BfccD20d17c008' # mibera_vm / mibera_shadows
+          - '0x230945E0Ed56EF4dE871a6c0695De265DE23D8D8' # mibera_gif
+          # NOTE: mibera_tarot handled by TrackedErc721 (which now creates mint actions too)
+        start_block: 4130866 # mibera_vm deployment (earliest GeneralMints on Berachain)
+      # Mibera staking tracking - REMOVED: Now handled by TrackedErc721 handler
+      # (was causing handler conflict where TrackedHolder entries were never created)
+      # PaddleFi lending - BERA supply + NFT pawn tracking
+      - name: PaddleFi
+        address:
+          - '0x242b7126F3c4E4F8CbD7f62571293e63E9b0a4E1' # PaddleFi MIBERA-WBERA vault
+        start_block: 5604652 # PaddleFi deployment
+      # ============================================================
+      # MIBERA CANDIES (aka "Mibera Drugs") - ERC1155 collections
+      # Same thing, different names - candies and drugs are interchangeable terms
+      # ============================================================
+      - name: CandiesMarket1155
+        address:
+          - '0x80283fbF2b8E50f6Ddf9bfc4a90A8336Bc90E38F' # mibera_drugs / mibera_candies (SilkRoad marketplace)
+          - '0xeca03517c5195f1edd634da6d690d6c72407c40c' # mibera_drugs / mibera_candies (secondary)
+        start_block: 3716959 # CandiesMarket secondary deployment (earliest of the 2)
+      # MiberaTrade and CandiesTrade contracts commented out until handlers are implemented
+      # - name: MiberaTrade
+      #   address:
+      #     - 0x90485B61C9dA51A3c79fca1277899d9CD5D350c2 # NFT trading contract
+      # - name: CandiesTrade
+      #   address: []
+      #     # TODO: Add address after deployment
+      #     # Contract will be deployed from /mibera-contracts/honey-road
+      - name: CubBadges1155
+        address:
+          - '0x574617ab9788e614b3eb3f7bd61334720d9e1aac' # Cub Universal Badges (mainnet)
+        start_block: 1080991 # CubBadges1155 deployment
+      - name: FatBeraDeposits
+        address:
+          - '0xBAE11292a3E693AF73651BDa350d752AE4A391d4'
+        # Merged FatBeraDeposits+FatBeraAccounting (bd-fssj). Earlier of the two
+        # start_blocks so the reward/withdrawal events (from 1066385) aren't missed.
+        start_block: 1066385
+      - name: BeaconDeposit
+        address:
+          - '0x4242424242424242424242424242424242424242'
+        start_block: 1066385
+      - name: BlockRewardController
+        address:
+          - '0x1ae7dd7ae06f6c58b4524d9c1f816094b1bccd8e'
+        start_block: 1066385
+      - name: AutomatedStake
+        address:
+          - '0x8ba92925c156ea522Cd80b4633bd0a9824c3bcdf'
+        start_block: 1966971
+      - name: ValidatorWithdrawalModule
+        address:
+          - '0x81Da3e3E0C0C541038646AcE201EA17c4274bbcb'
+          - '0xE9f68A1cFe403f84C7bD37a590CfE390A3250324'
+          - '0x56c70E5eFbA5f18B04d17bBC580b6d37B3AFE5Ed'
+        start_block: 1066385
+      - name: ValidatorDepositRouter
+        address:
+          - '0x989212D8227a8957b9247e1966046B47a7a63D64'
+        start_block: 1966971
+      - name: BgtToken
+        address:
+          - '0x656b95E550C07a9ffe548Bd4085c72418Ceb1dBa'
+        start_block: 8221 # BgtToken deployment (earliest contract on Berachain)
+      # Set & Forgetti Vaults (ERC4626)
+      - name: SFVaultERC4626
+        address:
+          - '0x3bEC4140EDA07911208d4fC06b2f5ADB7B5237FB' # HLKD1B Vault
+          - '0x335d150495F6C8483773ABC0e4Fa5780dd270E78' # HLKD690M Vault
+          - '0x2e2bDfdD4b786703B374aEEAa44195698a699dD1' # HLKD420M Vault
+          - '0x91F321A8791fB899c6b860B9F54940C68cB45AeD' # HLKD330M Vault
+          - '0xEe1087ec5D6A0a673C046b9ACb15C93B7aDB95CA' # HLKD100M Vault
+        start_block: 14937664 # HLKD1B Vault deployment (earliest SF vault)
+      # Set & Forgetti Strategy Wrappers (emits MultiRewardsUpdated)
+      - name: SFVaultStrategyWrapper
+        address:
+          - '0x39748c56511c02eb7be22225c4699f59fbb55b8f' # HLKD1B Strategy
+          - '0x447d56af16a0cfaff96536c7fd54f46bf56e160e' # HLKD690M Strategy
+          - '0xffa9dbbff80f736cde9e41427c0335f866854a9a' # HLKD420M Strategy
+          - '0x3032a263c651d9237b74cd6d47baf1345bf0930e' # HLKD330M Strategy
+          - '0xaee9aea23783057cbc890684464570ad9723be01' # HLKD100M Strategy
+        start_block: 14937670 # HLKD1B Strategy deployment (earliest SF strategy)
+      # Set & Forgetti MultiRewards (Staking)
+      - name: SFMultiRewards
+        address:
+          - '0x34b3668e2AD47ccFe3C53e24a0606B911D1f6a8f' # HLKD1B MultiRewards (new)
+          - '0xd1cbf8f7f310947A7993abbD7fd6113794e353da' # HLKD690M MultiRewards (new)
+          - '0x827b7EA9fDb4322DbC6f9bF72C04871Be859f20C' # HLKD420M MultiRewards (new)
+          - '0xACd0177BfcBC3760b03c87808b5423945f6bFAEC' # HLKD330M MultiRewards (new)
+          - '0xB5b312fbF7Eb145485Ece55B862db94d626eFa0f' # HLKD100M MultiRewards (new)
+        start_block: 15407908 # HLKD1B MultiRewards deployment (earliest SF MultiRewards)
+      # HenloVault for tracking HENLOCKED token mints
+      - name: HenloVault
+        address:
+          - '0x42069E3BF367C403b632CF9cD5a8d61e2c0c44fC' # HenloVault
+        start_block: 2041392 # HenloVault deployment
+      # Tracked ERC-20 tokens for balance tracking (HENLO + HENLOCKED tiers)
+      - name: TrackedErc20
+        address:
+          - '0xb2F776e9c1C926C4b2e54182Fac058dA9Af0B6A5' # HENLO token
+          - '0xF0edfc3e122DB34773293E0E5b2C3A58492E7338' # HLKD1B
+          - '0x8AB854dC0672d7A13A85399A56CB628FB22102d6' # HLKD690M
+          - '0xF07Fa3ECE9741D408d643748Ff85710BEdEF25bA' # HLKD420M
+          - '0x37DD8850919EBdCA911C383211a70839A94b0539' # HLKD330M
+          - '0x7Bdf98DdeEd209cFa26bD2352b470Ac8b5485EC5' # HLKD100M
+        start_block: 839945 # HENLO token deployment (earliest TrackedErc20 on Berachain)
+      # Mibera Liquid Backing - Loans, RFV, and marketplace
+      - name: MiberaLiquidBacking
+        address:
+          - '0xaa04F13994A7fCd86F3BbbF4054d239b88F2744d' # Mibera Liquid Backing
+        start_block: 3971122 # MiberaLiquidBacking deployment
+      # Mibera Collection - NFT transfer tracking for mint activity
+      - name: MiberaCollection
+        address:
+          - '0x6666397dfe9a8c469bf65dc744cb1c733416c420' # Mibera Collection
+        start_block: 3837808 # MiberaCollection deployment
+      # Mibera Premint - Participation and refund tracking
+      - name: MiberaPremint
+        address:
+          - '0xdd5F6f41B250644E5678D77654309a5b6A5f4D55' # Mibera Premint
+        start_block: 2731326 # MiberaPremint deployment
+      # Seaport - OpenSea marketplace for secondary sales
+      - name: Seaport
+        address:
+          - "0x0000000000000068F116a894984e2DB1123eB395" # Seaport v1.6
+        start_block: 3837808 # Use MiberaCollection deployment — no relevant trades before Mibera exists
+      # APDAO Auction House (proxy contract — events emit from here)
+      - name: ApdaoAuctionHouse
+        address:
+          - '0xE840929cd47c6a1cf0f5D9b6d0C6277075680A0b' # APDAO Auction House Proxy
+        start_block: 5206807 # ApdaoAuctionHouse deployment
+
+# V3: unordered multichain and preload are now defaults (removed deprecated flags)
