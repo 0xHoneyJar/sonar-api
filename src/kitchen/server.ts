@@ -8,6 +8,10 @@ import { createHasuraCollectionStatusReader, beltGraphqlUrlFromEnv } from "./has
 import { MemoryIngestJobStore } from "./ingest-store.js";
 import { kitchenWorkerEnabled, startKitchenIngestWorker } from "./ingest-worker.js";
 import {
+  createHasuraOwnershipSnapshotReader,
+  type OwnershipSnapshotReader,
+} from "./ownership-snapshot-reader.js";
+import {
   createPostgresIngestJobStore,
   kitchenDatabaseUrlFromEnv,
 } from "./postgres-ingest-store.js";
@@ -21,6 +25,7 @@ import {
   robinhoodGraphqlUrlFromEnv,
 } from "./routed-status-reader.js";
 import type { CollectionStatusReader } from "./status.js";
+import { parseCaip10 } from "./ownership-snapshot.js";
 
 async function resolveIngestStore(): Promise<IngestJobStorePort> {
   const dbUrl = kitchenDatabaseUrlFromEnv();
@@ -178,6 +183,26 @@ async function readChainProgressViaGraphql(): Promise<ChainProgressRow[]> {
   return [...byId.values()].sort((a, b) => a.chain_id - b.chain_id);
 }
 
+function createOwnershipSnapshotReader(): OwnershipSnapshotReader {
+  const monobelt = createHasuraOwnershipSnapshotReader();
+  const rhUrl = robinhoodGraphqlUrlFromEnv();
+  const rhAdmin = process.env.ROBINHOOD_HASURA_ADMIN_SECRET?.trim();
+  if (!rhUrl) return monobelt;
+  const robinhood = createHasuraOwnershipSnapshotReader({
+    url: rhUrl,
+    adminSecret: rhAdmin,
+  });
+  return {
+    async readOwnershipSnapshot(args) {
+      const subject = parseCaip10(args.caip10);
+      if (subject?.network_reference === String(ROBINHOOD_CHAIN_ID)) {
+        return robinhood.readOwnershipSnapshot(args);
+      }
+      return monobelt.readOwnershipSnapshot(args);
+    },
+  };
+}
+
 export async function createKitchenServer() {
   const store = await resolveIngestStore();
   const reader = createStatusReader();
@@ -187,6 +212,7 @@ export async function createKitchenServer() {
     store,
     preparationRuntime,
     readChainProgress: readChainProgressViaGraphql,
+    ownershipSnapshotReader: createOwnershipSnapshotReader(),
   });
   return { app, store, reader };
 }
