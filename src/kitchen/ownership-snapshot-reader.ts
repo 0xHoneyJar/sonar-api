@@ -149,6 +149,8 @@ export type OwnershipSnapshotReader = {
     asOfRaw?: string | null;
     referenceDateRaw?: string | null;
     nowMs?: number;
+    /** Max holder rows in the response body; defaults to HOLDERS_RESPONSE_CAP. */
+    holdersCap?: number;
   }): Promise<OwnershipSnapshot | { error: "invalid_caip10" | "invalid_as_of"; message: string }>;
 };
 
@@ -399,6 +401,7 @@ export function createHasuraOwnershipSnapshotReader(args?: {
             holders: dated.holders,
             asOfUnixSeconds,
             observedAtMs: args.nowMs,
+            holdersCap: args.holdersCap,
           });
         }
 
@@ -429,6 +432,7 @@ export function createHasuraOwnershipSnapshotReader(args?: {
           holders: current.holders,
           asOfUnixSeconds: null,
           observedAtMs: args.nowMs,
+          holdersCap: args.holdersCap,
         });
       } catch (err) {
         // Do not leak upstream URLs / GraphQL internals to API clients.

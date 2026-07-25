@@ -15,6 +15,7 @@ import {
 } from "./normalize.js";
 import { buildOwnershipReadyInventory } from "./ownership-ready.js";
 import type { OwnershipSnapshotReader } from "./ownership-snapshot-reader.js";
+import { HOLDERS_RESPONSE_MAX_CAP } from "./ownership-snapshot.js";
 import {
   createPullBufferTransport,
   relayOutboxRow,
@@ -686,10 +687,36 @@ export function createKitchenApp(deps: {
         400,
       );
     }
+    // Optional: widen the holder rows returned in the body. Absent => reader default
+    // (HOLDERS_RESPONSE_CAP), so existing consumers see a byte-identical response.
+    const holdersLimitRaw = c.req.query("holders_limit")?.trim();
+    let holdersCap: number | undefined;
+    if (holdersLimitRaw !== undefined && holdersLimitRaw !== "") {
+      const parsed = Number(holdersLimitRaw);
+      if (
+        !/^\d+$/.test(holdersLimitRaw) ||
+        !Number.isSafeInteger(parsed) ||
+        parsed < 1 ||
+        parsed > HOLDERS_RESPONSE_MAX_CAP
+      ) {
+        return c.json(
+          {
+            schema_version: 1,
+            error: {
+              code: "invalid_request",
+              message: `holders_limit must be an integer between 1 and ${HOLDERS_RESPONSE_MAX_CAP}`,
+            },
+          },
+          400,
+        );
+      }
+      holdersCap = parsed;
+    }
     const result = await reader.readOwnershipSnapshot({
       caip10,
       asOfRaw: c.req.query("as_of"),
       referenceDateRaw: c.req.query("reference_date"),
+      holdersCap,
     });
     if ("error" in result) {
       return c.json(
