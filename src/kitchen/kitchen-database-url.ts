@@ -8,6 +8,12 @@
  */
 
 export type KitchenDatabaseEnv = {
+  /**
+   * Environment bag. The index signature is what makes `process.env`
+   * (`NodeJS.ProcessEnv extends Dict<string>`) structurally assignable here —
+   * without it every `= process.env` default is a TS2559 weak-type error.
+   */
+  [key: string]: string | undefined;
   KITCHEN_DATABASE_URL?: string;
   KITCHEN_ALLOW_ENVIO_PG_FALLBACK?: string;
   NODE_ENV?: string;

@@ -47,7 +47,25 @@ export type IndexingStatusBody = {
   ownership_ready: OwnershipReadyInventory;
 };
 
-export function jobToIndexingRow(job: IngestJobRecord): IndexingJobRow {
+/**
+ * Input to {@link jobToIndexingRow}.
+ *
+ * `correlation` is NOT a field of `IngestJobRecord` — correlations are stored
+ * out-of-band in `kitchen_job_correlations` (postgres-ingest-store.ts) and in
+ * `MemoryIngestJobStore.correlations`, and neither store ever attaches one to a
+ * returned record. So a caller must enrich the record itself for
+ * `correlation_source` / `correlation_id` to appear.
+ *
+ * LATENT GAP (sonar-api#237): no caller does. `buildIndexingStatus` feeds
+ * `listByStatus` output straight in, so `/v2/indexing-status` never emits those
+ * two fields today. Wiring the enrichment is a behaviour change, out of scope
+ * for the typecheck repair that surfaced this.
+ */
+export type IndexingJobInput = IngestJobRecord & {
+  correlation?: { source: string; correlationId: string };
+};
+
+export function jobToIndexingRow(job: IndexingJobInput): IndexingJobRow {
   return {
     physical_job_id: job.physicalJobId,
     status: job.status,
