@@ -2,7 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 
 import { mapPool } from "./async-pool.js";
-import { patchConfigForKitchenIngest } from "./config-patcher.js";
+import {
+  patchConfigForKitchenIngest,
+  type TrackedContractName,
+} from "./config-patcher.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
 import {
   preparationDrainStrategyFromEnv,
@@ -77,20 +80,30 @@ export function applyBeltConfigPatch(args: {
   return { changed: result.changed };
 }
 
+/** Belt contract each admitted adapter writes its addresses into. */
+const BELT_CONTRACT_BY_ADAPTER = {
+  "belt.eth-erc721": "EthTrackedErc721",
+  "belt.evm-erc721": "TrackedErc721",
+  "belt.eth-erc1155": "EthTrackedErc1155",
+  "belt.evm-erc1155": "TrackedErc1155",
+} as const satisfies Partial<Record<IngestJobRecord["prepareAdapterId"], TrackedContractName>>;
+
+type BeltMutatingAdapter = keyof typeof BELT_CONTRACT_BY_ADAPTER;
+
+const beltContractFor = (job: IngestJobRecord): TrackedContractName =>
+  BELT_CONTRACT_BY_ADAPTER[job.prepareAdapterId as BeltMutatingAdapter];
+
 /** Shared belt-mutation guard for batch patch + webhook plan builders. */
 export function validateBeltJob(job: IngestJobRecord): void {
-  if (job.tokenStandard !== "erc721" || !job.key) {
+  if ((job.tokenStandard !== "erc721" && job.tokenStandard !== "erc1155") || !job.key) {
     throw new Error(`unsupported_standard: ${job.tokenStandard} cannot mutate Belt config`);
   }
-  if (
-    job.prepareAdapterId !== "belt.eth-erc721" &&
-    job.prepareAdapterId !== "belt.evm-erc721"
-  ) {
+  if (!(job.prepareAdapterId in BELT_CONTRACT_BY_ADAPTER)) {
     throw new Error(`unsupported_adapter: ${job.prepareAdapterId}`);
   }
 }
 
-/** Apply many ERC-721 Tracked* address patches in one config rewrite. */
+/** Apply many Tracked* address patches (ERC-721 and ERC-1155) in one config rewrite. */
 export function applyBeltConfigPatchesBatch(args: {
   configPath: string;
   jobs: IngestJobRecord[];
@@ -115,8 +128,7 @@ export function applyBeltConfigPatchesBatch(args: {
       configYaml,
       key: job.key!,
       label: deterministicJobLabel(job),
-      contractName:
-        job.prepareAdapterId === "belt.eth-erc721" ? "EthTrackedErc721" : "TrackedErc721",
+      contractName: beltContractFor(job),
     });
     if (patched.changed) {
       changed = true;
@@ -135,7 +147,7 @@ export type BeltConfigPatchPlanItem = {
   chain_id: number;
   contract: `0x${string}`;
   label: string;
-  contract_name: "EthTrackedErc721" | "TrackedErc721";
+  contract_name: TrackedContractName;
 };
 
 export function buildBeltConfigPatchPlan(jobs: IngestJobRecord[]): BeltConfigPatchPlanItem[] {
@@ -147,8 +159,7 @@ export function buildBeltConfigPatchPlan(jobs: IngestJobRecord[]): BeltConfigPat
       chain_id: job.key!.chainId,
       contract: job.key!.contract,
       label: deterministicJobLabel(job),
-      contract_name:
-        job.prepareAdapterId === "belt.eth-erc721" ? "EthTrackedErc721" : "TrackedErc721",
+      contract_name: beltContractFor(job),
     });
   }
   return items;

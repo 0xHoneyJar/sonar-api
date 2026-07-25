@@ -136,6 +136,34 @@ contracts:
         field_selection:
           transaction_fields:
             - hash
+  # Static ERC1155 collections for holder tracking. Balances are per-(tokenId, holder)
+  # and non-exclusive — there is no single owner per token, so this path never writes
+  # the one-owner-per-tokenId Token entity the ERC-721 path maintains.
+  - name: TrackedErc1155
+    handler: src/EventHandlers.ts
+    events:
+      - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Dedicated ETH ERC1155 tracker — same envio #120 shape as EthTrackedErc721: a single-address
+  # entry in a shared multi-chain contract is not fetched on chain 1. Same ABI + handler as
+  # TrackedErc1155.
+  - name: EthTrackedErc1155
+    handler: src/EventHandlers.ts
+    events:
+      - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+        field_selection:
+          transaction_fields:
+            - hash
   # General ERC721 mint tracking (mint events only)
   - name: GeneralMints
     handler: src/EventHandlers.ts

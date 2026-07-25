@@ -180,23 +180,41 @@ describe("ingest-worker", () => {
       { chainId: 80094, contract: "0x4b08a069381efbb9f08c73d6b2e975c9be3c4684" },
       { order_id: "order", source: "ordering-service" },
     );
-    const impossibleLegacyJob = {
-      ...admitted,
-      tokenStandard: "erc1155" as const,
-      prepareAdapterId: "unsupported" as const,
-    };
-    let writes = 0;
-    expect(() => applyBeltConfigPatch({
-      configPath: "ignored",
-      job: impossibleLegacyJob,
-      readFile: () => {
-        throw new Error("read must not run");
+    // erc721 and erc1155 both have belt workers now; anything else must not
+    // reach the config, and neither must a standard/adapter mismatch.
+    const cases = [
+      {
+        job: {
+          ...admitted,
+          tokenStandard: "compressed_nft" as const,
+          prepareAdapterId: "unsupported" as const,
+        },
+        code: "unsupported_standard",
       },
-      writeFile: () => {
-        writes += 1;
+      {
+        job: {
+          ...admitted,
+          tokenStandard: "erc1155" as const,
+          prepareAdapterId: "unsupported" as const,
+        },
+        code: "unsupported_adapter",
       },
-    })).toThrow("unsupported_standard");
-    expect(writes).toBe(0);
+    ];
+
+    for (const { job, code } of cases) {
+      let writes = 0;
+      expect(() => applyBeltConfigPatch({
+        configPath: "ignored",
+        job,
+        readFile: () => {
+          throw new Error("read must not run");
+        },
+        writeFile: () => {
+          writes += 1;
+        },
+      })).toThrow(code);
+      expect(writes).toBe(0);
+    }
   });
 
   it("does not let an expired and reclaimed worker publish status", async () => {

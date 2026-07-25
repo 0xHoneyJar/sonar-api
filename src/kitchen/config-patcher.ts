@@ -54,6 +54,30 @@ export function appendTrackedErc721ToChainBlock(
   label: string,
   contractName = "TrackedErc721",
 ): string {
+  return appendTrackedContractToChainBlock(chainBlock, contract, label, contractName, "ERC-721");
+}
+
+/**
+ * ERC-1155 sibling. Same YAML surgery, different belt contract — the handler
+ * behind `TrackedErc1155` maintains per-(tokenId, holder) balances rather than
+ * a single owner per token.
+ */
+export function appendTrackedErc1155ToChainBlock(
+  chainBlock: string,
+  contract: `0x${string}`,
+  label: string,
+  contractName = "TrackedErc1155",
+): string {
+  return appendTrackedContractToChainBlock(chainBlock, contract, label, contractName, "ERC-1155");
+}
+
+function appendTrackedContractToChainBlock(
+  chainBlock: string,
+  contract: `0x${string}`,
+  label: string,
+  contractName: string,
+  standardLabel: string,
+): string {
   const addressLine = `          - ${normalizeAddress(contract)} # ${label}`;
   const trackedHeader = `      - name: ${contractName}`;
 
@@ -89,7 +113,7 @@ export function appendTrackedErc721ToChainBlock(
   }
 
   const block = [
-    "      # Kitchen ingest — community onboarding ERC-721 holder tracking",
+    `      # Kitchen ingest — community onboarding ${standardLabel} holder tracking`,
     `      - name: ${contractName}`,
     "        address:",
     addressLine,
@@ -97,11 +121,22 @@ export function appendTrackedErc721ToChainBlock(
   return `${chainBlock}\n${block}`;
 }
 
+export type TrackedContractName =
+  | "EthTrackedErc721"
+  | "TrackedErc721"
+  | "EthTrackedErc1155"
+  | "TrackedErc1155";
+
+const isErc1155ContractName = (name: TrackedContractName): boolean =>
+  name === "TrackedErc1155" || name === "EthTrackedErc1155";
+
 export function patchConfigForKitchenIngest(args: {
   configYaml: string;
   key: CollectionKey;
   label?: string;
-  contractName?: "EthTrackedErc721" | "TrackedErc721";
+  contractName?: TrackedContractName;
+  /** Observed standard. Selects the belt contract when contractName is omitted. */
+  tokenStandard?: "erc721" | "erc1155";
 }): { changed: boolean; configYaml: string } {
   const chainBlock = extractChainBlock(args.configYaml, args.key.chainId);
   if (!chainBlock) {
@@ -115,13 +150,21 @@ export function patchConfigForKitchenIngest(args: {
     args.label?.trim() ||
       `kitchen_${args.key.chainId}_${args.key.contract.slice(2, 10)}`,
   );
-  const contractName = args.contractName ?? (args.key.chainId === 1 ? "EthTrackedErc721" : "TrackedErc721");
-  const patchedBlock = appendTrackedErc721ToChainBlock(
-    chainBlock,
-    args.key.contract,
-    label,
-    contractName,
-  );
+  // Chain 1 gets the dedicated Eth* belt contract (envio #120).
+  const onEth = args.key.chainId === 1;
+  const contractName: TrackedContractName =
+    args.contractName ??
+    (args.tokenStandard === "erc1155"
+      ? onEth
+        ? "EthTrackedErc1155"
+        : "TrackedErc1155"
+      : onEth
+        ? "EthTrackedErc721"
+        : "TrackedErc721");
+  const append = isErc1155ContractName(contractName)
+    ? appendTrackedErc1155ToChainBlock
+    : appendTrackedErc721ToChainBlock;
+  const patchedBlock = append(chainBlock, args.key.contract, label, contractName);
   const lines = args.configYaml.split("\n");
   let start = -1;
   let end = lines.length;

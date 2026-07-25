@@ -185,13 +185,26 @@ describe("kitchen collection routes", () => {
         }),
       });
 
-    it("passes the observed erc1155 through to admission instead of asserting erc721", async () => {
+    it("admits an observed erc1155 on the generic 1155 path", async () => {
       const res = await ingest(stubDetector({ ok: true, tokenStandard: "erc1155" }));
-      // With no generic 1155 worker yet, Kitchen's own capability gate answers —
-      // an honest refusal, where the hardcoded literal produced a queued job.
+      expect(res.status).toBe(202);
+      const job = (await res.json()) as { job_id: string };
+      // Berachain 1155 → belt.evm-erc1155, not the erc721 adapter the literal forced.
+      await expect(store.get({
+        chainId: FIXTURE_CHAIN_ID,
+        contract: FIXTURE_CONTRACT as `0x${string}`,
+      })).resolves.toMatchObject({
+        jobId: job.job_id,
+        tokenStandard: "erc1155",
+        prepareAdapterId: "belt.evm-erc1155",
+      });
+    });
+
+    it("still refuses a standard with no worker", async () => {
+      const res = await ingest(stubDetector({ ok: true, tokenStandard: "compressed_nft" }));
       expect(res.status).toBe(422);
       await expect(res.json()).resolves.toEqual({
-        error: "erc1155 has no generic Kitchen preparation worker",
+        error: "compressed_nft has no generic Kitchen preparation worker",
       });
     });
 

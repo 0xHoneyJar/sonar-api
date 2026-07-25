@@ -5,26 +5,78 @@ import type { PreparationCapability, TokenStandard } from "./types.js";
 
 type PrepareAdapterId = PreparationCapability["prepareAdapterId"];
 
+/**
+ * Per-network preparation adapters, keyed by observed token standard. A standard
+ * absent from `adapters` genuinely has no worker on that network and must refuse
+ * — the map is the only place a new belt worker becomes admissible.
+ */
 const EVM_CAPABILITIES: Record<
   string,
-  { sourceSequence: string; finalityPolicyVersion: string; adapter: PrepareAdapterId }
+  {
+    sourceSequence: string;
+    finalityPolicyVersion: string;
+    adapters: Partial<Record<TokenStandard, PrepareAdapterId>>;
+  }
 > = {
-  "1": { sourceSequence: "2", finalityPolicyVersion: "ethereum-finalized.v1", adapter: "belt.eth-erc721" },
-  "10": { sourceSequence: "21", finalityPolicyVersion: "optimism-finalized.v1", adapter: "belt.evm-erc721" },
-  "8453": { sourceSequence: "11", finalityPolicyVersion: "base-finalized.v1", adapter: "belt.evm-erc721" },
-  "42161": { sourceSequence: "31", finalityPolicyVersion: "arbitrum-finalized.v1", adapter: "belt.evm-erc721" },
-  "80094": { sourceSequence: "41", finalityPolicyVersion: "berachain-finalized.v1", adapter: "belt.evm-erc721" },
-  "7777777": { sourceSequence: "51", finalityPolicyVersion: "zora-finalized.v1", adapter: "belt.evm-erc721" },
+  // Chain 1 uses dedicated Eth* belt contracts (envio #120: a single-address
+  // entry in a shared multi-chain contract is not fetched on chain 1).
+  "1": {
+    sourceSequence: "2",
+    finalityPolicyVersion: "ethereum-finalized.v1",
+    adapters: { erc721: "belt.eth-erc721", erc1155: "belt.eth-erc1155" },
+  },
+  "10": {
+    sourceSequence: "21",
+    finalityPolicyVersion: "optimism-finalized.v1",
+    adapters: { erc721: "belt.evm-erc721", erc1155: "belt.evm-erc1155" },
+  },
+  "8453": {
+    sourceSequence: "11",
+    finalityPolicyVersion: "base-finalized.v1",
+    adapters: { erc721: "belt.evm-erc721", erc1155: "belt.evm-erc1155" },
+  },
+  "42161": {
+    sourceSequence: "31",
+    finalityPolicyVersion: "arbitrum-finalized.v1",
+    adapters: { erc721: "belt.evm-erc721", erc1155: "belt.evm-erc1155" },
+  },
+  "80094": {
+    sourceSequence: "41",
+    finalityPolicyVersion: "berachain-finalized.v1",
+    adapters: { erc721: "belt.evm-erc721", erc1155: "belt.evm-erc1155" },
+  },
+  "7777777": {
+    sourceSequence: "51",
+    finalityPolicyVersion: "zora-finalized.v1",
+    adapters: { erc721: "belt.evm-erc721", erc1155: "belt.evm-erc1155" },
+  },
+  // Robinhood reads through the HyperIndex sidecar, which has an ERC-721
+  // worker only — 1155 there stays an honest refusal.
   "4663": {
     sourceSequence: "222",
     finalityPolicyVersion: "robinhood-finalized.v1",
-    adapter: "belt.evm-erc721.robinhood-sidecar",
+    adapters: { erc721: "belt.evm-erc721.robinhood-sidecar" },
   },
 };
 
 const CAPABILITY_ID = "ownership_index.v1" as const;
-const ADAPTER_VERSION = "belt-config-erc721.v1";
-const ROBINHOOD_SIDECAR_ADAPTER_VERSION = "rh-hyperindex-sidecar.v1";
+
+/**
+ * Adapter version is per-adapter, not global: the belt config shape an ERC-1155
+ * worker emits is not the ERC-721 one, and the capability digest must say so.
+ */
+const ADAPTER_VERSIONS: Record<PrepareAdapterId, string> = {
+  "belt.eth-erc721": "belt-config-erc721.v1",
+  "belt.evm-erc721": "belt-config-erc721.v1",
+  "belt.evm-erc721.robinhood-sidecar": "rh-hyperindex-sidecar.v1",
+  "belt.eth-erc1155": "belt-config-erc1155.v1",
+  "belt.evm-erc1155": "belt-config-erc1155.v1",
+  // Refusals create no job; kept at the historical literal so existing
+  // unsupported-path capability digests do not shift.
+  unsupported: "belt-config-erc721.v1",
+};
+
+const ADAPTER_VERSION = ADAPTER_VERSIONS.unsupported;
 
 /**
  * Supply lane ready when Kitchen can route 4663 reads to the RH sidecar
@@ -109,7 +161,8 @@ export async function resolvePreparationCapability(args: {
     };
   }
 
-  if (tokenStandard !== "erc721") {
+  const adapter = configured.adapters[tokenStandard];
+  if (adapter === undefined) {
     return {
       capabilityId: CAPABILITY_ID,
       capabilityVersion: await versionFor({
@@ -130,10 +183,7 @@ export async function resolvePreparationCapability(args: {
     };
   }
 
-  const adapterVersion =
-    configured.adapter === "belt.evm-erc721.robinhood-sidecar"
-      ? ROBINHOOD_SIDECAR_ADAPTER_VERSION
-      : ADAPTER_VERSION;
+  const adapterVersion = ADAPTER_VERSIONS[adapter];
 
   // Contract truth: recognize is live; ownership supply lane is the sidecar canary.
   if (
@@ -147,7 +197,7 @@ export async function resolvePreparationCapability(args: {
         standard: tokenStandard,
         sourceSequence: configured.sourceSequence,
         finalityPolicyVersion: configured.finalityPolicyVersion,
-        adapterId: configured.adapter,
+        adapterId: adapter,
         adapterVersion,
       }),
       health: "disabled",
@@ -157,7 +207,7 @@ export async function resolvePreparationCapability(args: {
         "Robinhood ownership_index awaits HyperIndex sidecar canary (config.robinhood-sidecar.yaml); recognize remains live",
       sourceSequence: configured.sourceSequence,
       finalityPolicyVersion: configured.finalityPolicyVersion,
-      prepareAdapterId: configured.adapter,
+      prepareAdapterId: adapter,
       prepareAdapterVersion: adapterVersion,
     };
   }
@@ -169,7 +219,7 @@ export async function resolvePreparationCapability(args: {
       standard: tokenStandard,
       sourceSequence: configured.sourceSequence,
       finalityPolicyVersion: configured.finalityPolicyVersion,
-      adapterId: configured.adapter,
+      adapterId: adapter,
       adapterVersion,
     }),
     health: "available",
@@ -178,7 +228,7 @@ export async function resolvePreparationCapability(args: {
     reason: "preparation adapter available",
     sourceSequence: configured.sourceSequence,
     finalityPolicyVersion: configured.finalityPolicyVersion,
-    prepareAdapterId: configured.adapter,
+    prepareAdapterId: adapter,
     prepareAdapterVersion: adapterVersion,
   };
 }

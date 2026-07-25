@@ -298,7 +298,10 @@ type TrackedHolder {
 }
 
 # Per-(contract, chain, tokenId, wallet) ERC-1155 balance (sonar-api#62).
-# Populated by puru-apiculture1155 handler; COVERAGE = DISTINCT collectionKey.
+# Populated by the puru-apiculture1155 handler and by the generic
+# tracked-erc1155 handler (Kitchen-admitted collections); balances are
+# non-exclusive — many wallets hold the same tokenId, so there is no owner
+# field here. COVERAGE = DISTINCT collectionKey.
 type TrackedHolder1155 {
   id: ID!
   contract: String!
