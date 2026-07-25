@@ -4,10 +4,7 @@ import {
   BELT_CONTRACTS,
   extractChainContractRef,
 } from "../scripts/verify-belt-config.js";
-import {
-  TRACKED_ERC721_COLLECTION_KEYS,
-  TRANSFER_TRACKED_COLLECTIONS,
-} from "../src/handlers/tracked-erc721/constants";
+import { TRACKED_ERC721_COLLECTION_KEYS } from "../src/handlers/tracked-erc721/constants";
 
 /**
  * Base community-onboarding batch 1 (top-10 ramp, #121). Deploy blocks verified
@@ -49,11 +46,12 @@ describe("Base TrackedErc721 batch 1 (community onboarding, #121)", () => {
     }
   });
 
-  it("opts every batch collection into transfer tracking (scoring consumes activity)", () => {
-    for (const { key } of BATCH) {
-      expect(TRANSFER_TRACKED_COLLECTIONS.has(key)).toBe(true);
-    }
-  });
+  // The former "opts every batch collection into transfer tracking" case asserted
+  // membership in TRANSFER_TRACKED_COLLECTIONS. That allowlist was removed in
+  // bug-20260725-224d57 (F1): binding in config.yaml is now sufficient, so the
+  // guarantee is behavioural rather than list-membership and is covered by
+  // test/tracked-erc721-transfer-gate.test.ts. The config binding itself is
+  // asserted by the first case in this describe block.
 
   it("covers chain-8453 TrackedErc721 in BELT_CONTRACTS so the belt gate catches drift", () => {
     expect(

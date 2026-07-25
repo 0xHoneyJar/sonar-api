@@ -925,7 +925,17 @@ type MintActivity @entity {
   tokenStandard: String!       # "ERC721" | "ERC1155"
   tokenId: BigInt              # Token ID (nullable for some activities)
   quantity: BigInt!            # Quantity (usually 1)
-  amountPaid: BigInt!          # BERA paid in wei (KEY FIELD for backing calculation)
+  # Price in the smallest unit of paymentToken, as an exact integer — never a float.
+  # ROW TOTAL, not per unit: an ERC-1155 row with quantity 3 carries the price of all
+  # 3 units, so unit price is amountPaid / quantity (BB SEA-007). ERC-721 rows always
+  # have quantity 1, so the two coincide there.
+  # Nullable since bug-20260725-224d57: an unpriced sale is still a real disposal,
+  # and dropping it made "sold" and "could not price it" indistinguishable downstream.
+  amountPaid: BigInt
+  # Settlement currency; zero address = the chain's native coin. Without this,
+  # 1000 USDC and 1000 wei are indistinguishable and floor/average price math
+  # silently mixes currencies. Null when no price was recoverable.
+  paymentToken: String
   activityType: String!        # "MINT" | "SALE" | "PURCHASE"
   timestamp: BigInt!
   blockNumber: BigInt!

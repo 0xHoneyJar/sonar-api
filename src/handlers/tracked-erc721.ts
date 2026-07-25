@@ -7,12 +7,8 @@ import {
 } from "envio";
 
 import { ZERO_ADDRESS } from "./constants";
-import {
-  TRACKED_ERC721_COLLECTION_KEYS,
-  TRANSFER_TRACKED_COLLECTIONS,
-} from "./tracked-erc721/constants";
+import { TRACKED_ERC721_COLLECTION_KEYS } from "./tracked-erc721/constants";
 import { STAKING_CONTRACT_KEYS } from "./mibera-staking/constants";
-import { isMarketplaceAddress } from "./marketplaces/constants";
 import { recordAction } from "../lib/actions";
 import { isBurnAddress, isMintFromZero } from "../lib/mint-detection";
 import { writeTokenOwnership } from "../lib/token-ownership";
@@ -125,12 +121,14 @@ export async function handleTrackedErc721Transfer(
     });
   }
 
-  // Track transfers for specific collections (non-mint, non-burn transfers)
-  if (
-    TRANSFER_TRACKED_COLLECTIONS.has(collectionKey) &&
-    from !== ZERO &&
-    !isBurnAddress(to)
-  ) {
+  // Track transfers for every bound collection (non-mint, non-burn transfers).
+  // No collection allowlist: indexer.onEvent only delivers events for addresses
+  // bound in config.yaml, so arrival already proves the collection is tracked.
+  // The former TRANSFER_TRACKED_COLLECTIONS gate was hand-maintained while
+  // Kitchen patches config.yaml automatically, so every onboarded collection
+  // indexed holders and emitted no transfer history (bug-20260725-224d57 F1;
+  // chain 1 had 9 bound collections and emitted transfers for exactly one).
+  if (from !== ZERO && !isBurnAddress(to)) {
     const transferActionId = `${txHash}_${logIndex}_transfer`;
     recordAction(context, {
       id: transferActionId,
@@ -148,7 +146,19 @@ export async function handleTrackedErc721Transfer(
         from,
         to,
         isSecondary: true,
-        viaMarketplace: isMarketplaceAddress(from) || isMarketplaceAddress(to),
+        // `viaMarketplace` was removed here in bug-20260725-224d57 (F1/T6).
+        //
+        // It was `isMarketplaceAddress(from) || isMarketplaceAddress(to)`, which
+        // cannot work for ERC-721: approval-based venues (Seaport, Element) never
+        // take custody, so the marketplace appears in neither `from` nor `to`.
+        // Measured on chain 1 (409 sampled Azuki transfers): ~29% precision, ~28%
+        // recall. 122 of 172 `true` values were Blur Blend LOAN collateral moves —
+        // borrowing against an NFT was reported as selling it. And a `false`
+        // asserted "confirmed not a sale", a claim this code could never make.
+        //
+        // The sale signal now lives on MintActivity{SALE}, joinable on
+        // (chainId, txHash, contract, tokenId), carrying `operator` and a priced
+        // `amountPaid`. Absence of a matching SALE row means UNKNOWN, not "no sale".
       },
     });
   }
