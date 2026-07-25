@@ -9,6 +9,7 @@ import {
   normalizeSolanaAddress,
   type CollectionCandidate,
   type NetworkRef,
+  type Provenance,
   type VersionedDigest,
 } from "./protocol.js";
 import { networkKey, type RecognizeCapability } from "./identifier.js";
@@ -67,6 +68,12 @@ export interface ProbeHitEvidence {
   readonly report_readiness: CollectionCandidate["report_readiness"];
   readonly metadata_quality: CollectionCandidate["metadata_quality"];
   readonly observed_at: string;
+  /**
+   * Provenance source recorded on the candidate. Defaults to `sonar_probe`.
+   * A source that observed indexing rather than chain state (CR-RECOG-ENRICH
+   * inventory registry) MUST declare itself here — never borrow probe provenance.
+   */
+  readonly provenance_source?: Provenance["source"];
   readonly ranking_reasons: ReadonlyArray<string>;
   /** Opaque evidence bytes for provenance digest — never a network call. */
   readonly evidence_material: unknown;
@@ -235,7 +242,7 @@ export const buildCandidateFromHit = (input: {
                 provenance: [
                   {
                     schema_version: COLLECTION_PROTOCOL_SCHEMA_VERSION,
-                    source: "sonar_probe",
+                    source: hit.provenance_source ?? "sonar_probe",
                     observed_at: hit.observed_at,
                     evidence_digest: evidenceDigest,
                   },

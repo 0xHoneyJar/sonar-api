@@ -28,6 +28,8 @@ import {
 import {
   createConstantIndexStatusPort,
   createEvmNftProbeAdapter,
+  createIndexRegistryEnrichedAdapter,
+  createKitchenIndexRegistryPort,
 } from "../collection-resolver/adapters/evm/index.js";
 import {
   defaultLiveRecognizeNetworkCapabilities,
@@ -39,6 +41,16 @@ import type { ProbeOutcome } from "../collection-resolver/candidate.js";
 import type { AdapterProbeRequest } from "../collection-resolver/bounded-core/ports.js";
 import { createKitchenContractUriEnrichPort } from "./contract-uri-enrich.js";
 import { createHttpEvmRpcPort } from "./http-evm-rpc.js";
+import type { CollectionStatusReader } from "./status.js";
+
+export interface ResolveProbeRuntimeOptions {
+  /**
+   * Kitchen collection-index reader (CR-RECOG-ENRICH). When supplied, live mode
+   * surfaces addresses the belt already indexes as additional candidates with
+   * `inventory_registry` provenance. Absent, live mode is on-chain probes only.
+   */
+  readonly statusReader?: CollectionStatusReader;
+}
 
 export type ResolveProbeRuntimeMode = "catalog" | "live" | "unavailable";
 
@@ -259,7 +271,10 @@ function operatorRpcUrls(
   return [...new Set(urls)];
 }
 
-function createLiveDeps(env: NodeJS.ProcessEnv): {
+function createLiveDeps(
+  env: NodeJS.ProcessEnv,
+  options: ResolveProbeRuntimeOptions,
+): {
   readonly deps: BoundedResolverDeps;
   readonly config: BoundedResolverConfig;
 } {
@@ -298,12 +313,24 @@ function createLiveDeps(env: NodeJS.ProcessEnv): {
   // Kitchen inventory snapshots cover arbitrary contracts.
   const indexStatus = createConstantIndexStatusPort("indexed");
   const metadata = createKitchenContractUriEnrichPort();
-  const adapter = createEvmNftProbeAdapter({
+  const probeAdapter = createEvmNftProbeAdapter({
     rpc,
     indexStatus,
     metadata,
     clock,
   });
+  // CR-RECOG-ENRICH — additive Kitchen collection-index candidates when the
+  // on-chain probe found nothing. On-chain hits are never overridden.
+  const adapter =
+    options.statusReader === undefined
+      ? probeAdapter
+      : createIndexRegistryEnrichedAdapter({
+          base: probeAdapter,
+          registry: createKitchenIndexRegistryPort({
+            reader: options.statusReader,
+            clock,
+          }),
+        });
   const hermetic = createHermeticBoundedDeps({
     processClock: clock,
     capabilitySnapshot: loadLiveRecognizeCapabilitySnapshot(),
@@ -352,6 +379,7 @@ function bindResolve(
 
 export function resolveProbeRuntimeFromEnv(
   env: NodeJS.ProcessEnv = process.env,
+  options: ResolveProbeRuntimeOptions = {},
 ): ResolveProbeRuntime {
   const modeRaw = env.RESOLVER_MODE?.trim().toLowerCase();
   if (modeRaw === "unavailable") {
@@ -372,7 +400,7 @@ export function resolveProbeRuntimeFromEnv(
   }
 
   if (modeRaw === "live") {
-    const { deps, config } = createLiveDeps(env);
+    const { deps, config } = createLiveDeps(env, options);
     return {
       mode: "live",
       resolve: bindResolve(deps, config),

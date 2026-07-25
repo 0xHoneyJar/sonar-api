@@ -130,7 +130,9 @@ export function createCollectionRoutes(deps: {
   const { reader, store } = deps;
   const capabilityResolver = deps.capabilityResolver ?? resolvePreparationCapability;
   const preparationRuntime = deps.preparationRuntime ?? UNAVAILABLE_PREPARATION_RUNTIME;
-  const resolveProbeRuntime = deps.resolveProbeRuntime ?? resolveProbeRuntimeFromEnv();
+  const resolveProbeRuntime =
+    deps.resolveProbeRuntime ??
+    resolveProbeRuntimeFromEnv(process.env, { statusReader: reader });
   const routes = new Hono();
   routes.use("*", requireServiceToken);
 
