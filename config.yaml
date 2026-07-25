@@ -726,12 +726,27 @@ chains:
           - 0x95bc4c2e01c2e2d9e537e7a9fe58187e88dd8019 # nodes_by_hunter (deploy 33916538)
           - 0x20fd75eccd7bb9c4eb9e3bb4c09c6b382e15d63e # veecon_2024_tickets (deploy 14459222)
         start_block: 2883449 # earliest deploy in the batch (based_onchain_punks)
-      # Seaport on Base — DEFERRED until downstream repos add chainId filters
-      # See: grimoires/loa/NOTES.md for required downstream changes
-      # - name: Seaport
-      #   address:
-      #     - "0x0000000000000068F116a894984e2DB1123eB395" # Seaport v1.6
-      #   start_block: 20521993 # puru_boarding_passes deployment
+      # Seaport on Base — ENABLED 2026-07-25 (bug-20260725-224d57 / sprint-bug-190).
+      #
+      # The prior "DEFERRED until downstream repos add chainId filters" note is
+      # resolved: every MintActivity row carries chainId, and the id is now unique
+      # per (tx, log, item), so a downstream join cannot blend chains.
+      #
+      # WITHOUT this binding no OrderFulfilled events are fetched on 8453 at all, so
+      # sale attribution is zero no matter how correct the decoder is — the decoder
+      # allowlist was only the SECOND gate. Measured 2026-07-25: 98.2% of Base
+      # secondary transfers carry a Seaport OrderFulfilled log; v1.6 and v1.5 both
+      # observed live. All four canonical versions are bound (identical addresses on
+      # every EVM chain) so older orders are not silently missed.
+      - name: Seaport
+        address:
+          - "0x00000000006c3852cbEf3e08E8dF289169EdE581" # Seaport v1.1
+          - "0x00000000000001ad428e4906aE43D8F9852d0dD6" # Seaport v1.4
+          - "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC" # Seaport v1.5
+          - "0x0000000000000068F116a894984e2DB1123eB395" # Seaport v1.6
+        # Must be <= the TrackedErc721 start_block on this chain (2883449), or sales
+        # that predate it are lost for collections we DO index from that block.
+        start_block: 2883449 # based_onchain_punks deploy — earliest tracked Base collection
 
   # Berachain Mainnet (DO NOT CHANGE THIS ID)
   - id: 80094
