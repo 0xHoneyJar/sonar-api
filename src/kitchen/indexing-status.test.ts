@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MemoryIngestJobStore } from "./ingest-store.js";
-import { buildIndexingStatus, jobToIndexingRow } from "./indexing-status.js";
+import {
+  buildIndexingStatus,
+  jobToIndexingRow,
+  type IndexingJobInput,
+  type IndexingStatusBody,
+} from "./indexing-status.js";
 import { createKitchenApp } from "./routes.js";
 import { INJECTED_PREPARATION_RUNTIME } from "./preparation-runtime.js";
 import type { CollectionStatusReader } from "./status.js";
-import type { IngestJobRecord } from "./types.js";
 
 const TOKEN = "kitchen-test-token";
 const ADDRESS = "0x4b08a069381efbb9f08c73d6b2e975c9be3c4684";
@@ -54,7 +58,7 @@ describe("GET /v2/indexing-status", () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as IndexingStatusBody;
     expect(body.schema_version).toBe(1);
     expect(body.chains).toEqual([]);
     expect(body.jobs.by_status.queued).toBe(1);
@@ -107,7 +111,7 @@ describe("GET /v2/indexing-status", () => {
         },
       },
       correlation: { source: "ordering-service", correlationId: "c1" },
-    } as IngestJobRecord;
+    } as IndexingJobInput;
     const row = jobToIndexingRow(job);
     expect(row.correlation_id).toBe("c1");
     expect(row.updated_at).toBe(new Date(2_000).toISOString());

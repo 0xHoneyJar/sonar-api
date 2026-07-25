@@ -9,6 +9,14 @@ import {
 import { createKitchenApp } from "./routes.js";
 import { INJECTED_PREPARATION_RUNTIME } from "./preparation-runtime.js";
 import type { CollectionStatusReader } from "./status.js";
+import type { KitchenOutboxRow } from "./outbox.js";
+
+/** POST /v2/collection-preparations — canonical job response (routes.ts). */
+type AdmitResponse = { physical_job_id: string };
+/** POST /v2/outbox/relay-pull (routes.ts). */
+type RelayPullResponse = { accepted_count: number; note: string };
+/** GET /v2/outbox (routes.ts). */
+type OutboxListResponse = { count: number; events: KitchenOutboxRow[] };
 
 const TOKEN = "kitchen-test-token";
 const ADDRESS = "0x4b08a069381efbb9f08c73d6b2e975c9be3c4684" as `0x${string}`;
@@ -60,8 +68,8 @@ describe("kitchen outbox three proofs", () => {
       }),
     });
     expect(admit.status).toBe(202);
-    const body = await admit.json();
-    const physicalJobId = body.physical_job_id as string;
+    const body = (await admit.json()) as AdmitResponse;
+    const physicalJobId = body.physical_job_id;
     await store.updateStatus(physicalJobId, "indexing");
     const completed = await store.updateStatus(physicalJobId, "completed");
     expect(completed?.status).toBe("completed");
@@ -102,7 +110,7 @@ describe("kitchen outbox three proofs", () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(relay.status).toBe(200);
-    const body = await relay.json();
+    const body = (await relay.json()) as RelayPullResponse;
     expect(body.accepted_count).toBe(1);
     expect(body.note).toMatch(/Score\/order consumers must act separately/);
     const published = await store.listOutbox({ publishState: "published" });
@@ -123,9 +131,9 @@ describe("kitchen outbox three proofs", () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as OutboxListResponse;
     expect(body.count).toBe(1);
-    expect(body.events[0].event_type).toBe("ownership.ready");
+    expect(body.events[0]?.event_type).toBe("ownership.ready");
   });
 
   it("failed job commits prep.failed outbox (order-counter cue; not Score)", async () => {
@@ -147,8 +155,8 @@ describe("kitchen outbox three proofs", () => {
       }),
     });
     expect(admit.status).toBe(202);
-    const body = await admit.json();
-    await store.updateStatus(body.physical_job_id as string, "failed", {
+    const body = (await admit.json()) as AdmitResponse;
+    await store.updateStatus(body.physical_job_id, "failed", {
       errorCode: "indexing_timeout",
       errorMessage: "timed out",
     });

@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MemoryIngestJobStore } from "./ingest-store.js";
+import type { IndexingStatusBody } from "./indexing-status.js";
 import {
   buildOwnershipReadyInventory,
   caip10ForJob,
   jobToOwnershipReadyRow,
+  type OwnershipReadyInventory,
 } from "./ownership-ready.js";
 import { createKitchenApp } from "./routes.js";
 import { INJECTED_PREPARATION_RUNTIME } from "./preparation-runtime.js";
@@ -70,7 +72,9 @@ describe("ownership-ready inventory", () => {
     });
     expect(row?.kitchen_job_status).toBe("completed");
     expect(row?.holder_count).toBe(7);
-    expect(row?.plane).toBeUndefined();
+    // `plane` belongs to the inventory envelope, never to a subject row. Read
+    // through a widened view so the absence is asserted, not assumed from the type.
+    expect((row as Record<string, unknown> | null)?.plane).toBeUndefined();
     expect(row?.caip10).toBe(`eip155:8453:${ADDRESS}`);
   });
 
@@ -123,8 +127,8 @@ describe("GET /v2/ownership-ready + indexing-status.ownership_ready", () => {
       }),
     });
     expect(admit.status).toBe(202);
-    const admitted = await admit.json();
-    const physicalJobId = admitted.physical_job_id as string;
+    const admitted = (await admit.json()) as { physical_job_id: string };
+    const physicalJobId = admitted.physical_job_id;
     await store.updateStatus(physicalJobId, "indexing");
     await store.updateStatus(physicalJobId, "completed");
 
@@ -132,7 +136,7 @@ describe("GET /v2/ownership-ready + indexing-status.ownership_ready", () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(ready.status).toBe(200);
-    const inventory = await ready.json();
+    const inventory = (await ready.json()) as OwnershipReadyInventory;
     expect(inventory.plane).toBe("sonar_kitchen_ownership");
     expect(inventory.count).toBe(1);
     expect(inventory.subjects[0].caip10).toBe(`eip155:8453:${ADDRESS}`);
@@ -141,7 +145,7 @@ describe("GET /v2/ownership-ready + indexing-status.ownership_ready", () => {
     const status = await app().request("/v2/indexing-status", {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
-    const body = await status.json();
+    const body = (await status.json()) as IndexingStatusBody;
     expect(body.ownership_ready.plane).toBe("sonar_kitchen_ownership");
     expect(body.ownership_ready.count).toBe(1);
   });
