@@ -10,6 +10,8 @@ Production-shaped `NetworkAdapterPort` for configured EVM mainnets.
 | `EvmRpcPort` | Injected abort-aware RPC; pins reads to one observation block |
 | `ChainQualifiedIndexStatusPort` | Kitchen status seam (observed index only) |
 | `EvmMetadataEnrichPort` | CR-004 `ResolverMetadataPort.enrich` for `contractURI` only |
+| `ChainQualifiedIndexRegistryPort` | Kitchen collection-index coverage seam (CR-RECOG-ENRICH) |
+| `createIndexRegistryEnrichedAdapter` | Wraps a probe adapter with additive index-registry candidates |
 
 ## Invariants
 
@@ -23,7 +25,8 @@ Production-shaped `NetworkAdapterPort` for configured EVM mainnets.
 8. **Proxy honesty** — EIP-1967 slot + implementation digest only when bytecode observed. Nonzero slot with incomplete address/code/digest omits `binding_evidence` (CR-102 refuses cache writes).
 9. **Binding** — complete source-derived digests/position/finality/standard/proxy/policy or omit binding.
 10. **Index status** — observed Kitchen lookup before optional remote metadata; `index_support` only bounds possibility. The Kitchen seam races abort and the shared monotonic deadline, and the adapter rechecks both after the await so no late hit can escape.
-11. **Canonical diagnostics** — map stable `safe_code` values to locally owned `SAFE_MESSAGES` only; never trust dependency `safe_message` verbatim (strip URLs, endpoints, provider names, credentials, bodies).
+11. **Index-registry enrichment (CR-RECOG-ENRICH)** — `createIndexRegistryEnrichedAdapter` consults the Kitchen collection-index ONLY when the wrapped probe produced no hit; an on-chain hit is returned untouched. It shares the caller's abort handle and per-network deadline, requires `index_support`, and accepts only ratified `IndexedSnapshot` readiness. The resulting hit declares `provenance_source: "inventory_registry"`, carries no `binding_evidence` (the index observes indexing, not chain position — CR-102 then refuses positive/readiness cache writes and emits `binding_evidence_absent`), and asserts nothing unobserved: `token_standard: "unknown"`, `metadata_quality: "unavailable"`, no name/symbol/image. No coverage, an abort, a late settlement, or an unavailable reader returns the wrapped outcome unchanged.
+12. **Canonical diagnostics** — map stable `safe_code` values to locally owned `SAFE_MESSAGES` only; never trust dependency `safe_message` verbatim (strip URLs, endpoints, provider names, credentials, bodies).
 
 ## Non-goals
 

@@ -44,6 +44,17 @@ export type {
 export { evmRpcFailure } from "./ports.js";
 
 export {
+  createIndexRegistryEnrichedAdapter,
+  createKitchenIndexRegistryPort,
+  createScriptedIndexRegistryPort,
+  INDEX_REGISTRY_ADAPTER_ID,
+  INDEX_REGISTRY_ADAPTER_VERSION,
+  INDEX_REGISTRY_RANKING_REASON,
+  type ChainQualifiedIndexRegistryPort,
+  type IndexRegistryObservation,
+} from "./index-registry.js";
+
+export {
   createKitchenIndexStatusPort,
   createScriptedIndexStatusPort,
   createConstantIndexStatusPort,
