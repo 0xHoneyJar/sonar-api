@@ -177,12 +177,10 @@ indexer.onEvent(
       .filter((n: NftItem | null): n is NftItem => n !== null);
     let seller: string;
     let buyer: string;
-    let paid: PaymentItem | null;
 
     if (nftItems.length > 0) {
       seller = offererLower;
       buyer = recipientLower;
-      paid = settlement(consideration);
     } else {
       nftItems = consideration
         .map(readNftItem)
@@ -190,8 +188,18 @@ indexer.onEvent(
       if (nftItems.length === 0) return;
       buyer = offererLower;
       seller = recipientLower;
-      paid = settlement(offer);
     }
+
+    // Price = every payment leg in the order, whichever side it sits on.
+    //
+    // Scoping this per scenario made the SAME trade price differently depending on who
+    // initiated it. Caught replaying real Base fills: on an accepted bid the buyer
+    // offers the bid amount AND the consideration carries a separate marketplace-fee
+    // leg, so summing only `offer` understated the trade by the fee — while a
+    // listing-fill summed all of `consideration` and reported the gross. A floor price
+    // computed across both would compare listings against bids on different bases.
+    // One rule: gross value moved in the settlement currency.
+    const paid: PaymentItem | null = settlement([...offer, ...consideration]);
 
     // Eligibility is per (chain, contract): config.yaml is the source of truth.
     nftItems = nftItems.filter((n: NftItem) =>
