@@ -36,6 +36,9 @@ const ITEM_TYPE_ERC1155 = 3;
  *  denomination is always explicit and floor/average math cannot mix currencies. */
 const NATIVE_TOKEN = "0x0000000000000000000000000000000000000000";
 
+/** Same literal, different meaning: an unusable counterparty. */
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
 interface NftItem {
   contract: string;
   tokenId: bigint;
@@ -110,10 +113,18 @@ function settlement(items: readonly (readonly unknown[])[]): PaymentItem | null 
     byToken.set(pay.token, (byToken.get(pay.token) ?? 0n) + pay.amount);
   }
 
-  const priced = [...byToken].filter(([, amount]) => amount > 0n);
-  if (priced.length !== 1) return null;
-  const [token, amount] = priced[0];
-  return { token, amount };
+  const nonZero = [...byToken].filter(([, amount]) => amount > 0n);
+  if (nonZero.length > 1) return null; // genuinely mixed — no honest single price
+  if (nonZero.length === 1) {
+    const [token, amount] = nonZero[0];
+    return { token, amount };
+  }
+  // Every leg summed to zero. A Seaport fill that settles for 0 has an EXACT price
+  // of 0 — conflating it with "could not determine" would defeat the whole point of
+  // the nullable-price design (BB SEA-006). Only a total absence of payment legs is
+  // genuinely unknown.
+  const [first] = [...byToken.keys()];
+  return first === undefined ? null : { token: first, amount: 0n };
 }
 
 /**
@@ -144,12 +155,18 @@ indexer.onEvent(
     const blockNumber = BigInt(event.block.number);
     const txHash = event.transaction.hash;
     const chainId = Number(event.chainId);
+    const logIndex = Number(event.logIndex);
 
     const offererLower = offerer.toLowerCase();
     const recipientLower = recipient.toLowerCase();
 
     // Skip if offerer and recipient are the same (self-trade)
     if (offererLower === recipientLower) return;
+    // Seaport's matchOrders/matchAdvancedOrders paths emit OrderFulfilled with
+    // recipient = address(0) and one event per matched order. Attributing a SALE or
+    // PURCHASE to 0x0 would invent a counterparty and double-count the trade
+    // (BB SEA-002). Not observed in 1,482 sampled orders, but cheap to exclude.
+    if (offererLower === ZERO_ADDRESS || recipientLower === ZERO_ADDRESS) return;
     if (!offer || offer.length === 0) return;
 
     // Scenario 1 — NFT is offered: the offerer is the seller, paid via consideration.
@@ -206,15 +223,21 @@ indexer.onEvent(
         chainId,
       };
 
-      // The contract is part of the id: tokenIds are NOT unique across collections,
-      // so `txHash_tokenId_user_TYPE` collides when one order sells the same tokenId
-      // from two collections to/from the same party — and `.set` is keyed by id, so
-      // the second row silently overwrote the first (review HIGH-1).
+      // id = txHash + logIndex + item index + user + type.
+      //
+      // logIndex pins the specific OrderFulfilled log, and `i` pins the item within
+      // that log, so no two emitted rows can ever share an id. Weaker keys collide
+      // and `.set` silently overwrites: `txHash_tokenId_user_TYPE` collided across
+      // collections (review HIGH-1), and adding the contract still collided when one
+      // order lists the same ERC-1155 tokenId twice, or when a seller fills two bids
+      // for the same token in one tx (BB SEA-001 — observed once in 1,482 sampled
+      // real orders). Contract and tokenId remain available as columns.
+      //
       // This changes the id FORMAT for existing chain-1/80094 rows. Field values are
       // unchanged; score-api joins on (txHash, tokenId), not on id.
       const saleActivity: MintActivity = {
         ...common,
-        id: `${txHash}_${nft.contract}_${nft.tokenId}_${seller}_SALE`,
+        id: `${txHash}_${logIndex}_${i}_${seller}_SALE`,
         user: seller,
         activityType: "SALE",
       };
@@ -222,7 +245,7 @@ indexer.onEvent(
 
       const purchaseActivity: MintActivity = {
         ...common,
-        id: `${txHash}_${nft.contract}_${nft.tokenId}_${buyer}_PURCHASE`,
+        id: `${txHash}_${logIndex}_${i}_${buyer}_PURCHASE`,
         user: buyer,
         activityType: "PURCHASE",
       };

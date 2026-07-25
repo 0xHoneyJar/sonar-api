@@ -926,6 +926,9 @@ type MintActivity @entity {
   tokenId: BigInt              # Token ID (nullable for some activities)
   quantity: BigInt!            # Quantity (usually 1)
   # Price in the smallest unit of paymentToken, as an exact integer — never a float.
+  # ROW TOTAL, not per unit: an ERC-1155 row with quantity 3 carries the price of all
+  # 3 units, so unit price is amountPaid / quantity (BB SEA-007). ERC-721 rows always
+  # have quantity 1, so the two coincide there.
   # Nullable since bug-20260725-224d57: an unpriced sale is still a real disposal,
   # and dropping it made "sold" and "could not price it" indistinguishable downstream.
   amountPaid: BigInt

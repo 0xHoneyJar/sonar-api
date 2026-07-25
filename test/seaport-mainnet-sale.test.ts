@@ -9,12 +9,15 @@
  * test/registration-coverage.test.ts.)
  *
  * Guards:
- *   - R-12: a WETH-settled mainnet Azuki sale yields amountPaid > 0 (RED if the
- *     TRACKED_COLLECTIONS WETH/key regresses to checksummed — the lookup at
- *     seaport.ts:110 compares .toLowerCase()).
+ *   - R-12: a WETH-settled mainnet Azuki sale yields amountPaid > 0 (RED if a
+ *     settlement-token comparison regresses to checksummed — every address lookup
+ *     compares lowercased).
  *   - R-9 / OQ-5: the SALE/PURCHASE rows carry chainId:1.
- *   - FR-6c: a non-ETH ERC-20-settled sale sums to amountPaid=0n and is SKIPPED
- *     (not emitted as a zero-priced sale) — the ~71%-coverage v1 baseline.
+ *   - FR-6c: a non-ETH ERC-20-settled sale is RECORDED with its exact amount and an
+ *     explicit paymentToken. This assertion was INVERTED in bug-20260725-224d57 —
+ *     it previously asserted the sale was skipped, which was the defect itself. The
+ *     "~71% coverage v1 baseline" it used to pin is superseded; see the block comment
+ *     above that describe() for the full rationale.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -67,6 +70,7 @@ function azukiSaleEvent(considerationItems: unknown[][]) {
   return {
     srcAddress: SEAPORT_16,
     chainId: 1,
+    logIndex: 3,
     params: {
       offerer: SELLER,
       recipient: BUYER,

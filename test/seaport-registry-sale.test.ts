@@ -79,6 +79,7 @@ function orderFulfilled(opts: {
   return {
     srcAddress: opts.srcAddress ?? SEAPORT_16,
     chainId: 8453,
+    logIndex: 7,
     params: {
       offerer: SELLER,
       recipient: BUYER,
@@ -304,5 +305,56 @@ describe("F3 — ERC-1155 orders are rejected by the item-type filter", () => {
     expect(sale!.tokenStandard).toBe("ERC1155");
     expect(sale!.quantity).toBe(3n);
     expect(sale!.amountPaid).toBe(price);
+  });
+});
+
+describe("BB SEA-001 — ids must be unique for every emitted row", () => {
+  it("emits distinct ids when one order lists the same tokenId twice", async () => {
+    // Observed once in 1,482 sampled real orders: an ERC-1155 order can list the
+    // same (contract, tokenId) twice. contract+tokenId in the id is not enough —
+    // the item index is what makes each row addressable.
+    const ctx = await runHandler(
+      orderFulfilled({
+        offer: [
+          [ITEM_TYPE_ERC1155, PURU_1155, 4n, 2n],
+          [ITEM_TYPE_ERC1155, PURU_1155, 4n, 1n],
+        ],
+        consideration: [[ITEM_TYPE_NATIVE, ZERO, 0n, 6_000_000_000_000_000n, SELLER]],
+      }),
+    );
+
+    const sales = rowsOf(ctx).filter((r) => r.activityType === "SALE");
+    expect(sales).toHaveLength(2);
+    expect(new Set(sales.map((s) => s.id)).size).toBe(2);
+  });
+});
+
+describe("BB SEA-002 — never attribute a trade to the zero address", () => {
+  it("skips a matchOrders-style fill whose recipient is the zero address", async () => {
+    const ctx = await runHandler({
+      ...singleSale(WARPLETS, 1n, 1_000_000_000_000_000n),
+      params: {
+        offerer: SELLER,
+        recipient: ZERO,
+        offer: [[ITEM_TYPE_ERC721, WARPLETS, 1n, 1n]],
+        consideration: [[ITEM_TYPE_NATIVE, ZERO, 0n, 1_000_000_000_000_000n, SELLER]],
+      },
+    });
+    expect(ctx.MintActivity.set).not.toHaveBeenCalled();
+  });
+});
+
+describe("BB SEA-006 — a zero price is a known price, not an unknown one", () => {
+  it("records amountPaid 0 rather than null for a zero-value settlement", async () => {
+    const ctx = await runHandler(
+      orderFulfilled({
+        offer: [[ITEM_TYPE_ERC721, WARPLETS, 3n, 1n]],
+        consideration: [[ITEM_TYPE_NATIVE, ZERO, 0n, 0n, SELLER]],
+      }),
+    );
+    const sale = saleOf(ctx);
+    expect(sale).toBeDefined();
+    expect(sale!.amountPaid).toBe(0n);
+    expect(sale!.paymentToken).toBe(ZERO);
   });
 });

@@ -7,12 +7,19 @@
  * so onboarded collections could never produce a sale row (bug-20260725-224d57 F2).
  * config.yaml is the single source of truth for coverage; this reads it.
  *
- * Every bound address is eligible, with no per-handler name list to maintain. A
- * non-NFT binding (a vault, a token, Seaport itself) can never appear as an ERC-721
- * or ERC-1155 item inside an OrderFulfilled offer/consideration, so including it is
- * inert — whereas a name allowlist would silently drop a collection the moment a new
- * handler class was added. Addresses are keyed by chainId so the same address
- * deployed on two chains cannot cross-match.
+ * Every bound address is eligible, with no per-handler name list to maintain. The
+ * trade-off: a name allowlist silently drops a collection the moment a new handler
+ * class is added, which is the failure mode this module exists to kill.
+ *
+ * Bounded caveat (BB SEA-008): including non-NFT bindings is very nearly inert, but
+ * not provably so. Seaport does not validate item token types, and ERC-20's
+ * `transferFrom(address,address,uint256)` shares a selector with ERC-721's, so a
+ * crafted order can declare a bound ERC-20 or vault as an itemType-2 item and fill
+ * successfully — emitting a sale row for a non-collection contract. Impact is bounded
+ * (two-wallet wash trades against real collections are already possible), but
+ * consumers should filter to known collections rather than trust every bound address.
+ *
+ * Addresses are keyed by chainId so the same address on two chains cannot cross-match.
  */
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
@@ -65,6 +72,7 @@ export function activeConfigPath(): string {
 }
 
 let cached: BoundContracts | null = null;
+let readFailureLogged = false;
 
 /**
  * Bound contracts for the active belt config, read once per process.
@@ -89,12 +97,20 @@ export function boundContracts(): BoundContracts {
       );
     }
   } catch (err) {
-    console.error(
-      `[tracked-nft-contracts] could not read ${activeConfigPath()} — sale attribution is ` +
-        `DISABLED for every chain. Indexing continues; sale rows will be silently absent. ` +
-        `Cause: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    cached = new Map();
+    // Deliberately NOT cached (BB SEA-004): caching an empty map here would let a
+    // single transient filesystem error at startup disable sale attribution for the
+    // whole process lifetime. Leaving `cached` null means the next event retries.
+    // Note the read resolves relative to the process CWD — a belt launched from a
+    // different directory degrades to this path.
+    if (!readFailureLogged) {
+      readFailureLogged = true;
+      console.error(
+        `[tracked-nft-contracts] could not read ${activeConfigPath()} (cwd=${process.cwd()}) — ` +
+          `sale attribution is DISABLED until this read succeeds. Indexing continues; ` +
+          `sale rows will be absent. Cause: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return new Map();
   }
   return cached;
 }
