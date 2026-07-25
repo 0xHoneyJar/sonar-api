@@ -12,7 +12,7 @@ hivemind:
 # Sprint Plan — EVM Collection Onboarding Contract v1
 
 > **Status**: draft · **Date**: 2026-07-07 · **Repo**: 0xHoneyJar/sonar-api
-> **Traces**: `grimoires/loa/prd.md` (FR-1..FR-5), `grimoires/loa/sdd.md` (§8 Development Phases).
+> **Traces**: `grimoires/loa/prd.md` (FR-1..FR-6), `grimoires/loa/sdd.md` v1.1 (§8 Development Phases).
 > **Phase**: `/sprint-plan` → feeds `/run sprint-plan`.
 
 ## Executive Summary
@@ -24,17 +24,26 @@ the S5/S6 handshake). **This autonomous run implements Sprint 1 only** — the s
 tests, and a committed reindex runbook. FR-3/FR-4 (S5 parity, S6 go-live) are cross-building and
 operator-gated; FR-5 (onboarding doc + watermark) is partly blocked on OQ-1.
 
+**FR-6 (Sprint 1.5, un-deferred per #115 comment 4911466984)** — uniform priced EVM sale decode — is a
+copy-adapt of the already-written `seaport.ts` decode extended to mainnet (chain 1) Azuki so it feeds a
+non-null canonical `value` (SDD §5.5, §8 Phase 1.5). Its CODE half (config + handler + belt-parity + tests)
+is agent-implementable; the mainnet BACKFILL + KF-013 redeploy are OPERATOR-GATED (same §3.4 discipline as
+Sprint 1's reindex). It slots between Sprint 1 and Sprint 2 because the priced rows it produces are the raw
+input the Sprint-2 S4 adapter surfaces canonically.
+
 ## Sprint Overview
 
 | Sprint | Theme | FR | Autonomy | This run? |
 |--------|-------|----|----------|-----------|
 | 1 | Token ownership index | FR-2 | AGENT-IMPLEMENTABLE (prod reindex operator-gated) | **YES** |
+| 1.5 | Uniform priced EVM sale decode (mainnet Seaport → Azuki) | FR-6 | CODE agent-implementable (config + handler + belt-parity + tests); mainnet backfill + KF-013 redeploy OPERATOR-GATED | No |
 | 2 | S5 consumer-parity handshake | FR-3 | adapter/harness agent-implementable; decision operator-paired | No |
 | 3 | S6 go-live + gate flip | FR-4 | OPERATOR-GATED (live secrets, prod backfill) | No |
 | 4 (Final) | Onboarding contract + FR-1 designation | FR-5/FR-1 | docs agent-implementable; FR-5b BLOCKED on OQ-1 | No |
 
 > **Sequencing rationale** (SDD §8): FR-2 is independent, urgent, unblocks a shipped consumer → first.
-> FR-3/FR-4 need the score-mibera consumer + real data + live secrets → operator-paired, follow.
+> FR-6 is an independent copy-adapt producing the raw priced rows the S4 adapter needs → Phase 1.5, before
+> Sprint 2. FR-3/FR-4 need the score-mibera consumer + real data + live secrets → operator-paired, follow.
 > **Scope guard**: the open P0 beads `bd-yqs`/`bd-bua`/`bd-4zf`/`bd-qcyp` (S2–S5) belong to the
 > **svm-deep-history-spike** cycle — parked/operator-gated; this run MUST NOT pick them up.
 
@@ -103,6 +112,117 @@ rule: "do NOT run a live reindex from an agent session").
 
 ---
 
+## Sprint 1.5: Uniform priced EVM sale decode (FR-6) · mainnet Seaport → Azuki price · *planned, not this run*
+
+### Sprint Goal
+
+Make **every** indexed EVM collection emit the SAME priced, classified Seaport sale so score-api runs ONE
+consumer path — starting with mainnet (chain 1) Azuki, whose 107k transfers currently produce 0 priced
+sales (canonical `value` null). Copy-adapt of the already-written `seaport.ts` decode (native +
+wrapped-native → `amountPaid`, `seaport.ts:103-114`); **no new contract surface** — the sale shape is FR-1's
+sealed `verb="sale"` + `value` wei + `decimals` field set (SDD §5.5).
+
+> **Autonomy split (mark it clearly):**
+> - **CODE — AGENT-IMPLEMENTABLE**: `TRACKED_COLLECTIONS` mainnet entry, chain-1 `Seaport` binding + belt
+>   config parity, registration-path reconcile, chainId-carry constraint, and tests. All App-zone edits with
+>   green-build verification.
+> - **OPERATOR-GATED (do NOT run from an agent session, SDD §5.5/§3.4)**: the mainnet backfill — a **KF-013
+>   `ENVIO_RESTART` redeploy** on `belt-indexer-selfhost` + a **scoped chain-1 Azuki reindex from
+>   `start_block`**. Committed as a runbook step; executed post-merge by the operator.
+
+### Scope: MEDIUM (5 agent tasks + 1 operator-gated task)
+
+### Deliverables
+
+- [ ] `TRACKED_COLLECTIONS` mainnet Azuki entry (`0xed5af388653567af2f388e6224dcc93746104133` → `{chainId:1,
+      wrappedNativeToken:"0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"}`) — WETH + key **LOWERCASED** (R-12).
+- [ ] Chain-1 `Seaport` binding (v1.6 `0x0000000000000068F116a894984e2DB1123eB395`, explicit `start_block`)
+      in `config.yaml` **and** `config.mibera.yaml`; `Seaport@1` in `BELT_CONTRACTS`; extended
+      `test/azuki-chain1-tracked-erc721.test.ts` coverage; `verify:belt-config` green.
+- [ ] Reconciled Seaport registration path so the handler actually fires for chain-1 Azuki (R-11).
+- [ ] chainId-aware SALE handling: the `chainId` column (`seaport.ts:165`) carried through to
+      `metadata.chain_id`; the Sprint-2 S4 SALE projection MUST filter/carry `chainId` (R-9, OQ-5 caveat).
+- [ ] WETH-settled Azuki fixture unit test that goes red if the lowercasing regresses (R-12).
+- [ ] Operator runbook step: KF-013 redeploy + scoped chain-1 Azuki reindex from `start_block`.
+
+### Acceptance Criteria
+
+- [ ] **[FR-6b]** An Azuki `OrderFulfilled` writes `MintActivity{activityType:SALE, chainId:1,
+      amountPaid>0}`; a WETH-settled fixture yields `amountPaid>0` (the lowercasing test would fail if WETH
+      equality at `seaport.ts:110` silently mismatched → `amountPaid=0` → dropped at `seaport.ts:146`).
+- [ ] `verify:belt-config` green with the `Seaport@1` entry; `config.yaml`/`config.mibera.yaml` at parity
+      (no silent belt config drift, R-10).
+- [ ] Registration path fires `handleSeaportOrderFulfilled` for chain-1 Seaport events (R-11 reconciled) —
+      a decode that never runs is a silent 0-sales miss.
+- [ ] **[FR-6c]** ETH/WETH-only accepted: a non-ETH-ERC-20-settled sale sums to `amountPaid=0n` and is
+      skipped (not emitted as a zero-priced sale); documented as the ~71%-coverage v1 baseline (N5).
+- [ ] **Post-merge (operator-run)**: after the KF-013 redeploy + reindex, a real mainnet Azuki OpenSea sale
+      surfaces as canonical `NftActivity.value` non-null end-to-end (confirmed via the Sprint-2 S4 adapter).
+
+### Technical Tasks
+
+- **Task 1.5.1** → **[G1]** — Add the mainnet Azuki + WETH entry to `TRACKED_COLLECTIONS` (`seaport.ts:37`),
+  both address and `wrappedNativeToken` **lowercased** (lookups compare `.toLowerCase()` at
+  `seaport.ts:84,110,123`). Verify: typecheck + build green; a lookup test resolves the Azuki key.
+- **Task 1.5.2** → **[G1]** — Add the chain-1 `Seaport` node (address
+  `0x0000000000000068F116a894984e2DB1123eB395`, explicit `start_block` at/after Azuki deploy `14162194`)
+  under the `- id: 1` network in `config.yaml` (chain 1 has Azuki `TrackedErc721` at `config.yaml:596` but
+  no Seaport node — contrast Berachain `config.yaml:901-904`); mirror into `config.mibera.yaml` (chain-1
+  Azuki already at `config.mibera.yaml:345`); add the `Seaport@1` entry to `BELT_CONTRACTS`; extend the
+  `test/azuki-chain1-tracked-erc721.test.ts` gate pattern. Verify: `verify:belt-config` green
+  (sprint-bug-172 / #118 checklist).
+- **Task 1.5.3** → **[G1]** — Reconcile the Seaport registration path (R-11): belt
+  `EventHandlers.mibera.ts:51` imports `handleSeaportOrderFulfilled`, but `seaport.ts` self-registers via
+  `indexer.onEvent` (`seaport.ts:62`) with no such export on this branch. Confirm/wire whichever path is
+  active for chain-1 Azuki. Verify: a test asserting the handler is invoked for a chain-1 `OrderFulfilled`.
+- **Task 1.5.4** → **[G1]** — chainId-carry constraint (R-9, OQ-5): confirm the `chainId` column
+  (`seaport.ts:165`) is written on the SALE/PURCHASE rows and carried into `metadata.chain_id`; record the
+  binding constraint that the Sprint-2 S4 SALE projection MUST filter/carry `chainId` and MUST NOT
+  hard-filter `chainId IN (80094,8453)` (the `MintActivity.id` omits chainId; Base Seaport was DEFERRED
+  "until downstream repos add chainId filters", `config.yaml:685-689` — mainnet re-triggers it). Verify: the
+  chainId assertion on a chain-1 SALE fixture.
+- **Task 1.5.5** → **[G1]** — WETH-settled Azuki fixture unit test (R-12): a mainnet sale settled in WETH
+  yields `amountPaid>0` and a priced SALE; the test goes red if WETH is stored checksummed. Verify:
+  `pnpm test <file>` green; flipping the key to checksummed turns it red.
+- **Task 1.5.OP** *(OPERATOR-GATED — not this run)* — Post-merge: KF-013 `ENVIO_RESTART` redeploy on
+  `belt-indexer-selfhost` + scoped chain-1 Azuki reindex from `start_block` (same §3.4 discipline — no
+  agent-run live reindex). Verify: real Azuki sales appear with `amountPaid>0` in prod.
+
+### Dependencies
+
+- Sprint 1 (fresh-on-main baseline). The **canonical `value` only *surfaces*** once the Sprint-2 S4 adapter
+  exists — but the raw priced `MintActivity` rows must be produced first, so Sprint 1.5 precedes Sprint 2
+  (SDD §8). No new npm dependencies — Envio config + existing `seaport.ts` decode only.
+- OQ-5 is **RESOLVED** (SDD): no mainnet-specific SALE-row wiring inside S4; `map-evm.ts` is pure +
+  per-collection, so Azuki chain-1 rows are picked up for free once produced — provided the S4 projection is
+  chainId-aware (Task 1.5.4 constraint → binds Sprint 2 Task 2.1).
+
+### Security Considerations
+
+- App-zone config/handler edits only — no auth path, no new trust boundary. The load-bearing safety item is
+  **cross-chain SALE contamination (R-9)**: because `MintActivity.id` omits chainId, an un-filtered
+  downstream join would blend chain-1 Azuki sales with 80094/8453 rows. The chainId-carry constraint
+  (Task 1.5.4) is the un-block gate, not optional.
+- The mainnet reindex is **operator-gated** (KF-013 redeploy) behind the belt STABLE alias — same discipline
+  as Sprint 1's reindex; no agent-run live reindex.
+
+### Risks & Mitigation
+
+- **R-9 (cross-chain SALE contamination)**: S4 projection + all consumers filter/carry `chainId`.
+- **R-10 (silent belt config drift)**: `config.mibera.yaml` parity + `BELT_CONTRACTS` gate + `start_block` +
+  `azuki-chain1` test + `verify:belt-config` green.
+- **R-11 (registration-path mismatch)**: reconcile the import-vs-`onEvent` path before relying on FR-6.
+- **R-12 (checksummed WETH mis-config)**: store WETH + Azuki keys lowercased; WETH-fixture test catches the
+  silent `amountPaid=0` drop.
+
+### Success Metrics
+
+- Azuki mainnet sales priced (`amountPaid>0`), surfacing as canonical `NftActivity.value` non-null; one
+  uniform consumer path for score-api instead of `operator`/`viaMarketplace`/SVM branches; `verify:belt-config`
+  green (zero config drift).
+
+---
+
 ## Sprint 2: S5 consumer-parity handshake (FR-3) · *planned, not this run*
 
 ### Sprint Goal
@@ -124,7 +244,10 @@ before any go-live. Cross-building, operator-paired.
 ### Technical Tasks
 
 - **Task 2.1** — S4 EVM Hasura adapter (slugify name→`collection_key`; name→address for `metadata.contract`;
-  bigint→string + logIndex; **join `MintActivity × MiberaTransfer`**, never generic `Transfer`).
+  bigint→string + logIndex; **join `MintActivity × MiberaTransfer`**, never generic `Transfer`;
+  **contract-scoped SALE projection that filters/carries `chainId`** so Azuki chain-1 sales (from Sprint 1.5)
+  surface without cross-chain contamination — R-9/OQ-5; MUST NOT hard-filter `chainId IN (80094,8453)`).
+- **Task 2.1b** — Confirm the FR-6 priced Azuki `value` surfaces non-null end-to-end through the new adapter.
 - **Task 2.2** — Produce `canonical.json` (mapper over slice) + `legacy.json` (score-mibera tuples, same slice).
 - **Task 2.3** — Run the dry-run + value-parity + over-emit decision.
 
@@ -248,6 +371,10 @@ excavation.
 | R-2 | Sale value-parity divergence | 2 | Separate value-parity hard gate |
 | R-4 | prev-hash re-genesis on restart | 3 | Durable store if consumer verifies chain |
 | R-5 | Two watermark contracts | 4 | OQ-1: ONE surface co-owned with belt |
+| R-9 | Cross-chain SALE contamination — `MintActivity.id` omits chainId; mainnet re-triggers the Base Seaport deferral | 1.5 → 2 | S4 projection + consumers filter/carry `chainId` (un-block gate, not optional) |
+| R-10 | Silent belt config drift — chain-1 binding in `config.yaml` only | 1.5 | `config.mibera.yaml` parity + `BELT_CONTRACTS` gate + `start_block` + `azuki-chain1` test + `verify:belt-config` |
+| R-11 | Seaport registration-path mismatch — import vs `indexer.onEvent` self-register | 1.5 | Reconcile the active path before relying on FR-6 |
+| R-12 | Checksummed WETH mis-config — lookups compare lowercase → WETH sums to 0, priced-sale silently dropped | 1.5 | Store WETH + Azuki keys lowercased; WETH-fixture unit test |
 
 ## Open Blockers
 
@@ -255,14 +382,15 @@ excavation.
 |---|---------|-------|--------|
 | OQ-1 | Watermark: reuse belt `sync_status` or ONE new read model? | **Sprint 4 Task 4.2 only** — NOT Sprint 1 | Resolve with belt-PRD owner before Sprint 4 |
 | OQ-3 | Capacity envelope numbers at ~100 collections | Sprint 4 Task 4.3 spike | Open |
+| OQ-5 | Is the S4 SALE adapter chain-scoped for mainnet Azuki? | Sprint 1.5 / Sprint 2 | **RESOLVED** (SDD): no new mainnet wiring inside S4; `map-evm` is per-collection, picks up Azuki rows for free once produced — S4 projection MUST be chainId-aware (R-9) |
 
 ## Appendix
 
 ### A. PRD Feature Mapping
 
-FR-2→Sprint 1 · FR-3→Sprint 2 · FR-4→Sprint 3 · FR-5/FR-1→Sprint 4.
+FR-2→Sprint 1 · FR-6→Sprint 1.5 · FR-3→Sprint 2 · FR-4→Sprint 3 · FR-5/FR-1→Sprint 4.
 
 ### B. SDD Component Mapping
 
-P1 Token read model (§3.2)→Sprint 1 · S5 `parity.ts` (§5.3)→Sprint 2 · S6 `emit.ts` (§5.4)→Sprint 3 ·
-watermark (§3.6) + descriptor (§4.3)→Sprint 4.
+P1 Token read model (§3.2)→Sprint 1 · Seaport priced-sale decode (§5.5, §1.4/§1.5)→Sprint 1.5 ·
+S5 `parity.ts` (§5.3)→Sprint 2 · S6 `emit.ts` (§5.4)→Sprint 3 · watermark (§3.6) + descriptor (§4.3)→Sprint 4.
