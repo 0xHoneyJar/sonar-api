@@ -13,6 +13,7 @@ import {
   collectionKeyFromParams,
   deploymentFromCollectionKey,
 } from "./normalize.js";
+import type { OwnedTokensReader } from "./owned-tokens-reader.js";
 import { buildOwnershipReadyInventory } from "./ownership-ready.js";
 import type { OwnershipSnapshotReader } from "./ownership-snapshot-reader.js";
 import {
@@ -573,6 +574,8 @@ export function createKitchenApp(deps: {
   readChainProgress?: ChainProgressReader;
   /** Gate Leak E1/E2 Ownership Snapshot (#240/#241). */
   ownershipSnapshotReader?: OwnershipSnapshotReader;
+  /** Per-owner token enumeration over `Token` (freeside-nano#17/#21). */
+  ownedTokensReader?: OwnedTokensReader;
 }): Hono {
   const app = new Hono();
   app.get("/health", (c) => c.json({
@@ -703,6 +706,55 @@ export function createKitchenApp(deps: {
     return c.json(result, 200);
   });
   app.route("/v2/ownership-snapshot", ownershipSnapshot);
+
+  const ownedTokens = new Hono();
+  ownedTokens.use("*", requireServiceToken);
+  ownedTokens.get("/", async (c) => {
+    const reader = deps.ownedTokensReader;
+    if (!reader) {
+      return c.json(
+        {
+          schema_version: 1,
+          plane: "sonar_kitchen_ownership",
+          error: {
+            code: "owned_tokens_unavailable",
+            message: "Owned Tokens reader is not configured",
+          },
+        },
+        503,
+      );
+    }
+    const caip10 = c.req.query("caip10")?.trim() ?? "";
+    if (!caip10) {
+      return c.json(
+        {
+          schema_version: 1,
+          error: {
+            code: "invalid_request",
+            message: "caip10 query parameter is required (eip155:<chainId>:0x…)",
+          },
+        },
+        400,
+      );
+    }
+    const result = await reader.readOwnedTokens({
+      caip10,
+      ownerRaw: c.req.query("owner"),
+      limitRaw: c.req.query("limit"),
+      cursorRaw: c.req.query("cursor"),
+    });
+    if ("error" in result) {
+      return c.json(
+        {
+          schema_version: 1,
+          error: { code: result.error, message: result.message },
+        },
+        400,
+      );
+    }
+    return c.json(result, 200);
+  });
+  app.route("/v2/owned-tokens", ownedTokens);
 
   const outbox = new Hono();
   outbox.use("*", requireServiceToken);
