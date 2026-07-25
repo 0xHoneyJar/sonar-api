@@ -63,6 +63,17 @@ export const WHALE_EVIDENCE_PCT = 95;
 /** Max holder rows returned in the snapshot body (concentration uses full set). */
 export const HOLDERS_RESPONSE_CAP = 500;
 
+/**
+ * Ceiling for a caller-supplied `holders_limit`.
+ *
+ * Pinned to the reader's `currentHolderLimit` (ownership-snapshot-reader.ts) — above
+ * that count the reader already refuses with `insufficient_data` rather than assembling
+ * a holder set, so a larger request could never be honoured anyway. Requesting the
+ * ceiling is therefore bounded by the same memory the reader already holds; it is not
+ * an unbounded fan-out.
+ */
+export const HOLDERS_RESPONSE_MAX_CAP = 100_000;
+
 /** Job-class cap on Action rows pulled for as-of replay (aligned with Score audit). */
 export const OWNERSHIP_SNAPSHOT_MAX_ACTIONS = 250_000;
 

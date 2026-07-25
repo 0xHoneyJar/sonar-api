@@ -145,6 +145,116 @@ describe("GET /v2/ownership-snapshot", () => {
     });
   });
 
+  // holders_limit (nano cycle-006): nano needs the COMPLETE holder set to compute
+  // audit aggregates honestly. Absent => unchanged 500-row cap.
+  const manyHolders = Array.from({ length: 1200 }, (_, i) => ({
+    address: `0x${(i + 1).toString(16).padStart(40, "0")}`,
+    balance: 1200 - i,
+  }));
+
+  function capturingReader(seen: { holdersCap?: number }): OwnershipSnapshotReader {
+    return {
+      readOwnershipSnapshot: async (args) => {
+        seen.holdersCap = args.holdersCap;
+        return buildOwnershipSnapshot({
+          subject: parseCaip10(CAIP10)!,
+          holders: manyHolders,
+          asOfUnixSeconds: null,
+          observedAtMs: 1_700_000_000_000,
+          holdersCap: args.holdersCap,
+        });
+      },
+    };
+  }
+
+  it("caps holders at 500 and passes no holdersCap when holders_limit is absent", async () => {
+    const seen: { holdersCap?: number } = {};
+    const res = await app(capturingReader(seen)).request(
+      `/v2/ownership-snapshot?caip10=${CAIP10}`,
+      { headers: { authorization: `Bearer ${TOKEN}` } },
+    );
+    expect(res.status).toBe(200);
+    expect(seen.holdersCap).toBeUndefined();
+    const body = (await res.json()) as OwnershipSnapshot;
+    expect(body.holder_count).toBe(1200);
+    expect(body.holders).toHaveLength(500);
+  });
+
+  it("returns the full holder set when holders_limit covers it", async () => {
+    const seen: { holdersCap?: number } = {};
+    const res = await app(capturingReader(seen)).request(
+      `/v2/ownership-snapshot?caip10=${CAIP10}&holders_limit=5000`,
+      { headers: { authorization: `Bearer ${TOKEN}` } },
+    );
+    expect(res.status).toBe(200);
+    expect(seen.holdersCap).toBe(5000);
+    const body = (await res.json()) as OwnershipSnapshot;
+    expect(body.holder_count).toBe(1200);
+    expect(body.holders).toHaveLength(1200);
+  });
+
+  it("leaves concentration and whale_candidate_count identical across holders_limit", async () => {
+    const seen: { holdersCap?: number } = {};
+    const get = async (qs: string) =>
+      (await (
+        await app(capturingReader(seen)).request(
+          `/v2/ownership-snapshot?caip10=${CAIP10}${qs}`,
+          { headers: { authorization: `Bearer ${TOKEN}` } },
+        )
+      ).json()) as OwnershipSnapshot;
+    const capped = await get("");
+    const full = await get("&holders_limit=5000");
+    expect(full.concentration).toEqual(capped.concentration);
+    expect(full.whale_candidate_count).toEqual(capped.whale_candidate_count);
+    expect(full.holder_count).toEqual(capped.holder_count);
+  });
+
+  it.each([
+    "0",
+    "-1",
+    "abc",
+    "1.5",
+    "1e3",
+    " 12 3",
+    "100001",
+    "9007199254740993",
+    "٣",
+  ])("rejects holders_limit=%s with 400", async (bad) => {
+    const res = await app({
+      readOwnershipSnapshot: async () => {
+        throw new Error("should not be called");
+      },
+    }).request(
+      `/v2/ownership-snapshot?caip10=${CAIP10}&holders_limit=${encodeURIComponent(bad)}`,
+      { headers: { authorization: `Bearer ${TOKEN}` } },
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: { code: "invalid_request" },
+    });
+  });
+
+  it("treats an empty holders_limit as absent", async () => {
+    const seen: { holdersCap?: number } = {};
+    const res = await app(capturingReader(seen)).request(
+      `/v2/ownership-snapshot?caip10=${CAIP10}&holders_limit=`,
+      { headers: { authorization: `Bearer ${TOKEN}` } },
+    );
+    expect(res.status).toBe(200);
+    expect(seen.holdersCap).toBeUndefined();
+    expect(((await res.json()) as OwnershipSnapshot).holders).toHaveLength(500);
+  });
+
+  it("accepts the ceiling holders_limit=100000", async () => {
+    const seen: { holdersCap?: number } = {};
+    const res = await app(capturingReader(seen)).request(
+      `/v2/ownership-snapshot?caip10=${CAIP10}&holders_limit=100000`,
+      { headers: { authorization: `Bearer ${TOKEN}` } },
+    );
+    expect(res.status).toBe(200);
+    expect(seen.holdersCap).toBe(100_000);
+  });
+
   it("rejects missing caip10", async () => {
     const res = await app({
       readOwnershipSnapshot: async () => {
