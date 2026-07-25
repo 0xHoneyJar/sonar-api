@@ -54,9 +54,19 @@ const SELLER = "0x1111111111111111111111111111111111111111";
 const BUYER = "0x2222222222222222222222222222222222222222";
 const ZERO = "0x0000000000000000000000000000000000000000";
 
-/** Build an OrderFulfilled event: offerer sells an Azuki NFT (Scenario 1). */
+/** Seaport 1.6 — the contract that emits the fill, and therefore the `operator`. */
+const SEAPORT_16 = "0x0000000000000068f116a894984e2db1123eb395";
+
+/** Build an OrderFulfilled event: offerer sells an Azuki NFT (Scenario 1).
+ *
+ * `chainId` and `srcAddress` became load-bearing in bug-20260725-224d57: collection
+ * eligibility is now resolved per (chain, contract) from the active belt config, and
+ * `operator` is the emitting marketplace. Previously both were implied by the
+ * hardcoded TRACKED_COLLECTIONS entry, so the fixtures could omit them. */
 function azukiSaleEvent(considerationItems: unknown[][]) {
   return {
+    srcAddress: SEAPORT_16,
+    chainId: 1,
     params: {
       offerer: SELLER,
       recipient: BUYER,
@@ -130,14 +140,34 @@ describe("FR-6 mainnet Azuki priced sale — WETH settlement (R-12 lowercasing g
   });
 });
 
-describe("FR-6c ETH/WETH-only v1 — non-ETH ERC-20 settlement is skipped", () => {
-  it("does NOT emit a sale when settled purely in a non-ETH ERC-20 (amountPaid=0n)", async () => {
+/*
+ * DELIBERATE CONTRACT CHANGE (bug-20260725-224d57 F2).
+ *
+ * This block previously asserted the opposite: that a non-ETH ERC-20 settlement
+ * produced NO row, because amountPaid summed to 0n and the `amountPaid > 0n` guard
+ * dropped it. That behaviour WAS the defect — a real, priced sale vanished because
+ * of the currency it settled in, and score-api could not distinguish "never sold"
+ * from "sold in a currency we declined to read".
+ *
+ * The sale is now recorded with its exact amount and an explicit `paymentToken`.
+ * The "~71% coverage v1 baseline" this block used to pin is superseded.
+ */
+describe("FR-6c non-ETH ERC-20 settlement is recorded, not dropped", () => {
+  it("emits a priced sale settled in USDC, tagged with its payment token", async () => {
+    const price = 4_200_000_000n; // 4,200 USDC (6dp)
     const ctx = await runHandler(
-      azukiSaleEvent([
-        [ITEM_TYPE_ERC20, USDC, 0n, 4_200_000_000n, SELLER], // 4,200 USDC, not summed
-      ]),
+      azukiSaleEvent([[ITEM_TYPE_ERC20, USDC, 0n, price, SELLER]]),
     );
-    // amountPaid stays 0n → fails the amountPaid > 0n guard → no rows emitted.
-    expect(ctx.MintActivity.set).not.toHaveBeenCalled();
+
+    const sale = ctx.MintActivity.set.mock.calls
+      .map((c) => c[0])
+      .find((r) => r.activityType === "SALE");
+    expect(sale).toBeDefined();
+    expect(sale.amountPaid).toBe(price);
+    expect(sale.paymentToken).toBe(USDC);
+    // Denomination is explicit — 4,200 USDC must never be read as 4,200 wei.
+    expect(sale.paymentToken).not.toBe(
+      "0x0000000000000000000000000000000000000000",
+    );
   });
 });

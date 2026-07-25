@@ -77,32 +77,17 @@ export const TRACKED_ERC721_COLLECTION_KEYS: Record<string, string> = {
   "0x96c200ec4cca0bc57444cfee888cfba78a1ddbd8": "lore_7_miberamaker_design",
 };
 
-/**
- * Collections that should track all transfers (not just mints/burns)
- * Used for timeline/activity tracking
- */
-export const TRANSFER_TRACKED_COLLECTIONS = new Set<string>([
-  // NOTE: mibera main collection transfers are tracked by MiberaCollection handler
-  // NOTE: mibera_zora is ERC-1155, transfers tracked by mibera-zora.ts handler
-  // NOTE: puru collections are ERC-1155, transfers tracked by puru-apiculture1155.ts handler
-
-  // Mibera Lore Articles + community collections - track all transfers for timeline
-  // Base batch 1 + Azuki (ETH) — community scoring consumes transfer activity, not just holdings
-  "azuki",
-  "based_punks",
-  "hypio",
-  "kemonokaki",
-  "warplets",
-  "lil_bangers",
-  "based_onchain_punks",
-  "nodes_by_hunter",
-  "veecon_2024_tickets",
-
-  "lore_1_introducing_mibera",
-  "lore_2_honey_online_offline",
-  "lore_3_bera_kali_acc",
-  "lore_4_bgt_network_spirituality",
-  "lore_5_initiation_ritual",
-  "lore_6_miberamaker_design",
-  "lore_7_miberamaker_design",
-]);
+// TRANSFER_TRACKED_COLLECTIONS was removed in bug-20260725-224d57 (F1).
+//
+// It gated which collections recorded transfer Actions, but Kitchen patches
+// config.yaml on onboarding and never touched this list — so every onboarded
+// collection indexed holders and emitted no transfer history. Measured
+// 2026-07-25: chain 1 had 9 bound ERC-721 collections and emitted transfers for
+// exactly one ("azuki").
+//
+// The gate was also redundant: indexer.onEvent only delivers events for
+// addresses bound in config.yaml, so arrival already proves the collection is
+// tracked. config.yaml is now the single source of truth for coverage.
+//
+// Mibera main (0x6666…) is still handled by MiberaCollection, and the ERC-1155
+// collections by their own handlers — those routes are unchanged.

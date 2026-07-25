@@ -18,7 +18,6 @@ import {
 import { recordAction } from "../lib/actions";
 import { publishMintEvent } from "../lib/events-publisher";
 import { isMintOrAirdrop } from "../lib/mint-detection";
-import { isMarketplaceAddress } from "./marketplaces/constants";
 
 // Distribution wallet that airdropped Sets (transfers FROM this address = mints)
 const DISTRIBUTION_WALLET = "0x4a8c9a29b23c4eac0d235729d5e0d035258cdfa7";
@@ -145,7 +144,11 @@ indexer.onEvent({ contract: "MiberaSets", event: "TransferSingle" },
           operator: operatorLower,
           contract: contractAddress,
           isSecondary: true,
-          viaMarketplace: isMarketplaceAddress(operatorLower),
+          // `viaMarketplace` removed in bug-20260725-224d57 (T6): it tested the
+          // operator against sonar's own MARKETPLACE_ADDRESSES list, a second
+          // registry that drifts from score-api's. An operator absent from that
+          // list yielded `false` — "confirmed not a sale" — a claim it could not
+          // make. `operator` above is the raw fact; consumers classify it.
         },
       });
     }
@@ -268,7 +271,11 @@ indexer.onEvent({ contract: "MiberaSets", event: "TransferBatch" },
             contract: contractAddress,
             batchIndex: index,
             isSecondary: true,
-            viaMarketplace: isMarketplaceAddress(operatorLower),
+            // `viaMarketplace` removed in bug-20260725-224d57 (T6): it tested
+            // the operator against sonar's own MARKETPLACE_ADDRESSES list, a
+            // second registry that drifts from score-api's. An operator absent
+            // from that list yielded `false` — "confirmed not a sale" — a claim
+            // it could not make. `operator` above is the raw fact.
           },
         });
       }
