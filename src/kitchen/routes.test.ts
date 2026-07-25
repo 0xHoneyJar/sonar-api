@@ -4,6 +4,14 @@ import { MemoryIngestJobStore } from "./ingest-store.js";
 import { createCollectionRoutes } from "./routes.js";
 import { INJECTED_PREPARATION_RUNTIME } from "./preparation-runtime.js";
 import type { CollectionStatusReader } from "./status.js";
+import type { StandardDetection, TokenStandardDetector } from "./standard-detection.js";
+
+/** Hermetic detector — the real one probes ERC-165 over RPC. */
+function stubDetector(result: StandardDetection): TokenStandardDetector {
+  return { detect: async () => result };
+}
+
+const DETECTS_ERC721 = stubDetector({ ok: true, tokenStandard: "erc721" });
 
 /** Berachain fixture from tracked-erc721-bera-collections.test.ts */
 const FIXTURE_CHAIN_ID = 80094;
@@ -39,6 +47,7 @@ describe("kitchen collection routes", () => {
     reader: makeReader({ holderCount: 0 }),
     store,
     preparationRuntime: INJECTED_PREPARATION_RUNTIME,
+    standardDetector: DETECTS_ERC721,
   });
 
   beforeEach(() => {
@@ -48,6 +57,7 @@ describe("kitchen collection routes", () => {
       reader: makeReader({ holderCount: 0 }),
       store,
       preparationRuntime: INJECTED_PREPARATION_RUNTIME,
+      standardDetector: DETECTS_ERC721,
     });
   });
 
@@ -83,6 +93,7 @@ describe("kitchen collection routes", () => {
       }),
       store,
       preparationRuntime: INJECTED_PREPARATION_RUNTIME,
+      standardDetector: DETECTS_ERC721,
     });
 
     const res = await app.request(`/${FIXTURE_CHAIN_ID}/${FIXTURE_CONTRACT}/status`, {
@@ -152,6 +163,64 @@ describe("kitchen collection routes", () => {
         job_id: expect.stringMatching(/^ingest_[0-9a-f]+_[0-9a-f]+$/),
       });
     }
+  });
+
+  /**
+   * The legacy route used to hardcode `erc721`, so a 1155 (#185/#186/#200) or a
+   * codeless address (#204) was admitted and silently mis-indexed.
+   */
+  describe("admission observes the token standard", () => {
+    const ingest = (detector: TokenStandardDetector) =>
+      createCollectionRoutes({
+        reader: makeReader({ holderCount: 0 }),
+        store,
+        preparationRuntime: INJECTED_PREPARATION_RUNTIME,
+        standardDetector: detector,
+      }).request(`/${FIXTURE_CHAIN_ID}/${FIXTURE_CONTRACT}/ingest`, {
+        method: "POST",
+        headers: { ...authHeaders(), "content-type": "application/json" },
+        body: JSON.stringify({
+          order_id: "55555555-5555-4555-8555-555555555555",
+          source: "ordering-service",
+        }),
+      });
+
+    it("passes the observed erc1155 through to admission instead of asserting erc721", async () => {
+      const res = await ingest(stubDetector({ ok: true, tokenStandard: "erc1155" }));
+      // With no generic 1155 worker yet, Kitchen's own capability gate answers —
+      // an honest refusal, where the hardcoded literal produced a queued job.
+      expect(res.status).toBe(422);
+      await expect(res.json()).resolves.toEqual({
+        error: "erc1155 has no generic Kitchen preparation worker",
+      });
+    });
+
+    it("refuses an address with no contract code", async () => {
+      const res = await ingest(
+        stubDetector({ ok: false, code: "no_contract_code", reason: "no code at address" }),
+      );
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({ error: "no code at address" });
+    });
+
+    it("refuses when detection is inconclusive rather than assuming erc721", async () => {
+      const res = await ingest(
+        stubDetector({
+          ok: false,
+          code: "standard_inconclusive",
+          reason: "supportsInterface reverted",
+        }),
+      );
+      expect(res.status).toBe(422);
+      await expect(res.json()).resolves.toEqual({ error: "supportsInterface reverted" });
+    });
+
+    it("refuses when the RPC is unavailable", async () => {
+      const res = await ingest(
+        stubDetector({ ok: false, code: "detection_unavailable", reason: "rpc down" }),
+      );
+      expect(res.status).toBe(422);
+    });
   });
 
   it("is idempotent on repeat ingest for the same collection", async () => {
@@ -262,6 +331,7 @@ describe("kitchen collection routes", () => {
       }),
       store,
       preparationRuntime: INJECTED_PREPARATION_RUNTIME,
+      standardDetector: DETECTS_ERC721,
     });
 
     const res = await app.request(`/${FIXTURE_CHAIN_ID}/${FIXTURE_CONTRACT}/ingest`, {

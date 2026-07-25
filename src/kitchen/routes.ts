@@ -40,6 +40,10 @@ import {
   resolveProbeRuntimeFromEnv,
   type ResolveProbeRuntime,
 } from "./resolve-probe-runtime.js";
+import {
+  tokenStandardDetectorFromEnv,
+  type TokenStandardDetector,
+} from "./standard-detection.js";
 import { isIndexedSnapshotReady, resolveCollectionStatus, toStatusResponse, type CollectionStatusReader } from "./status.js";
 import type { IngestJobStorePort } from "./ingest-store.js";
 import type {
@@ -126,11 +130,13 @@ export function createCollectionRoutes(deps: {
   capabilityResolver?: PreparationCapabilityResolver;
   preparationRuntime?: PreparationRuntimeState;
   resolveProbeRuntime?: ResolveProbeRuntime;
+  standardDetector?: TokenStandardDetector;
 }): Hono {
   const { reader, store } = deps;
   const capabilityResolver = deps.capabilityResolver ?? resolvePreparationCapability;
   const preparationRuntime = deps.preparationRuntime ?? UNAVAILABLE_PREPARATION_RUNTIME;
   const resolveProbeRuntime = deps.resolveProbeRuntime ?? resolveProbeRuntimeFromEnv();
+  const standardDetector = deps.standardDetector ?? tokenStandardDetectorFromEnv();
   const routes = new Hono();
   routes.use("*", requireServiceToken);
 
@@ -210,12 +216,23 @@ export function createCollectionRoutes(deps: {
     }
 
     const deployment = await deploymentFromCollectionKey(key);
+
+    // Observe the standard — never assert it. A wrong assertion admitted the
+    // contract and silently mis-indexed it; a refusal is the honest outcome.
+    const detected = await standardDetector.detect({
+      network: deployment.network,
+      address: key.contract,
+    });
+    if (!detected.ok) {
+      return c.json({ error: detected.reason }, detected.code === "no_contract_code" ? 400 : 422);
+    }
+
     const result = await admitCanonical({
       store,
       capabilityResolver,
       preparationRuntime,
       deployment,
-      tokenStandard: "erc721",
+      tokenStandard: detected.tokenStandard,
       correlation: { source: body.source, correlationId: body.order_id },
     });
     if (!result.ok) {
