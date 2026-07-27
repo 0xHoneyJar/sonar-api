@@ -6,10 +6,22 @@ function normalizeAddress(contract: string): string {
   return contract.toLowerCase();
 }
 
-/** Safe for YAML `# comment` suffix — strips structure-breaking characters. */
+/**
+ * Safe for YAML `# comment` suffix — strips structure-breaking characters.
+ *
+ * The result is also the collection's identity: since sprint-bug-191 the first
+ * whitespace-delimited token of that comment IS the `primaryCollection` key
+ * (`collectionKeyFromComment` in src/handlers/marketplaces/tracked-nft-contracts.ts).
+ * Spaces are therefore collapsed to `_` rather than preserved — a label of
+ * "Wealthy Hypio Babies" written as-is would have keyed the collection "Wealthy".
+ * Kitchen's write and the indexer's read now agree by construction, which is what
+ * makes onboarding a config-only operation.
+ */
 export function sanitizeKitchenLabel(label: string): string {
   const trimmed = label.trim();
-  const sanitized = trimmed.replace(/[^A-Za-z0-9 _-]/g, "_").replace(/_+/g, "_");
+  const sanitized = trimmed
+    .replace(/[^A-Za-z0-9_-]/g, "_")
+    .replace(/_+/g, "_");
   return sanitized.slice(0, 80) || "kitchen_collection";
 }
 

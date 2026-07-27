@@ -6,7 +6,7 @@ import {
   extractContractDefinition,
   verifyBeltConfig,
 } from "../scripts/verify-belt-config.js";
-import { TRACKED_ERC721_COLLECTION_KEYS } from "../src/handlers/tracked-erc721/constants";
+import { deriveCollectionKeys } from "../src/handlers/marketplaces/tracked-nft-contracts";
 
 /** Azuki on Ethereum mainnet — a REAL community (promoted from kitchen E2E; #382 key decision).
  *  Uses the CANONICAL Azuki contract (verified Etherscan). Regression guard: the #382 order
@@ -47,7 +47,11 @@ describe("chain-1 Azuki EthTrackedErc721 (#120 / sprint-bug-192; real community)
   });
 
   it("maps the Azuki address to the clean collectionKey `azuki` (real community, #382)", () => {
-    expect(TRACKED_ERC721_COLLECTION_KEYS[AZUKI.contract]).toBe("azuki");
+    // Derived from the address's config.yaml comment since sprint-bug-191; the
+    // hardcoded key map is gone. Full 28-key parity lives in collection-key-parity.test.ts.
+    expect(
+      deriveCollectionKeys(monoText).keys.get(AZUKI.chainId)?.get(AZUKI.contract),
+    ).toBe("azuki");
   });
 
   it("inherits the chain-1 floor start_block — no per-contract start_block (mirrors Milady; envio #120)", () => {

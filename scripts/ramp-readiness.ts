@@ -9,7 +9,7 @@
  * This oracle answers ONE question per collection — "is it truly ready for score-api to pull?"
  * — by reading the SAME source-of-truth the indexer uses and cross-checking it against LIVE
  * gateway state:
- *   - EVM keys  ← src/handlers/tracked-erc721/constants.ts   (address → collectionKey)
+ *   - EVM keys  ← config.yaml                                 (address comment → collectionKey)
  *   - EVM chain ← config.yaml                                 (chain + start_block per address)
  *   - SVM keys  ← src/svm/collection-registry.ts             (collectionKey → mint/displayName)
  *   - live data ← the belt-gateway GraphQL (TrackedHolder / CollectionStat / svm_collection_event
@@ -24,7 +24,9 @@
  *   INDEXING         backfill hasn't reached the collection's deploy block yet    → wait, not broken
  *   MISSING ⚠        deploy block scanned but 0 holders/events                    → real defect (Azuki #120 class)
  *   NOT·BACKFILLED   SVM collection with no events (needs the deep-history lane)  → BOEHM PRD territory
- *   DRIFT ⚠          key in constants.ts but no address in config.yaml            → config/handler drift
+ *   DRIFT ⚠          key present but no address in config.yaml                    → config/handler drift
+ *                    (structurally unreachable for EVM since sprint-bug-191 — keys and addresses
+ *                     now come from the same file, so they cannot disagree. Kept as a tripwire.)
  * A KEY·REVIEW flag rides alongside any key that looks like a test fixture (_e2e/_kitchen/_test):
  * score-api joins on the EXACT string (category_key === collectionKey), so a fixture-shaped key
  * must get a naming decision before a real community binds to it (the #382 landmine).
@@ -35,7 +37,7 @@
  */
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
-import { TRACKED_ERC721_COLLECTION_KEYS } from "../src/handlers/tracked-erc721/constants";
+import { deriveCollectionKeys } from "../src/handlers/marketplaces/tracked-nft-contracts";
 import { COLLECTIONS } from "../src/svm/collection-registry";
 
 const ENDPOINT =
@@ -112,7 +114,10 @@ function buildAddressChainMap(): Map<
   for (const chain of raw.chains) {
     const chainId = Number(chain.id);
     for (const c of chain.contracts ?? []) {
-      if (c.name !== "TrackedErc721") continue;
+      // Both names route to handleTrackedErc721Transfer. Omitting EthTrackedErc721
+      // reported every chain-1 collection as DRIFT — invisible while only Azuki was
+      // named, glaring once sprint-bug-191 named all 15.
+      if (c.name !== "TrackedErc721" && c.name !== "EthTrackedErc721") continue;
       const startBlock = Number(c.start_block ?? chain.start_block);
       for (const addr of c.address ?? []) {
         map.set(addr.toLowerCase(), { chainId, startBlock });
@@ -125,16 +130,21 @@ function buildAddressChainMap(): Map<
 function collectEvm(
   addrChain: Map<string, { chainId: number; startBlock: number }>,
 ): EvmCol[] {
-  return Object.entries(TRACKED_ERC721_COLLECTION_KEYS).map(([addr, key]) => {
-    const loc = addrChain.get(addr.toLowerCase());
-    return {
-      key,
-      contract: addr.toLowerCase(),
-      chainId: loc?.chainId ?? -1, // -1 = in constants but not in config (drift)
-      startBlock: loc?.startBlock ?? -1,
-      ramp: loc ? loc.chainId in RAMP_CHAINS : false,
-    };
-  });
+  const derived = deriveCollectionKeys(readFileSync("config.yaml", "utf8"));
+  const out: EvmCol[] = [];
+  for (const [, perChain] of derived.keys) {
+    for (const [addr, key] of perChain) {
+      const loc = addrChain.get(addr);
+      out.push({
+        key,
+        contract: addr,
+        chainId: loc?.chainId ?? -1, // -1 = named but no address binding (drift)
+        startBlock: loc?.startBlock ?? -1,
+        ramp: loc ? loc.chainId in RAMP_CHAINS : false,
+      });
+    }
+  }
+  return out;
 }
 
 async function fetchChainMeta(): Promise<

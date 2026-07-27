@@ -1,0 +1,606 @@
+{
+  "schemaVersion": "1.0.0",
+  "description": "Which marketplace venues sonar decodes, per chain. Read `absentSaleMeans` before concluding anything from a transfer with no matching sale row.",
+  "saleSignal": {
+    "entity": "MintActivity",
+    "joinKey": [
+      "chainId",
+      "txHash",
+      "contract",
+      "tokenId"
+    ],
+    "notes": [
+      "activityType == 'SALE' is the sale signal; the matching PURCHASE row is the buy leg.",
+      "`amountPaid` is nullable — a sale whose price could not be recovered still gets a row.",
+      "`paymentToken` must be grouped on for any floor or average price: the zero address means native, and ~10% of Base and ~50% of Berachain sales settle in a wrapped token.",
+      "Prices are attacker-influenceable (wash trading is not detectable on-chain). Use median or trimmed statistics with outlier rejection, never a mean.",
+      "`viaMarketplace` was removed in sprint-bug-190; it was ~29% precise and ~28% sensitive on Ethereum. Do not resurrect it from any cached consumer schema."
+    ]
+  },
+  "chains": [
+    {
+      "chainId": 1,
+      "name": "Ethereum",
+      "absentSaleMeans": "unknown",
+      "coveredVenues": [
+        {
+          "name": "Seaport (OpenSea)",
+          "event": "OrderFulfilled(bytes32,address,address,address,(uint8,address,uint256,uint256)[],(uint8,address,uint256,uint256,address)[])",
+          "configContract": "Seaport",
+          "addresses": [
+            "0x00000000006c3852cbef3e08e8df289169ede581",
+            "0x00000000000001ad428e4906ae43d8f9852d0dd6",
+            "0x00000000000000adc04c56bf30ac9d3c0aaf14dc",
+            "0x0000000000000068f116a894984e2db1123eb395"
+          ]
+        }
+      ],
+      "uncoveredVenues": [
+        {
+          "name": "Blur v1",
+          "event": "OrdersMatched(...)",
+          "reason": "~60% of Azuki's secondary market. Deferred: coverage, not architecture."
+        },
+        {
+          "name": "Blur v2",
+          "event": "Execution721Packed / Execution721MakerFeePacked / Execution721TakerFeePacked",
+          "reason": "Price is bit-packed into a uint256; unpacking is unvalidated (evidence doc §9)."
+        },
+        {
+          "name": "Wyvern (legacy OpenSea)",
+          "event": "OrdersMatched(bytes32,bytes32,address,address,uint256,bytes32)",
+          "reason": "~27% legacy tail predating Seaport."
+        },
+        {
+          "name": "X2Y2",
+          "event": "EvInventory(...)",
+          "reason": "Long tail."
+        },
+        {
+          "name": "LooksRare",
+          "event": "TakerBid / TakerAsk",
+          "reason": "Long tail."
+        }
+      ],
+      "notASale": [
+        {
+          "name": "Blur Blend",
+          "event": "LoanOfferTaken / Repay",
+          "reason": "NFT-backed lending. Blur takes custody, so the collateral move looks like a marketplace transfer. Borrowing against an NFT is not selling it."
+        }
+      ],
+      "measured": {
+        "at": "2026-07-26",
+        "transfers": 2654292,
+        "saleRows": 311381,
+        "ratio": 0.1173,
+        "note": "Seaport-only. Sampling (409 txs) put Seaport at ~7% of observed Azuki sales, so most of the remainder is undecoded venues, not non-sales. Modern collections fare far better than legacy ones (just_t00ns ~75.6% vs azuki ~4.6%)."
+      }
+    },
+    {
+      "chainId": 8453,
+      "name": "Base",
+      "absentSaleMeans": "unknown",
+      "coveredVenues": [
+        {
+          "name": "Seaport (OpenSea)",
+          "event": "OrderFulfilled(bytes32,address,address,address,(uint8,address,uint256,uint256)[],(uint8,address,uint256,uint256,address)[])",
+          "configContract": "Seaport",
+          "addresses": [
+            "0x00000000006c3852cbef3e08e8df289169ede581",
+            "0x00000000000001ad428e4906ae43d8f9852d0dd6",
+            "0x00000000000000adc04c56bf30ac9d3c0aaf14dc",
+            "0x0000000000000068f116a894984e2db1123eb395"
+          ]
+        }
+      ],
+      "uncoveredVenues": [
+        {
+          "name": "Element",
+          "event": "ERC721SellOrderFilled(bytes32,address,address,uint256,address,uint256,(address,uint256)[],address,uint256)",
+          "addresses": [
+            "0xa39a5f160a1952ddf38781bd76e402b0006912a9"
+          ],
+          "reason": "Confirmed live on Base and decodes to the same shape as Seaport, but not yet implemented. Deferred from sprint-bug-190; the contract is a 415-byte proxy whose implementation should be pinned first."
+        }
+      ],
+      "notASale": [
+        {
+          "name": "LayerZero V2 omnichain bridge",
+          "event": "(bridge legs appear as plain Transfers)",
+          "addresses": [
+            "0x1a44076050125825900e736c501f859c50fe728c"
+          ],
+          "reason": "Accounts for hypio's entire ~67% non-Seaport remainder. A bridge leg is a move, not a sale."
+        },
+        {
+          "name": "Direct contract calls",
+          "event": "(tx.to == the NFT contract, only Transfer logs)",
+          "reason": "100% of based_punks' non-Seaport remainder. A plain transferFrom is not a sale."
+        }
+      ],
+      "measured": {
+        "at": "2026-07-26",
+        "transfers": 945148,
+        "saleRows": 883116,
+        "ratio": 0.9344,
+        "note": "The 6.6% remainder is dominated by bridge legs and direct calls (both genuinely not sales) rather than by the undecoded Element venue."
+      }
+    },
+    {
+      "chainId": 80094,
+      "name": "Berachain",
+      "absentSaleMeans": "no_sale",
+      "coveredVenues": [
+        {
+          "name": "Seaport (OpenSea)",
+          "event": "OrderFulfilled(bytes32,address,address,address,(uint8,address,uint256,uint256)[],(uint8,address,uint256,uint256,address)[])",
+          "configContract": "Seaport",
+          "addresses": [
+            "0x0000000000000068f116a894984e2db1123eb395"
+          ]
+        }
+      ],
+      "uncoveredVenues": [],
+      "notASale": [
+        {
+          "name": "Direct wallet-to-wallet transfers",
+          "event": "(tx.to == the NFT contract, only Transfer logs)",
+          "reason": "46 of the 67 sampled non-Seaport transfers. Berachain launched after Seaport v1.6 shipped and no other venue was observed across 138 sampled txs."
+        }
+      ],
+      "measured": {
+        "at": "2026-07-26",
+        "transfers": 38182,
+        "saleRows": 12433,
+        "ratio": 0.3256,
+        "note": "Low ratio, full coverage: most Berachain NFT movement is genuinely not trading. This is the one EVM chain where absence is a fact rather than a gap."
+      }
+    },
+    {
+      "chainId": 10,
+      "name": "Optimism",
+      "absentSaleMeans": "unknown",
+      "coveredVenues": [],
+      "uncoveredVenues": [
+        {
+          "name": "(no marketplace bound)",
+          "event": "—",
+          "reason": "config.yaml binds no marketplace contract on chain 10, so no fill event is ever fetched. The 7 Mibera lore collections indexed here have transfer and holder data but structurally cannot have sale data."
+        }
+      ],
+      "notASale": [],
+      "measured": {
+        "at": "2026-07-26",
+        "transfers": 345,
+        "saleRows": 0,
+        "ratio": 0,
+        "note": "Zero is structural, not empirical. Do not read it as 'these never sold'."
+      }
+    },
+    {
+      "chainId": 42161,
+      "name": "Arbitrum",
+      "absentSaleMeans": "not_applicable",
+      "coveredVenues": [],
+      "uncoveredVenues": [],
+      "notASale": [],
+      "measured": {
+        "at": "2026-07-26",
+        "transfers": 0,
+        "saleRows": 0,
+        "ratio": 0
+      }
+    },
+    {
+      "chainId": 7777777,
+      "name": "Zora",
+      "absentSaleMeans": "not_applicable",
+      "coveredVenues": [],
+      "uncoveredVenues": [],
+      "notASale": [],
+      "measured": {
+        "at": "2026-07-26",
+        "transfers": 0,
+        "saleRows": 0,
+        "ratio": 0
+      }
+    }
+  ],
+  "solana": {
+    "namespace": "solana",
+    "absentSaleMeans": "unknown",
+    "note": "Only `pythians` has sale rows. The rest are ownership-only imports: their events are mint/transfer records with zero `kind: sale`, so absence of a sale proves nothing.",
+    "collections": [
+      {
+        "collectionKey": "pythians",
+        "sales": "covered",
+        "measured": {
+          "at": "2026-07-26",
+          "events": 30226,
+          "saleRows": 5369
+        }
+      },
+      {
+        "collectionKey": "mad_lads",
+        "sales": "uncovered",
+        "measured": {
+          "at": "2026-07-26",
+          "events": 225035,
+          "saleRows": 0
+        }
+      },
+      {
+        "collectionKey": "smb_gen2",
+        "sales": "uncovered",
+        "measured": {
+          "at": "2026-07-26",
+          "events": 137538,
+          "saleRows": 0
+        }
+      },
+      {
+        "collectionKey": "degods",
+        "sales": "uncovered",
+        "measured": {
+          "at": "2026-07-26",
+          "events": 126550,
+          "saleRows": 0
+        }
+      },
+      {
+        "collectionKey": "daa_higher_self",
+        "sales": "uncovered",
+        "measured": {
+          "at": "2026-07-26",
+          "events": 48011,
+          "saleRows": 0
+        }
+      },
+      {
+        "collectionKey": "y00ts",
+        "sales": "uncovered",
+        "measured": {
+          "at": "2026-07-26",
+          "events": 2308,
+          "saleRows": 0
+        }
+      },
+      {
+        "collectionKey": "claynosaurz",
+        "sales": "not_indexed",
+        "measured": {
+          "at": "2026-07-26",
+          "events": 0,
+          "saleRows": 0
+        }
+      },
+      {
+        "collectionKey": "famous_fox",
+        "sales": "not_indexed",
+        "measured": {
+          "at": "2026-07-26",
+          "events": 0,
+          "saleRows": 0
+        }
+      },
+      {
+        "collectionKey": "galactic_geckos",
+        "sales": "not_indexed",
+        "measured": {
+          "at": "2026-07-26",
+          "events": 0,
+          "saleRows": 0
+        }
+      }
+    ]
+  },
+  "collections": [
+    {
+      "collectionKey": "apdao_seat",
+      "chainId": 80094,
+      "contract": "0xfc2d7ebfeb2714fce13caf234a95db129ecc43da",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "azuki",
+      "chainId": 1,
+      "contract": "0xed5af388653567af2f388e6224dc7c4b3241c544",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "azuki_elementals",
+      "chainId": 1,
+      "contract": "0xb6a37b5d14d502c3ab0ae6f3a0e058bc9517786e",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "bakc",
+      "chainId": 1,
+      "contract": "0xba30e5f9bb24c19c9002c35c7098ad4a0f7ff53b",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "based_onchain_punks",
+      "chainId": 8453,
+      "contract": "0x9e7a06c281355f60570e47a12650c89fe1d36ff3",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "based_punks",
+      "chainId": 8453,
+      "contract": "0xcb28749c24af4797808364d71d71539bc01e76d4",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "bayc",
+      "chainId": 1,
+      "contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "beanz",
+      "chainId": 1,
+      "contract": "0x306b1ea3ecdf94ab739f1910bbda052ed4a9f949",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "bobu",
+      "chainId": 1,
+      "contract": "0x2079812353e2c9409a788fbf5f383fa62ad85be8",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "doodles",
+      "chainId": 1,
+      "contract": "0x8a90cab2b38dba80c64b7734e58ee1db38b8992e",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "fractured_mibera_1",
+      "chainId": 80094,
+      "contract": "0x6956dae88c00372b1a0b2dfbfe5eed19f85b0d4b",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "fractured_mibera_10",
+      "chainId": 80094,
+      "contract": "0xa3d3ef45712631a6fb50c677762b8653f932cf71",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "fractured_mibera_3",
+      "chainId": 80094,
+      "contract": "0x77ec6b83495974a5b2c5bef943b0f2e5acd8fc26",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "fractured_mibera_4",
+      "chainId": 80094,
+      "contract": "0xc557bf6c7d21ba98a40ddfe2beaba682c49d17a9",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "fractured_mibera_5",
+      "chainId": 80094,
+      "contract": "0xbcb082bb41e892f29d9c600eaadea698d5f712ef",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "fractured_mibera_6",
+      "chainId": 80094,
+      "contract": "0x2030f226bf9a0c88687e83accdcefb7dae260094",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "fractured_mibera_7",
+      "chainId": 80094,
+      "contract": "0xcc426f9375c5edcef5ca6bdb0449c07113348cf7",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "fractured_mibera_8",
+      "chainId": 80094,
+      "contract": "0xf68f40230e39067ee7c98fe9a8641fc124c5be60",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "fractured_mibera_9",
+      "chainId": 80094,
+      "contract": "0xfc79b1bcca172ff5a8f74205c82f5cbb0125dd10",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "hypio",
+      "chainId": 8453,
+      "contract": "0x3319197b0d0f8ccd1087f2d2e47a8fb7c0710171",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "kemonokaki",
+      "chainId": 8453,
+      "contract": "0xee7d1b184be8185adc7052635329152a4d0cdefa",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "kitchen_just_t00ns",
+      "chainId": 1,
+      "contract": "0x902d94ba5bfc0cb408d1a6ca4b8f255d845e50e9",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "lil_bangers",
+      "chainId": 8453,
+      "contract": "0x1260f90e0b1c482b38b88f26dee17c57615d670b",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "lil_pudgys",
+      "chainId": 1,
+      "contract": "0x524cab2ec69124574082676e6f654a18df49a048",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "lore_1_introducing_mibera",
+      "chainId": 10,
+      "contract": "0x6b31859e5e32a5212f1ba4d7b377604b9d4c7a60",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "lore_2_honey_online_offline",
+      "chainId": 10,
+      "contract": "0x9247edf18518c4dccfa7f8b2345a1e8a4738204f",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "lore_3_bera_kali_acc",
+      "chainId": 10,
+      "contract": "0xb2c7f411aa425d3fce42751e576a01b1ff150385",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "lore_4_bgt_network_spirituality",
+      "chainId": 10,
+      "contract": "0xa12064e3b1f6102435e77aa68569e79955070357",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "lore_5_initiation_ritual",
+      "chainId": 10,
+      "contract": "0x6ca29eed22f04c1ec6126c59922844811dcbcdfa",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "lore_6_miberamaker_design",
+      "chainId": 10,
+      "contract": "0x7988434e1469d35fa5f442e649de45d47c3df23c",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "lore_7_miberamaker_design",
+      "chainId": 10,
+      "contract": "0x96c200ec4cca0bc57444cfee888cfba78a1ddbd8",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "mayc",
+      "chainId": 1,
+      "contract": "0x60e4d786628fea6478f785a6d7e704777c86a7c6",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "mfers",
+      "chainId": 1,
+      "contract": "0x79fcdef22feed20eddacbb2587640e45491b757f",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "mibera_tarot",
+      "chainId": 80094,
+      "contract": "0x4b08a069381efbb9f08c73d6b2e975c9be3c4684",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "miladies",
+      "chainId": 80094,
+      "contract": "0x8d4972bd5d2df474e71da6676a365fb549853991",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "miparcels",
+      "chainId": 80094,
+      "contract": "0x86db98cf1b81e833447b12a077ac28c36b75c8e1",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "mireveal_1_1",
+      "chainId": 80094,
+      "contract": "0x144b27b1a267ee71989664b3907030da84cc4754",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "mireveal_2_2",
+      "chainId": 80094,
+      "contract": "0x72db992e18a1bf38111b1936dd723e82d0d96313",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "mireveal_3_3",
+      "chainId": 80094,
+      "contract": "0x3a00301b713be83ec54b7b4fb0f86397d087e6d3",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "mireveal_4_20",
+      "chainId": 80094,
+      "contract": "0x419f25c4f9a9c730aacf58b8401b5b3e566fe886",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "mireveal_5_5",
+      "chainId": 80094,
+      "contract": "0x81a27117bd894942ba6737402fb9e57e942c6058",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "mireveal_6_6",
+      "chainId": 80094,
+      "contract": "0xaab7b4502251ae393d0590bab3e208e2d58f4813",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "mireveal_7_7",
+      "chainId": 80094,
+      "contract": "0xc64126ea8dc7626c16daa2a29d375c33fcaa4c7c",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "mireveal_8_8",
+      "chainId": 80094,
+      "contract": "0x24f4047d372139de8dacbe79e2fc576291ec3ffc",
+      "absentSaleMeans": "no_sale"
+    },
+    {
+      "collectionKey": "moonbirds",
+      "chainId": 1,
+      "contract": "0x23581767a106ae21c074b2276d25e5c3e136a68b",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "nodes_by_hunter",
+      "chainId": 8453,
+      "contract": "0x95bc4c2e01c2e2d9e537e7a9fe58187e88dd8019",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "nouns",
+      "chainId": 1,
+      "contract": "0x9c8ff314c9bc7f6e59a9d9225fb22946427edc03",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "pudgy_penguins",
+      "chainId": 1,
+      "contract": "0xbd3531da5cf5857e7cfaa92426877b022e612cf8",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "redacted_remilio_babies",
+      "chainId": 1,
+      "contract": "0xd3d9ddd0cf0a5f0bfb8f7fceae075df687eaebab",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "veecon_2024_tickets",
+      "chainId": 8453,
+      "contract": "0x20fd75eccd7bb9c4eb9e3bb4c09c6b382e15d63e",
+      "absentSaleMeans": "unknown"
+    },
+    {
+      "collectionKey": "warplets",
+      "chainId": 8453,
+      "contract": "0x699727f9e01a822efdcf7333073f0461e5914b4e",
+      "absentSaleMeans": "unknown"
+    }
+  ]
+}

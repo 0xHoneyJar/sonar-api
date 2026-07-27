@@ -1,0 +1,20 @@
+sprint-bug-191 — COMPLETED 2026-07-26
+
+Bug ID:   20260726-2b6573
+Cycle:    cycle-bug-20260726-2b6573
+Branch:   fix/sprint-bug-191-config-derived-collection-identity
+Head:     c78bd4bc
+
+Gates:
+  /review-sprint  APPROVED (round 2)  critical=0 high=0 medium=0 low=0
+  /audit-sprint   APPROVED            critical=0 high=0 medium=2 low=1 (none blocking)
+
+Headline: TRACKED_ERC721_COLLECTION_KEYS deleted — the last of three hardcoded
+lists. Collection identity is derived from config.yaml. All 28 pre-change keys
+reproduce unchanged (T3 parity, mutation-proven).
+
+AC1 met (config side; live pending deploy) · AC2 met (28/28) ·
+AC3 met in-process only — live binding declined by operator ·
+AC4 met (sale-coverage.json) · AC5 pending post-deploy census.
+
+Deploy and AC1/AC5 measurement follow this marker.

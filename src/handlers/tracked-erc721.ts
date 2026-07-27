@@ -7,7 +7,7 @@ import {
 } from "envio";
 
 import { ZERO_ADDRESS } from "./constants";
-import { TRACKED_ERC721_COLLECTION_KEYS } from "./tracked-erc721/constants";
+import { collectionKeyFor } from "./marketplaces/tracked-nft-contracts";
 import { STAKING_CONTRACT_KEYS } from "./mibera-staking/constants";
 import { recordAction } from "../lib/actions";
 import { isBurnAddress, isMintFromZero } from "../lib/mint-detection";
@@ -41,8 +41,14 @@ export async function handleTrackedErc721Transfer(
   context: EvmOnEventContext,
 ): Promise<void> {
   const contractAddress = event.srcAddress.toLowerCase();
+  // Collection identity comes from the address's comment in the active belt config
+  // (sprint-bug-191). The former TRACKED_ERC721_COLLECTION_KEYS map was hand-maintained
+  // while Kitchen patches config.yaml automatically, so onboarded collections reached
+  // score-api as a raw hex string while curated ones reached it as a name — one join
+  // key with two shapes. Falling back to the address keeps an uncommented collection
+  // indexed, just unnamed; the parser logs those at startup.
   const collectionKey =
-    TRACKED_ERC721_COLLECTION_KEYS[contractAddress] ?? contractAddress;
+    collectionKeyFor(event.chainId, contractAddress) ?? contractAddress;
   const from = event.params.from.toLowerCase();
   const to = event.params.to.toLowerCase();
   const tokenId = event.params.tokenId;
