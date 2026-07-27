@@ -30,6 +30,8 @@
     "self:check": "tsx src/self/cli/sonar-self.ts check --mode offline",
     "self:write": "tsx src/self/cli/sonar-self.ts write --mode hybrid",
     "cost": "node scripts/railway-cost-model.mjs",
+    "coverage:sale": "tsx scripts/gen-sale-coverage.ts",
+    "coverage:sale:check": "tsx scripts/gen-sale-coverage.ts --check",
     "verify:belt-config": "node scripts/verify-belt-config.js",
     "verify:belt-contract": "node scripts/verify-belt-contract.mjs",
     "materialize:eth-floor": "node scripts/materialize-eth-historical-floor.mjs",

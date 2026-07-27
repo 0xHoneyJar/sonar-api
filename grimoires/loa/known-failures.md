@@ -1061,3 +1061,60 @@ healthy reviews. Repair their actionable findings, record `DEGRADED 2/3`, and
 use independent scoped reviewers for the final blocking verdict. A third
 identical recurrence makes the route structural under this file's rule: stop
 retries and route the adapter failure upstream.
+
+---
+
+## KF-022: `envio codegen` output is nondeterministic — useless as a config-drift signal
+
+**Status**: OBSERVED-ACCEPTED 2026-07-26 — not a defect we need to fix; a trap to stop
+walking into. Use the parsed-config projection, not codegen output, to answer "did this
+config change matter?".
+**Feature**: `envio codegen --config <cfg>` (envio 3.2.1, `envio-darwin-arm64@3.2.1`),
+which writes `.envio/types.d.ts`.
+**Symptom**: Two consecutive `envio codegen` runs against a **byte-identical** config
+produce `.envio/types.d.ts` files with **different content hashes**. The diff is contract
+ordering inside the generated type map (observed: a `BgtToken` block and an
+`ApdaoAuctionHouse` block swapping positions), not semantic content. Three runs in one
+session produced three distinct SHA-256 hashes.
+**First observed**: 2026-07-26 (sprint-bug-191 T1, while trying to prove that a
+comment-only `config.yaml` edit does not force a belt re-migration).
+**Recurrence count**: 1
+**Why it matters**: the obvious way to ask "does this config edit change anything the
+indexer sees?" is to codegen before and after and diff. That method returns a FALSE
+POSITIVE every time, which would push an operator into an unnecessary full reindex
+(2–4h on the 6-chain belt, Base being the long pole).
+**Current workaround**: answer the question at the layer that actually decides it. Envio
+3.2.1's resume-time compatibility gate is
+`Config.diffPaths(~stored, ~current)` over `Config.getPublicConfigJson()->stripSensitiveData`
+(`node_modules/envio/src/Persistence.res:203-227`; `Main.res:684`; `Config.res:1065-1132`)
+— a **structured JSON projection of the parsed config**. So:
+```js
+// deterministic, and the same thing envio compares
+const a = parse(before, { schema: "failsafe" });
+const b = parse(after,  { schema: "failsafe" });
+JSON.stringify(a) === JSON.stringify(b)   // true ⇒ no re-migration forced
+```
+Comments cannot appear in that projection, so **comment-only edits are always free**.
+RPC/hypersync URLs are stripped too, so those are free as well.
+**Upstream issue**: not filed (candidate — codegen should emit stable output ordering;
+low severity since nothing consumes the hash today).
+**Related**: KF-013 (the `--restart`-seeds-then-resume re-init pattern this question feeds
+into); KF-015, KF-016 (the other belt-deploy walls).
+
+### Attempts
+
+| Date | What we tried | Outcome | Evidence |
+|------|---------------|---------|----------|
+| 2026-07-26 | `shasum` of `.envio/types.d.ts` before vs after a comment-only `config.yaml` edit | MISLEADING — hash changed, implying the edit mattered | `6e9658e9…` → `ab09c9f1…` |
+| 2026-07-26 | Re-ran codegen twice against the SAME (edited) config | ROOT CAUSE — hashes differ again with zero config change; `diff` shows contract blocks reordered | `ab09c9f1…` → `b600e17c…` |
+| 2026-07-26 | Compared `parse(text, {schema:"failsafe"})` → `JSON.stringify` before vs after | RESOLVED — identical, 24,488 chars both sides; matches what envio's compat check consumes | sprint-bug-191 T1 |
+
+### Reading guide
+
+If you are deciding whether a `config.yaml` edit forces a belt wipe: **do not diff codegen
+output** — it is nondeterministic and will tell you "yes" unconditionally. Parse both
+versions with the failsafe schema and compare the JSON. Comments and source URLs are
+outside envio's comparison, so those edits never force a re-migration. Note this answers
+only "is a reindex FORCED"; you may still choose one for a separate reason (sprint-bug-191
+reindexed deliberately, to stop historical rows carrying an identifier the handler no
+longer emits).

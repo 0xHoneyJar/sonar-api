@@ -4,7 +4,7 @@ import {
   BELT_CONTRACTS,
   extractChainContractRef,
 } from "../scripts/verify-belt-config.js";
-import { TRACKED_ERC721_COLLECTION_KEYS } from "../src/handlers/tracked-erc721/constants";
+import { deriveCollectionKeys } from "../src/handlers/marketplaces/tracked-nft-contracts";
 
 /**
  * Base community-onboarding batch 1 (top-10 ramp, #121). Deploy blocks verified
@@ -40,9 +40,12 @@ describe("Base TrackedErc721 batch 1 (community onboarding, #121)", () => {
     expect(ref!.startBlock).toBe(String(EARLIEST_DEPLOY));
   });
 
-  it("maps every address to a collectionKey in TRACKED_ERC721_COLLECTION_KEYS", () => {
+  it("derives every address's collectionKey from its config.yaml comment", () => {
+    // sprint-bug-191: the hardcoded key map is gone; the comment is the key. Full
+    // 28-key parity against the deleted map lives in collection-key-parity.test.ts.
+    const keys = deriveCollectionKeys(monoText).keys.get(8453);
     for (const { address, key } of BATCH) {
-      expect(TRACKED_ERC721_COLLECTION_KEYS[address]).toBe(key);
+      expect(keys?.get(address)).toBe(key);
     }
   });
 

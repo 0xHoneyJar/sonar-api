@@ -117,7 +117,25 @@ contracts:
         field_selection:
           transaction_fields:
             - hash
-  # Static ERC721 collections for holder tracking
+  # Static ERC721 collections for holder tracking.
+  #
+  # ┌─ COLLECTION IDENTITY IS DERIVED FROM THIS FILE (sprint-bug-191) ─────────────┐
+  # │ For every address bound under TrackedErc721 / EthTrackedErc721, the FIRST    │
+  # │ whitespace-delimited token of its trailing `#` comment IS the collection     │
+  # │ key — the `primaryCollection` value score-api joins on.                      │
+  # │                                                                              │
+  # │     - 0xcb28749c… # based_punks (deploy 12774442)   →  "based_punks"         │
+  # │                                                                              │
+  # │ Rules, enforced by test/collection-key-parity.test.ts:                       │
+  # │   · the token must match /^[a-z0-9][a-z0-9_-]*$/ (case-insensitive)          │
+  # │   · it must be globally unique across all chains — two collections sharing   │
+  # │     a key would silently merge in every downstream join                      │
+  # │   · no comment (or an unusable one) ⇒ the raw address is used instead, and   │
+  # │     the collection reaches consumers unnamed                                 │
+  # │                                                                              │
+  # │ Put human prose AFTER the key, in parentheses. Adding a collection is a      │
+  # │ config edit only — there is no TypeScript list to update.                    │
+  # └──────────────────────────────────────────────────────────────────────────────┘
   - name: TrackedErc721
     handler: src/EventHandlers.ts
     events:
@@ -613,20 +631,20 @@ chains:
           - 0xed5af388653567af2f388e6224dc7c4b3241c544 # azuki (canonical, verified on Etherscan)
           # CR-OPS-IDX W1 hot-set (2026-07-18) — one SCALE batch; Kitchen admits via
           # POST /v2/collection-preparations/batch + belt_config_batch drain.
-          - 0x306b1ea3ecdf94ab739f1910bbda052ed4a9f949 # azuki BEANZ Official
-          - 0xb6a37b5d14d502c3ab0ae6f3a0e058bc9517786e # azuki Elementals
-          - 0x2079812353e2c9409a788fbf5f383fa62ad85be8 # azuki Bobu the Bean Farmer
+          - 0x306b1ea3ecdf94ab739f1910bbda052ed4a9f949 # beanz (BEANZ Official; azuki community)
+          - 0xb6a37b5d14d502c3ab0ae6f3a0e058bc9517786e # azuki_elementals (Elementals; azuki community)
+          - 0x2079812353e2c9409a788fbf5f383fa62ad85be8 # bobu (Bobu the Bean Farmer; azuki community)
           # CryptoPunks (0xb47e3cd8…) excluded — non-standard Transfer; needs dedicated handler (BB F-004).
-          - 0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d # yuga Bored Ape Yacht Club
-          - 0x60e4d786628fea6478f785a6d7e704777c86a7c6 # yuga Mutant Ape Yacht Club
-          - 0xba30e5f9bb24c19c9002c35c7098ad4a0f7ff53b # yuga Bored Ape Kennel Club
-          - 0xbd3531da5cf5857e7cfaa92426877b022e612cf8 # pudgy-penguins Pudgy Penguins
-          - 0x524cab2ec69124574082676e6f654a18df49a048 # pudgy-penguins Lil Pudgys
-          - 0xd3d9ddd0cf0a5f0bfb8f7fceae075df687eaebab # remilia Redacted Remilio Babies
-          - 0x8a90cab2b38dba80c64b7734e58ee1db38b8992e # doodles Doodles
-          - 0x23581767a106ae21c074b2276d25e5c3e136a68b # moonbirds Moonbirds
-          - 0x9c8ff314c9bc7f6e59a9d9225fb22946427edc03 # nouns Nouns
-          - 0x79fcdef22feed20eddacbb2587640e45491b757f # mfers
+          - 0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d # bayc (Bored Ape Yacht Club; yuga community)
+          - 0x60e4d786628fea6478f785a6d7e704777c86a7c6 # mayc (Mutant Ape Yacht Club; yuga community)
+          - 0xba30e5f9bb24c19c9002c35c7098ad4a0f7ff53b # bakc (Bored Ape Kennel Club; yuga community)
+          - 0xbd3531da5cf5857e7cfaa92426877b022e612cf8 # pudgy_penguins (Pudgy Penguins; pudgy-penguins community)
+          - 0x524cab2ec69124574082676e6f654a18df49a048 # lil_pudgys (Lil Pudgys; pudgy-penguins community)
+          - 0xd3d9ddd0cf0a5f0bfb8f7fceae075df687eaebab # redacted_remilio_babies (Redacted Remilio Babies; remilia community)
+          - 0x8a90cab2b38dba80c64b7734e58ee1db38b8992e # doodles (Doodles; doodles community)
+          - 0x23581767a106ae21c074b2276d25e5c3e136a68b # moonbirds (Moonbirds; moonbirds community)
+          - 0x9c8ff314c9bc7f6e59a9d9225fb22946427edc03 # nouns (Nouns; nouns community)
+          - 0x79fcdef22feed20eddacbb2587640e45491b757f # mfers (mfers; mfers community)
           - 0x902d94ba5bfc0cb408d1a6ca4b8f255d845e50e9 # kitchen_just_t00ns (eip155:1; physical_job ingest_8782378e4d8efdc03716488212ee7552_8153d3ff68e8a8e4)
       # Seaport — OpenSea marketplace, mainnet Azuki secondary sales (FR-6a).
       # Handler filters OrderFulfilled to TRACKED_COLLECTIONS (seaport.ts).
@@ -805,6 +823,19 @@ chains:
           # NOTE: mibera main collection (0x6666397...) is handled by MiberaCollection handler
           # to avoid handler conflicts and enable full tracking (TrackedHolder + MiberaTransfer + MintActivity)
 
+          # ===== MIBERA COLLECTION NAMING GLOSSARY =====
+          # (moved here from src/handlers/tracked-erc721/constants.ts in sprint-bug-191,
+          # when that file's address→key map was deleted — the glossary describes these
+          # exact entries, so it belongs beside them.)
+          #
+          # NAMING ALIASES (same thing, different names):
+          #   Mibera Shadows  = Mibera VM     (separate generative collection, NOT main mibera)
+          #   Mibera Tarot    = Mibera Quiz   (tarot cards from a quiz users took)
+          #   Mibera Candies  = Mibera Drugs  (ERC-1155 items, handled by mints1155.ts)
+          #
+          # FRACTURES: 10 SBFTs (soul bound fungible tokens) forming one complete set —
+          #   #1 miparcels · #2 miladies · #3-#10 mireveal_1_1 … mireveal_8_8
+          #
           # ----- MIBERA TAROT (aka "Mibera Quiz") -----
           # Tarot cards from a quiz users took - same thing, different names
           - 0x4B08a069381EfbB9f08C73D6B2e975C9BE3c4684 # mibera_tarot / mibera_quiz
@@ -812,28 +843,31 @@ chains:
           # ----- FRACTURES (10-piece SBFT collection) -----
           # All 10 contracts below are part of the "Fractures" set
           # These are SBFTs (soul bound fungible tokens) that form a complete collection
-          - 0x86Db98cf1b81E833447b12a077ac28c36b75c8E1 # fracture #1: miparcels
-          - 0x8D4972bd5D2df474e71da6676a365fB549853991 # fracture #2: miladies (Miladies on Berachain)
-          - 0x144B27b1A267eE71989664b3907030Da84cc4754 # fracture #3: mireveal_1_1
-          - 0x72DB992E18a1bf38111B1936DD723E82D0D96313 # fracture #4: mireveal_2_2
-          - 0x3A00301B713be83EC54B7B4Fb0f86397d087E6d3 # fracture #5: mireveal_3_3
-          - 0x419F25C4f9A9c730AAcf58b8401B5b3e566Fe886 # fracture #6: mireveal_4_20
-          - 0x81A27117bd894942BA6737402fB9e57e942C6058 # fracture #7: mireveal_5_5
-          - 0xaaB7b4502251aE393D0590bAB3e208E2d58F4813 # fracture #8: mireveal_6_6
-          - 0xc64126EA8dC7626c16daA2A29D375C33fcaa4C7c # fracture #9: mireveal_7_7
-          - 0x24F4047d372139de8DACbe79e2fC576291Ec3ffc # fracture #10: mireveal_8_8
+          # The key is the FIRST token; the fracture ordinal follows in parentheses.
+          # (It read `# fracture #N: <key>` until sprint-bug-191 — the ordinal is
+          # narrative, the key is the join key, so the key leads.)
+          - 0x86Db98cf1b81E833447b12a077ac28c36b75c8E1 # miparcels (fracture #1)
+          - 0x8D4972bd5D2df474e71da6676a365fB549853991 # miladies (fracture #2; Miladies on Berachain)
+          - 0x144B27b1A267eE71989664b3907030Da84cc4754 # mireveal_1_1 (fracture #3)
+          - 0x72DB992E18a1bf38111B1936DD723E82D0D96313 # mireveal_2_2 (fracture #4)
+          - 0x3A00301B713be83EC54B7B4Fb0f86397d087E6d3 # mireveal_3_3 (fracture #5)
+          - 0x419F25C4f9A9c730AAcf58b8401B5b3e566Fe886 # mireveal_4_20 (fracture #6)
+          - 0x81A27117bd894942BA6737402fB9e57e942C6058 # mireveal_5_5 (fracture #7)
+          - 0xaaB7b4502251aE393D0590bAB3e208E2d58F4813 # mireveal_6_6 (fracture #8)
+          - 0xc64126EA8dC7626c16daA2A29D375C33fcaa4C7c # mireveal_7_7 (fracture #9)
+          - 0x24F4047d372139de8DACbe79e2fC576291Ec3ffc # mireveal_8_8 (fracture #10)
 
           # ----- CR-OPS-IDX W1 Fractured Mibera (seed addresses; distinct from SBFT set above) -----
           # Fractured Mibera 2 omitted: already tracked in SBFT set as fracture #2 miladies above.
-          - 0x6956dae88c00372b1a0b2dfbfe5eed19f85b0d4b # Fractured Mibera 1
-          - 0x77ec6b83495974a5b2c5bef943b0f2e5acd8fc26 # Fractured Mibera 3
-          - 0xc557bf6c7d21ba98a40ddfe2beaba682c49d17a9 # Fractured Mibera 4
-          - 0xbcb082bb41e892f29d9c600eaadea698d5f712ef # Fractured Mibera 5
-          - 0x2030f226bf9a0c88687e83accdcefb7dae260094 # Fractured Mibera 6
-          - 0xcc426f9375c5edcef5ca6bdb0449c07113348cf7 # Fractured Mibera 7
-          - 0xf68f40230e39067ee7c98fe9a8641fc124c5be60 # Fractured Mibera 8
-          - 0xfc79b1bcca172ff5a8f74205c82f5cbb0125dd10 # Fractured Mibera 9
-          - 0xa3d3ef45712631a6fb50c677762b8653f932cf71 # Fractured Mibera 10
+          - 0x6956dae88c00372b1a0b2dfbfe5eed19f85b0d4b # fractured_mibera_1 (Fractured Mibera 1)
+          - 0x77ec6b83495974a5b2c5bef943b0f2e5acd8fc26 # fractured_mibera_3 (Fractured Mibera 3)
+          - 0xc557bf6c7d21ba98a40ddfe2beaba682c49d17a9 # fractured_mibera_4 (Fractured Mibera 4)
+          - 0xbcb082bb41e892f29d9c600eaadea698d5f712ef # fractured_mibera_5 (Fractured Mibera 5)
+          - 0x2030f226bf9a0c88687e83accdcefb7dae260094 # fractured_mibera_6 (Fractured Mibera 6)
+          - 0xcc426f9375c5edcef5ca6bdb0449c07113348cf7 # fractured_mibera_7 (Fractured Mibera 7)
+          - 0xf68f40230e39067ee7c98fe9a8641fc124c5be60 # fractured_mibera_8 (Fractured Mibera 8)
+          - 0xfc79b1bcca172ff5a8f74205c82f5cbb0125dd10 # fractured_mibera_9 (Fractured Mibera 9)
+          - 0xa3d3ef45712631a6fb50c677762b8653f932cf71 # fractured_mibera_10 (Fractured Mibera 10)
           # Shadows (0x048327…) stays on GeneralMints only — Envio forbids dual
           # contract definitions on the same address (TrackedErc721 + GeneralMints).
 
