@@ -1629,6 +1629,31 @@
         "Element venue",
         "Ethereum venue decoders"
       ]
+    },
+    {
+      "id": "cycle-bug-20260726-2b6573",
+      "label": "One gate in, one shape out \u2014 config-derived collection identity + coverage declared as data",
+      "type": "bugfix",
+      "status": "planned",
+      "created_at": "2026-07-26",
+      "sprints": [
+        "sprint-bug-191"
+      ],
+      "sprint_plan": "grimoires/loa/a2a/bug-20260726-2b6573/sprint.md",
+      "predecessor": "cycle-bug-20260725-224d57",
+      "evidence": "grimoires/loa/context/2026-07-25-marketplace-sale-detection.md",
+      "deferred": "venue decoders (coverage, not architecture); Solana deep history (~3.87M Helius credits); SCALE.md D4 per-chain split (own cycle)"
+    },
+    {
+      "id": "cycle-d4-per-chain-split",
+      "label": "SCALE.md D4 \u2014 per-chain deployment split: remove the full-reindex tax on every contract addition",
+      "type": "architecture",
+      "status": "proposed",
+      "created_at": "2026-07-26",
+      "sprints": [],
+      "source": "SCALE.md Decision Log D4",
+      "rationale": "A single deployment across 6 chains means ANY contract addition forces a full reindex of ALL chains. SCALE.md records that config tightening, HyperSync and V3 all produced negligible improvement \u2014 the bottleneck is architectural. D6 confirms in-place adds silently miss pre-head history, so a restart is mandatory for any collection that is not brand new. This is the scalability blocker for community onboarding.",
+      "tradeoff": "6 deployments instead of 1, multiple GraphQL endpoints to manage, vs blast-radius reduction (a Berachain add triggers only a Berachain reindex)"
     }
   ],
   "global_sprint_counter": 189,
