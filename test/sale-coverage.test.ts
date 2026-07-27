@@ -68,13 +68,31 @@ describe("the declaration cannot claim coverage it does not have", () => {
   it("binds every venue it claims to cover in config.yaml", () => {
     // The sprint-bug-190 lesson: a decoder with no config binding yields zero rows
     // while every handler test passes. A coverage claim has the same failure mode.
+    //
+    // The lookup MUST use the venue's own `configContract`, not a hardcoded "Seaport".
+    // Hardcoding passes today because every covered venue is Seaport — and would keep
+    // passing the day someone declares Element covered with no binding at all, which is
+    // precisely the claim this test exists to refuse (review MEDIUM-2).
+    let asserted = 0;
     for (const chain of doc.chains) {
       for (const venue of chain.coveredVenues) {
-        const ref = extractChainContractRef(configText, chain.chainId, "Seaport");
+        expect(
+          venue.configContract,
+          `${chain.name} claims ${venue.name} coverage without naming the config ` +
+            `contract it is bound under, so the binding cannot be verified`,
+        ).toBeTruthy();
+
+        const ref = extractChainContractRef(
+          configText,
+          chain.chainId,
+          venue.configContract!,
+        );
         expect(
           ref,
-          `${chain.name} claims ${venue.name} coverage but binds no Seaport contract`,
+          `${chain.name} claims ${venue.name} coverage but binds no ` +
+            `${venue.configContract} contract — no fill event is ever fetched there`,
         ).not.toBeNull();
+
         const bound = ref!.address.map((a: string) =>
           a.replace(/^["']|["']$/g, "").toLowerCase(),
         );
@@ -83,8 +101,12 @@ describe("the declaration cannot claim coverage it does not have", () => {
             addr,
           );
         }
+        asserted++;
       }
     }
+    // Guard the guard: a declaration that accidentally lost its covered venues would
+    // otherwise vacuously pass every assertion above.
+    expect(asserted).toBeGreaterThanOrEqual(3);
   });
 
   it("says unknown on any chain that indexes collections without a marketplace", () => {

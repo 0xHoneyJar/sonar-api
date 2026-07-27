@@ -212,8 +212,17 @@ export function activeConfigPath(): string {
 
 type Parsed = { bound: BoundContracts; collections: CollectionKeys };
 
+const EMPTY: Parsed = { bound: new Map(), collections: new Map() };
+
+/**
+ * How long a failed read is allowed to suppress retries. Bounds the cost of the failure
+ * path without making it permanent — see `parsedConfig`.
+ */
+const READ_RETRY_INTERVAL_MS = 5_000;
+
 let cached: Parsed | null = null;
 let readFailureLogged = false;
+let readFailedUntil = 0;
 
 /**
  * Parse the active belt config once per process.
@@ -226,9 +235,18 @@ let readFailureLogged = false;
  * attribution process-wide while indexing still looks healthy, and "no sales recorded"
  * is indistinguishable from "this chain had no sales" — the exact shape of the bug this
  * module exists to fix. Every failure mode below is logged once.
+ *
+ * Soft also MUST NOT mean unbounded (review MEDIUM-1). A failed read is not cached
+ * permanently (BB SEA-004: one transient FS error must not disable sale attribution for
+ * the process lifetime) — but since sprint-bug-191 the caller is every ERC-721 Transfer,
+ * not just Seaport fills, so retrying per event would mean millions of failing
+ * `readFileSync` calls during a cold backfill. The one-shot log would hide it: the
+ * operator sees a single error line and then a belt that is inexplicably slow. Retries
+ * are therefore rate-limited rather than removed, which keeps the self-healing.
  */
 function parsedConfig(): Parsed {
   if (cached) return cached;
+  if (Date.now() < readFailedUntil) return EMPTY;
   try {
     const text = readFileSync(activeConfigPath(), "utf8");
     const bound = extractBoundContracts(text);
@@ -257,20 +275,22 @@ function parsedConfig(): Parsed {
 
     cached = { bound, collections: keys };
   } catch (err) {
-    // Deliberately NOT cached (BB SEA-004): caching an empty result here would let a
-    // single transient filesystem error at startup disable sale attribution for the
-    // whole process lifetime. Leaving `cached` null means the next event retries.
+    // Deliberately NOT cached permanently (BB SEA-004): a single transient filesystem
+    // error at startup must not disable sale attribution for the whole process lifetime.
+    // `cached` stays null so a later read still wins — only the retry RATE is bounded.
     // Note the read resolves relative to the process CWD — a belt launched from a
     // different directory degrades to this path.
+    readFailedUntil = Date.now() + READ_RETRY_INTERVAL_MS;
     if (!readFailureLogged) {
       readFailureLogged = true;
       console.error(
         `[tracked-nft-contracts] could not read ${activeConfigPath()} (cwd=${process.cwd()}) — ` +
           `sale attribution is DISABLED and every collection will report a raw address ` +
-          `until this read succeeds. Indexing continues. Cause: ${err instanceof Error ? err.message : String(err)}`,
+          `until this read succeeds. Retrying at most every ${READ_RETRY_INTERVAL_MS}ms; ` +
+          `indexing continues. Cause: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    return { bound: new Map(), collections: new Map() };
+    return EMPTY;
   }
   return cached;
 }

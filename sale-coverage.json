@@ -26,6 +26,7 @@
         {
           "name": "Seaport (OpenSea)",
           "event": "OrderFulfilled(bytes32,address,address,address,(uint8,address,uint256,uint256)[],(uint8,address,uint256,uint256,address)[])",
+          "configContract": "Seaport",
           "addresses": [
             "0x00000000006c3852cbef3e08e8df289169ede581",
             "0x00000000000001ad428e4906ae43d8f9852d0dd6",
@@ -84,6 +85,7 @@
         {
           "name": "Seaport (OpenSea)",
           "event": "OrderFulfilled(bytes32,address,address,address,(uint8,address,uint256,uint256)[],(uint8,address,uint256,uint256,address)[])",
+          "configContract": "Seaport",
           "addresses": [
             "0x00000000006c3852cbef3e08e8df289169ede581",
             "0x00000000000001ad428e4906ae43d8f9852d0dd6",
@@ -133,6 +135,7 @@
         {
           "name": "Seaport (OpenSea)",
           "event": "OrderFulfilled(bytes32,address,address,address,(uint8,address,uint256,uint256)[],(uint8,address,uint256,uint256,address)[])",
+          "configContract": "Seaport",
           "addresses": [
             "0x0000000000000068f116a894984e2db1123eb395"
           ]

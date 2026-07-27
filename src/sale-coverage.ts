@@ -28,6 +28,13 @@ export type Venue = {
   name: string;
   /** The event we decode, or would need to. */
   event: string;
+  /**
+   * The `contracts[].name` this venue is bound under in config.yaml. REQUIRED on a
+   * covered venue: `test/sale-coverage.test.ts` uses it to prove the binding exists,
+   * because a decoder with no binding yields zero rows while every handler test passes
+   * (the sprint-bug-190 defect). Omitted on uncovered venues — there is nothing to bind.
+   */
+  configContract?: string;
   /** Contract addresses, where a single deployment identifies the venue. */
   addresses?: string[];
   /** Why it is not covered — omitted when it is. */
@@ -73,6 +80,7 @@ const SEAPORT: Venue = {
   name: "Seaport (OpenSea)",
   event:
     "OrderFulfilled(bytes32,address,address,address,(uint8,address,uint256,uint256)[],(uint8,address,uint256,uint256,address)[])",
+  configContract: "Seaport",
   addresses: SEAPORT_ADDRESSES,
 };
 
