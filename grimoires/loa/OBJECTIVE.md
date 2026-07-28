@@ -24,10 +24,28 @@ To continue in a fresh session: `cd` into the repo for that step, then paste
 
 > Read `grimoires/loa/OBJECTIVE.md`, run `br ready -l mvp`, and continue.
 
-**Last session — 2026-07-28:** guardrails armed. MVP MODE in all three CLAUDE.md
+**Last session — 2026-07-28 (step 2, warplets):** warplets now returns **21,098
+holders holding 49,134 tokens** in `community_member_state` (was 0 rows). The
+cause was **not** a key mismatch — sonar emits `collectionKey = "warplets"` and
+`community_tracked_contracts.category_key = 'warplets'`, they agree, and 2.45M
+events had been landing correctly all along. The break was score-side: the
+warplets scoring child needs **1.76 GB peak RSS / 66s**, and the Trigger.dev
+child task runs on `small-2x` (1 GB), so it was OOM-killed every tick. An OOM
+kill is not a catchable throw, so `recordTickOutcome` never ran and the tick
+ledger stayed `expected` — 62 of them, 0 `ran`, the only community in that
+state. Fixed for now by a forced re-score through the real job path
+(`scripts/debug/rescore-community.ts warplets`).
+
+**⚠ Open ops action (needs zerker — no deploy credentials here):** set
+`COMMUNITY_SCORING_MACHINE_PRESET=medium-1x` (2 GB) in the Trigger.dev prod env
+and run `pnpm trigger:deploy` from score-api. The preset is read at deploy time.
+Until that lands, warplets is a frozen snapshot: every scheduled tick will OOM
+again and it will not pick up new events.
+
+**Step 1 (prior session):** guardrails armed. MVP MODE in all three CLAUDE.md
 files, `PARKED.md` in all three, all four Loa generators (continuous_learning,
 compound_learning, gpt_review, run_bridge) switched off, and the 7 steps created
-as `bd-dwq5.1`–`.7` under epic `bd-dwq5`. No application code changed yet.
+as `bd-dwq5.1`–`.7` under epic `bd-dwq5`.
 
 ---
 
