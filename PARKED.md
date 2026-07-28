@@ -18,3 +18,7 @@ Format: `YYYY-MM-DD — what it is — where (file:line or table)`
 2026-07-28 — 265 SQL migrations against 66 live tables — score-api
 2026-07-28 — 27 open PRs and 901 branches across the three repos, unclear which are live — all
 2026-07-28 — purupuru (51,752 holders), mad_lads (12,212), veecon (5,316), pythenians (3,238) all marked `paused` — score-api DB
+2026-07-28 — `config.mibera.yaml` has drifted from `config.yaml` (TrackedErc721 chain 80094 missing 9 Fractured Mibera addrs; EthTrackedErc721 chain 1 missing 14) — 3 tests in `test/verify-belt-config.test.ts` + 2 in `test/azuki-chain1-tracked-erc721.test.ts` fail on main, pre-existing — sonar
+2026-07-28 — `config.robinhood-sidecar.yaml` declares 4 addresses that appear in no other config (0x08dc7cb3…, 0x539cdd04…, 0x9ec6c5b9…, 0xa34d46ab…), so they are outside the registry — sonar
+2026-07-28 — 23 ERC-721 collections previously indexed holders under their raw 0x address as collectionKey (hardcoded map had 28, config bound 51); registry now names them, so existing rows carry the old key until re-index — sonar src/registry/contracts.ts
+2026-07-28 — `npx tsc --noEmit -p tsconfig.json` reports 553 errors on main, nearly all "run envio codegen" type absences — sonar
