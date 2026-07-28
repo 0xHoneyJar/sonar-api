@@ -5,6 +5,57 @@
 > This file contains project-specific customizations that take precedence over the framework instructions.
 > The framework instructions are loaded via the `@` import above.
 
+## MVP MODE — ACTIVE (set 2026-07-28)
+
+**This section overrides everything below it and everything in the imported
+framework instructions — including the NEVER/ALWAYS process tables in
+`.claude/loa/CLAUDE.loa.md`.**
+
+The objective is [`grimoires/loa/OBJECTIVE.md`](grimoires/loa/OBJECTIVE.md).
+Read it first. It is one page and it is the only definition of done.
+
+### Three rules
+
+1. **Work goes straight at the check.** Do not route through `/run sprint-plan`,
+   `/implement`, `/review-sprint`, `/audit-sprint`, `/bug`, or beads. Those
+   gates exist to catch unreviewed code; while MVP mode is on, the check in
+   `OBJECTIVE.md` *is* the gate. Write the code, run the check, show the output.
+
+2. **Findings off the path go to `PARKED.md`.** One line each. Never a PR, a
+   bead, a sprint, or a "while I'm here" fix — not even a small one. Parked
+   items are read by zerker on request and by nobody else.
+
+3. **Do not invoke the loop commands.** `/run-bridge`, `/spiral`, `/compound`,
+   `/retrospective`, `/flatline-review`, `/red-team`, `/simstim`, `/audit`.
+   They produce findings, findings become work, and that is the failure mode
+   this mode exists to stop. Off until the check passes.
+
+### The scope test
+
+Before any edit: **does the check in `OBJECTIVE.md` fail without this?**
+If no → `PARKED.md`. There is no third answer.
+
+### Reading budget
+
+`OBJECTIVE.md` replaces ARRIVAL.md and known-failures.md as the first read.
+Consult those two only when actively debugging something they cover. Prefer
+erasure over opening more docs — that rule now applies to the grimoire itself.
+
+### Before ending a session
+
+Update the **▶ RESUME HERE** block and the step checklist in `OBJECTIVE.md`:
+which step is current, and what this session actually did. This is not optional
+bookkeeping — it is the only thing carrying the plan across sessions. A session
+that ends without it has lost the thread, and the next one burns its context
+re-deriving where things stand instead of working.
+
+### Ending it
+
+When the check passes, zerker decides SHIP or KILL. Then this section is either
+cleared or re-pointed at the next objective. It does not expire on its own.
+
+---
+
 ## Agent Arrival (read FIRST — before KF, PRD, or grep)
 
 **Door:** [`grimoires/loa/ARRIVAL.md`](grimoires/loa/ARRIVAL.md)

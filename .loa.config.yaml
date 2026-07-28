@@ -482,9 +482,11 @@ update_check:
 # Autonomous skill extraction from debugging discoveries
 continuous_learning:
   # Master toggle - set to false to disable all continuous learning
-  enabled: true
+  # MVP MODE 2026-07-28: OFF. Skill extraction mid-implementation manufactures
+  # work. 240 skills already installed. Re-enable after the OBJECTIVE.md check passes.
+  enabled: false
   # Auto-extract skills during implementation phases (false = /retrospective only)
-  auto_extract: true
+  auto_extract: false
   # Require manual approval before skills become active
   require_approval: true
   # Directories for skill lifecycle management (all in State Zone)
@@ -519,7 +521,9 @@ continuous_learning:
 # PRD: grimoires/loa/prd.md | SDD: grimoires/loa/sdd.md
 compound_learning:
   # Master toggle - set to false to disable all compound learning
-  enabled: true
+  # MVP MODE 2026-07-28: OFF. Pattern synthesis feeds grimoires/loa/proposals/,
+  # which has 29 unread entries. Re-enable after the OBJECTIVE.md check passes.
+  enabled: false
 
   # -------------------------------------------------------------------------
   # Similarity Strategy (Layered: Semantic → Keyword fallback)
@@ -796,7 +800,10 @@ recursive_jit:
 gpt_review:
   # Master toggle - set to false to disable all GPT reviews
   # Note: Requires OPENAI_API_KEY environment variable (or in .env file)
-  enabled: true
+  # MVP MODE 2026-07-28: OFF. Reviews PRD/SDD/sprint documents we are not
+  # writing; its findings became work. The independent check is now the command
+  # in OBJECTIVE.md. Re-enable as a pre-ship gate, not a continuous generator.
+  enabled: false
   # API timeout in seconds
   timeout_seconds: 300
   # Maximum review iterations before auto-approve
@@ -1928,7 +1935,10 @@ eval:
 # Run Bridge — Autonomous Excellence Loop (v1.35.0)
 # =============================================================================
 run_bridge:
-  enabled: true
+  # MVP MODE 2026-07-28: OFF. The "Autonomous Excellence Loop" terminates kaironically
+  # — i.e. when it feels done, which is never — and its findings become queued bugs,
+  # lore candidates, and vision entries. Re-enable after the OBJECTIVE.md check passes.
+  enabled: false
   defaults:
     depth: 5
     flatline_threshold: 0.05
