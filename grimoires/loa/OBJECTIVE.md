@@ -10,16 +10,24 @@ defines "done". If work isn't traceable to the check below, it doesn't happen.
 
 ## ▶ RESUME HERE
 
-**Current step: 1 of 7 — unified contracts registry (sonar-api)**
+**What's next is a command, not something you have to remember:**
 
-To continue in a fresh session, paste exactly this:
+```bash
+br ready -l mvp --limit 0        # run from sonar-api/
+```
 
-> Read `grimoires/loa/OBJECTIVE.md` and continue from the current step.
+It prints exactly the steps that are unblocked right now. **Beads owns step
+state; this file owns the goal and the check.** There is no third source of
+truth, and nothing here needs hand-updating to stay accurate.
 
-**Last session — 2026-07-28:** guardrails armed. MVP MODE added to all three
-CLAUDE.md files, `PARKED.md` created in all three, all four Loa generators
-(continuous_learning, compound_learning, gpt_review, run_bridge) switched off.
-No application code changed yet.
+To continue in a fresh session: `cd` into the repo for that step, then paste
+
+> Read `grimoires/loa/OBJECTIVE.md`, run `br ready -l mvp`, and continue.
+
+**Last session — 2026-07-28:** guardrails armed. MVP MODE in all three CLAUDE.md
+files, `PARKED.md` in all three, all four Loa generators (continuous_learning,
+compound_learning, gpt_review, run_bridge) switched off, and the 7 steps created
+as `bd-dwq5.1`–`.7` under epic `bd-dwq5`. No application code changed yet.
 
 ---
 
@@ -94,22 +102,33 @@ Adding a community is that. Nothing else.
 
 ## The plan — 7 steps
 
-Each step is one `/goal` in one session. **Update this list and the RESUME block
-the moment a step completes** — a session that ends without updating them has
-lost the thread, which is the exact failure this file exists to stop.
+Tracked in beads under epic **`bd-dwq5`**, label `mvp`. Each step is one `/goal`
+in one session. Close each with `br close bd-dwq5.N` when it lands — that is the
+only bookkeeping, and `br ready` derives everything else from it.
 
-- [ ] **1. One registry** — sonar. A single contracts file where `chain` and
-      `standard` are fields. Modeled on `ecosystem-squid`'s `CONTRACTS` map.
-- [ ] **2. Fix warplets** — sonar. 0 holders → correct list. Proves the add path
-      actually works.
-- [ ] **3. Collapse the wiring** — sonar. 8 configs → 1. Delete the ~20 off-path
-      handlers; keep ERC-721 + Seaport.
-- [ ] **4. Serve the right table** — score. `/communities/:id/members` reads
-      `community_member_state`, not `community_core_member`.
-- [ ] **5. Trim the surface** — score. 31 `/communities` routes → the 4 the MVP
-      needs.
-- [ ] **6. Clean the registry** — db. Drop the 5 test fixtures; un-pause veecon.
-- [ ] **7. Run the check** — all 4 conditions green → ship card → the door.
+| id | step | repo |
+|---|---|---|
+| `bd-dwq5.1` | **One registry** — one contracts file; `chain` and `standard` are fields. Modeled on `ecosystem-squid`'s `CONTRACTS` map. | sonar |
+| `bd-dwq5.2` | **Fix warplets** — 0 holders → correct list. Proves the add path works. | sonar |
+| `bd-dwq5.3` | **Collapse the wiring** — 8 configs → 1; delete the ~20 off-path handlers. | sonar |
+| `bd-dwq5.4` | **Serve the right table** — `/members` reads `community_member_state`. | score |
+| `bd-dwq5.5` | **Trim the surface** — 31 `/communities` routes → 4. | score |
+| `bd-dwq5.6` | **Clean the registry** — drop 5 test fixtures; un-pause veecon. | db |
+| `bd-dwq5.7` | **Run the check** → ship card → the door. | all |
+
+Dependencies are wired — 1→2→3, 4→5, and 7 blocked by 3, 5 and 6 — so
+`br ready -l mvp` can only ever show work that is genuinely startable.
+
+### The one beads rule
+
+**While MVP mode is on, nothing new enters beads.** These 7 are the entire set.
+Everything else discovered goes to `PARKED.md`.
+
+Beads is a **burndown from 7 to 0**, not an inbox. That distinction is the whole
+fix: the previous attempt routed every adjacent problem into a beads task, so
+scope did not widen — it multiplied. There are 215 open issues across the three
+repos as evidence. Beads was never the problem; the rule pointing a firehose at
+it was.
 
 **Step 1's goal, to paste after `/goal`:**
 

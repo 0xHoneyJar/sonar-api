@@ -30,6 +30,18 @@ Read it first. It is one page and it is the only definition of done.
    They produce findings, findings become work, and that is the failure mode
    this mode exists to stop. Off until the check passes.
 
+### Beads while MVP mode is on
+
+The 7 steps live in beads as `bd-dwq5.1`–`.7` under epic `bd-dwq5`, label `mvp`.
+`br ready -l mvp` is how a session finds its next step; `br close bd-dwq5.N` is
+how it records one done. That is the entire beads surface.
+
+**Nothing new enters beads while this is open.** Those 7 are the whole set;
+everything else goes to `PARKED.md`. Beads is a **burndown from 7 to 0, not an
+inbox** — routing every adjacent problem into a task is what made scope multiply
+instead of widen. 215 open issues across the three repos is the evidence. The
+tool was never the problem; the rule pointing a firehose at it was.
+
 ### The scope test
 
 Before any edit: **does the check in `OBJECTIVE.md` fail without this?**
