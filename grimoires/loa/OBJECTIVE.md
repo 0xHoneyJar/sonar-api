@@ -22,6 +22,37 @@ Logged at `score-api/grimoires/loa/DECISIONS.md`.
 
 Tests 1,234 pass / 1 fail (pre-existing). `/communities` 36 routes → 4, live.
 
+### ▶ CLOSE-OUT — 2026-07-29 end of day. START HERE TOMORROW.
+
+**Everything is committed and pushed.** sonar `1945c1a9`, score-api `d33c3bc1`.
+Nothing held back, nothing uncommitted, no branch waiting.
+
+**State:** 9 of 9 in-scope communities non-empty, **44,735 holders**. score-api
+typecheck 0 / 2,104 tests pass. sonar 570 tests pass, 31 typecheck errors (all
+pre-existing `envio has no exported member` codegen gaps — never introduced by
+this work, and down from 553).
+
+**The belt is mid-backfill** after this morning's `envio start -r`. At close:
+`health=catchup, stalls=0`, four chains at tip, Ethereum ~18m out, Base ~1.6h.
+Check with `pnpm belt:progress`. A `FULL_STALL` on a single sample is usually
+HyperSync mid-commit, not a fault — sample over a longer interval before
+believing it.
+
+**~85,000 lines removed today**, `config.yaml` byte-identical throughout — the
+registry stayed authoritative the whole way. sonar `src/truth-contract` (20,075)
+and score-api story-v3 (18,074 → 559) are both gone.
+
+**THE ONLY THING THAT NEEDS ZERKER:** set `ALARM_DISCORD_WEBHOOK_URL` in the
+Trigger.dev prod env. Detection works and always did; the pager has never had a
+destination, which is why warplets sat dead for weeks. Today's fix makes an
+undelivered alarm land as `error` on the checker's own row — so a dead pager is
+now *visible*, but still not *working* until that variable exists.
+
+**Optional, not urgent, no order between them:** `src/svm/` (935 lines + 2 live
+Railway services — a decommissioning decision, not a cleanup); score-api's
+~4,900 remaining off-lane lines; the `self` / `sense` / `canonical` operator
+tools. All recorded in the PARKED.md files. Read them; don't mine them.
+
 ### Post-ship session — 2026-07-29
 
 Re-ran the check live against production: **all four conditions still hold** —
