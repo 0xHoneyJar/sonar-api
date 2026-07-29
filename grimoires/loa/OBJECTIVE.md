@@ -8,21 +8,34 @@ defines "done". If work isn't traceable to the check below, it doesn't happen.
 
 ---
 
-## ▶ RESUME HERE
+## ✅ SHIPPED — 2026-07-28
 
-**What's next is a command, not something you have to remember:**
+**All 7 steps closed. All 4 check conditions green. zerker's verdict: SHIP.**
+Logged at `score-api/grimoires/loa/DECISIONS.md`.
 
-```bash
-br ready -l mvp --limit 0        # run from sonar-api/
-```
+| condition | result |
+|---|---|
+| warplets returns a holders list | **21,098 holders / 49,134 tokens** (was 0) |
+| adding a contract = one registry entry | 8 configs → **1** (generated), 32 handlers → **6**, 85 entries |
+| `/members` serves the `community_member_state` spine | live: `?include_facts=true` → holdings, first_seen, tenure_days, roles |
+| all 9 in-scope communities return a list | **44,715 holders / 112,874 tokens**, none empty |
 
-It prints exactly the steps that are unblocked right now. **Beads owns step
-state; this file owns the goal and the check.** There is no third source of
-truth, and nothing here needs hand-updating to stay accurate.
+Tests 1,234 pass / 1 fail (pre-existing). `/communities` 36 routes → 4, live.
 
-To continue in a fresh session: `cd` into the repo for that step, then paste
+### Follow-ons carried out of the cycle
 
-> Read `grimoires/loa/OBJECTIVE.md`, run `br ready -l mvp`, and continue.
+1. **Redeploy the indexer** — the collapse is committed but not running in
+   production. Nothing sonar-side is live until it is.
+2. **Watch mibera's next index** — the `custodial` fix is unit-tested but has not
+   run against real data. mibera last indexed 2026-07-21.
+3. **Kitchen onboarding** writes `config.yaml` directly, which is now generated.
+   It must write a registry entry instead. Fails loudly; manual onboarding works.
+4. **`src/svm/`** — 24 files, still standing. Deleting it is an open decision.
+5. **The OOM blind spot** — an OOM-killed scoring child never records a tick
+   outcome, so nothing pages. It hid warplets for weeks. First thing worth fixing.
+
+MVP MODE stays on until the next objective is set or it is cleared. The parked
+lists in all three repos are the backlog — read them, don't mine them.
 
 **Last session — 2026-07-28 (step 3, collapse the wiring — closed):** `config.yaml`
 is now **generated** from `src/registry/contracts.ts` (`pnpm gen:config`), 994 → 174
