@@ -8,6 +8,7 @@ import { ZERO_ADDRESS } from "./constants";
 import { TRACKED_ERC721_COLLECTION_KEYS } from "./tracked-erc721/constants";
 import { recordAction } from "../lib/actions";
 import { isBurnAddress, isMintFromZero } from "../lib/mint-detection";
+import { isCustodialAddress } from "../registry/contracts";
 import { writeTokenOwnership } from "../lib/token-ownership";
 
 const ZERO = ZERO_ADDRESS.toLowerCase();
@@ -59,18 +60,25 @@ export async function handleTrackedErc721Transfer(
   // Skip writes during preload
   if ((context as any).isPreload) return;
 
+  // Custody, not ownership: a transfer into a staking vault leaves the depositor
+  // as the real holder, and the withdrawal back out returns a token they never
+  // stopped holding. Both sides are read off the registry's `custodial` field —
+  // no address literals and no per-community branch here.
+  const depositToCustody = isCustodialAddress(chainId, to) && from !== ZERO;
+  const withdrawFromCustody = isCustodialAddress(chainId, from) && to !== ZERO;
+
   // Per-token current ownership (Token entity) — FR-2 / #153 (ported from
   // cycle/sonar-belt-factory e58a51c). Mirrors the TrackedHolder count below
-  // so Token{owner} reconciles with TrackedHolder.tokenCount. Mibera main
-  // (0x6666…) is NOT in this handler's address list, so `to` is always the
-  // effective owner here. On burn (to a burn address) owner=ZERO + isBurned=true.
+  // so Token{owner} reconciles with TrackedHolder.tokenCount (EVANS I-3): on a
+  // custody deposit the holder count is not decremented, so the effective owner
+  // must stay `from`. On burn (to a burn address) owner=ZERO + isBurned=true.
   await updateTokenOwnership({
     context,
     contractAddress,
     chainId,
     tokenId,
     from,
-    to,
+    to: depositToCustody ? from : to,
     timestamp,
   });
 
@@ -156,6 +164,11 @@ export async function handleTrackedErc721Transfer(
       },
     });
   }
+
+  // Custody move — leave both counts alone. Decrementing the depositor would
+  // strip credit for an NFT they still own, and incrementing the vault would
+  // make it the collection's top "holder" (462 staked Mibera on 2026-07-28).
+  if (depositToCustody || withdrawFromCustody) return;
 
   // Normal transfer handling
   await adjustHolder({
@@ -308,9 +321,9 @@ export async function updateTokenOwnership({
     collection: contractAddress,
     chainId,
     tokenId,
-    // loa:shortcut: candidateOwner=to — tracked ERC-721 collections don't stake, so `to` is the
-    // owner; a staking tracked collection MUST resolve effectiveOwner here like
-    // mibera-collection.ts (else Token↔Holder diverges — EVANS I-3).
+    // `to` is the caller-resolved effective owner: the caller substitutes the
+    // depositor on a transfer into a custodial address, so Token{owner} tracks
+    // the same wallet TrackedHolder credits (EVANS I-3).
     candidateOwner: to,
     from,
     timestamp,

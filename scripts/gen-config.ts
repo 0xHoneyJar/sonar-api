@@ -21,7 +21,7 @@
  * Starting earlier than a contract's deploy costs sync time, never correctness.
  */
 import { writeFileSync } from "node:fs";
-import { CONTRACTS, type ContractEntry } from "../src/registry/contracts";
+import { TRACKED_CONTRACTS, type ContractEntry } from "../src/registry/contracts";
 
 const HEADER = `# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
 #
@@ -80,7 +80,7 @@ const CHAIN_EXTRAS: Record<number, string> = {
 const ORDER = [1, 42161, 7777777, 10, 8453, 80094];
 
 const byChain = new Map<number, ContractEntry[]>();
-for (const c of CONTRACTS) {
+for (const c of TRACKED_CONTRACTS) {
   byChain.set(c.chain, [...(byChain.get(c.chain) ?? []), c]);
 }
 
@@ -117,5 +117,5 @@ export const CONFIG_YAML = out;
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   writeFileSync(new URL("../config.yaml", import.meta.url), CONFIG_YAML);
-  console.log(`config.yaml: ${CONTRACTS.length} contracts across ${byChain.size} chains`);
+  console.log(`config.yaml: ${TRACKED_CONTRACTS.length} contracts across ${byChain.size} chains`);
 }

@@ -33,6 +33,17 @@ erc721 + seaport (133 → 83 entries). All 9 in-scope communities hold their exa
 baseline holder counts; `envio codegen --config config.yaml` exits 0; failing tests
 7 → 1 (the rest pre-existing). Commit `3fa230e3`.
 
+**Step 3 reopened and re-closed — 2026-07-28 (custody):** the collapse had dropped
+the Mibera staking passthrough, which would have made the paddlefi vault the #1
+mibera holder at 455 (real top wallet: 395) and stripped credit from 462 stakers on
+the next re-index. Restored as a **field**, not a branch: `custodial: true` on the
+registry entry, the two vaults registered under `mibera_collection`, and the ERC-721
+handler skips holder adjustment when either counterparty is custodial. Custodial
+entries are excluded from `TRACKED_CONTRACTS`, so `config.yaml` is byte-identical
+(83 contracts, unchanged). `test/tracked-erc721-custody.test.ts` (4 tests) fails 3/4
+without the fix; suite 1234 passed, only the 3 known pre-existing files fail;
+`envio codegen` exits 0; all 9 communities hold their exact baselines.
+
 **⚠ Carried into step 7:** Kitchen still patches `config.yaml` directly
 (`src/kitchen/config-patcher.ts`) — it has to write a registry entry instead, or its
 next onboarding fails the byte-identity test. **`src/svm/` was NOT deleted** — see

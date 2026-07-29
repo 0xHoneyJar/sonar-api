@@ -4,6 +4,8 @@ import { parse } from "yaml";
 import { CONFIG_YAML } from "../scripts/gen-config";
 import {
   CONTRACTS,
+  TRACKED_CONTRACTS,
+  isCustodialAddress,
   findContract,
   addressesByChain,
   erc721CollectionKeys,
@@ -88,10 +90,42 @@ describe("contracts registry ↔ config.yaml", () => {
 
   it("has no entry that config.yaml does not declare (one list, both ways)", () => {
     const declaredKeys = new Set(declared.map((d) => `${d.chain}:${d.address}`));
-    const extra = CONTRACTS.map((c) => `${c.chain}:${c.address}`).filter(
+    const extra = TRACKED_CONTRACTS.map((c) => `${c.chain}:${c.address}`).filter(
       (k) => !declaredKeys.has(k),
     );
     expect(extra).toEqual([]);
+  });
+
+  it("keeps custody addresses out of config.yaml", () => {
+    // A custodial entry is a recognition rule, not a contract to index. If one
+    // leaks into the generated config the vault's own Transfers get indexed.
+    const declaredKeys = new Set(declared.map((d) => `${d.chain}:${d.address}`));
+    const custodial = CONTRACTS.filter((c) => c.custodial);
+    expect(custodial.length).toBeGreaterThan(0);
+    for (const c of custodial) {
+      expect(declaredKeys.has(`${c.chain}:${c.address}`)).toBe(false);
+      expect(findContract(c.chain, c.address)).toBeUndefined();
+      expect(isCustodialAddress(c.chain, c.address)).toBe(true);
+    }
+  });
+
+  it("registers the Mibera staking vaults as custodial", () => {
+    // 462 Mibera were held by these two on 2026-07-28 (paddlefi 455, jiko 7).
+    for (const address of [
+      "0x242b7126f3c4e4f8cbd7f62571293e63e9b0a4e1",
+      "0x8778ca41cf0b5cd2f9967ae06b691daff11db246",
+    ]) {
+      const entry = CONTRACTS.find((c) => c.chain === 80094 && c.address === address);
+      expect(entry, `${address} missing from registry`).toBeDefined();
+      expect(entry?.custodial).toBe(true);
+      expect(entry?.community).toBe("mibera_collection");
+    }
+  });
+
+  it("treats a non-custodial address as non-custodial", () => {
+    expect(isCustodialAddress(80094, "0x6666397dfe9a8c469bf65dc744cb1c733416c420")).toBe(
+      false,
+    );
   });
 
   it("keys entries uniquely by (chain, address)", () => {
@@ -171,7 +205,7 @@ describe("registry-derived views", () => {
 
   it("maps every ERC-721 address to a non-empty community key", () => {
     const keys = erc721CollectionKeys();
-    const erc721 = CONTRACTS.filter((c) => c.standard === "erc721");
+    const erc721 = TRACKED_CONTRACTS.filter((c) => c.standard === "erc721");
     expect(erc721.length).toBeGreaterThan(0);
     for (const c of erc721) expect(keys[c.address]).toBe(c.community);
     expect(Object.values(keys).filter((v) => !v)).toEqual([]);

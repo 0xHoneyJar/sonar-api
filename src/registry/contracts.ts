@@ -37,6 +37,18 @@ export interface ContractEntry {
   readonly standard: TokenStandard;
   /** Block the belt starts indexing this contract from. */
   readonly startBlock: number;
+  /**
+   * True for a custody address — a staking vault or escrow that holds tokens on
+   * a user's behalf. A custodial entry is NOT indexed (it is excluded from
+   * config.yaml and from every tracked-contract view); it exists so the ERC-721
+   * handler can recognize the counterparty and leave holder credit with the
+   * user who deposited. `community` records which community it custodies for,
+   * `standard` the standard of the tokens it holds.
+   *
+   * Custody is a field, not a branch: any community that stakes gets an entry
+   * here and nothing else changes.
+   */
+  readonly custodial?: boolean;
 }
 
 // prettier-ignore
@@ -124,11 +136,38 @@ export const CONTRACTS: readonly ContractEntry[] = [
   { community: "mibera_gif", address: "0x230945e0ed56ef4de871a6c0695de265de23d8d8", chain: 80094, standard: "erc721", startBlock: 4130866 }, // mibera_gif
   { community: "mibera_collection", address: "0x6666397dfe9a8c469bf65dc744cb1c733416c420", chain: 80094, standard: "erc721", startBlock: 3837808 }, // Mibera Collection
   { community: "seaport_v1_6", address: "0x0000000000000068f116a894984e2db1123eb395", chain: 80094, standard: "seaport", startBlock: 3837808 }, // Seaport v1.6
+
+  // Custody addresses — not indexed. Mibera staking: 462 tokens sat in these two
+  // on 2026-07-28 (paddlefi 455, jiko 7, balanceOf against 0x6666…). Without
+  // them the vault indexes as the #1 mibera holder and 462 stakers lose credit.
+  { community: "mibera_collection", address: "0x242b7126f3c4e4f8cbd7f62571293e63e9b0a4e1", chain: 80094, standard: "erc721", startBlock: 3837808, custodial: true }, // paddlefi vault
+  { community: "mibera_collection", address: "0x8778ca41cf0b5cd2f9967ae06b691daff11db246", chain: 80094, standard: "erc721", startBlock: 3837808, custodial: true }, // jiko staking
 ];
 
-const byKey: ReadonlyMap<string, ContractEntry> = new Map(
-  CONTRACTS.map((c) => [`${c.chain}:${c.address}`, c]),
+/**
+ * The entries that are actually indexed — everything except custody addresses.
+ * config.yaml and every address view below derive from this, so a custodial
+ * entry can never become a bound contract.
+ */
+export const TRACKED_CONTRACTS: readonly ContractEntry[] = CONTRACTS.filter(
+  (c) => !c.custodial,
 );
+
+const byKey: ReadonlyMap<string, ContractEntry> = new Map(
+  TRACKED_CONTRACTS.map((c) => [`${c.chain}:${c.address}`, c]),
+);
+
+const custodialKeys: ReadonlySet<string> = new Set(
+  CONTRACTS.filter((c) => c.custodial).map((c) => `${c.chain}:${c.address}`),
+);
+
+/**
+ * True when `address` custodies tokens for a user on `chain` (staking vault,
+ * escrow). Transfers to and from such an address move custody, not ownership.
+ */
+export function isCustodialAddress(chain: number, address: string): boolean {
+  return custodialKeys.has(`${chain}:${address.toLowerCase()}`);
+}
 
 /** The entry for `address` on `chain`, or undefined if it is not tracked. */
 export function findContract(
@@ -146,7 +185,7 @@ export function isTrackedContract(chain: number, address: string): boolean {
 /** chainId → the set of lowercased addresses tracked on that chain. */
 export function addressesByChain(): ReadonlyMap<number, ReadonlySet<string>> {
   const out = new Map<number, Set<string>>();
-  for (const c of CONTRACTS) {
+  for (const c of TRACKED_CONTRACTS) {
     const set = out.get(c.chain) ?? new Set<string>();
     set.add(c.address);
     out.set(c.chain, set);
@@ -164,7 +203,7 @@ export function addressesByChain(): ReadonlyMap<number, ReadonlySet<string>> {
  */
 export function erc721CollectionKeys(): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const c of CONTRACTS) {
+  for (const c of TRACKED_CONTRACTS) {
     if (c.standard === "erc721") out[c.address] = c.community;
   }
   return out;
