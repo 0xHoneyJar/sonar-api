@@ -22,6 +22,72 @@ Logged at `score-api/grimoires/loa/DECISIONS.md`.
 
 Tests 1,234 pass / 1 fail (pre-existing). `/communities` 36 routes → 4, live.
 
+### Post-ship session — 2026-07-29
+
+Re-ran the check live against production: **all four conditions still hold** —
+44,715 holders across the 9, 0 empty, `/v1/communities/:id/members` serving
+facts + roles.
+
+**Kept: the alarm-delivery fix (follow-on 5).** Detection already existed and
+was firing (`silent_drop`, warplets, hourly). The hole was the sink: the
+checker persisted `delivered: deliverable.length` — the count that passed the
+cooldown filter, not the count the pager took. Production showed
+`raised: 1, delivered: 1` beside an EMPTY `alarms` map, which is only reachable
+when every `postDiscordAlarm` returned false. Delivery is now counted honestly
+and an undelivered alarm lands as `error` on the checker's own row — the one
+fault that cannot page itself. This is what let warplets stay dark for weeks.
+
+**Reverted: a chain-order fix for mibera.** Diagnosis was right — mibera has
+been frozen since 2026-07-21 because sonar's `Action` carries no `blockNumber`/
+`transactionIndex`, and story-v3's exact-capture gate rejects the 46 rows that
+arrived after (measured: 46 `source_event_identity_missing` + 46
+`transaction_ordering_incomplete`). The history that DOES have block numbers
+came from a one-off RPC backfill (`scripts/ops/backfill-tx-identity.ts`, run
+2026-07-19, deleted 2026-07-23), not from the indexer — which has never emitted
+them for any community (3.8M of 3.9M rows lack them).
+
+**But story-v3 is not in the MVP**, and the check does not fail without it:
+mibera returns 2,726 holders, so condition 4 passes. The fix touched the sonar
+schema (forcing a re-index), the bronze upsert, and the wire contract — real
+work for a path the MVP does not use. Reverted whole rather than carried as
+scope. mibera stays stale until story-v3 is actually in scope; that is the
+trade, and it is deliberate.
+
+**Superseded 2026-07-29 (score-api):** story-v3 was disabled for mibera
+(`community_story_configs.enabled=false` — the only row), the v3 lane branch was
+cut from `trigger/jobs/community-goal-scoring.ts`, and the 4 files that fell
+unreachable (6,439 lines: `story-run-orchestrator`, `story-snapshot-store`,
+`story-truth-gates`, `story-snapshot-publisher`) plus 5 story-only test files
+were deleted. **mibera is unfrozen** — 2,746 holders, `generated_at`
+2026-07-29, via the legacy lane; the other 8 in-scope communities are
+unchanged; `community_story_events` (55,624 rows) preserved.
+
+**Needs zerker:** (a) `ALARM_DISCORD_WEBHOOK_URL` in the Trigger.dev prod env —
+alarms have been going nowhere; (b) `COMMUNITY_SCORING_MACHINE_PRESET=medium-1x`
+(unchanged from below — warplets logged 77 never-run ticks, latest 02:00Z).
+
+### Post-ship session — 2026-07-29 (truth-contract removed)
+
+`src/truth-contract/` is gone — 45 files, the largest off-lane subsystem here and
+the original scope drift this cycle exists to undo. Removed together so nothing is
+left half-wired: the subsystem, its 19 vitest files + `truth-promotion-gate.test.mjs`,
+`tsconfig.truth-contract.json`, the 14 `/truth/` package.json scripts, 3
+`scripts/verify-truth-*` files, `scripts/staged-reconciler-harness.ts` (truth-only,
+name doesn't match `/truth/`), and `.github/workflows/truth-contract.yml` (all four
+of its jobs were truth verifiers). A reachability rescan from the real entry points —
+side-effect imports included, so the MVP handlers are not miscounted as dead — found
+exactly one cascade: `src/collection-resolver/trust-protocol.ts`, whose only non-truth
+consumer was the harness. Removed. **33,921 lines deleted.**
+
+Checks: tsc 31 errors before → **31 after, byte-identical breakdown**; suite
+**570 passed / 48 skipped / 0 failed** (was 734/48/0 — the delta is the 164 truth
+tests); `envio codegen` exit 0; `config.yaml` md5 `f5e72b32…` **unchanged**; all 9
+communities hold their exact baselines (warplets 21,098 … nodes_by_hunter 657).
+
+**Committed, deliberately NOT pushed** — main auto-deploys and the belt is
+mid-backfill (Base and Ethereum still catching up). Pushing restarts hours of
+indexing for a change that touches no runtime path.
+
 ### Follow-ons carried out of the cycle
 
 1. **Redeploy the indexer** — the collapse is committed but not running in
