@@ -8,6 +8,10 @@ import { createHasuraCollectionStatusReader, beltGraphqlUrlFromEnv } from "./has
 import { MemoryIngestJobStore } from "./ingest-store.js";
 import { kitchenWorkerEnabled, startKitchenIngestWorker } from "./ingest-worker.js";
 import {
+  createHasuraOwnedTokensReader,
+  type OwnedTokensReader,
+} from "./owned-tokens-reader.js";
+import {
   createHasuraOwnershipSnapshotReader,
   type OwnershipSnapshotReader,
 } from "./ownership-snapshot-reader.js";
@@ -203,6 +207,23 @@ function createOwnershipSnapshotReader(): OwnershipSnapshotReader {
   };
 }
 
+function createOwnedTokensReader(): OwnedTokensReader {
+  const monobelt = createHasuraOwnedTokensReader();
+  const rhUrl = robinhoodGraphqlUrlFromEnv();
+  const rhAdmin = process.env.ROBINHOOD_HASURA_ADMIN_SECRET?.trim();
+  if (!rhUrl) return monobelt;
+  const robinhood = createHasuraOwnedTokensReader({ url: rhUrl, adminSecret: rhAdmin });
+  return {
+    async readOwnedTokens(args) {
+      const subject = parseCaip10(args.caip10);
+      if (subject?.network_reference === String(ROBINHOOD_CHAIN_ID)) {
+        return robinhood.readOwnedTokens(args);
+      }
+      return monobelt.readOwnedTokens(args);
+    },
+  };
+}
+
 export async function createKitchenServer() {
   const store = await resolveIngestStore();
   const reader = createStatusReader();
@@ -213,6 +234,7 @@ export async function createKitchenServer() {
     preparationRuntime,
     readChainProgress: readChainProgressViaGraphql,
     ownershipSnapshotReader: createOwnershipSnapshotReader(),
+    ownedTokensReader: createOwnedTokensReader(),
   });
   return { app, store, reader };
 }
