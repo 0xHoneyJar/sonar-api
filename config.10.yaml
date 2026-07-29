@@ -1,0 +1,96 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+#
+# Runtime env vars (read by handlers, not by envio):
+#   NATS_URL                  — JetStream connection URI (TLS-only)
+#   NATS_TLS_CA               — path to CA bundle for the cluster's NATS instance
+#   SONAR_SIGNING_SEED_HEX    — 32-byte (64 hex chars) Ed25519 seed for the
+#                               events-pillar signer. Absent → publish layer
+#                               stays disabled (fail-soft); the indexer still
+#                               writes Envio entities as before.
+# See src/lib/events-publisher.ts and the cluster-events-pillar-v1 build doc.
+name: thj-indexer-10
+# Cache-bust: Path ε rpc-fix deploy 2026-05-27 (Railway BuildKit cache evicted by content change)
+contracts:
+  - name: HoneyJar
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Static ERC721 collections for holder tracking
+  - name: TrackedErc721
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  # MiberaSets - ERC1155 Sets collection on Optimism (airdropped from distribution wallet)
+  - name: MiberaSets
+    handler: src/EventHandlers.ts
+    events:
+      - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+        field_selection:
+          transaction_fields:
+            - hash
+  # MiberaZora1155 - ERC1155 collection on Optimism (Zora platform)
+  - name: MiberaZora1155
+    handler: src/EventHandlers.ts
+    events:
+      - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+        field_selection:
+          transaction_fields:
+            - hash
+  # MirrorObservability - tracks WritingEditions article purchases (Mibera lore articles)
+  - name: MirrorObservability
+    handler: src/EventHandlers.ts
+    events:
+      - event: WritingEditionPurchased(address indexed clone, uint256 tokenId, address indexed recipient, uint256 price, string message)
+        field_selection:
+          transaction_fields:
+            - hash
+chains:
+  
+  # Optimism
+  - id: 10
+    start_block: 107558369 # Mirror Observability deployment (July 30, 2023) - earliest for Mibera articles
+    contracts:
+      - name: HoneyJar
+        address:
+          - '0xe1d16cc75c9f39a2e0f5131eb39d4b634b23f301' # HoneyJar4
+        start_block: 125752663 # HoneyJar4 OP deployment (tx 0x5eb3189d…851b)
+      # Mibera Sets - ERC1155 collection (token IDs 8-11 = Strong Set, 12 = Super Set)
+      - name: MiberaSets
+        address:
+          - '0x886d2176d899796cd1affa07eff07b9b2b80f1be'
+        start_block: 125031052 # MiberaSets OP deployment (tx 0xa85e00a6…412b)
+      # Mibera Zora - ERC1155 collection on Optimism (Zora platform)
+      - name: MiberaZora1155
+        address:
+          - '0x427a8f2e608e185eece69aca15e535cd6c36aad8' # mibera_zora
+        start_block: 112614910 # MiberaZora1155 OP deployment (tx 0xdb83bc94…940f)
+      # Mirror Observability - tracks WritingEditions article purchases on Optimism
+      - name: MirrorObservability
+        address:
+          - '0x4c2393aae4f0ad55dfd4ddcfa192f817d1b28d1f'
+      # Mibera Article ERC-721s (WritingEditions clones) - transfer tracking
+      - name: TrackedErc721
+        address:
+          - '0x6b31859e5e32a5212f1ba4d7b377604b9d4c7a60' # lore_1_introducing_mibera
+          - '0x9247edf18518c4dccfa7f8b2345a1e8a4738204f' # lore_2_honey_online_offline
+          - '0xb2c7f411aa425d3fce42751e576a01b1ff150385' # lore_3_bera_kali_acc
+          - '0xa12064e3b1f6102435e77aa68569e79955070357' # lore_4_bgt_network_spirituality
+          - '0x6ca29eed22f04c1ec6126c59922844811dcbcdfa' # lore_5_initiation_ritual
+          - '0x7988434e1469d35fa5f442e649de45d47c3df23c' # lore_6_miberamaker_design
+          - '0x96c200ec4cca0bc57444cfee888cfba78a1ddbd8' # lore_7_miberamaker_design
+
+# V3: unordered multichain and preload are now defaults (removed deprecated flags)
