@@ -54,7 +54,7 @@ export interface ProjectHitInput {
   readonly include_binding: boolean;
 }
 
-const classifyStandard = (
+export const classifyStandard = (
   interfaces: InterfaceProbeBits,
 ): { standard: DetectedStandard; recognition: "recognized" | "ambiguous"; quality: "confirmed" | "unknown" } => {
   const erc721 = interfaces.erc721 === true;

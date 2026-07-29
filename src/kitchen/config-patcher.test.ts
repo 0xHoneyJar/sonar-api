@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  appendTrackedErc1155ToChainBlock,
   appendTrackedErc721ToChainBlock,
   contractListedInChainBlock,
   patchConfigForKitchenIngest,
@@ -84,6 +85,67 @@ describe("config-patcher", () => {
       key: { chainId: 1, contract: "0xa20cf9b0874c3e46b344deaeea9c2e0c3e1db37d" },
     });
     expect(changed).toBe(false);
+  });
+
+  it("creates a TrackedErc1155 block for an observed erc1155", () => {
+    const { changed, configYaml } = patchConfigForKitchenIngest({
+      configYaml: FIXTURE,
+      key: { chainId: 80094, contract: "0xecA03517c5195F1edD634DA6D690D6c72407c40c" },
+      label: "mibera_candies",
+      tokenStandard: "erc1155",
+    });
+    expect(changed).toBe(true);
+    expect(configYaml).toContain(
+      [
+        "      # Kitchen ingest — community onboarding ERC-1155 holder tracking",
+        "      - name: TrackedErc1155",
+        "        address:",
+        "          - 0xeca03517c5195f1edd634da6d690d6c72407c40c # mibera_candies",
+      ].join("\n"),
+    );
+    // The 721 block for this chain is untouched.
+    expect(configYaml).toContain("      - name: TrackedErc721");
+  });
+
+  it("creates EthTrackedErc1155 for an erc1155 on Ethereum (envio #120 shape)", () => {
+    const { configYaml } = patchConfigForKitchenIngest({
+      configYaml: FIXTURE,
+      key: { chainId: 1, contract: "0x2079812353e2c9409A788FBF5f383fa62aD85bE8" },
+      label: "bobu",
+      tokenStandard: "erc1155",
+    });
+    expect(configYaml).toContain("- name: EthTrackedErc1155");
+    expect(configYaml).toContain("0x2079812353e2c9409a788fbf5f383fa62ad85be8 # bobu");
+  });
+
+  it("appends into an existing TrackedErc1155 address list", () => {
+    const existing = [
+      "  - id: 8453",
+      "    contracts:",
+      "      - name: TrackedErc1155",
+      "        address:",
+      "          - 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # existing",
+    ].join("\n");
+    const patched = appendTrackedErc1155ToChainBlock(
+      existing,
+      "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "new_collection",
+    );
+    expect(patched).toContain(
+      [
+        "          - 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # existing",
+        "          - 0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb # new_collection",
+      ].join("\n"),
+    );
+    expect(patched.match(/^        address:$/gm)).toHaveLength(1);
+  });
+
+  it("defaults to the erc721 belt contract when no standard is given", () => {
+    const { configYaml } = patchConfigForKitchenIngest({
+      configYaml: FIXTURE,
+      key: { chainId: 80094, contract: "0x1111111111111111111111111111111111111111" },
+    });
+    expect(configYaml).not.toContain("TrackedErc1155");
   });
 
   it("sanitizes labels before embedding in YAML comments", () => {

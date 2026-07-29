@@ -58,6 +58,7 @@ import "./handlers/paddlefi";
 import "./handlers/puru-apiculture1155";
 import "./handlers/seaport";
 import "./handlers/sf-vaults";
+import "./handlers/tracked-erc1155";
 import "./handlers/tracked-erc20";
 import "./handlers/tracked-erc721";
 import "./handlers/vm-minted";

@@ -52,6 +52,8 @@ export interface PreparationCapability {
     | "belt.eth-erc721"
     | "belt.evm-erc721"
     | "belt.evm-erc721.robinhood-sidecar"
+    | "belt.eth-erc1155"
+    | "belt.evm-erc1155"
     | "unsupported";
   prepareAdapterVersion: string;
 }

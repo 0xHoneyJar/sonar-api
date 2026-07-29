@@ -259,6 +259,41 @@ function operatorRpcUrls(
   return [...new Set(urls)];
 }
 
+/**
+ * Multi-chain live cut (CR-RECOG-PROBE). Operator env overrides preferred;
+ * public HTTPS fallbacks keep local/dev probes unblocked. Shared with Kitchen
+ * admission-time token-standard detection.
+ */
+export function liveEvmRpcUrlsByNetwork(
+  env: NodeJS.ProcessEnv = process.env,
+): Readonly<Record<string, readonly string[]>> {
+  return {
+    "eip155:1": operatorRpcUrls(env, "ETH_RPC_URL", [
+      "https://ethereum-rpc.publicnode.com",
+      "https://eth.drpc.org",
+    ]),
+    "eip155:8453": operatorRpcUrls(env, "BASE_RPC_URL", [
+      "https://base-rpc.publicnode.com",
+      "https://base.drpc.org",
+    ]),
+    "eip155:10": operatorRpcUrls(env, "OPTIMISM_RPC_URL", [
+      "https://optimism-rpc.publicnode.com",
+      "https://optimism.drpc.org",
+    ]),
+    "eip155:42161": operatorRpcUrls(env, "ARBITRUM_RPC_URL", [
+      "https://arbitrum-one-rpc.publicnode.com",
+      "https://arbitrum.drpc.org",
+    ]),
+    "eip155:80094": operatorRpcUrls(env, "BERACHAIN_RPC_URL", [
+      "https://berachain-rpc.publicnode.com",
+      "https://rpc.berachain.com",
+    ]),
+    "eip155:4663": operatorRpcUrls(env, "ROBINHOOD_RPC_URL", [
+      "https://rpc.mainnet.chain.robinhood.com",
+    ]),
+  };
+}
+
 function createLiveDeps(env: NodeJS.ProcessEnv): {
   readonly deps: BoundedResolverDeps;
   readonly config: BoundedResolverConfig;
@@ -266,33 +301,7 @@ function createLiveDeps(env: NodeJS.ProcessEnv): {
   const clock = createProcessMonotonicClock();
   const rpc = createHttpEvmRpcPort({
     clock,
-    urlsByNetwork: {
-      // Multi-chain live cut (CR-RECOG-PROBE). Operator env overrides preferred;
-      // public HTTPS fallbacks keep local/dev probes unblocked.
-      "eip155:1": operatorRpcUrls(env, "ETH_RPC_URL", [
-        "https://ethereum-rpc.publicnode.com",
-        "https://eth.drpc.org",
-      ]),
-      "eip155:8453": operatorRpcUrls(env, "BASE_RPC_URL", [
-        "https://base-rpc.publicnode.com",
-        "https://base.drpc.org",
-      ]),
-      "eip155:10": operatorRpcUrls(env, "OPTIMISM_RPC_URL", [
-        "https://optimism-rpc.publicnode.com",
-        "https://optimism.drpc.org",
-      ]),
-      "eip155:42161": operatorRpcUrls(env, "ARBITRUM_RPC_URL", [
-        "https://arbitrum-one-rpc.publicnode.com",
-        "https://arbitrum.drpc.org",
-      ]),
-      "eip155:80094": operatorRpcUrls(env, "BERACHAIN_RPC_URL", [
-        "https://berachain-rpc.publicnode.com",
-        "https://rpc.berachain.com",
-      ]),
-      "eip155:4663": operatorRpcUrls(env, "ROBINHOOD_RPC_URL", [
-        "https://rpc.mainnet.chain.robinhood.com",
-      ]),
-    },
+    urlsByNetwork: liveEvmRpcUrlsByNetwork(env),
   });
   // Lenient indexed so recognized ERC-721/1155 can admit Generate before
   // Kitchen inventory snapshots cover arbitrary contracts.

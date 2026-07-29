@@ -139,9 +139,9 @@ describe("canonical collection preparation", () => {
   });
 
   it("returns typed unsupported outcomes without creating jobs", async () => {
-    const erc1155 = await request(evmRequest({ token_standard: "erc1155" }));
-    expect(erc1155.status).toBe(422);
-    await expect(erc1155.json()).resolves.toMatchObject({
+    const noWorker = await request(evmRequest({ token_standard: "compressed_nft" }));
+    expect(noWorker.status).toBe(422);
+    await expect(noWorker.json()).resolves.toMatchObject({
       error: { code: "unsupported_standard" },
     });
 
@@ -160,6 +160,14 @@ describe("canonical collection preparation", () => {
       error: { code: "capability_disabled" },
     });
     expect(await store.listByStatus("queued")).toHaveLength(0);
+  });
+
+  it("admits erc1155 on the generic 1155 preparation path", async () => {
+    const res = await request(evmRequest({ token_standard: "erc1155" }));
+    expect(res.status).toBe(202);
+    await expect(res.json()).resolves.toMatchObject({
+      capability: { prepare_adapter_id: "belt.evm-erc1155" },
+    });
   });
 
   it("returns typed unsupported-network and degraded outcomes", async () => {
