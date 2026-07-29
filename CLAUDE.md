@@ -42,6 +42,31 @@ inbox** — routing every adjacent problem into a task is what made scope multip
 instead of widen. 215 open issues across the three repos is the evidence. The
 tool was never the problem; the rule pointing a firehose at it was.
 
+### The MVP lane — everything not listed here is OUT OF SCOPE
+
+| in the lane | what it is |
+|---|---|
+| `src/registry/contracts.ts` | THE registry — one entry per contract |
+| `config.yaml` | generated from the registry (`pnpm gen:config`); never hand-edited |
+| `src/handlers/tracked-erc721.ts` | ERC-721 `Transfer` → holder credit |
+| `src/handlers/seaport.ts` | marketplace sales |
+| `src/kitchen/` | community onboarding |
+
+That is the whole lane. **If a file is not on it, do not fix it, extend it, or
+carry it as scope — one line in `PARKED.md` and move on.**
+
+Live code is NOT the same as in-scope code. The 2026-07-29 cleanup removed 23,908
+lines of *unreachable* code here; it deliberately left things that still run but
+aren't needed. Known live-but-out-of-scope:
+
+- **`src/svm/`** — the Solana indexer, ~4.5k lines, with two live Railway
+  services (`svm-webhook`, `svm-backfill-worker`). Solana is out of MVP scope and
+  both its communities are paused. Removing it is a decommissioning decision
+  (stop the services first), not a cleanup.
+- **`src/self/`, `src/truth-contract/`** — operator CLIs, reachable via
+  `pnpm self` / `pnpm truth`. Out of the lane, but do not delete: an earlier scan
+  that missed their CLI entry points would have removed them.
+
 ### The scope test
 
 Before any edit: **does the check in `OBJECTIVE.md` fail without this?**
