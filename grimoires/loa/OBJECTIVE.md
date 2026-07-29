@@ -24,7 +24,21 @@ To continue in a fresh session: `cd` into the repo for that step, then paste
 
 > Read `grimoires/loa/OBJECTIVE.md`, run `br ready -l mvp`, and continue.
 
-**Last session — 2026-07-28 (step 2, warplets):** warplets now returns **21,098
+**Last session — 2026-07-28 (step 3, collapse the wiring — closed):** `config.yaml`
+is now **generated** from `src/registry/contracts.ts` (`pnpm gen:config`), 994 → 174
+lines, and `test/contract-registry.test.ts` asserts byte-identity — so the 41-vs-50
+double-declaration cannot come back. 7 extra belt configs gone, ~30 handlers gone,
+two left: `TrackedErc721.Transfer` and `Seaport.OrderFulfilled`. Registry trimmed to
+erc721 + seaport (133 → 83 entries). All 9 in-scope communities hold their exact
+baseline holder counts; `envio codegen --config config.yaml` exits 0; failing tests
+7 → 1 (the rest pre-existing). Commit `3fa230e3`.
+
+**⚠ Carried into step 7:** Kitchen still patches `config.yaml` directly
+(`src/kitchen/config-patcher.ts`) — it has to write a registry entry instead, or its
+next onboarding fails the byte-identity test. **`src/svm/` was NOT deleted** — see
+the report; that is zerker's call, not a silent one.
+
+**Step 2 (prior session, warplets):** warplets now returns **21,098
 holders holding 49,134 tokens** in `community_member_state` (was 0 rows). The
 cause was **not** a key mismatch — sonar emits `collectionKey = "warplets"` and
 `community_tracked_contracts.category_key = 'warplets'`, they agree, and 2.45M
