@@ -140,16 +140,10 @@ describe("hermetic Mibera producer generation", () => {
     ).toBe(true);
 
     expect(sha256Hex(denominatorBytes)).toBe(MIBERA_DENOMINATOR_BYTES_SHA256);
-    expect(sha256Hex(Uint8Array.from(readFileSync("config.mibera.yaml")))).toBe(
-      MIBERA_CONFIG_BYTES_SHA256,
-    );
-    expect(
-      sha256Hex(Uint8Array.from(readFileSync("src/handlers/mibera-collection.ts"))),
-    ).toBe(MIBERA_HANDLER_BYTES_SHA256);
-    expect(
-      sha256Hex(
-        Uint8Array.from(readFileSync("src/belts/mibera/EventHandlers.mibera.ts")),
-      ),
-    ).toBe(MIBERA_ADAPTER_BYTES_SHA256);
+    // The three source-file byte pins (config.mibera.yaml, mibera-collection.ts,
+    // EventHandlers.mibera.ts) were dropped at bd-dwq5.3 with the files they
+    // pinned. The denominator-bytes pin above is the assertion that carries the
+    // fail-closed behaviour; the file pins only restated that those files had
+    // not changed, which a deleted file cannot express.
   });
 });

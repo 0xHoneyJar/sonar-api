@@ -2,24 +2,17 @@ import {
   indexer,
   type EvmOnEventContext,
   type TrackedHolder as TrackedHolderEntity,
-  type MiberaStakedToken as MiberaStakedTokenEntity,
-  type MiberaStaker as MiberaStakerEntity,
 } from "envio";
 
 import { ZERO_ADDRESS } from "./constants";
 import { TRACKED_ERC721_COLLECTION_KEYS } from "./tracked-erc721/constants";
-import { STAKING_CONTRACT_KEYS } from "./mibera-staking/constants";
 import { recordAction } from "../lib/actions";
 import { isBurnAddress, isMintFromZero } from "../lib/mint-detection";
 import { writeTokenOwnership } from "../lib/token-ownership";
 
 const ZERO = ZERO_ADDRESS.toLowerCase();
 
-// Mibera NFT contract address (lowercase)
-const MIBERA_CONTRACT = "0x6666397dfe9a8c469bf65dc744cb1c733416c420";
-
-/** Structural shape of the Transfer event shared by TrackedErc721 + EthTrackedErc721 (identical ABI).
- *  Kept structural (not an envio per-contract event type) so ONE handler serves both registrations. */
+/** Structural shape of the TrackedErc721 Transfer event. */
 type TrackedErc721TransferEvent = {
   srcAddress: string;
   chainId: number;
@@ -30,11 +23,13 @@ type TrackedErc721TransferEvent = {
 };
 
 /**
- * Shared Transfer handler. Registered below for the multi-chain `TrackedErc721` (OP/Base/Berachain)
- * AND the dedicated `EthTrackedErc721` (chain 1, Azuki). The dedicated ETH contract exists because
- * envio 3.2.1 does not fetch a single-address entry in the shared multi-chain contract on chain 1
- * (#120 / sprint-bug-192) — a dedicated contract closes the gap (Milady, a dedicated single-address
- * ETH contract, indexes fine). Exported so the mibera belt entry can mark it imported.
+ * The ERC-721 holder path. One handler, one binding, every chain.
+ *
+ * The former dedicated `EthTrackedErc721` binding was removed at bd-dwq5.3: it
+ * was a workaround for a supposed envio "single-address fetch gap" on chain 1
+ * that turned out to be a corrupted Azuki address in the config, not an envio
+ * defect. Chain 1 now binds 23 addresses under TrackedErc721 like every other
+ * chain.
  */
 export async function handleTrackedErc721Transfer(
   event: TrackedErc721TransferEvent,
@@ -50,7 +45,6 @@ export async function handleTrackedErc721Transfer(
   const txHash = event.transaction.hash;
   const logIndex = Number(event.logIndex);
   const timestamp = BigInt(event.block.timestamp);
-  const blockNumber = BigInt(event.block.number);
 
   // Preload: prime holder reads for from and to
   if (from !== ZERO && to !== ZERO) {
@@ -163,45 +157,6 @@ export async function handleTrackedErc721Transfer(
     });
   }
 
-  // Check for Mibera staking transfers
-  const isMibera = contractAddress === MIBERA_CONTRACT;
-  const depositContractKey = STAKING_CONTRACT_KEYS[to];
-  const withdrawContractKey = STAKING_CONTRACT_KEYS[from];
-
-  // Handle Mibera staking deposit (user → staking contract)
-  if (isMibera && depositContractKey && from !== ZERO) {
-    await handleMiberaStakeDeposit({
-      context,
-      stakingContract: depositContractKey,
-      stakingContractAddress: to,
-      userAddress: from,
-      tokenId,
-      chainId,
-      txHash,
-      blockNumber,
-      timestamp,
-    });
-    // Don't adjust holder counts - user still owns the NFT (it's staked)
-    return;
-  }
-
-  // Handle Mibera staking withdrawal (staking contract → user)
-  if (isMibera && withdrawContractKey && to !== ZERO) {
-    await handleMiberaStakeWithdrawal({
-      context,
-      stakingContract: withdrawContractKey,
-      stakingContractAddress: from,
-      userAddress: to,
-      tokenId,
-      chainId,
-      txHash,
-      blockNumber,
-      timestamp,
-    });
-    // Don't adjust holder counts - they were never decremented on deposit
-    return;
-  }
-
   // Normal transfer handling
   await adjustHolder({
     context,
@@ -230,13 +185,8 @@ export async function handleTrackedErc721Transfer(
   });
 }
 
-// Register the shared handler for the multi-chain contract + the dedicated ETH contract (#120 fix).
 indexer.onEvent(
   { contract: "TrackedErc721", event: "Transfer" },
-  ({ event, context }) => handleTrackedErc721Transfer(event, context),
-);
-indexer.onEvent(
-  { contract: "EthTrackedErc721", event: "Transfer" },
   ({ event, context }) => handleTrackedErc721Transfer(event, context),
 );
 
@@ -367,115 +317,3 @@ export async function updateTokenOwnership({
   });
 }
 
-// Mibera staking helper types and functions
-
-interface MiberaStakeArgs {
-  context: EvmOnEventContext;
-  stakingContract: string;
-  stakingContractAddress: string;
-  userAddress: string;
-  tokenId: bigint;
-  chainId: number;
-  txHash: string;
-  blockNumber: bigint;
-  timestamp: bigint;
-}
-
-async function handleMiberaStakeDeposit({
-  context,
-  stakingContract,
-  stakingContractAddress,
-  userAddress,
-  tokenId,
-  chainId,
-  txHash,
-  blockNumber,
-  timestamp,
-}: MiberaStakeArgs) {
-  // Create staked token record
-  const stakedTokenId = `${stakingContract}_${tokenId}`;
-  const stakedToken: MiberaStakedTokenEntity = {
-    id: stakedTokenId,
-    stakingContract,
-    contractAddress: stakingContractAddress,
-    tokenId,
-    owner: userAddress,
-    isStaked: true,
-    depositedAt: timestamp,
-    depositTxHash: txHash,
-    depositBlockNumber: blockNumber,
-    withdrawnAt: undefined,
-    withdrawTxHash: undefined,
-    withdrawBlockNumber: undefined,
-    chainId,
-  };
-  context.MiberaStakedToken.set(stakedToken);
-
-  // Update staker stats
-  const stakerId = `${stakingContract}_${userAddress}`;
-  const existingStaker = await context.MiberaStaker.get(stakerId);
-
-  const staker: MiberaStakerEntity = existingStaker
-    ? {
-        ...existingStaker,
-        currentStakedCount: existingStaker.currentStakedCount + 1,
-        totalDeposits: existingStaker.totalDeposits + 1,
-        lastActivityTime: timestamp,
-      }
-    : {
-        id: stakerId,
-        stakingContract,
-        contractAddress: stakingContractAddress,
-        address: userAddress,
-        currentStakedCount: 1,
-        totalDeposits: 1,
-        totalWithdrawals: 0,
-        firstDepositTime: timestamp,
-        lastActivityTime: timestamp,
-        chainId,
-      };
-
-  context.MiberaStaker.set(staker);
-}
-
-async function handleMiberaStakeWithdrawal({
-  context,
-  stakingContract,
-  stakingContractAddress,
-  userAddress,
-  tokenId,
-  chainId,
-  txHash,
-  blockNumber,
-  timestamp,
-}: MiberaStakeArgs) {
-  // Update staked token record
-  const stakedTokenId = `${stakingContract}_${tokenId}`;
-  const existingStakedToken =
-    await context.MiberaStakedToken.get(stakedTokenId);
-
-  if (existingStakedToken) {
-    const updatedStakedToken: MiberaStakedTokenEntity = {
-      ...existingStakedToken,
-      isStaked: false,
-      withdrawnAt: timestamp,
-      withdrawTxHash: txHash,
-      withdrawBlockNumber: blockNumber,
-    };
-    context.MiberaStakedToken.set(updatedStakedToken);
-  }
-
-  // Update staker stats
-  const stakerId = `${stakingContract}_${userAddress}`;
-  const existingStaker = await context.MiberaStaker.get(stakerId);
-
-  if (existingStaker) {
-    const updatedStaker: MiberaStakerEntity = {
-      ...existingStaker,
-      currentStakedCount: Math.max(0, existingStaker.currentStakedCount - 1),
-      totalWithdrawals: existingStaker.totalWithdrawals + 1,
-      lastActivityTime: timestamp,
-    };
-    context.MiberaStaker.set(updatedStaker);
-  }
-}

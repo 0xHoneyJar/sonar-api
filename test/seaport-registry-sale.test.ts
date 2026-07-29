@@ -68,8 +68,16 @@ const WARPLETS = "0x699727f9e01a822efdcf7333073f0461e5914b4e";
 /** lil_bangers (Base 8453) — a second bound collection, for id-collision coverage. */
 const LIL_BANGERS = "0x1260f90e0b1c482b38b88f26dee17c57615d670b";
 
-/** puru_boarding_passes (Base 8453) — IS in TRACKED_COLLECTIONS, but is ERC-1155. */
-const PURU_1155 = "0x154a563ab6c037bd0f041ac91600ffa9fe2f5fa0";
+/**
+ * The ERC-1155 item-type path, exercised against a registered contract.
+ *
+ * It used to point at puru_boarding_passes, which left the registry at
+ * bd-dwq5.3 with the rest of ERC-1155 (out of MVP scope). The decoder branch
+ * under test is chosen by Seaport's itemType, not by the address, and Seaport
+ * does not validate that an address really implements the declared standard —
+ * so a registered address carries this coverage without a de-scoped entry.
+ */
+const ERC1155_ITEM = WARPLETS;
 
 function orderFulfilled(opts: {
   offer: unknown[][];
@@ -293,7 +301,7 @@ describe("F3 — ERC-1155 orders are rejected by the item-type filter", () => {
     const price = 3_000_000_000_000_000n;
     const ctx = await runHandler(
       orderFulfilled({
-        offer: [[ITEM_TYPE_ERC1155, PURU_1155, 4n, 3n]],
+        offer: [[ITEM_TYPE_ERC1155, ERC1155_ITEM, 4n, 3n]],
         consideration: [[ITEM_TYPE_ERC20, WETH_BASE, 0n, price, SELLER]],
       }),
     );
@@ -316,8 +324,8 @@ describe("BB SEA-001 — ids must be unique for every emitted row", () => {
     const ctx = await runHandler(
       orderFulfilled({
         offer: [
-          [ITEM_TYPE_ERC1155, PURU_1155, 4n, 2n],
-          [ITEM_TYPE_ERC1155, PURU_1155, 4n, 1n],
+          [ITEM_TYPE_ERC1155, ERC1155_ITEM, 4n, 2n],
+          [ITEM_TYPE_ERC1155, ERC1155_ITEM, 4n, 1n],
         ],
         consideration: [[ITEM_TYPE_NATIVE, ZERO, 0n, 6_000_000_000_000_000n, SELLER]],
       }),

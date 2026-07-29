@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { parse } from "yaml";
+import { CONFIG_YAML } from "../scripts/gen-config";
 import {
   CONTRACTS,
   findContract,
@@ -9,8 +10,8 @@ import {
 } from "../src/registry/contracts";
 
 /**
- * The registry invariant (bd-dwq5.1): src/registry/contracts.ts is THE list of
- * tracked contracts, and it agrees exactly with what the belt binds.
+ * The registry invariant (bd-dwq5.1, bd-dwq5.3): src/registry/contracts.ts is
+ * THE list of tracked contracts, and config.yaml is generated from it.
  *
  * `schema: "failsafe"` keeps every scalar a string — an unquoted 0x… scalar is a
  * valid YAML 1.1 hex integer and the default schema destroys the address.
@@ -48,8 +49,8 @@ const declared = declaredInConfig(readFileSync("config.yaml", "utf8"));
 
 describe("contracts registry ↔ config.yaml", () => {
   it("finds contracts to check (guards against a silently empty parse)", () => {
-    expect(declared.length).toBeGreaterThan(100);
-    expect(CONTRACTS.length).toBeGreaterThan(100);
+    expect(declared.length).toBeGreaterThan(50);
+    expect(CONTRACTS.length).toBeGreaterThan(50);
   });
 
   it("resolves every contract declared in config.yaml", () => {
@@ -59,14 +60,30 @@ describe("contracts registry ↔ config.yaml", () => {
     expect(missing).toEqual([]);
   });
 
-  it("carries the same startBlock as config.yaml for every contract", () => {
-    const drift = declared
-      .filter((d) => findContract(d.chain, d.address)?.startBlock !== d.startBlock)
+  it("never starts a contract later than its registry startBlock", () => {
+    // Envio's per-contract start_block covers a whole address list, so the
+    // generator uses the earliest startBlock in the binding. Starting earlier
+    // costs sync time; starting later would silently lose transfers.
+    const late = declared
+      .filter((d) => d.startBlock > (findContract(d.chain, d.address)?.startBlock ?? 0))
       .map(
         (d) =>
           `${d.chain}:${d.address} config=${d.startBlock} registry=${findContract(d.chain, d.address)?.startBlock}`,
       );
-    expect(drift).toEqual([]);
+    expect(late).toEqual([]);
+  });
+
+  it("is byte-identical to what the registry generates (one declaration site)", () => {
+    // The whole point of bd-dwq5.3: adding a contract is one registry entry
+    // plus `pnpm gen:config`. If someone hand-edits config.yaml, this fails.
+    expect(readFileSync("config.yaml", "utf8")).toBe(CONFIG_YAML);
+  });
+
+  it("binds exactly two contract names, one per handler", () => {
+    const names = new Set(
+      [...CONFIG_YAML.matchAll(/^\s+- name: (\w+)$/gm)].map((m) => m[1]),
+    );
+    expect([...names].sort()).toEqual(["Seaport", "TrackedErc721"]);
   });
 
   it("has no entry that config.yaml does not declare (one list, both ways)", () => {
@@ -117,10 +134,31 @@ describe("contracts registry ↔ config.yaml", () => {
       expect(entry?.community).toBe(community);
       expect(entry?.standard).toBe("erc721");
     }
-    // azuki is the chain-1 in-scope community
+    // azuki is the chain-1 in-scope community; mibera is the Berachain one.
     expect(findContract(1, "0xed5af388653567af2f388e6224dc7c4b3241c544")?.community).toBe(
       "azuki",
     );
+    expect(findContract(80094, "0x6666397dfe9a8c469bf65dc744cb1c733416c420")?.community).toBe(
+      "mibera_collection",
+    );
+  });
+
+  it("binds Seaport on every chain that tracks an ERC-721", () => {
+    const erc721Chains = new Set(
+      CONTRACTS.filter((c) => c.standard === "erc721").map((c) => c.chain),
+    );
+    const seaportChains = new Set(
+      CONTRACTS.filter((c) => c.standard === "seaport").map((c) => c.chain),
+    );
+    // Arbitrum and Zora hold one HoneyJar each. Optimism holds the Mirror
+    // WritingEditions lore articles + HoneyJar4. None has ever had a Seaport
+    // binding here; that predates bd-dwq5.3 and is parked, not fixed in the
+    // deletion step (PARKED.md).
+    const noSales = new Set([42161, 7777777, 10]);
+    const uncovered = [...erc721Chains].filter(
+      (id) => !seaportChains.has(id) && !noSales.has(id),
+    );
+    expect(uncovered).toEqual([]);
   });
 });
 
