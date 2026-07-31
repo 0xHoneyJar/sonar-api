@@ -271,6 +271,9 @@ grimoires/pub/research/*
 .beads/.local_version
 .beads/beads.db
 .beads/*.meta.json
+# br's auto-snapshot dir. The globs above are single-level, so they never
+# matched inside it — 136 stale snapshots reached git before this line existed.
+.beads/.br_history/
 
 # Beads task graph (template repo - exclude all)
 # For project repos, remove this line to track sprint tasks
