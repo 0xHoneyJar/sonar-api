@@ -10,6 +10,7 @@ import {
   erc721CollectionKeys,
   collectionKeys,
 } from "../src/registry/contracts";
+import { MARKETPLACES } from "../src/registry/marketplaces";
 
 /**
  * The registry invariant (bd-dwq5.1, bd-dwq5.3): src/registry/contracts.ts is
@@ -18,14 +19,14 @@ import {
  * `schema: "failsafe"` keeps every scalar a string — an unquoted 0x… scalar is a
  * valid YAML 1.1 hex integer and the default schema destroys the address.
  */
-type Declared = { chain: number; address: string; startBlock: number };
+type Declared = { chain: number; address: string; startBlock: number; lane: string };
 
 function declaredInConfig(configText: string): Declared[] {
   const doc = parse(configText, { schema: "failsafe" }) as {
     chains?: Array<{
       id?: string;
       start_block?: string;
-      contracts?: Array<{ address?: unknown; start_block?: string }>;
+      contracts?: Array<{ name?: string; address?: unknown; start_block?: string }>;
     }>;
   } | null;
 
@@ -40,14 +41,18 @@ function declaredInConfig(configText: string): Declared[] {
       for (const v of values) {
         const address = String(v).trim().toLowerCase();
         if (/^0x[0-9a-f]{40}$/.test(address))
-          out.push({ chain: chainId, address, startBlock });
+          out.push({ chain: chainId, address, startBlock, lane: String(contract?.name ?? "") });
       }
     }
   }
   return out;
 }
 
-const declared = declaredInConfig(readFileSync("config.yaml", "utf8"));
+const declaredAll = declaredInConfig(readFileSync("config.yaml", "utf8"));
+
+/** Token-lane addresses only — marketplace lanes resolve against MARKETPLACES, not CONTRACTS. */
+const declared = declaredAll.filter((d) => d.lane.startsWith("Tracked"));
+const declaredVenues = declaredAll.filter((d) => !d.lane.startsWith("Tracked"));
 
 describe("contracts registry ↔ config.yaml", () => {
   it("finds contracts to check (guards against a silently empty parse)", () => {
@@ -90,6 +95,7 @@ describe("contracts registry ↔ config.yaml", () => {
       [...CONFIG_YAML.matchAll(/^\s+- name: (\w+)$/gm)].map((m) => m[1]),
     );
     expect([...names].sort()).toEqual([
+      "Blur",
       "Seaport",
       "TrackedErc1155",
       "TrackedErc20",
@@ -105,8 +111,25 @@ describe("contracts registry ↔ config.yaml", () => {
       CONFIG_YAML.indexOf("contracts:"),
       CONFIG_YAML.indexOf("chains:"),
     );
-    for (const lane of ["TrackedErc721", "TrackedErc1155", "TrackedErc20", "Seaport"]) {
+    for (const lane of ["TrackedErc721", "TrackedErc1155", "TrackedErc20", "Seaport", "Blur"]) {
       expect(topLevel).toContain(`- name: ${lane}`);
+    }
+  });
+
+  it("resolves every marketplace address declared in config.yaml", () => {
+    const known = new Set(MARKETPLACES.map((m) => `${m.chain}:${m.address}`));
+    const missing = declaredVenues
+      .filter((d) => !known.has(`${d.chain}:${d.address}`))
+      .map((d) => `${d.chain}:${d.address}`);
+    expect(declaredVenues.length).toBeGreaterThan(0);
+    expect(missing).toEqual([]);
+  });
+
+  it("never lets a marketplace address into the tracked-NFT set", () => {
+    // Sale eligibility asks isTrackedContract("is this one of our NFTs"). A venue
+    // answering yes would emit a sale row for the marketplace itself.
+    for (const m of MARKETPLACES) {
+      expect(findContract(m.chain, m.address), `${m.address} is a venue, not an NFT`).toBeUndefined();
     }
   });
 
@@ -199,21 +222,16 @@ describe("contracts registry ↔ config.yaml", () => {
     );
   });
 
-  it("binds Seaport on every chain that tracks an ERC-721", () => {
-    const erc721Chains = new Set(
-      CONTRACTS.filter((c) => c.standard === "erc721").map((c) => c.chain),
+  it("covers every NFT-bearing chain with at least one marketplace", () => {
+    // The whole point of the marketplace registry: sale coverage is per-chain,
+    // so a community added to any chain already has a venue decoding its sales.
+    // Optimism, Arbitrum and Zora were uncovered until 2026-07-31 — 11 collections
+    // produced holder data that could never produce a sale row.
+    const nftChains = new Set(
+      CONTRACTS.filter((c) => c.standard !== "erc20").map((c) => c.chain),
     );
-    const seaportChains = new Set(
-      CONTRACTS.filter((c) => c.standard === "seaport").map((c) => c.chain),
-    );
-    // Arbitrum and Zora hold one HoneyJar each. Optimism holds the Mirror
-    // WritingEditions lore articles + HoneyJar4. None has ever had a Seaport
-    // binding here; that predates bd-dwq5.3 and is parked, not fixed in the
-    // deletion step (PARKED.md).
-    const noSales = new Set([42161, 7777777, 10]);
-    const uncovered = [...erc721Chains].filter(
-      (id) => !seaportChains.has(id) && !noSales.has(id),
-    );
+    const covered = new Set(MARKETPLACES.map((m) => m.chain));
+    const uncovered = [...nftChains].filter((id) => !covered.has(id)).sort((a, b) => a - b);
     expect(uncovered).toEqual([]);
   });
 });

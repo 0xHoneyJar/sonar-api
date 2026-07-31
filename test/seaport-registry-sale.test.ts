@@ -131,7 +131,7 @@ const saleOf = (ctx: ReturnType<typeof mockContext>) =>
 beforeEach(async () => {
   captured.handler = null;
   vi.resetModules();
-  await import("../src/handlers/seaport");
+  await import("../src/handlers/marketplaces/seaport");
 });
 
 describe("F2 — sale attribution is gated on a hardcoded collection allowlist", () => {

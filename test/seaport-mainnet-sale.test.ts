@@ -98,7 +98,7 @@ async function runHandler(event: unknown) {
 beforeEach(async () => {
   captured.handler = null;
   vi.resetModules();
-  await import("../src/handlers/seaport");
+  await import("../src/handlers/marketplaces/seaport");
 });
 
 describe("FR-6 mainnet Azuki priced sale — WETH settlement (R-12 lowercasing guard)", () => {

@@ -88,7 +88,7 @@ async function run(f: Fill) {
 beforeEach(async () => {
   captured.handler = null;
   vi.resetModules();
-  await import("../src/handlers/seaport");
+  await import("../src/handlers/marketplaces/seaport");
 });
 
 describe("Base Seaport decoder — replayed against real mainnet fills", () => {

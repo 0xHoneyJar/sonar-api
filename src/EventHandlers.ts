@@ -5,7 +5,8 @@
  *   TrackedErc721.Transfer                        → holders
  *   TrackedErc1155.TransferSingle/TransferBatch   → per-tokenId balances
  *   TrackedErc20.Transfer                         → token balances
- *   Seaport.OrderFulfilled                        → sales
+ *   Seaport.OrderFulfilled                        → sales (all 6 chains)
+ *   Blur.OrdersMatched                            → sales (Ethereum)
  *
  * SHAPE — side-effect imports, NOT named imports: in Envio 3.2.1 a handler
  * self-registers as a module-load side effect (`indexer.onEvent(...)`), so
@@ -21,4 +22,5 @@
 import "./handlers/tracked-erc721";
 import "./handlers/tracked-erc1155";
 import "./handlers/tracked-erc20";
-import "./handlers/seaport";
+import "./handlers/marketplaces/seaport";
+import "./handlers/marketplaces/blur";

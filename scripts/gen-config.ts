@@ -35,9 +35,9 @@
 import { writeFileSync } from "node:fs";
 import {
   TRACKED_CONTRACTS,
-  type ContractEntry,
   type TokenStandard,
 } from "../src/registry/contracts";
+import { MARKETPLACES, type Marketplace } from "../src/registry/marketplaces";
 
 const HEADER = `# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
 #
@@ -65,16 +65,31 @@ contracts:
  */
 interface Lane {
   readonly name: string;
-  readonly standard: TokenStandard;
   readonly comment: string;
   readonly events: readonly string[];
   readonly identityFields: boolean;
+  /** Addresses on `chainId`, as `address → label` (label becomes the YAML comment). */
+  readonly addresses: (chainId: number) => Array<{ address: string; label: string; startBlock: number }>;
 }
+
+const tokenLane = (standard: TokenStandard) => (chainId: number) =>
+  TRACKED_CONTRACTS.filter((c) => c.chain === chainId && c.standard === standard).map((c) => ({
+    address: c.address,
+    label: c.community,
+    startBlock: c.startBlock,
+  }));
+
+const marketLane = (marketplace: Marketplace) => (chainId: number) =>
+  MARKETPLACES.filter((m) => m.chain === chainId && m.marketplace === marketplace).map((m) => ({
+    address: m.address,
+    label: m.label,
+    startBlock: m.startBlock,
+  }));
 
 const LANES: readonly Lane[] = [
   {
     name: "TrackedErc721",
-    standard: "erc721",
+    addresses: tokenLane("erc721"),
     comment: "Every tracked ERC-721. One handler, one binding, no per-community case.",
     events: [
       "Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
@@ -83,7 +98,7 @@ const LANES: readonly Lane[] = [
   },
   {
     name: "TrackedErc1155",
-    standard: "erc1155",
+    addresses: tokenLane("erc1155"),
     comment:
       "Every tracked ERC-1155. Balances are per (contract, chain, tokenId, wallet);\n  # TransferBatch is folded into the same path as TransferSingle.",
     events: [
@@ -94,7 +109,7 @@ const LANES: readonly Lane[] = [
   },
   {
     name: "TrackedErc20",
-    standard: "erc20",
+    addresses: tokenLane("erc20"),
     comment:
       "Every tracked ERC-20. Same topic0 as ERC-721's Transfer — the third arg is\n  # un-indexed here, so a contract registered under the wrong standard decodes garbage.",
     events: ["Transfer(address indexed from, address indexed to, uint256 value)"],
@@ -102,22 +117,25 @@ const LANES: readonly Lane[] = [
   },
   {
     name: "Seaport",
-    standard: "seaport",
+    addresses: marketLane("seaport"),
     comment:
-      "Seaport — OpenSea secondary sales. The OrderFulfilled ABI is stable across\n  # versions, so one binding covers v1.1 through v1.6 on every chain.",
+      "Seaport (OpenSea) — secondary sales. The OrderFulfilled ABI is stable across\n  # versions, so one binding covers v1.1 through v1.6 on every chain.",
     events: [
       "OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8,address,uint256,uint256)[] offer, (uint8,address,uint256,uint256,address)[] consideration)",
     ],
     identityFields: false,
   },
+  {
+    name: "Blur",
+    addresses: marketLane("blur"),
+    comment:
+      "Blur — secondary sales, Ethereum only. One matched pair is one NFT: the order\n  # carries its own price, currency, collection and tokenId, so no leg-summing.",
+    events: [
+      "OrdersMatched(address indexed maker, address indexed taker, (address,uint8,address,address,uint256,uint256,address,uint256,uint256,uint256,(uint16,address)[],uint256,bytes) sell, bytes32 sellHash, (address,uint8,address,address,uint256,uint256,address,uint256,uint256,uint256,(uint16,address)[],uint256,bytes) buy, bytes32 buyHash)",
+    ],
+    identityFields: false,
+  },
 ];
-
-/** Envio contract name for a registry entry. */
-function binding(c: ContractEntry): string {
-  const lane = LANES.find((l) => l.standard === c.standard);
-  if (!lane) throw new Error(`no lane for standard '${c.standard}' — add one to LANES`);
-  return lane.name;
-}
 
 /** The top-level `contracts:` block — every lane, always. */
 function contractsBlock(): string {
@@ -159,12 +177,12 @@ const CHAIN_EXTRAS: Record<number, string> = {
 
 const ORDER = [1, 42161, 7777777, 10, 8453, 80094];
 
-const byChain = new Map<number, ContractEntry[]>();
-for (const c of TRACKED_CONTRACTS) {
-  byChain.set(c.chain, [...(byChain.get(c.chain) ?? []), c]);
-}
+// A chain appears in config.yaml if EITHER registry places something on it.
+const CHAIN_IDS = [
+  ...new Set([...TRACKED_CONTRACTS.map((c) => c.chain), ...MARKETPLACES.map((m) => m.chain)]),
+];
 
-const unordered = [...byChain.keys()].filter((id) => !ORDER.includes(id));
+const unordered = CHAIN_IDS.filter((id) => !ORDER.includes(id));
 if (unordered.length > 0) {
   throw new Error(
     `chain ${unordered.join(", ")} is in the registry but not in ORDER — add it to scripts/gen-config.ts`,
@@ -173,22 +191,24 @@ if (unordered.length > 0) {
 
 let out = HEADER + contractsBlock() + "chains:\n";
 for (const chainId of ORDER) {
-  const entries = byChain.get(chainId);
-  if (!entries) continue;
+  if (!CHAIN_IDS.includes(chainId)) continue;
+  const bound = LANES.map((lane) => ({ lane, addrs: lane.addresses(chainId) })).filter(
+    (b) => b.addrs.length > 0,
+  );
+  if (bound.length === 0) continue;
 
+  const earliest = Math.min(...bound.flatMap((b) => b.addrs.map((a) => a.startBlock)));
   out += `\n  # ${CHAIN_NAMES[chainId]}\n`;
   out += `  - id: ${chainId}\n`;
-  out += `    start_block: ${Math.min(...entries.map((c) => c.startBlock))}\n`;
+  out += `    start_block: ${earliest}\n`;
   out += CHAIN_EXTRAS[chainId] ?? "";
   out += `    contracts:\n`;
 
-  for (const lane of LANES) {
-    const bound = entries.filter((c) => c.standard === lane.standard);
-    if (bound.length === 0) continue;
+  for (const { lane, addrs } of bound) {
     out += `      - name: ${lane.name}\n`;
     out += `        address:\n`;
-    for (const c of bound) out += `          - "${c.address}" # ${c.community}\n`;
-    out += `        start_block: ${Math.min(...bound.map((c) => c.startBlock))}\n`;
+    for (const a of addrs) out += `          - "${a.address}" # ${a.label}\n`;
+    out += `        start_block: ${Math.min(...addrs.map((a) => a.startBlock))}\n`;
   }
 }
 
@@ -197,5 +217,7 @@ export const CONFIG_YAML = out;
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   writeFileSync(new URL("../config.yaml", import.meta.url), CONFIG_YAML);
-  console.log(`config.yaml: ${TRACKED_CONTRACTS.length} contracts across ${byChain.size} chains`);
+  console.log(
+    `config.yaml: ${TRACKED_CONTRACTS.length} contracts + ${MARKETPLACES.length} marketplace deployments across ${CHAIN_IDS.length} chains`,
+  );
 }

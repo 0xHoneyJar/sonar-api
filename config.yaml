@@ -54,12 +54,21 @@ contracts:
             # Exact event identity on Action. blockNumber needs no selection
             # (block fields are always on the event); transactionIndex does.
             - transactionIndex
-  # Seaport — OpenSea secondary sales. The OrderFulfilled ABI is stable across
+  # Seaport (OpenSea) — secondary sales. The OrderFulfilled ABI is stable across
   # versions, so one binding covers v1.1 through v1.6 on every chain.
   - name: Seaport
     handler: src/EventHandlers.ts
     events:
       - event: OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8,address,uint256,uint256)[] offer, (uint8,address,uint256,uint256,address)[] consideration)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Blur — secondary sales, Ethereum only. One matched pair is one NFT: the order
+  # carries its own price, currency, collection and tokenId, so no leg-summing.
+  - name: Blur
+    handler: src/EventHandlers.ts
+    events:
+      - event: OrdersMatched(address indexed maker, address indexed taker, (address,uint8,address,address,uint256,uint256,address,uint256,uint256,uint256,(uint16,address)[],uint256,bytes) sell, bytes32 sellHash, (address,uint8,address,address,uint256,uint256,address,uint256,uint256,uint256,(uint16,address)[],uint256,bytes) buy, bytes32 buyHash)
         field_selection:
           transaction_fields:
             - hash
@@ -97,11 +106,16 @@ chains:
         start_block: 12287507
       - name: Seaport
         address:
-          - "0x00000000006c3852cbef3e08e8df289169ede581" # seaport_v1_1
-          - "0x00000000000001ad428e4906ae43d8f9852d0dd6" # seaport_v1_4
-          - "0x00000000000000adc04c56bf30ac9d3c0aaf14dc" # seaport_v1_5
-          - "0x0000000000000068f116a894984e2db1123eb395" # seaport_v1_6
+          - "0x00000000006c3852cbef3e08e8df289169ede581" # Seaport v1.1
+          - "0x00000000000001ad428e4906ae43d8f9852d0dd6" # Seaport v1.4
+          - "0x00000000000000adc04c56bf30ac9d3c0aaf14dc" # Seaport v1.5
+          - "0x0000000000000068f116a894984e2db1123eb395" # Seaport v1.6
         start_block: 14162194
+      - name: Blur
+        address:
+          - "0x000000000000ad05ccc4f10045630fb830b95127" # Blur Marketplace
+          - "0x39da41747a83aee658334415666f3ef92dd0d541" # Blur Marketplace 2
+        start_block: 15779200
 
   # Arbitrum
   - id: 42161
@@ -111,6 +125,13 @@ chains:
         address:
           - "0x1b2751328f41d1a0b91f3710edcd33e996591b72" # honeyjar2
         start_block: 102894033
+      - name: Seaport
+        address:
+          - "0x00000000006c3852cbef3e08e8df289169ede581" # Seaport v1.1
+          - "0x00000000000001ad428e4906ae43d8f9852d0dd6" # Seaport v1.4
+          - "0x00000000000000adc04c56bf30ac9d3c0aaf14dc" # Seaport v1.5
+          - "0x0000000000000068f116a894984e2db1123eb395" # Seaport v1.6
+        start_block: 102894033
 
   # Zora
   - id: 7777777
@@ -119,6 +140,11 @@ chains:
       - name: TrackedErc721
         address:
           - "0xe798c4d40bc050bc93c7f3b149a0dfe5cfc49fb0" # honeyjar3
+        start_block: 18071873
+      - name: Seaport
+        address:
+          - "0x00000000000000adc04c56bf30ac9d3c0aaf14dc" # Seaport v1.5
+          - "0x0000000000000068f116a894984e2db1123eb395" # Seaport v1.6
         start_block: 18071873
 
   # Optimism
@@ -136,6 +162,13 @@ chains:
           - "0x6ca29eed22f04c1ec6126c59922844811dcbcdfa" # lore_5_initiation_ritual
           - "0x7988434e1469d35fa5f442e649de45d47c3df23c" # lore_6_miberamaker_design
           - "0x96c200ec4cca0bc57444cfee888cfba78a1ddbd8" # lore_7_miberamaker_design
+        start_block: 107558369
+      - name: Seaport
+        address:
+          - "0x00000000006c3852cbef3e08e8df289169ede581" # Seaport v1.1
+          - "0x00000000000001ad428e4906ae43d8f9852d0dd6" # Seaport v1.4
+          - "0x00000000000000adc04c56bf30ac9d3c0aaf14dc" # Seaport v1.5
+          - "0x0000000000000068f116a894984e2db1123eb395" # Seaport v1.6
         start_block: 107558369
 
   # Base
@@ -156,10 +189,10 @@ chains:
         start_block: 2883449
       - name: Seaport
         address:
-          - "0x00000000006c3852cbef3e08e8df289169ede581" # seaport_v1_1
-          - "0x00000000000001ad428e4906ae43d8f9852d0dd6" # seaport_v1_4
-          - "0x00000000000000adc04c56bf30ac9d3c0aaf14dc" # seaport_v1_5
-          - "0x0000000000000068f116a894984e2db1123eb395" # seaport_v1_6
+          - "0x00000000006c3852cbef3e08e8df289169ede581" # Seaport v1.1
+          - "0x00000000000001ad428e4906ae43d8f9852d0dd6" # Seaport v1.4
+          - "0x00000000000000adc04c56bf30ac9d3c0aaf14dc" # Seaport v1.5
+          - "0x0000000000000068f116a894984e2db1123eb395" # Seaport v1.6
         start_block: 2883449
 
   # Berachain Mainnet
@@ -204,5 +237,5 @@ chains:
         start_block: 887123
       - name: Seaport
         address:
-          - "0x0000000000000068f116a894984e2db1123eb395" # seaport_v1_6
+          - "0x0000000000000068f116a894984e2db1123eb395" # Seaport v1.6
         start_block: 3837808

@@ -20,9 +20,13 @@
  */
 
 /**
- * One generic lane per token standard, plus the marketplace lane. A standard is
- * a FIELD, so adding a contract of any of these is one registry entry and
- * `pnpm gen:config` — no handler code, no per-community case.
+ * One generic lane per token standard. A standard is a FIELD, so adding a
+ * contract of any of these is one registry entry and `pnpm gen:config` — no
+ * handler code, no per-community case.
+ *
+ * Marketplaces are NOT here — they are venues, not communities, and live in
+ * ./marketplaces.ts. Keeping them out is what lets `isTrackedContract` mean
+ * "is this one of our NFTs", which is exactly the question sale eligibility asks.
  *
  * NOTE on erc20 vs erc721: both emit `Transfer(address,address,uint256)`, so
  * they share a topic0. They differ only in whether the third arg is indexed,
@@ -30,7 +34,7 @@
  * garbage rather than failing loudly. test/contract-registry.test.ts asserts no
  * address is registered under two standards on the same chain.
  */
-export type TokenStandard = "erc721" | "erc1155" | "erc20" | "seaport";
+export type TokenStandard = "erc721" | "erc1155" | "erc20";
 
 export interface ContractEntry {
   /** Stable collection/community key. Not unique on its own. */
@@ -81,10 +85,6 @@ export const CONTRACTS: readonly ContractEntry[] = [
   { community: "nouns_nouns", address: "0x9c8ff314c9bc7f6e59a9d9225fb22946427edc03", chain: 1, standard: "erc721", startBlock: 12287507 }, // nouns Nouns
   { community: "mfers", address: "0x79fcdef22feed20eddacbb2587640e45491b757f", chain: 1, standard: "erc721", startBlock: 12287507 }, // mfers
   { community: "kitchen_just_t00ns", address: "0x902d94ba5bfc0cb408d1a6ca4b8f255d845e50e9", chain: 1, standard: "erc721", startBlock: 12287507 }, // kitchen_just_t00ns (eip155:1; physical_job ingest_8782378e4d8efdc03716488212ee7552_8153d3ff68e8a8e4)
-  { community: "seaport_v1_1", address: "0x00000000006c3852cbef3e08e8df289169ede581", chain: 1, standard: "seaport", startBlock: 14162194 }, // Seaport v1.1
-  { community: "seaport_v1_4", address: "0x00000000000001ad428e4906ae43d8f9852d0dd6", chain: 1, standard: "seaport", startBlock: 14162194 }, // Seaport v1.4
-  { community: "seaport_v1_5", address: "0x00000000000000adc04c56bf30ac9d3c0aaf14dc", chain: 1, standard: "seaport", startBlock: 14162194 }, // Seaport v1.5
-  { community: "seaport_v1_6", address: "0x0000000000000068f116a894984e2db1123eb395", chain: 1, standard: "seaport", startBlock: 14162194 }, // Seaport v1.6
   { community: "honeyjar2", address: "0x1b2751328f41d1a0b91f3710edcd33e996591b72", chain: 42161, standard: "erc721", startBlock: 102894033 }, // HoneyJar2
   { community: "honeyjar3", address: "0xe798c4d40bc050bc93c7f3b149a0dfe5cfc49fb0", chain: 7777777, standard: "erc721", startBlock: 18071873 }, // HoneyJar3
   { community: "honeyjar4", address: "0xe1d16cc75c9f39a2e0f5131eb39d4b634b23f301", chain: 10, standard: "erc721", startBlock: 125752663 }, // HoneyJar4
@@ -105,10 +105,6 @@ export const CONTRACTS: readonly ContractEntry[] = [
   { community: "based_onchain_punks", address: "0x9e7a06c281355f60570e47a12650c89fe1d36ff3", chain: 8453, standard: "erc721", startBlock: 2883449 }, // based_onchain_punks (deploy 2883449)
   { community: "nodes_by_hunter", address: "0x95bc4c2e01c2e2d9e537e7a9fe58187e88dd8019", chain: 8453, standard: "erc721", startBlock: 2883449 }, // nodes_by_hunter (deploy 33916538)
   { community: "veecon_2024_tickets", address: "0x20fd75eccd7bb9c4eb9e3bb4c09c6b382e15d63e", chain: 8453, standard: "erc721", startBlock: 2883449 }, // veecon_2024_tickets (deploy 14459222)
-  { community: "seaport_v1_1", address: "0x00000000006c3852cbef3e08e8df289169ede581", chain: 8453, standard: "seaport", startBlock: 2883449 }, // Seaport v1.1
-  { community: "seaport_v1_4", address: "0x00000000000001ad428e4906ae43d8f9852d0dd6", chain: 8453, standard: "seaport", startBlock: 2883449 }, // Seaport v1.4
-  { community: "seaport_v1_5", address: "0x00000000000000adc04c56bf30ac9d3c0aaf14dc", chain: 8453, standard: "seaport", startBlock: 2883449 }, // Seaport v1.5
-  { community: "seaport_v1_6", address: "0x0000000000000068f116a894984e2db1123eb395", chain: 8453, standard: "seaport", startBlock: 2883449 }, // Seaport v1.6
   { community: "honeyjar1_bera", address: "0xedc5dfd6f37464cc91bbce572b6fe2c97f1bc7b3", chain: 80094, standard: "erc721", startBlock: 2863795 }, // HoneyJar1 Bera
   { community: "honeyjar2_bera", address: "0x1c6c24cac266c791c4ba789c3ec91f04331725bd", chain: 80094, standard: "erc721", startBlock: 2863795 }, // HoneyJar2 Bera
   { community: "honeyjar3_bera", address: "0xf1e4a550772fabfc35b28b51eb8d0b6fcd1c4878", chain: 80094, standard: "erc721", startBlock: 2863795 }, // HoneyJar3 Bera
@@ -140,7 +136,6 @@ export const CONTRACTS: readonly ContractEntry[] = [
   { community: "mibera_vm_mibera_shadows", address: "0x048327a187b944ddac61c6e202bfccd20d17c008", chain: 80094, standard: "erc721", startBlock: 4130866 }, // mibera_vm / mibera_shadows
   { community: "mibera_gif", address: "0x230945e0ed56ef4de871a6c0695de265de23d8d8", chain: 80094, standard: "erc721", startBlock: 4130866 }, // mibera_gif
   { community: "mibera_collection", address: "0x6666397dfe9a8c469bf65dc744cb1c733416c420", chain: 80094, standard: "erc721", startBlock: 3837808 }, // Mibera Collection
-  { community: "seaport_v1_6", address: "0x0000000000000068f116a894984e2db1123eb395", chain: 80094, standard: "seaport", startBlock: 3837808 }, // Seaport v1.6
 
   // Custody addresses — not indexed. Mibera staking: 462 tokens sat in these two
   // on 2026-07-28 (paddlefi 455, jiko 7, balanceOf against 0x6666…). Without
