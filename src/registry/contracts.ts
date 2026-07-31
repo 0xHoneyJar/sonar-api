@@ -137,9 +137,21 @@ export const CONTRACTS: readonly ContractEntry[] = [
   { community: "mibera_gif", address: "0x230945e0ed56ef4de871a6c0695de265de23d8d8", chain: 80094, standard: "erc721", startBlock: 4130866 }, // mibera_gif
   { community: "mibera_collection", address: "0x6666397dfe9a8c469bf65dc744cb1c733416c420", chain: 80094, standard: "erc721", startBlock: 3837808 }, // Mibera Collection
 
-  // Custody addresses — not indexed. Mibera staking: 462 tokens sat in these two
-  // on 2026-07-28 (paddlefi 455, jiko 7, balanceOf against 0x6666…). Without
-  // them the vault indexes as the #1 mibera holder and 462 stakers lose credit.
+  // Custody addresses — not indexed. A vault or escrow holds tokens on a user's
+  // behalf, so crediting it as the holder strips the depositor.
+  //
+  // Blur Blend is Blur's NFT lending protocol: a BNPL/loan purchase parks the NFT
+  // in Blend while the loan is open. Measured 2026-07-31 over 55k blocks it took
+  // custody of 382 tokens from THIS registry's collections (Pudgy 80, MAYC 63,
+  // Azuki 62, Lil Pudgys 51, BAYC 51) and released 343 — so without this entry
+  // Blend would rank as a top holder of five tracked collections and every
+  // borrower would silently lose credit for the duration of their loan. Same
+  // class as the Mibera staking bug below, found while replaying real Blur fills.
+  { community: "blur_blend", address: "0x29469395eaf6f95920e59f858042f0e28d98a20b", chain: 1, standard: "erc721", startBlock: 17603892, custodial: true }, // Blur: Blend (cross-collection escrow)
+
+  // Mibera staking: 462 tokens sat in these two on 2026-07-28 (paddlefi 455,
+  // jiko 7, balanceOf against 0x6666…). Without them the vault indexes as the
+  // #1 mibera holder and 462 stakers lose credit.
   { community: "mibera_collection", address: "0x242b7126f3c4e4f8cbd7f62571293e63e9b0a4e1", chain: 80094, standard: "erc721", startBlock: 3837808, custodial: true }, // paddlefi vault
   { community: "mibera_collection", address: "0x8778ca41cf0b5cd2f9967ae06b691daff11db246", chain: 80094, standard: "erc721", startBlock: 3837808, custodial: true }, // jiko staking
 ];

@@ -86,7 +86,7 @@ describe("contracts registry ↔ config.yaml", () => {
     expect(readFileSync("config.yaml", "utf8")).toBe(CONFIG_YAML);
   });
 
-  it("binds exactly the four lanes, one per handler", () => {
+  it("binds exactly the declared lanes, one per handler", () => {
     // A closed set: a name here with no handler file is a config pair nothing
     // handles (silent data gap), and a handler with no name here never fires.
     // scripts/check-onevent-bijection.mjs enforces the same thing at the
@@ -96,6 +96,7 @@ describe("contracts registry ↔ config.yaml", () => {
     );
     expect([...names].sort()).toEqual([
       "Blur",
+      "BlurV2",
       "Seaport",
       "TrackedErc1155",
       "TrackedErc20",
@@ -111,7 +112,7 @@ describe("contracts registry ↔ config.yaml", () => {
       CONFIG_YAML.indexOf("contracts:"),
       CONFIG_YAML.indexOf("chains:"),
     );
-    for (const lane of ["TrackedErc721", "TrackedErc1155", "TrackedErc20", "Seaport", "Blur"]) {
+    for (const lane of ["TrackedErc721", "TrackedErc1155", "TrackedErc20", "Seaport", "Blur", "BlurV2"]) {
       expect(topLevel).toContain(`- name: ${lane}`);
     }
   });
@@ -152,6 +153,19 @@ describe("contracts registry ↔ config.yaml", () => {
       expect(findContract(c.chain, c.address)).toBeUndefined();
       expect(isCustodialAddress(c.chain, c.address)).toBe(true);
     }
+  });
+
+  it("registers Blur Blend as custodial", () => {
+    // Blend is Blur's lending escrow: a loan-funded purchase parks the NFT there
+    // for the life of the loan. Measured 2026-07-31 it took custody of 382 tokens
+    // from this registry's collections in 55k blocks. Without this entry it ranks
+    // as a top holder of five tracked collections and every borrower loses credit.
+    const blend = CONTRACTS.find(
+      (c) => c.address === "0x29469395eaf6f95920e59f858042f0e28d98a20b",
+    );
+    expect(blend, "Blur Blend missing from registry").toBeDefined();
+    expect(blend?.custodial).toBe(true);
+    expect(isCustodialAddress(1, "0x29469395eAf6f95920E59F858042f0e28D98a20B")).toBe(true);
   });
 
   it("registers the Mibera staking vaults as custodial", () => {

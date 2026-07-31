@@ -1,0 +1,274 @@
+[
+ {
+  "block_number": 25600463,
+  "log_index": 397,
+  "transaction_hash": "0x329de2aa265291e22d7b6c02eb6ca696b780ca0ac8fee2fbe5d175bc4a7b484d",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "1512665918226008554041635998796632435231798712277204130",
+  "collectionPriceSide": "239540118358534989503039581303237356200562543081459952891007265707",
+  "txFrom": "0x2ec6c63228d86c13100a593ff16f4bba11a8fd5a",
+  "expect": {
+   "seller": "0x0587e41b6aa2302b2cc3b6e53e3cc50e3698fca2",
+   "buyer": "0x2ec6c63228d86c13100a593ff16f4bba11a8fd5a",
+   "collection": "0xd3d9ddd0cf0a5f0bfb8f7fceae075df687eaebab",
+   "tokenId": "4043",
+   "amountPaid": "163900000000000000",
+   "viaBlend": false
+  }
+ },
+ {
+  "block_number": 25600616,
+  "log_index": 262,
+  "transaction_hash": "0xb477d41fdfa07e8e56941d49d00935d5664204bcd6a5f9b15becb91936296361",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "8062439263009862577047911296502337139249729888037593750",
+  "collectionPriceSide": "571278921357926254561602537428288157510589083506377843451322015816",
+  "txFrom": "0x92fd427178175bf7af3681657102023cb7e2a934",
+  "expect": {
+   "seller": "0xcdbef8775bba8578b8c7e89071b9d2ee3c336296",
+   "buyer": "0x92fd427178175bf7af3681657102023cb7e2a934",
+   "collection": "0x524cab2ec69124574082676e6f654a18df49a048",
+   "tokenId": "21549",
+   "amountPaid": "390884900000000000",
+   "viaBlend": false
+  }
+ },
+ {
+  "block_number": 25600622,
+  "log_index": 77,
+  "transaction_hash": "0xda1ef3852e5be487e954f8aae8d0606d96358baeed420ae3937394646b0021d0",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "4121576363476649038235459020180079295501373811044585451",
+  "collectionPriceSide": "571119632294473559452547517818370409824276783418518889211322015816",
+  "txFrom": "0x8264e9e0f4cbcbbbb3f8ecaec0a625b590ae790e",
+  "expect": {
+   "seller": "0xfc9797e62540454ced12d4f4f3425dcece9b0feb",
+   "buyer": "0x8264e9e0f4cbcbbbb3f8ecaec0a625b590ae790e",
+   "collection": "0x524cab2ec69124574082676e6f654a18df49a048",
+   "tokenId": "11016",
+   "amountPaid": "390775910000000000",
+   "viaBlend": true
+  }
+ },
+ {
+  "block_number": 25600628,
+  "log_index": 209,
+  "transaction_hash": "0xf7745dc3bb0528a4962b0947ee568b51810e281c4a0d0039f015e73ad052e66e",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "4224839862668529499306077337809679109773516653052524776",
+  "collectionPriceSide": "571103555776462919520447277285210530711060568160546153211322015816",
+  "txFrom": "0x8264e9e0f4cbcbbbb3f8ecaec0a625b590ae790e",
+  "expect": {
+   "seller": "0xbd726bfb7a8ca001e03f63f4119a0ed465ff78e8",
+   "buyer": "0x8264e9e0f4cbcbbbb3f8ecaec0a625b590ae790e",
+   "collection": "0x524cab2ec69124574082676e6f654a18df49a048",
+   "tokenId": "11292",
+   "amountPaid": "390764910000000000",
+   "viaBlend": true
+  }
+ },
+ {
+  "block_number": 25600630,
+  "log_index": 46,
+  "transaction_hash": "0xa78ac2bbce8ca2419b23c1040e24cc764b9b96073dd6f3fad1e5598ed48f9d2a",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "4453067518338692963968284974588660014006712201443808094",
+  "collectionPriceSide": "570951559606180505616954094062608037277016351176076649211322015816",
+  "txFrom": "0x8264e9e0f4cbcbbbb3f8ecaec0a625b590ae790e",
+  "expect": {
+   "seller": "0x705f728fe51ed69e8fbcf456a9239312c6b0135e",
+   "buyer": "0x8264e9e0f4cbcbbbb3f8ecaec0a625b590ae790e",
+   "collection": "0x524cab2ec69124574082676e6f654a18df49a048",
+   "tokenId": "11902",
+   "amountPaid": "390660910000000000",
+   "viaBlend": true
+  }
+ },
+ {
+  "block_number": 25600950,
+  "log_index": 81,
+  "transaction_hash": "0xc39ef690f8c0ddb933fd1b143067a2af4b938675301307ef5640e4f9f505f02d",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "2207452996603671563358055191036590228491083198659165768",
+  "collectionPriceSide": "5988502958963374708419784140043327907087878127368327033792227257592",
+  "txFrom": "0x8bf3b649dbf2336449b4d06cd4df91d0aaa112f8",
+  "expect": {
+   "seller": "0xa1c6b7d556bb56408bb3991d29a5e574e10dfe48",
+   "buyer": "0x8bf3b649dbf2336449b4d06cd4df91d0aaa112f8",
+   "collection": "0xbd3531da5cf5857e7cfaa92426877b022e612cf8",
+   "tokenId": "5900",
+   "amountPaid": "4097500000000000000",
+   "viaBlend": false
+  }
+ },
+ {
+  "block_number": 25601029,
+  "log_index": 516,
+  "transaction_hash": "0xd49286d5dd7f3483d59c54556df032fd186f2f5cd4673461975dce2d96bd16a6",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "1467394854565348918297676912411422847087878176516354206",
+  "collectionPriceSide": "12360942398053431462202571259757829517103438927954991432665589543229",
+  "txFrom": "0x8279b7167c17d11fe60238248eef4aa9e750b2b6",
+  "expect": {
+   "seller": "0x4d8856858b2381d1a01650c53de1ca573160309e",
+   "buyer": "0x8279b7167c17d11fe60238248eef4aa9e750b2b6",
+   "collection": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
+   "tokenId": "3922",
+   "amountPaid": "8457699999999900000",
+   "viaBlend": true
+  }
+ },
+ {
+  "block_number": 25601090,
+  "log_index": 223,
+  "transaction_hash": "0x3f2c47a78a2408e0044b922efa8eef115355d4d3fc75ae0a677da8a222cb4776",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "654753530867217328951710210542886752282381693266809836",
+  "collectionPriceSide": "1125208649079424826715911491194624745169436938533500581914806770691",
+  "txFrom": "0x61f72fe1e4ff809a2eca0b191c608599a192e1a1",
+  "expect": {
+   "seller": "0x8baa18708c910ec779175cebfac0f91847bdd3ec",
+   "buyer": "0x61f72fe1e4ff809a2eca0b191c608599a192e1a1",
+   "collection": "0x9c8ff314c9bc7f6e59a9d9225fb22946427edc03",
+   "tokenId": "1750",
+   "amountPaid": "769899000000000000",
+   "viaBlend": false
+  }
+ },
+ {
+  "block_number": 25601112,
+  "log_index": 269,
+  "transaction_hash": "0x2ee0e979b3557e31ba12906c825630763394bdc013db01e69f009d215f138de7",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "6153928136743223006549291165194957003842281669912425740",
+  "collectionPriceSide": "730458518337985278988048691352065394224716942017863181051322015816",
+  "txFrom": "0xc83b55f0fc7429c490275bf180cb0579592e5aa6",
+  "expect": {
+   "seller": "0x7ff2ac88b121fe54be5b5ab7bf8b9471d43ff50c",
+   "buyer": "0xc83b55f0fc7429c490275bf180cb0579592e5aa6",
+   "collection": "0x524cab2ec69124574082676e6f654a18df49a048",
+   "tokenId": "16448",
+   "amountPaid": "499800000000000000",
+   "viaBlend": false
+  }
+ },
+ {
+  "block_number": 25601126,
+  "log_index": 320,
+  "transaction_hash": "0xf5081d5b23dfdab028a793a95b074b70cd350cb3ce764b2d50b7402775be6518",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "10755904615275489293010350080278208339928745348162779253",
+  "collectionPriceSide": "2221482488742972436222767404503427858220245728410111682968121944006",
+  "txFrom": "0xe2dd4c1d5ed21e329b48cc0486e083e999116512",
+  "expect": {
+   "seller": "0x9579e984660e7ee933e2afdeb115b7319575f875",
+   "buyer": "0xe2dd4c1d5ed21e329b48cc0486e083e999116512",
+   "collection": "0x60e4d786628fea6478f785a6d7e704777c86a7c6",
+   "tokenId": "28748",
+   "amountPaid": "1520000000000000000",
+   "viaBlend": true
+  }
+ },
+ {
+  "block_number": 25600771,
+  "log_index": 88,
+  "transaction_hash": "0x6750a92500f3232329277898ecdb626b90339bbe53528997ec9eec8882d76bad",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "942469964925020147324915655656070412018772319751280226",
+  "collectionPriceSide": "452312854487733003190171950813259402213977511057820459426338221323137920248",
+  "txFrom": "0x1fee3385b22d69e93209db2042be58fcac57b59b",
+  "expect": {
+   "seller": "0x1fee3385b22d69e93209db2042be58fcac57b59b",
+   "buyer": "0x1e50b1b996ca5f57df86bd96fae47c6c77129662",
+   "collection": "0xbd3531da5cf5857e7cfaa92426877b022e612cf8",
+   "tokenId": "2519",
+   "amountPaid": "4040000000000000000",
+   "viaBlend": false
+  }
+ },
+ {
+  "block_number": 25602789,
+  "log_index": 1460,
+  "transaction_hash": "0xd82c91619726d6e66f0d2a183afa31db3e0ecdb95e3272c76cfeae268f1f0dd8",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "491626918155299190253903697391110852634924614982759921",
+  "collectionPriceSide": "452312850059383042077536108095089117087376262455980295935308702643751495077",
+  "txFrom": "0x2a9a6bf65ab612e4bb3c5dc7478d45dc17ffd5de",
+  "expect": {
+   "seller": "0x2a9a6bf65ab612e4bb3c5dc7478d45dc17ffd5de",
+   "buyer": "0xc9add1013c369c070c6556705be7a1cfd7c2f5f1",
+   "collection": "0x5af0d9827e0c53e4799bb226655a1de152a425a5",
+   "tokenId": "1314",
+   "amountPaid": "1010000000000000000",
+   "viaBlend": false
+  }
+ },
+ {
+  "block_number": 25603222,
+  "log_index": 239,
+  "transaction_hash": "0xe1ab64aaedef3f5827d39d7e2d3db5886fec3dd75d4a1931325a3c3d043b12ab",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "6757048571189512296011206361142667235656194863461094417",
+  "collectionPriceSide": "452312849138637010559067269577434388444490566070094676648469568582232678472",
+  "txFrom": "0x489131ea7b523508d8cd75ffbcdddbb8e020345e",
+  "expect": {
+   "seller": "0x489131ea7b523508d8cd75ffbcdddbb8e020345e",
+   "buyer": "0x3f45a24ec8fcf1329df739c2cfe8bb5615b4d411",
+   "collection": "0x524cab2ec69124574082676e6f654a18df49a048",
+   "tokenId": "18060",
+   "amountPaid": "380000000000000000",
+   "viaBlend": false
+  }
+ },
+ {
+  "block_number": 25604144,
+  "log_index": 207,
+  "transaction_hash": "0x75aa8ff1849b072d4e21adf3f7a7e24456db970abc7d97423cfb3fa833643e0c",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "931245837927718948675211985767506591797847268152825807",
+  "collectionPriceSide": "452312854458502970443553892449185705559651850664701808566818221323137920248",
+  "txFrom": "0xf76246b0842c92ad5bd745973ca9eb85b937b126",
+  "expect": {
+   "seller": "0xf76246b0842c92ad5bd745973ca9eb85b937b126",
+   "buyer": "0x42531a8ae13c74b6a520ab6007e6afb53a5fd7cf",
+   "collection": "0xbd3531da5cf5857e7cfaa92426877b022e612cf8",
+   "tokenId": "2489",
+   "amountPaid": "4020000000000000000",
+   "viaBlend": true
+  }
+ },
+ {
+  "block_number": 25604358,
+  "log_index": 195,
+  "transaction_hash": "0x1a7a98f5e5d00946b59497cda4eb63809f60ac5867c3a40420eec271d75b5a08",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "385743139371901172426845493085910517960163248635368926",
+  "collectionPriceSide": "452312849869387829224518729564488887293695299486449198247085289065158919492",
+  "txFrom": "0x95985564b75f813360bda1092ad134f0cd41cdd0",
+  "expect": {
+   "seller": "0x95985564b75f813360bda1092ad134f0cd41cdd0",
+   "buyer": "0x2a9a6bf65ab612e4bb3c5dc7478d45dc17ffd5de",
+   "collection": "0xed5af388653567af2f388e6224dc7c4b3241c544",
+   "tokenId": "1031",
+   "amountPaid": "880000000000000000",
+   "viaBlend": false
+  }
+ },
+ {
+  "block_number": 25604739,
+  "log_index": 344,
+  "transaction_hash": "0x9a00c1ebc9e9ce29142bd1152fdeb19c8b5e8df1e98a15f454d7a55e87a15a40",
+  "src": "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5",
+  "tokenIdListingIndexTrader": "1300152949244491852931787827124766535909106686613856730",
+  "collectionPriceSide": "452312850483218516903497955210036517034534167741940866297005289065158919492",
+  "txFrom": "0x65fbda207b936451db85aff82126a9f92501f0c9",
+  "expect": {
+   "seller": "0x65fbda207b936451db85aff82126a9f92501f0c9",
+   "buyer": "0xbf653cef2d06ee5b00fa1427acdb5056274921da",
+   "collection": "0xed5af388653567af2f388e6224dc7c4b3241c544",
+   "tokenId": "3475",
+   "amountPaid": "1300000000000000000",
+   "viaBlend": false
+  }
+ }
+]

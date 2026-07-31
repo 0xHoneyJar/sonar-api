@@ -20,8 +20,6 @@ contracts:
         field_selection:
           transaction_fields:
             - hash
-            # Exact event identity on Action. blockNumber needs no selection
-            # (block fields are always on the event); transactionIndex does.
             - transactionIndex
   # Every tracked ERC-1155. Balances are per (contract, chain, tokenId, wallet);
   # TransferBatch is folded into the same path as TransferSingle.
@@ -32,15 +30,11 @@ contracts:
         field_selection:
           transaction_fields:
             - hash
-            # Exact event identity on Action. blockNumber needs no selection
-            # (block fields are always on the event); transactionIndex does.
             - transactionIndex
       - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
         field_selection:
           transaction_fields:
             - hash
-            # Exact event identity on Action. blockNumber needs no selection
-            # (block fields are always on the event); transactionIndex does.
             - transactionIndex
   # Every tracked ERC-20. Same topic0 as ERC-721's Transfer — the third arg is
   # un-indexed here, so a contract registered under the wrong standard decodes garbage.
@@ -51,8 +45,6 @@ contracts:
         field_selection:
           transaction_fields:
             - hash
-            # Exact event identity on Action. blockNumber needs no selection
-            # (block fields are always on the event); transactionIndex does.
             - transactionIndex
   # Seaport (OpenSea) — secondary sales. The OrderFulfilled ABI is stable across
   # versions, so one binding covers v1.1 through v1.6 on every chain.
@@ -63,8 +55,8 @@ contracts:
         field_selection:
           transaction_fields:
             - hash
-  # Blur — secondary sales, Ethereum only. One matched pair is one NFT: the order
-  # carries its own price, currency, collection and tokenId, so no leg-summing.
+  # Blur v1 — Ethereum only, near-dormant now but carries Blur's 2022-23 volume.
+  # One matched pair is one NFT; the order carries its own price and currency.
   - name: Blur
     handler: src/EventHandlers.ts
     events:
@@ -72,6 +64,17 @@ contracts:
         field_selection:
           transaction_fields:
             - hash
+  # Blur v2 — where all current Blur volume is. Fields are BIT-PACKED into two
+  # uint256s and only ONE party is on the log, so `from` is selected: the
+  # counterparty is the transaction sender (verified against 16 real fills).
+  - name: BlurV2
+    handler: src/EventHandlers.ts
+    events:
+      - event: Execution721Packed(bytes32 orderHash, uint256 tokenIdListingIndexTrader, uint256 collectionPriceSide)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
 chains:
 
   # Ethereum Mainnet
@@ -113,9 +116,12 @@ chains:
         start_block: 14162194
       - name: Blur
         address:
-          - "0x000000000000ad05ccc4f10045630fb830b95127" # Blur Marketplace
-          - "0x39da41747a83aee658334415666f3ef92dd0d541" # Blur Marketplace 2
+          - "0x000000000000ad05ccc4f10045630fb830b95127" # BlurExchange v1
         start_block: 15779200
+      - name: BlurV2
+        address:
+          - "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5" # BlurExchangeV2
+        start_block: 17603892
 
   # Arbitrum
   - id: 42161

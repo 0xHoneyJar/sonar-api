@@ -67,7 +67,8 @@ interface Lane {
   readonly name: string;
   readonly comment: string;
   readonly events: readonly string[];
-  readonly identityFields: boolean;
+  /** transaction fields this lane needs selected. `hash` is always required. */
+  readonly txFields: readonly string[];
   /** Addresses on `chainId`, as `address → label` (label becomes the YAML comment). */
   readonly addresses: (chainId: number) => Array<{ address: string; label: string; startBlock: number }>;
 }
@@ -94,7 +95,7 @@ const LANES: readonly Lane[] = [
     events: [
       "Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
     ],
-    identityFields: true,
+    txFields: ["hash", "transactionIndex"],
   },
   {
     name: "TrackedErc1155",
@@ -105,7 +106,7 @@ const LANES: readonly Lane[] = [
       "TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)",
       "TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)",
     ],
-    identityFields: true,
+    txFields: ["hash", "transactionIndex"],
   },
   {
     name: "TrackedErc20",
@@ -113,7 +114,7 @@ const LANES: readonly Lane[] = [
     comment:
       "Every tracked ERC-20. Same topic0 as ERC-721's Transfer — the third arg is\n  # un-indexed here, so a contract registered under the wrong standard decodes garbage.",
     events: ["Transfer(address indexed from, address indexed to, uint256 value)"],
-    identityFields: true,
+    txFields: ["hash", "transactionIndex"],
   },
   {
     name: "Seaport",
@@ -123,17 +124,27 @@ const LANES: readonly Lane[] = [
     events: [
       "OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8,address,uint256,uint256)[] offer, (uint8,address,uint256,uint256,address)[] consideration)",
     ],
-    identityFields: false,
+    txFields: ["hash"],
   },
   {
     name: "Blur",
     addresses: marketLane("blur"),
     comment:
-      "Blur — secondary sales, Ethereum only. One matched pair is one NFT: the order\n  # carries its own price, currency, collection and tokenId, so no leg-summing.",
+      "Blur v1 — Ethereum only, near-dormant now but carries Blur's 2022-23 volume.\n  # One matched pair is one NFT; the order carries its own price and currency.",
     events: [
       "OrdersMatched(address indexed maker, address indexed taker, (address,uint8,address,address,uint256,uint256,address,uint256,uint256,uint256,(uint16,address)[],uint256,bytes) sell, bytes32 sellHash, (address,uint8,address,address,uint256,uint256,address,uint256,uint256,uint256,(uint16,address)[],uint256,bytes) buy, bytes32 buyHash)",
     ],
-    identityFields: false,
+    txFields: ["hash"],
+  },
+  {
+    name: "BlurV2",
+    addresses: marketLane("blur_v2"),
+    comment:
+      "Blur v2 — where all current Blur volume is. Fields are BIT-PACKED into two\n  # uint256s and only ONE party is on the log, so `from` is selected: the\n  # counterparty is the transaction sender (verified against 16 real fills).",
+    events: [
+      "Execution721Packed(bytes32 orderHash, uint256 tokenIdListingIndexTrader, uint256 collectionPriceSide)",
+    ],
+    txFields: ["hash", "from"],
   },
 ];
 
@@ -149,12 +160,7 @@ function contractsBlock(): string {
       s += `      - event: ${ev}\n`;
       s += `        field_selection:\n`;
       s += `          transaction_fields:\n`;
-      s += `            - hash\n`;
-      if (lane.identityFields) {
-        s += `            # Exact event identity on Action. blockNumber needs no selection\n`;
-        s += `            # (block fields are always on the event); transactionIndex does.\n`;
-        s += `            - transactionIndex\n`;
-      }
+      for (const f of lane.txFields) s += `            - ${f}\n`;
     }
   }
   return s;
