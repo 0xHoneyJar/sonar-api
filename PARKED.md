@@ -72,4 +72,6 @@ At that point the shape is `config.svm.yaml` + one instruction handler reading
 the same registry — not a port of the deleted code.
 Refs: docs.envio.dev/docs/HyperIndex/solana, docs.envio.dev/docs/HyperSync/solana
 
+2026-07-31 — `belt-indexer-robinhood` (Railway) has `BELT_CONFIG=config.robinhood-sidecar.yaml`, deleted at `3fa230e3` on 2026-07-28. Its last good deploy was 2026-07-27, so it has been un-redeployable since; the 2026-07-31 push surfaced it as a FAILED deploy. Its 4 addresses are in no other config and not in the registry. `belt-hasura-robinhood` sits behind it. Decommission or re-register those 4 addresses — a service decision, like svm-webhook/kitchen-api — sonar
+2026-07-31 — `svm-backfill-worker` last deploy FAILED 2026-07-07, three weeks before this cleanup; it was already dead — Railway
 2026-07-31 — `pnpm belt:progress` (scripts/belt-progress.mjs, ~700 lines) deleted with the cleanup; it depended on the kitchen API. Belt sync status is readable directly from the `chain_metadata` table via Hasura — sonar
