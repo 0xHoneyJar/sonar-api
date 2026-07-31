@@ -35,6 +35,32 @@ type TrackedHolder {
   tokenCount: Int!
 }
 
+# Per-(contract, chain, tokenId, wallet) ERC-1155 balance. A wallet holding
+# three token ids of one collection has three rows. Rows are deleted at zero,
+# never stored as 0 — an absent row and a zero row must not both mean "holds
+# none". score-api reads this for per-token balance facts.
+type TrackedHolder1155 {
+  id: ID!
+  contract: String!
+  collectionKey: String! @index
+  chainId: Int!
+  tokenId: BigInt!
+  address: String! @index
+  balance: BigInt!
+  lastUpdated: BigInt!
+}
+
+# Per-(wallet, token, chain) ERC-20 balance. Same delete-at-zero rule.
+type TrackedTokenBalance {
+  id: ID!
+  address: String! @index
+  tokenAddress: String! @index
+  tokenKey: String!
+  chainId: Int!
+  balance: BigInt!
+  lastUpdated: BigInt!
+}
+
 type Token {
   id: ID!
   collection: String! @index

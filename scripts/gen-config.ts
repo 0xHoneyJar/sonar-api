@@ -12,16 +12,32 @@
  * test/contract-registry.test.ts fails if the checked-in config.yaml is not
  * byte-identical to this script's output, so the two cannot drift again.
  *
- * Only two bindings exist, matching the only two handlers:
- *   erc721  → TrackedErc721.Transfer      (src/handlers/tracked-erc721.ts)
- *   seaport → Seaport.OrderFulfilled      (src/handlers/seaport.ts)
+ * One binding per lane, each matching exactly one handler:
+ *   erc721  → TrackedErc721.Transfer                      (tracked-erc721.ts)
+ *   erc1155 → TrackedErc1155.TransferSingle/TransferBatch (tracked-erc1155.ts)
+ *   erc20   → TrackedErc20.Transfer                       (tracked-erc20.ts)
+ *   seaport → Seaport.OrderFulfilled                      (seaport.ts)
+ *
+ * Every binding is declared in the top-level `contracts:` block ALWAYS, even
+ * when the registry has no entry of that standard yet. That is deliberate: the
+ * handlers self-register unconditionally, and scripts/check-onevent-bijection.mjs
+ * fails an `onEvent` call site with no matching config pair. Declaring the pair
+ * with no addresses keeps the bijection intact and costs nothing — envio indexes
+ * nothing for a contract bound on no chain (verified: codegen exits 0).
+ *
+ * Per-chain address lists are emitted only for standards that HAVE entries, so
+ * adding the first ERC-1155 or ERC-20 contract needs no change here.
  *
  * Envio's per-contract `start_block` applies to the whole address list, so a
  * binding starts at the earliest startBlock among its addresses on that chain.
  * Starting earlier than a contract's deploy costs sync time, never correctness.
  */
 import { writeFileSync } from "node:fs";
-import { TRACKED_CONTRACTS, type ContractEntry } from "../src/registry/contracts";
+import {
+  TRACKED_CONTRACTS,
+  type ContractEntry,
+  type TokenStandard,
+} from "../src/registry/contracts";
 
 const HEADER = `# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
 #
@@ -37,32 +53,93 @@ const HEADER = `# yaml-language-server: $schema=./node_modules/envio/evm.schema.
 #                               stays disabled (fail-soft).
 name: thj-indexer
 contracts:
-  # Every tracked ERC-721. One handler, one binding, no per-community case.
-  - name: TrackedErc721
-    handler: src/EventHandlers.ts
-    events:
-      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
-        field_selection:
-          transaction_fields:
-            - hash
-            # Exact event identity on Action. blockNumber needs no selection
-            # (block fields are always on the event); transactionIndex does.
-            - transactionIndex
-  # Seaport — OpenSea secondary sales. The OrderFulfilled ABI is stable across
-  # versions, so one binding covers v1.1 through v1.6 on every chain.
-  - name: Seaport
-    handler: src/EventHandlers.ts
-    events:
-      - event: OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8,address,uint256,uint256)[] offer, (uint8,address,uint256,uint256,address)[] consideration)
-        field_selection:
-          transaction_fields:
-            - hash
-chains:
 `;
+
+/**
+ * The lanes. One entry per standard; adding a standard is an entry here, a
+ * handler file, and a `TokenStandard` union member — nothing else.
+ *
+ * `identityFields` selects transactionIndex for lanes whose handler writes
+ * `Action`, which carries exact event identity. Seaport writes MintActivity
+ * (blockNumber already a column) and never Action, so it does not need it.
+ */
+interface Lane {
+  readonly name: string;
+  readonly standard: TokenStandard;
+  readonly comment: string;
+  readonly events: readonly string[];
+  readonly identityFields: boolean;
+}
+
+const LANES: readonly Lane[] = [
+  {
+    name: "TrackedErc721",
+    standard: "erc721",
+    comment: "Every tracked ERC-721. One handler, one binding, no per-community case.",
+    events: [
+      "Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
+    ],
+    identityFields: true,
+  },
+  {
+    name: "TrackedErc1155",
+    standard: "erc1155",
+    comment:
+      "Every tracked ERC-1155. Balances are per (contract, chain, tokenId, wallet);\n  # TransferBatch is folded into the same path as TransferSingle.",
+    events: [
+      "TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)",
+      "TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)",
+    ],
+    identityFields: true,
+  },
+  {
+    name: "TrackedErc20",
+    standard: "erc20",
+    comment:
+      "Every tracked ERC-20. Same topic0 as ERC-721's Transfer — the third arg is\n  # un-indexed here, so a contract registered under the wrong standard decodes garbage.",
+    events: ["Transfer(address indexed from, address indexed to, uint256 value)"],
+    identityFields: true,
+  },
+  {
+    name: "Seaport",
+    standard: "seaport",
+    comment:
+      "Seaport — OpenSea secondary sales. The OrderFulfilled ABI is stable across\n  # versions, so one binding covers v1.1 through v1.6 on every chain.",
+    events: [
+      "OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8,address,uint256,uint256)[] offer, (uint8,address,uint256,uint256,address)[] consideration)",
+    ],
+    identityFields: false,
+  },
+];
 
 /** Envio contract name for a registry entry. */
 function binding(c: ContractEntry): string {
-  return c.standard === "seaport" ? "Seaport" : "TrackedErc721";
+  const lane = LANES.find((l) => l.standard === c.standard);
+  if (!lane) throw new Error(`no lane for standard '${c.standard}' — add one to LANES`);
+  return lane.name;
+}
+
+/** The top-level `contracts:` block — every lane, always. */
+function contractsBlock(): string {
+  let s = "";
+  for (const lane of LANES) {
+    s += `  # ${lane.comment}\n`;
+    s += `  - name: ${lane.name}\n`;
+    s += `    handler: src/EventHandlers.ts\n`;
+    s += `    events:\n`;
+    for (const ev of lane.events) {
+      s += `      - event: ${ev}\n`;
+      s += `        field_selection:\n`;
+      s += `          transaction_fields:\n`;
+      s += `            - hash\n`;
+      if (lane.identityFields) {
+        s += `            # Exact event identity on Action. blockNumber needs no selection\n`;
+        s += `            # (block fields are always on the event); transactionIndex does.\n`;
+        s += `            - transactionIndex\n`;
+      }
+    }
+  }
+  return s;
 }
 
 const CHAIN_NAMES: Record<number, string> = {
@@ -94,7 +171,7 @@ if (unordered.length > 0) {
   );
 }
 
-let out = HEADER;
+let out = HEADER + contractsBlock() + "chains:\n";
 for (const chainId of ORDER) {
   const entries = byChain.get(chainId);
   if (!entries) continue;
@@ -105,10 +182,10 @@ for (const chainId of ORDER) {
   out += CHAIN_EXTRAS[chainId] ?? "";
   out += `    contracts:\n`;
 
-  for (const name of ["TrackedErc721", "Seaport"]) {
-    const bound = entries.filter((c) => binding(c) === name);
+  for (const lane of LANES) {
+    const bound = entries.filter((c) => c.standard === lane.standard);
     if (bound.length === 0) continue;
-    out += `      - name: ${name}\n`;
+    out += `      - name: ${lane.name}\n`;
     out += `        address:\n`;
     for (const c of bound) out += `          - "${c.address}" # ${c.community}\n`;
     out += `        start_block: ${Math.min(...bound.map((c) => c.startBlock))}\n`;

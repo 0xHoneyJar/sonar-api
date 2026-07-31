@@ -17,6 +17,10 @@
     "noEmit": true
   },
   "include": [
-    "src"
+    "src",
+    // Wires the codegen output (.envio/types.d.ts) into the `envio` module.
+    // Without it every handler sees the placeholder type and typechecking
+    // reports "Run 'envio codegen'" against code that is already correct.
+    "envio-env.d.ts"
   ]
 }

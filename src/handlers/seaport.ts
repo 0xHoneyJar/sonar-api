@@ -51,6 +51,14 @@ interface PaymentItem {
 }
 
 /**
+ * An offer or consideration leg as envio delivers it — a struct with numeric
+ * keys, NOT a JS array (offer is a 4-field struct, consideration a 5-field one).
+ * Indexed access is identical at runtime, so one reader serves both; this type
+ * is what lets it, without claiming array methods that aren't there.
+ */
+type SeaportItem = { readonly [index: number]: unknown };
+
+/**
  * Read an NFT item from an offer OR a consideration tuple.
  *
  * Safe for both because the two shapes share their first four fields —
@@ -59,7 +67,7 @@ interface PaymentItem {
  * therefore address consideration items correctly too; keep the two constant
  * blocks aligned on 0..3 or split this into two readers.
  */
-function readNftItem(item: readonly unknown[]): NftItem | null {
+function readNftItem(item: SeaportItem): NftItem | null {
   const itemType = Number(item[OFFER_ITEM_TYPE]);
   if (itemType !== ITEM_TYPE_ERC721 && itemType !== ITEM_TYPE_ERC1155) return null;
   return {
@@ -71,7 +79,7 @@ function readNftItem(item: readonly unknown[]): NftItem | null {
   };
 }
 
-function readPaymentItem(item: readonly unknown[]): PaymentItem | null {
+function readPaymentItem(item: SeaportItem): PaymentItem | null {
   const itemType = Number(item[CONS_ITEM_TYPE]);
   if (itemType === ITEM_TYPE_NATIVE) {
     return { token: NATIVE_TOKEN, amount: BigInt(String(item[CONS_AMOUNT])) };
@@ -103,7 +111,7 @@ function readPaymentItem(item: readonly unknown[]): PaymentItem | null {
  * (the prior `amountPaid > 0n` guard discarded every non-native, non-wrapped
  * settlement, e.g. USDC).
  */
-function settlement(items: readonly (readonly unknown[])[]): PaymentItem | null {
+function settlement(items: readonly SeaportItem[]): PaymentItem | null {
   const byToken = new Map<string, bigint>();
   for (const raw of items) {
     const pay = readPaymentItem(raw);

@@ -9,6 +9,7 @@ import {
   findContract,
   addressesByChain,
   erc721CollectionKeys,
+  collectionKeys,
 } from "../src/registry/contracts";
 
 /**
@@ -81,11 +82,33 @@ describe("contracts registry ↔ config.yaml", () => {
     expect(readFileSync("config.yaml", "utf8")).toBe(CONFIG_YAML);
   });
 
-  it("binds exactly two contract names, one per handler", () => {
+  it("binds exactly the four lanes, one per handler", () => {
+    // A closed set: a name here with no handler file is a config pair nothing
+    // handles (silent data gap), and a handler with no name here never fires.
+    // scripts/check-onevent-bijection.mjs enforces the same thing at the
+    // event level; this catches a stray binding without running the belt.
     const names = new Set(
       [...CONFIG_YAML.matchAll(/^\s+- name: (\w+)$/gm)].map((m) => m[1]),
     );
-    expect([...names].sort()).toEqual(["Seaport", "TrackedErc721"]);
+    expect([...names].sort()).toEqual([
+      "Seaport",
+      "TrackedErc1155",
+      "TrackedErc20",
+      "TrackedErc721",
+    ]);
+  });
+
+  it("declares every lane in the top-level contracts block, even with no addresses", () => {
+    // Lanes with no registered contract still need their config pair declared —
+    // the handlers self-register unconditionally, and an onEvent call site with
+    // no matching config pair is an orphan that silently never fires.
+    const topLevel = CONFIG_YAML.slice(
+      CONFIG_YAML.indexOf("contracts:"),
+      CONFIG_YAML.indexOf("chains:"),
+    );
+    for (const lane of ["TrackedErc721", "TrackedErc1155", "TrackedErc20", "Seaport"]) {
+      expect(topLevel).toContain(`- name: ${lane}`);
+    }
   });
 
   it("has no entry that config.yaml does not declare (one list, both ways)", () => {
@@ -209,5 +232,34 @@ describe("registry-derived views", () => {
     expect(erc721.length).toBeGreaterThan(0);
     for (const c of erc721) expect(keys[c.address]).toBe(c.community);
     expect(Object.values(keys).filter((v) => !v)).toEqual([]);
+  });
+
+  it("maps every address to a non-empty key in its own lane", () => {
+    for (const standard of ["erc721", "erc1155", "erc20"] as const) {
+      const keys = collectionKeys(standard);
+      for (const c of TRACKED_CONTRACTS.filter((x) => x.standard === standard)) {
+        expect(keys[c.address]).toBe(c.community);
+      }
+      expect(Object.values(keys).filter((v) => !v)).toEqual([]);
+    }
+  });
+
+  // ERC-20 and ERC-721 both emit Transfer(address,address,uint256), so they share
+  // a topic0 and differ only in whether the third arg is indexed. An address bound
+  // under both standards on one chain would be decoded two ways from the same log
+  // — silently producing garbage balances rather than failing. Nothing today does
+  // this; the test exists so nothing ever does.
+  it("never registers one address under two standards on the same chain", () => {
+    const seen = new Map<string, string>();
+    const collisions: string[] = [];
+    for (const c of CONTRACTS) {
+      const key = `${c.chain}:${c.address}`;
+      const prior = seen.get(key);
+      if (prior && prior !== c.standard) {
+        collisions.push(`${key} is both '${prior}' and '${c.standard}'`);
+      }
+      seen.set(key, c.standard);
+    }
+    expect(collisions).toEqual([]);
   });
 });

@@ -25,7 +25,18 @@
  * registry — a `standard` value and a binding — not as a re-architecture.
  */
 
-export type TokenStandard = "erc721" | "seaport";
+/**
+ * One generic lane per token standard, plus the marketplace lane. A standard is
+ * a FIELD, so adding a contract of any of these is one registry entry and
+ * `pnpm gen:config` — no handler code, no per-community case.
+ *
+ * NOTE on erc20 vs erc721: both emit `Transfer(address,address,uint256)`, so
+ * they share a topic0. They differ only in whether the third arg is indexed,
+ * which means a contract registered under the WRONG standard decodes into
+ * garbage rather than failing loudly. test/contract-registry.test.ts asserts no
+ * address is registered under two standards on the same chain.
+ */
+export type TokenStandard = "erc721" | "erc1155" | "erc20" | "seaport";
 
 export interface ContractEntry {
   /** Stable collection/community key. Not unique on its own. */
@@ -201,10 +212,15 @@ export function addressesByChain(): ReadonlyMap<number, ReadonlySet<string>> {
  * bound on more than one chain carry the same community key on each, so the
  * flattening is lossless (asserted in test/contract-registry.test.ts).
  */
-export function erc721CollectionKeys(): Record<string, string> {
+export function collectionKeys(standard: TokenStandard): Record<string, string> {
   const out: Record<string, string> = {};
   for (const c of TRACKED_CONTRACTS) {
-    if (c.standard === "erc721") out[c.address] = c.community;
+    if (c.standard === standard) out[c.address] = c.community;
   }
   return out;
+}
+
+/** `collectionKeys("erc721")`. Kept as a name because the invariant above is about ERC-721. */
+export function erc721CollectionKeys(): Record<string, string> {
+  return collectionKeys("erc721");
 }
