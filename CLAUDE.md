@@ -50,22 +50,22 @@ tool was never the problem; the rule pointing a firehose at it was.
 | `config.yaml` | generated from the registry (`pnpm gen:config`); never hand-edited |
 | `src/handlers/tracked-erc721.ts` | ERC-721 `Transfer` → holder credit |
 | `src/handlers/seaport.ts` | marketplace sales |
-| `src/kitchen/` | community onboarding |
+| `src/handlers/tracked-nft-contracts.ts` | sale eligibility, read from the registry |
+| `src/lib/` | what the two handlers share (3 files) |
+| `schema.graphql` | 4 entities — `Action`, `TrackedHolder`, `Token`, `MintActivity` |
 
-That is the whole lane. **If a file is not on it, do not fix it, extend it, or
+That is the whole lane, and as of 2026-07-31 it is the whole of `src/` —
+8 files, ~1,080 lines. **If a file is not on it, do not fix it, extend it, or
 carry it as scope — one line in `PARKED.md` and move on.**
 
-Live code is NOT the same as in-scope code. The 2026-07-29 cleanup removed 23,908
-lines of *unreachable* code here; it deliberately left things that still run but
-aren't needed. Known live-but-out-of-scope:
+The 2026-07-31 bare-bones cleanup removed everything off the lane, including
+things that were still running: `src/kitchen/` + `src/collection-resolver/`
+(community onboarding; onboarding is now a registry entry + `pnpm gen:config`),
+`src/svm/` (Solana — see `PARKED.md` for why it was not ported onto Envio's SVM
+support), and `src/self` / `src/sense` / `src/canonical` (operator CLIs).
 
-- **`src/svm/`** — the Solana indexer, ~4.5k lines, with two live Railway
-  services (`svm-webhook`, `svm-backfill-worker`). Solana is out of MVP scope and
-  both its communities are paused. Removing it is a decommissioning decision
-  (stop the services first), not a cleanup.
-- **`src/self/`, `src/truth-contract/`** — operator CLIs, reachable via
-  `pnpm self` / `pnpm truth`. Out of the lane, but do not delete: an earlier scan
-  that missed their CLI entry points would have removed them.
+**Stop the retired Railway services** if they are still up: `kitchen-api`,
+`svm-webhook`, `svm-backfill-worker`.
 
 ### The scope test
 

@@ -1,3 +1,0 @@
-# Runtime artifacts (the workflow runs `npm install` to populate this).
-node_modules/
-__pycache__/

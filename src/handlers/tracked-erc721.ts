@@ -4,14 +4,20 @@ import {
   type TrackedHolder as TrackedHolderEntity,
 } from "envio";
 
-import { ZERO_ADDRESS } from "./constants";
-import { TRACKED_ERC721_COLLECTION_KEYS } from "./tracked-erc721/constants";
 import { recordAction } from "../lib/actions";
-import { isBurnAddress, isMintFromZero } from "../lib/mint-detection";
-import { isCustodialAddress } from "../registry/contracts";
+import { ZERO_ADDRESS, isBurnAddress, isMintFromZero } from "../lib/mint-detection";
+import { erc721CollectionKeys, isCustodialAddress } from "../registry/contracts";
 import { writeTokenOwnership } from "../lib/token-ownership";
 
 const ZERO = ZERO_ADDRESS.toLowerCase();
+
+/*
+ * contract address → collection key, derived from THE registry. The hardcoded
+ * map this replaced held 28 addresses while config.yaml bound 51, so 23
+ * collections indexed holders under their raw address. One declaration site now,
+ * held to config.yaml by test/contract-registry.test.ts.
+ */
+const COLLECTION_KEYS: Record<string, string> = erc721CollectionKeys();
 
 /** Structural shape of the TrackedErc721 Transfer event. */
 type TrackedErc721TransferEvent = {
@@ -38,7 +44,7 @@ export async function handleTrackedErc721Transfer(
 ): Promise<void> {
   const contractAddress = event.srcAddress.toLowerCase();
   const collectionKey =
-    TRACKED_ERC721_COLLECTION_KEYS[contractAddress] ?? contractAddress;
+    COLLECTION_KEYS[contractAddress] ?? contractAddress;
   const from = event.params.from.toLowerCase();
   const to = event.params.to.toLowerCase();
   const tokenId = event.params.tokenId;

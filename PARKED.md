@@ -41,3 +41,35 @@ Format: `YYYY-MM-DD — what it is — where (file:line or table)`
 2026-07-29 — `@freeside/trust-envelope-protocol` (vendored tgz dep in package.json) lost its only consumer when `src/collection-resolver/trust-protocol.ts` was deleted; dep + vendor tarball left in place to avoid a lockfile churn — sonar package.json:78
 2026-07-29 — `src/collection-resolver/SEAM.md:62` still lists `trust-protocol.ts` in its file table after that file's deletion — sonar src/collection-resolver/SEAM.md:62
 2026-07-29 — `src/collection-resolver/` is 63 files and survives only because `src/kitchen/` imports `protocol.js` + `capability-registry/fixtures.js`; the rest of it is reachable only from its own tests — a future scope decision, not a cleanup — sonar src/collection-resolver/
+
+---
+
+## Solana on Envio — why `src/svm/` was not ported (2026-07-31)
+
+`src/svm/` was deleted in the bare-bones cleanup. It used Helius DAS
+(`getAssetsByGroup`) for ownership snapshots plus the SQD portal for history.
+The obvious question — "why not route Solana through Envio like every other
+chain?" — has a real answer, recorded here so it is not re-derived:
+
+1. **HyperSync Solana does not retain history.** It is early access and states
+   "Only the most recent chain data is retained" — floor around slot
+   391791680, older slots roll off as new ones index. NFT holder state must be
+   rebuilt from a collection's first mint (Mad Lads is around slot 190M), so
+   there is no backfill. This is the blocker, not a rough edge.
+2. **Compressed NFTs are invisible to it.** HyperIndex SVM offers pre/post SPL
+   Token and Token-2022 balances per transaction. cNFTs live in Bubblegum
+   Merkle trees and never touch a token account, so those balances see nothing.
+   Covering them means decoding Bubblegum and holding tree state yourself —
+   which is exactly what DAS exists to avoid.
+3. **`ecosystem` is a top-level enum**, so SVM cannot share `config.yaml`.
+   Best case is `config.yaml` + `config.svm.yaml` over one registry.
+4. HyperIndex Solana is **"experimental and pre-release"**: `onInstruction` and
+   `onSlot` only, no `onAccount`, no log handlers, TypeScript only, and no
+   contract-import flow.
+
+**Revisit when** HyperSync Solana publishes a full-history retention guarantee.
+At that point the shape is `config.svm.yaml` + one instruction handler reading
+the same registry — not a port of the deleted code.
+Refs: docs.envio.dev/docs/HyperIndex/solana, docs.envio.dev/docs/HyperSync/solana
+
+2026-07-31 — `pnpm belt:progress` (scripts/belt-progress.mjs, ~700 lines) deleted with the cleanup; it depended on the kitchen API. Belt sync status is readable directly from the `chain_metadata` table via Hasura — sonar

@@ -17,7 +17,7 @@
 
 import { type EvmOnEventContext, type Token as TokenEntity } from "envio";
 
-import { ZERO_ADDRESS } from "../handlers/constants";
+import { ZERO_ADDRESS } from "./mint-detection";
 import { isBurnAddress } from "./mint-detection";
 
 const ZERO = ZERO_ADDRESS.toLowerCase();

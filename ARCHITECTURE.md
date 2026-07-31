@@ -1,29 +1,56 @@
 # sonar-api architecture
 
-**Runtime: Envio HyperIndex only.** The indexer runs on Railway as `belt-indexer-selfhost` (`Dockerfile.belt` → `pnpm envio start`).
+An Envio HyperIndex belt. One registry, two handlers, six chains.
 
-**Kitchen HTTP (ordering-service):** `src/kitchen/` → Railway service **`kitchen-api`** (`Dockerfile.kitchen`).
+## The path
 
-- `GET/POST /v1/collections/{chain_id}/{contract_address}/*`
-- Reads index status from belt Hasura GraphQL (`TrackedHolder`, `Token`)
-- Ingest queue on belt Postgres (`kitchen_ingest_jobs`)
-- Canonical physical preparation jobs are keyed by shared `deployment_id` plus the
-  operation-scoped `ownership_index.v1` capability version. Legacy EVM routes
-  and `/v2/collection-preparations` join through one admission transaction;
-  subscriber/order correlations are stored separately from physical work.
-- The background ingest worker requires `KITCHEN_WORKER_ENABLED=true` and an
-  explicit preparation port. `local_config` is the hermetic non-production seam.
-  Production uses `KITCHEN_PREPARATION_PORT=belt_config_batch` with a drain
-  strategy (`KITCHEN_BELT_CONFIG_PATH`, `KITCHEN_BELT_CONFIG_PATCH_WEBHOOK`, or
-  `KITCHEN_PREPARATION_DRAIN=external_scale`). The worker claims a batch and
-  materializes it once (single config rewrite / webhook / restart). Operators
-  may also `POST /v2/collection-preparations/batch` (1–50 items) so admission
-  is one round-trip. `/health` remains process liveness; `/ready` follows drain
-  availability so jobs are never accepted into an immortal queue. Ethereum uses
-  `EthTrackedErc721`; other supported EVM networks use `TrackedErc721`. ERC-1155
-  and Solana preparation fail typed without mutation.
-- Bearer auth via `SERVICE_TOKEN`
+```
+src/registry/contracts.ts  →  config.yaml  →  handlers  →  Postgres  →  Hasura  →  Caddy  →  score-api
+     (the only                (generated,       (2 files)                        (belt-gateway)
+      declaration site)        never edited)
+```
 
-**Public GraphQL:** `belt-gateway` (Caddy) → `belt-hasura-selfhost` → `/v1/graphql`
+Adding a community is **one entry** in `src/registry/contracts.ts`, then
+`pnpm gen:config`. Nothing else. `test/contract-registry.test.ts` asserts
+`config.yaml` is byte-identical to what the registry generates, so a second
+declaration site cannot reappear.
 
-**Do not deploy or reference `ponder-runtime/`** — it was removed. Agents: if you see Ponder in old grimoires, treat it as historical.
+## Handlers
+
+| handler | event | writes |
+|---|---|---|
+| `src/handlers/tracked-erc721.ts` | `Transfer(address,address,uint256)` | `TrackedHolder`, `Token`, `Action` |
+| `src/handlers/seaport.ts` | `OrderFulfilled(...)` | `MintActivity`, `Action` |
+
+Both self-register on module load; `src/EventHandlers.ts` imports them for that
+side effect only. `envio codegen` reads `config.yaml` + `schema.graphql`.
+
+`src/lib/` holds the three pieces both handlers share: `actions.ts` (the `Action`
+row), `mint-detection.ts` (zero-address and burn checks), `token-ownership.ts`
+(the single `Token` write).
+
+## Chains
+
+Ethereum (1), Optimism (10), Base (8453), Arbitrum (42161), Zora (7777777),
+Berachain (80094). All via HyperSync — there is no RPC configuration.
+
+## Entities
+
+Four, in `schema.graphql`: `Action`, `TrackedHolder`, `Token`, `MintActivity`.
+score-api reads `Action` (belt pull) and `MintActivity` (sale attribution).
+
+## Deployment
+
+| service | built from | what it is |
+|---|---|---|
+| `belt-indexer-selfhost` | `Dockerfile.belt` | `pnpm envio start` |
+| `belt-hasura-selfhost` | (Hasura image) | GraphQL over the indexed Postgres |
+| `belt-gateway` | `Dockerfile.gateway` + `Caddyfile` | public URL, per-IP rate limit; reverse-proxies Hasura |
+
+The gateway is a stable indirection: belt recovery swaps `BELT_UPSTREAM`, and
+the public GraphQL URL never changes.
+
+## Scope
+
+ERC-721 on EVM only. ERC-1155 and Solana are deliberately out — see `PARKED.md`
+for why Solana was not ported onto Envio's SVM support.

@@ -12,7 +12,8 @@
  */
 
 import { indexer, type MintActivity } from "envio";
-import { isTrackedNftContract } from "./marketplaces/tracked-nft-contracts";
+import { isTrackedNftContract } from "./tracked-nft-contracts";
+import { ZERO_ADDRESS } from "../lib/mint-detection";
 
 // Tuple indices for offer: [itemType, token, identifier, amount]
 const OFFER_ITEM_TYPE = 0;
@@ -34,10 +35,7 @@ const ITEM_TYPE_ERC1155 = 3;
 
 /** Native settlement has no token address; record the zero address so the
  *  denomination is always explicit and floor/average math cannot mix currencies. */
-const NATIVE_TOKEN = "0x0000000000000000000000000000000000000000";
-
-/** Same literal, different meaning: an unusable counterparty. */
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const NATIVE_TOKEN = ZERO_ADDRESS;
 
 interface NftItem {
   contract: string;

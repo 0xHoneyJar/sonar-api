@@ -1,49 +1,20 @@
 /*
- * Shared mint and burn detection utilities for THJ indexer.
- *
- * Centralizes logic for detecting mints, burns, and airdrops across
- * ERC-721 and ERC-1155 handlers.
+ * Address semantics shared by both handlers: what counts as a mint, and what
+ * counts as a burn.
  */
 
-import { ZERO_ADDRESS } from "../handlers/constants";
+export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
-// Common burn address used by many projects
-export const DEAD_ADDRESS = "0x000000000000000000000000000000000000dead";
+/** Burn destination many projects use alongside the zero address. */
+const DEAD_ADDRESS = "0x000000000000000000000000000000000000dead";
 
-/**
- * Check if transfer is a mint (from zero address)
- */
+/** A transfer out of the zero address is a mint. */
 export function isMintFromZero(fromAddress: string): boolean {
   return fromAddress.toLowerCase() === ZERO_ADDRESS;
 }
 
-/**
- * Check if transfer is a mint or airdrop (from zero OR from specified airdrop wallets)
- * Use this when a collection has a distribution wallet that airdrops tokens.
- */
-export function isMintOrAirdrop(
-  fromAddress: string,
-  airdropWallets?: Set<string>
-): boolean {
-  const lower = fromAddress.toLowerCase();
-  if (lower === ZERO_ADDRESS) {
-    return true;
-  }
-  return airdropWallets?.has(lower) ?? false;
-}
-
-/**
- * Check if an address is a burn destination (zero or dead address)
- */
+/** True for the zero address and the conventional dead address. */
 export function isBurnAddress(address: string): boolean {
   const lower = address.toLowerCase();
   return lower === ZERO_ADDRESS || lower === DEAD_ADDRESS;
-}
-
-/**
- * Check if transfer is a burn (to burn address, not from zero)
- * Excludes mints to burn address which would be unusual but technically possible.
- */
-export function isBurnTransfer(fromAddress: string, toAddress: string): boolean {
-  return !isMintFromZero(fromAddress) && isBurnAddress(toAddress);
 }
