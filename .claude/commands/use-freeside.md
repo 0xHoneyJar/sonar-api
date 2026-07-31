@@ -1,1 +1,0 @@
-../constructs/packs/kranz/commands/use-freeside.md

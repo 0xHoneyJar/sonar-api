@@ -1,1 +1,0 @@
-../constructs/packs/gtm-collective/commands/announce-release.md

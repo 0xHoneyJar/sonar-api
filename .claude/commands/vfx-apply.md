@@ -1,1 +1,0 @@
-../constructs/packs/vfx-playbook/commands/vfx-apply.md

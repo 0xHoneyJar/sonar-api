@@ -1,1 +1,0 @@
-../constructs/packs/gecko/commands/sense-estate.md

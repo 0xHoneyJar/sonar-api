@@ -1,1 +1,0 @@
-../constructs/packs/gecko/commands/sweep-bonfire.md

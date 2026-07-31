@@ -1,1 +1,0 @@
-../constructs/packs/gtm-collective/commands/plan-devrel.md

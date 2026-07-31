@@ -1,2 +1,0 @@
-Fixture source B has a nested input path.
-Its second line must remain byte-identical after intake.

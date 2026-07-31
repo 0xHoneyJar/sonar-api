@@ -14,7 +14,8 @@
  * Fixture: test/fixtures/base-seaport-fills.json — captured via
  * eth_getTransactionReceipt against Base mainnet, filtered to single-NFT,
  * single-currency fills for tracked collections. Regenerate with the method in
- * grimoires/loa/context/2026-07-25-marketplace-sale-detection.md §7.
+ * eth_getTransactionReceipt against Base mainnet, filtered to single-NFT,
+ * single-currency fills for tracked collections.
  */
 import { readFileSync } from "node:fs";
 import { describe, it, expect, vi, beforeEach } from "vitest";

@@ -1,1 +1,0 @@
-../constructs/packs/k-hole/commands/forge.md

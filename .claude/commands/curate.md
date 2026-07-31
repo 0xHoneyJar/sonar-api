@@ -1,1 +1,0 @@
-../constructs/packs/the-mint/commands/curate.md

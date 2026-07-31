@@ -1,1 +1,0 @@
-../constructs/packs/showcase/commands/showcase-visual.md

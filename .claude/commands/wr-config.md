@@ -1,1 +1,0 @@
-../constructs/packs/webreel/commands/wr-config.md

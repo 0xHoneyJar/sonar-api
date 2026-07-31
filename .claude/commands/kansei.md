@@ -1,1 +1,0 @@
-../constructs/packs/kansei/commands/kansei.md

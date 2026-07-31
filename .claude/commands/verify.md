@@ -1,1 +1,0 @@
-../constructs/packs/protocol/commands/verify.md

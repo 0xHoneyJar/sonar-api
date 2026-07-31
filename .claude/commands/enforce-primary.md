@@ -1,1 +1,0 @@
-../constructs/packs/dynamic-auth/commands/enforce-primary.md

@@ -2,8 +2,7 @@
  * seaport-registry-sale.test.ts — sprint-bug-190 RED suite.
  *
  * Proves the three defects triaged in
- * grimoires/loa/a2a/bug-20260725-224d57/triage.md, measured against live data in
- * grimoires/loa/context/2026-07-25-marketplace-sale-detection.md:
+ * Measured against live Base data 2026-07-25:
  *
  *   F1 — transfer Actions are gated on the hardcoded TRANSFER_TRACKED_COLLECTIONS
  *        set, so a config-bound collection Kitchen onboarded emits nothing

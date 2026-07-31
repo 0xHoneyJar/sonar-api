@@ -1,5 +1,0 @@
-COMBO: block-destructive__bash-blocked
-EXIT: 2
---- STDOUT ---
---- STDERR ---
-BLOCKED [P2]: git push --force detected. Use --force-with-lease for safer force push, or push to a feature branch.

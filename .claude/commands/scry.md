@@ -1,1 +1,0 @@
-../constructs/packs/gygax/commands/scry.md

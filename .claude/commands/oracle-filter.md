@@ -1,1 +1,0 @@
-../constructs/packs/social-oracle/commands/oracle-filter.md
