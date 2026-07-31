@@ -136,9 +136,34 @@ export const recordAction = (
   context.Action.set(action);
 };
 
-export const lowerCaseOrUndefined = (value?: string | null): string | undefined => {
-  if (!value) {
-    return undefined;
-  }
-  return value.toLowerCase();
-};
+/** What every Action needs off a raw EVM event. */
+export interface EventIdentity {
+  txHash: string;
+  logIndex: number;
+  timestamp: bigint;
+  blockNumber: bigint;
+  transactionIndex: number | undefined;
+}
+
+/**
+ * Read the identity fields once, the same way in every lane. Structural param
+ * type, so each handler's own event type satisfies it.
+ *
+ * transactionIndex is optional because it depends on config.yaml selecting it in
+ * `field_selection.transaction_fields` — a lane that forgets gets undefined, not
+ * a crash, and the column stays null rather than silently reading as 0.
+ */
+export function eventIdentity(event: {
+  logIndex: number | bigint;
+  transaction: { hash: string; transactionIndex?: number | bigint };
+  block: { timestamp: number | bigint; number: number | bigint };
+}): EventIdentity {
+  const txIndex = event.transaction.transactionIndex;
+  return {
+    txHash: event.transaction.hash,
+    logIndex: Number(event.logIndex),
+    timestamp: BigInt(event.block.timestamp),
+    blockNumber: BigInt(event.block.number),
+    transactionIndex: txIndex === undefined ? undefined : Number(txIndex),
+  };
+}

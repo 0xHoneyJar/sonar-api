@@ -4,19 +4,14 @@ import {
   type TrackedHolder as TrackedHolderEntity,
 } from "envio";
 
-import { recordAction } from "../lib/actions";
-import { ZERO_ADDRESS, isBurnAddress, isMintFromZero } from "../lib/mint-detection";
+import { eventIdentity, recordAction } from "../lib/actions";
+import { ZERO_ADDRESS, isBurnAddress } from "../lib/mint-detection";
 import { erc721CollectionKeys, isCustodialAddress } from "../registry/contracts";
 import { writeTokenOwnership } from "../lib/token-ownership";
 
 const ZERO = ZERO_ADDRESS.toLowerCase();
 
-/*
- * contract address → collection key, derived from THE registry. The hardcoded
- * map this replaced held 28 addresses while config.yaml bound 51, so 23
- * collections indexed holders under their raw address. One declaration site now,
- * held to config.yaml by test/contract-registry.test.ts.
- */
+/** contract address → collection key, from THE registry. */
 const COLLECTION_KEYS: Record<string, string> = erc721CollectionKeys();
 
 /** Structural shape of the TrackedErc721 Transfer event. */
@@ -29,15 +24,7 @@ type TrackedErc721TransferEvent = {
   block: { timestamp: number | bigint; number: number | bigint };
 };
 
-/**
- * The ERC-721 holder path. One handler, one binding, every chain.
- *
- * The former dedicated `EthTrackedErc721` binding was removed at bd-dwq5.3: it
- * was a workaround for a supposed envio "single-address fetch gap" on chain 1
- * that turned out to be a corrupted Azuki address in the config, not an envio
- * defect. Chain 1 now binds 23 addresses under TrackedErc721 like every other
- * chain.
- */
+/** The ERC-721 holder path. One handler, one binding, every chain. */
 export async function handleTrackedErc721Transfer(
   event: TrackedErc721TransferEvent,
   context: EvmOnEventContext,
@@ -49,17 +36,8 @@ export async function handleTrackedErc721Transfer(
   const to = event.params.to.toLowerCase();
   const tokenId = event.params.tokenId;
   const chainId = event.chainId;
-  const txHash = event.transaction.hash;
-  const logIndex = Number(event.logIndex);
-  const timestamp = BigInt(event.block.timestamp);
-  // Exact event identity, carried onto every Action this handler writes.
-  // blockNumber is free (block fields are always on the event); transactionIndex
-  // is selected in config.yaml's field_selection.
-  const blockNumber = BigInt(event.block.number);
-  const transactionIndex =
-    event.transaction.transactionIndex === undefined
-      ? undefined
-      : Number(event.transaction.transactionIndex);
+  const { txHash, logIndex, timestamp, blockNumber, transactionIndex } =
+    eventIdentity(event);
 
   // Preload: prime holder reads for from and to
   if (from !== ZERO && to !== ZERO) {
@@ -141,13 +119,10 @@ export async function handleTrackedErc721Transfer(
     });
   }
 
-  // Track transfers for every bound collection (non-mint, non-burn transfers).
-  // No collection allowlist: indexer.onEvent only delivers events for addresses
-  // bound in config.yaml, so arrival already proves the collection is tracked.
-  // The former TRANSFER_TRACKED_COLLECTIONS gate was hand-maintained while
-  // Kitchen patches config.yaml automatically, so every onboarded collection
-  // indexed holders and emitted no transfer history (bug-20260725-224d57 F1;
-  // chain 1 had 9 bound collections and emitted transfers for exactly one).
+  // Every bound collection, no allowlist: indexer.onEvent only delivers events
+  // for addresses bound in config.yaml, so arrival already proves the collection
+  // is tracked. A hand-maintained allowlist here once drifted from the config and
+  // emitted transfer history for 1 of 9 bound collections on chain 1.
   if (from !== ZERO && !isBurnAddress(to)) {
     const transferActionId = `${txHash}_${logIndex}_transfer`;
     recordAction(context, {
@@ -168,19 +143,13 @@ export async function handleTrackedErc721Transfer(
         from,
         to,
         isSecondary: true,
-        // `viaMarketplace` was removed here in bug-20260725-224d57 (F1/T6).
-        //
-        // It was `isMarketplaceAddress(from) || isMarketplaceAddress(to)`, which
-        // cannot work for ERC-721: approval-based venues (Seaport, Element) never
-        // take custody, so the marketplace appears in neither `from` nor `to`.
-        // Measured on chain 1 (409 sampled Azuki transfers): ~29% precision, ~28%
-        // recall. 122 of 172 `true` values were Blur Blend LOAN collateral moves —
-        // borrowing against an NFT was reported as selling it. And a `false`
-        // asserted "confirmed not a sale", a claim this code could never make.
-        //
-        // The sale signal now lives on MintActivity{SALE}, joinable on
-        // (chainId, txHash, contract, tokenId), carrying `operator` and a priced
-        // `amountPaid`. Absence of a matching SALE row means UNKNOWN, not "no sale".
+        // No `viaMarketplace` flag here, deliberately. Approval-based venues
+        // (Seaport, Element) never take custody, so the marketplace appears in
+        // neither `from` nor `to` — inferring a sale from them scored ~29%
+        // precision on 409 sampled chain-1 transfers, mostly misreading Blur
+        // Blend loan collateral as sales. The sale signal lives on
+        // MintActivity{SALE}, joined on (chainId, txHash, contract, tokenId).
+        // No matching SALE row means UNKNOWN, not "not a sale".
       },
     });
   }
@@ -330,12 +299,8 @@ interface UpdateTokenOwnershipArgs {
 }
 
 /**
- * Maintain the per-token current-owner record (Token entity) for tracked
- * ERC-721 collections (Tarot + Fractures + lore + apdao_seat). Keyed
- * `${collection}_${chainId}_${tokenId}` to match the canonical Token shape
- * (src/lib/erc721-holders.ts). `collection` is the on-chain contract address
- * (lowercase), matching the TrackedHolder.contract field used downstream.
- * Burns (to a burn address) mark isBurned=true and set owner=ZERO.
+ * Maintain the per-token current-owner record. Keyed
+ * `${contract}_${chainId}_${tokenId}`; burns set owner=ZERO and isBurned=true.
  */
 export async function updateTokenOwnership({
   context,

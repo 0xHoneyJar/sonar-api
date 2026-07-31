@@ -11,7 +11,7 @@
  * upsert / mintedAt logic can never drift between the two handlers again.
  *
  * Keyed `${collection}_${chainId}_${tokenId}` to match the canonical Token
- * shape (src/lib/erc721-holders.ts). Burns (candidateOwner is a burn address)
+ * shape. Burns (candidateOwner is a burn address)
  * mark isBurned=true and set owner=ZERO.
  */
 

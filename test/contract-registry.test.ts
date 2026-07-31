@@ -7,7 +7,6 @@ import {
   TRACKED_CONTRACTS,
   isCustodialAddress,
   findContract,
-  addressesByChain,
   erc721CollectionKeys,
   collectionKeys,
 } from "../src/registry/contracts";
@@ -220,12 +219,6 @@ describe("contracts registry ↔ config.yaml", () => {
 });
 
 describe("registry-derived views", () => {
-  it("exposes every declared address under its chain", () => {
-    const byChain = addressesByChain();
-    const missing = declared.filter((d) => !byChain.get(d.chain)?.has(d.address));
-    expect(missing).toEqual([]);
-  });
-
   it("maps every ERC-721 address to a non-empty community key", () => {
     const keys = erc721CollectionKeys();
     const erc721 = TRACKED_CONTRACTS.filter((c) => c.standard === "erc721");

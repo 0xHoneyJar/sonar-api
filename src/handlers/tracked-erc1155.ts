@@ -12,7 +12,7 @@
  */
 import { indexer, type EvmOnEventContext, type TrackedHolder1155 } from "envio";
 
-import { recordAction } from "../lib/actions";
+import { eventIdentity, recordAction } from "../lib/actions";
 import { ZERO_ADDRESS, isBurnAddress } from "../lib/mint-detection";
 import { collectionKeys, isCustodialAddress } from "../registry/contracts";
 import {
@@ -55,14 +55,7 @@ function meta(event: Erc1155Event, from: string, to: string): TransferMeta {
     chainId: event.chainId,
     from: from.toLowerCase(),
     to: to.toLowerCase(),
-    txHash: event.transaction.hash,
-    logIndex: Number(event.logIndex),
-    timestamp: BigInt(event.block.timestamp),
-    blockNumber: BigInt(event.block.number),
-    transactionIndex:
-      event.transaction.transactionIndex === undefined
-        ? undefined
-        : Number(event.transaction.transactionIndex),
+    ...eventIdentity(event),
   };
 }
 

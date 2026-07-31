@@ -2,8 +2,8 @@
  * Seaport Handler - Tracks marketplace trades for activity feed
  *
  * Creates MintActivity records for both SALE and PURCHASE events.
- * Collection eligibility comes from the ACTIVE belt config, not a hardcoded map —
- * onboarding a collection through Kitchen is sufficient (bug-20260725-224d57 F2).
+ * Sale eligibility comes from THE registry, not a hardcoded map, so a newly
+ * registered collection produces sale rows with no handler change.
  *
  * Measured 2026-07-25 (grimoires/loa/context/2026-07-25-marketplace-sale-detection.md):
  * a Seaport OrderFulfilled log is present on 98.2% of Base secondary transfers and
@@ -12,7 +12,7 @@
  */
 
 import { indexer, type MintActivity } from "envio";
-import { isTrackedNftContract } from "./tracked-nft-contracts";
+import { isTrackedContract } from "../registry/contracts";
 import { ZERO_ADDRESS } from "../lib/mint-detection";
 
 // Tuple indices for offer: [itemType, token, identifier, amount]
@@ -207,10 +207,16 @@ indexer.onEvent(
     // One rule: gross value moved in the settlement currency.
     const paid: PaymentItem | null = settlement([...offer, ...consideration]);
 
-    // Eligibility is per (chain, contract): config.yaml is the source of truth.
-    nftItems = nftItems.filter((n: NftItem) =>
-      isTrackedNftContract(chainId, n.contract),
-    );
+    // Eligibility is per (chain, contract), straight off the registry. Every
+    // registered address is eligible — a name allowlist would silently drop a
+    // collection the moment one is added.
+    //
+    // Bounded caveat (BB SEA-008): Seaport does not validate item token types,
+    // and ERC-20's transferFrom shares a selector with ERC-721's, so a crafted
+    // order can declare a registered ERC-20 as an itemType-2 item and emit a
+    // sale row for a non-collection contract. Consumers should filter to known
+    // collections rather than trust every address.
+    nftItems = nftItems.filter((n: NftItem) => isTrackedContract(chainId, n.contract));
     if (nftItems.length === 0) return;
 
     // The marketplace contract that emitted the fill — score-api's sale rule keys

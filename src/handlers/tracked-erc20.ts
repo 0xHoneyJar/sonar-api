@@ -15,7 +15,7 @@
  */
 import { indexer, type EvmOnEventContext, type TrackedTokenBalance } from "envio";
 
-import { recordAction } from "../lib/actions";
+import { eventIdentity, recordAction } from "../lib/actions";
 import { ZERO_ADDRESS, isBurnAddress } from "../lib/mint-detection";
 import { collectionKeys } from "../registry/contracts";
 
@@ -111,14 +111,8 @@ indexer.onEvent(
     if (amount === 0n) return;
 
     const tokenKey = (TOKEN_KEYS[token] ?? token).toLowerCase();
-    const timestamp = BigInt(event.block.timestamp);
-    const blockNumber = BigInt(event.block.number);
-    const txHash = event.transaction.hash;
-    const logIndex = Number(event.logIndex);
-    const transactionIndex =
-      (event.transaction as { transactionIndex?: number | bigint }).transactionIndex === undefined
-        ? undefined
-        : Number((event.transaction as { transactionIndex?: number | bigint }).transactionIndex);
+    const { txHash, logIndex, timestamp, blockNumber, transactionIndex } =
+      eventIdentity(event);
 
     const isMint = fromLower === ZERO;
     const isBurn = isBurnAddress(toLower) && !isMint;

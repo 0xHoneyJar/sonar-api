@@ -13,16 +13,10 @@
  *
  * This file GENERATES config.yaml (`pnpm gen:config`, scripts/gen-config.ts).
  * There is no second declaration site, and no `binding` field: the Envio
- * contract name follows from `standard` — erc721 → TrackedErc721, seaport →
- * Seaport, one binding per handler.
+ * contract name follows from `standard`, one binding per handler.
  *
  * Invariant, enforced by test/contract-registry.test.ts: the checked-in
  * config.yaml is byte-identical to what this file generates.
- *
- * Out of MVP scope by decision, not by accident (OBJECTIVE.md "Scope"):
- * ERC-1155, ERC-20 and the vault/staking/BGT contracts were removed here at
- * bd-dwq5.3 along with their handlers. Each returns as one decoder on this same
- * registry — a `standard` value and a binding — not as a re-architecture.
  */
 
 /**
@@ -191,17 +185,6 @@ export function findContract(
 /** True when `address` is tracked on `chain`. */
 export function isTrackedContract(chain: number, address: string): boolean {
   return byKey.has(`${chain}:${address.toLowerCase()}`);
-}
-
-/** chainId → the set of lowercased addresses tracked on that chain. */
-export function addressesByChain(): ReadonlyMap<number, ReadonlySet<string>> {
-  const out = new Map<number, Set<string>>();
-  for (const c of TRACKED_CONTRACTS) {
-    const set = out.get(c.chain) ?? new Set<string>();
-    set.add(c.address);
-    out.set(c.chain, set);
-  }
-  return out;
 }
 
 /**
