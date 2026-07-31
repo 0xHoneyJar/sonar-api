@@ -45,6 +45,9 @@ contracts:
         field_selection:
           transaction_fields:
             - hash
+            # Exact event identity on Action. blockNumber needs no selection
+            # (block fields are always on the event); transactionIndex does.
+            - transactionIndex
   # Seaport — OpenSea secondary sales. The OrderFulfilled ABI is stable across
   # versions, so one binding covers v1.1 through v1.6 on every chain.
   - name: Seaport

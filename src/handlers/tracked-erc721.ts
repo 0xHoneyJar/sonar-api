@@ -25,7 +25,7 @@ type TrackedErc721TransferEvent = {
   chainId: number;
   logIndex: number | bigint;
   params: { from: string; to: string; tokenId: bigint };
-  transaction: { hash: string };
+  transaction: { hash: string; transactionIndex?: number | bigint };
   block: { timestamp: number | bigint; number: number | bigint };
 };
 
@@ -52,6 +52,14 @@ export async function handleTrackedErc721Transfer(
   const txHash = event.transaction.hash;
   const logIndex = Number(event.logIndex);
   const timestamp = BigInt(event.block.timestamp);
+  // Exact event identity, carried onto every Action this handler writes.
+  // blockNumber is free (block fields are always on the event); transactionIndex
+  // is selected in config.yaml's field_selection.
+  const blockNumber = BigInt(event.block.number);
+  const transactionIndex =
+    event.transaction.transactionIndex === undefined
+      ? undefined
+      : Number(event.transaction.transactionIndex);
 
   // Preload: prime holder reads for from and to
   if (from !== ZERO && to !== ZERO) {
@@ -100,6 +108,8 @@ export async function handleTrackedErc721Transfer(
       chainId,
       txHash,
       logIndex,
+      blockNumber,
+      transactionIndex,
       numeric1: 1n,
       context: {
         tokenId: tokenId.toString(),
@@ -120,6 +130,8 @@ export async function handleTrackedErc721Transfer(
       chainId,
       txHash,
       logIndex,
+      blockNumber,
+      transactionIndex,
       numeric1: 1n,
       context: {
         tokenId: tokenId.toString(),
@@ -147,6 +159,8 @@ export async function handleTrackedErc721Transfer(
       chainId,
       txHash,
       logIndex,
+      blockNumber,
+      transactionIndex,
       numeric1: BigInt(tokenId.toString()),
       context: {
         tokenId: tokenId.toString(),
@@ -187,6 +201,8 @@ export async function handleTrackedErc721Transfer(
     txHash,
     logIndex,
     timestamp,
+    blockNumber,
+    transactionIndex,
     direction: "out",
   });
 
@@ -200,6 +216,8 @@ export async function handleTrackedErc721Transfer(
     txHash,
     logIndex,
     timestamp,
+    blockNumber,
+    transactionIndex,
     direction: "in",
   });
 }
@@ -219,6 +237,8 @@ interface AdjustHolderArgs {
   txHash: string;
   logIndex: number;
   timestamp: bigint;
+  blockNumber: bigint;
+  transactionIndex: number | undefined;
   direction: "in" | "out";
 }
 
@@ -232,6 +252,8 @@ async function adjustHolder({
   txHash,
   logIndex,
   timestamp,
+  blockNumber,
+  transactionIndex,
   direction,
 }: AdjustHolderArgs) {
   if (delta === 0) {
@@ -261,6 +283,8 @@ async function adjustHolder({
     chainId,
     txHash,
     logIndex,
+    blockNumber,
+    transactionIndex,
     numeric1: BigInt(tokenCount),
     context: {
       contract: contractAddress,

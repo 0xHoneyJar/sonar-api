@@ -1,26 +1,52 @@
 {
-  "_purpose": "The live GraphQL contract the belt-gateway PROMISES its consumers. Producer-side guard: CI introspects the live schema and fails the moment a consumer-depended field drifts or disappears — catching the class of break where a consumer was built against an ASSUMED schema. Origin: the loa-freeside shadow-audit (#296) shipped a query selecting logIndex/txHash/value that don't exist on the live Transfer type, so it 400'd on the first page fetch and no audit could run (found + fixed 2026-06-23, loa-freeside#300). This guard makes that class impossible to re-introduce silently.",
+  "_purpose": "The live GraphQL contract the belt-gateway PROMISES its consumers. Producer-side guard: CI introspects the live schema daily and fails the moment a consumer-depended field drifts or disappears. This catches the class of break where a consumer was built against an ASSUMED schema and only finds out in production — e.g. the Action_bool_exp input-type rename that froze purupuru's sync for 19 days in 2026-06, invisible because every consumer test mocks the wire.",
   "endpoint": "https://belt-gateway-production.up.railway.app/v1/graphql",
   "endpointEnv": "BELT_GATEWAY_ENDPOINT",
+  "_typeMapping": "Hasura serves Envio BigInt as `numeric`, Int as `Int`, ID/String as `String`. Verified against the live endpoint 2026-07-31.",
+  "_history": "Until 2026-07-31 this file guarded the `Transfer` entity for loa-freeside/packages/adapters/sonar (the Shadow-Mode audit). Both are gone — that adapter no longer exists in loa-freeside, and `Transfer` was one of the 91 orphan entities dropped from schema.graphql. The guard now covers the contract that actually has a consumer: score-api.",
   "types": {
-    "Transfer": {
-      "consumer": "loa-freeside/packages/adapters/sonar — Transfer-replay holder reconstruction (the Shadow-Mode audit's data layer)",
+    "Action": {
+      "consumer": "score-api src/bronze/belt-gateway-source.ts PULL_QUERY — the bronze event pull that feeds all community scoring",
       "requiredFields": {
         "id": "String",
-        "blockNumber": "numeric",
-        "transactionHash": "String",
-        "from": "String",
-        "to": "String",
-        "tokenId": "numeric",
-        "collection": "String",
-        "chainId": "Int"
+        "actor": "String",
+        "primaryCollection": "String",
+        "actionType": "String",
+        "timestamp": "numeric",
+        "numeric1": "numeric",
+        "numeric2": "numeric",
+        "txHash": "String",
+        "context": "String"
       },
-      "forbiddenFields": ["logIndex", "txHash", "value"],
       "invariants": [
-        "logIndex is NOT a column — it is encoded in id as `<transactionHash>_<logIndex>`. Consumers derive it, never select it.",
-        "value is NOT served — Transfer is ERC-721-only; ERC-1155 amounts live in separate entities.",
-        "the tx hash field is `transactionHash`, NOT `txHash`."
+        "The tx hash field here is `txHash`. On MintActivity it is `transactionHash`. The two entities disagree and both are load-bearing — do not 'fix' one without migrating its consumer in lockstep.",
+        "logIndex is NOT a column — it is encoded in id as `<txHash>_<logIndex>[_<suffix>]` and score-api derives it (parseLogIndex).",
+        "(timestamp, id) is the pull keyset. Changing either field's type or nullability breaks pagination, not just a projection."
       ]
+    },
+    "MintActivity": {
+      "consumer": "score-api src/silver/sale-attribution.ts — marketplace sale attribution (sale price facts, viaMarketplace stamping)",
+      "requiredFields": {
+        "id": "String",
+        "timestamp": "numeric",
+        "transactionHash": "String",
+        "contract": "String",
+        "tokenId": "numeric",
+        "amountPaid": "numeric",
+        "operator": "String"
+      },
+      "invariants": [
+        "amountPaid is nullable by design: an unpriced sale is still a real disposal, and dropping it made 'sold' and 'could not price it' indistinguishable downstream.",
+        "amountPaid is the ROW TOTAL, not per unit — unit price is amountPaid / quantity.",
+        "paymentToken carries the settlement currency; the zero address means the chain's native coin. Without it, 1000 USDC and 1000 wei are indistinguishable."
+      ]
+    }
+  },
+  "_pending": {
+    "_why": "Declared but NOT asserted. Action.blockNumber and Action.transactionIndex were added to schema.graphql on 2026-07-31, but the belt has not been re-indexed, so they are not on the live surface yet. Asserting them now would fail this guard every day until the re-index — a numb sensor. PROMOTE them into Action.requiredFields in the same change that redeploys the belt.",
+    "Action": {
+      "blockNumber": "numeric",
+      "transactionIndex": "Int"
     }
   }
 }

@@ -47,6 +47,17 @@ export interface NormalizedActionInput {
    * Arbitrary context serialised as JSON for downstream filters.
    */
   context?: Record<string, unknown> | Array<unknown> | null;
+  /**
+   * Block height. With `transactionIndex` and `logIndex` this is the exact
+   * event identity, which consumers need for deterministic intra-block ordering
+   * — (timestamp, id) alone cannot order two events in the same block.
+   */
+  blockNumber?: NumericInput;
+  /**
+   * Position of the transaction within its block. Requires `transactionIndex`
+   * in config.yaml's `field_selection.transaction_fields`.
+   */
+  transactionIndex?: number | bigint | null;
 }
 
 const toOptionalBigInt = (value: NumericInput): bigint | undefined => {
@@ -115,6 +126,11 @@ export const recordAction = (
     numeric1: toOptionalBigInt(input.numeric1) ?? undefined,
     numeric2: toOptionalBigInt(input.numeric2) ?? undefined,
     context: serializeContext(input.context),
+    blockNumber: toOptionalBigInt(input.blockNumber) ?? undefined,
+    transactionIndex:
+      input.transactionIndex === undefined || input.transactionIndex === null
+        ? undefined
+        : Number(input.transactionIndex),
   };
 
   context.Action.set(action);

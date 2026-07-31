@@ -18,6 +18,12 @@ type Action {
   numeric1: BigInt
   numeric2: BigInt
   context: String
+  # Exact event identity. Nullable because every row written before the
+  # 2026-07-31 schema change lacks them, and score-api's bronze schema already
+  # types blockNumber as nullable. (timestamp, id) remains the pull keyset;
+  # these two give exact intra-block ordering for consumers that need it.
+  blockNumber: BigInt
+  transactionIndex: Int
 }
 
 type TrackedHolder {
