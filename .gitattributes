@@ -1,114 +1,9 @@
-# Loa Framework Git Attributes
-# These settings ensure smooth updates from upstream without overwriting project files
-
-# =============================================================================
-# PROJECT IDENTITY FILES
-# =============================================================================
-# These files define YOUR project, not the Loa framework.
-# Using merge=ours ensures your versions are preserved during `git merge loa/main`
-#
-# IMPORTANT: For this to work, downstream projects must configure the merge driver:
-#   git config merge.ours.driver true
-#
-# This is a one-time setup that tells Git to always keep the local version
-# when merging these files from upstream.
-
-README.md merge=ours
-CHANGELOG.md merge=ours
-BUTTERFREEZONE.md merge=ours
-
-# =============================================================================
-# FRAMEWORK-MANAGED VERSION MARKERS (Issue #554)
-# =============================================================================
-# .loa-version.json looks like project config but describes framework identity.
-# merge=ours keeps the local file during merge (no conflict prompt); the
-# /update-loa Phase 5.6 bump step is what refreshes the content post-merge
-# via `update-loa-bump-version.sh`. Without Phase 5.6, the marker goes stale.
-.loa-version.json merge=ours
-
-# =============================================================================
-# STATE ZONE FILES (grimoires/)
-# =============================================================================
-# These files are project-specific planning artifacts in the State Zone.
-# /update-loa merges upstream which uses the same paths for its own dev cycles.
-# merge=ours prevents upstream PRD/SDD/sprint files from overwriting yours.
-# See: Three-Zone Model in CLAUDE.loa.md — grimoires/ is user-owned state.
-#
-# To check what upstream changed (opt-in to improvements):
-#   git diff main..loa/main -- grimoires/loa/prd.md
-#   git diff main..loa/main -- grimoires/loa/sdd.md
-
-grimoires/loa/prd.md merge=ours
-grimoires/loa/sdd.md merge=ours
-grimoires/loa/sprint.md merge=ours
-grimoires/loa/NOTES.md merge=ours
-# Note: ledger.json is schema-owned operational state (not user-authored prose).
-# merge=ours preserves your cycle/sprint data but may skip upstream schema migrations.
-# update-loa.sh warns when upstream schema_version exceeds local — run /ledger migrate.
-grimoires/loa/ledger.json merge=ours
-
-# =============================================================================
-# CI/CD WORKFLOW FILES
-# =============================================================================
-# GitHub Actions workflow files require the `workflow` OAuth scope to push.
-# Downstream projects should not receive upstream workflow changes via
-# `git merge loa/main` — this blocks pushes for users without that scope.
-# Using merge=ours ensures downstream workflow files are preserved.
-# For NEW workflow files added upstream, /update-loa includes a post-merge
-# revert step (Phase 5.5) to remove them.
-
-.github/workflows/*.yml merge=ours
-.github/workflows/*.yaml merge=ours
-
-# =============================================================================
-# HOOK / SETTINGS CONFLICT SAFETY (Issue #1180)
-# =============================================================================
-# PreToolUse safety hooks execute LIVE from the working tree on every Bash
-# tool call. `git merge loa/main` (the /update-loa VENDORED flow) can splice
-# literal <<<<<<< conflict markers into these files when a downstream
-# customization diverges from an upstream edit — the corrupted script then
-# fails `bash -n`, and every subsequent Bash call dies at PreToolUse (#1180,
-# sonar-api v1.157.0→v1.180.0). `-merge` (the git-native "binary" driver)
-# converts a two-sided divergence into a reported CONFLICT (UU) that leaves
-# the pre-merge ("ours") content on disk untouched and still parseable,
-# instead of embedding markers. One-sided upstream-only updates (the common
-# case) are unaffected and still auto-merge cleanly. Complements
-# .claude/hooks/hook-guard.sh (fails a broken hook OPEN at runtime) and the
-# /update-loa Phase 5 conflict-resolution ordering guidance — this rule
-# prevents the corruption from landing in the first place, for the VENDORED
-# merge flow only. Does NOT propagate to submodule-mode consumers (.claude/
-# hooks and .claude/settings.json are copied, not merged, there — see
-# symlink-manifest.sh MANIFEST_COPY_DIRS/FILES) — not needed there either,
-# since that path never runs `git merge` over these files (#1180 fix
-# comment: "submodule and update.sh CLI paths are structurally immune").
-# NOTE: protection starts on the merge AFTER this rule has landed in a
-# downstream .gitattributes — the merge that FIRST introduces this rule
-# uses the pre-merge (ruleless) attributes for its own dispatch and is not
-# self-protecting (verified empirically; same bootstrap characteristic as
-# any new gitattributes rule).
-
-.claude/hooks/** -merge
-.claude/settings.json -merge
-
-# =============================================================================
-# LINE ENDING NORMALIZATION
-# =============================================================================
-# Ensure consistent line endings across platforms
-
+# Normalize line endings so a checkout on another platform does not rewrite
+# every file. Shell scripts must stay LF or they fail inside the Linux image.
 * text=auto
-
-# Shell scripts should always have LF endings
 *.sh text eol=lf
 
-# Batch files should have CRLF on Windows
-*.bat text eol=crlf
-*.cmd text eol=crlf
-
-# =============================================================================
-# BINARY FILES
-# =============================================================================
-# Treat these as binary (no diff, no merge)
-
+# Binary — never diff or line-ending-convert these.
 *.png binary
 *.jpg binary
 *.jpeg binary
@@ -116,16 +11,16 @@ grimoires/loa/ledger.json merge=ours
 *.ico binary
 *.pdf binary
 *.zip binary
-*.tar.gz binary
 *.woff binary
 *.woff2 binary
 *.ttf binary
-*.eot binary
 
-# =============================================================================
-# DIFF SETTINGS
-# =============================================================================
-# Use appropriate diff drivers for better diffs
-
+# Better diff hunk headers.
 *.md diff=markdown
 *.json diff=json
+
+# Generated — collapsed in review, because the source of truth is elsewhere.
+# config.yaml comes from src/registry/*.ts (`pnpm gen:config`), the lockfile from
+# package.json. Reading either by hand is not the check; `pnpm test` is.
+config.yaml linguist-generated=true
+pnpm-lock.yaml linguist-generated=true
