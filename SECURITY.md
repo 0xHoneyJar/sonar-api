@@ -15,15 +15,16 @@ credentials, because everything in it is already public.
 
 That shape rules most vulnerability classes out. What is actually in scope:
 
-- **Secrets in the repo or in build context.** `ENVIO_API_TOKEN` is the only
-  credential the belt needs. `.env` and `.env.*` are gitignored, and the
-  Dockerfiles exclude them from the image.
+- **Secrets in the repo.** `ENVIO_API_TOKEN` is the only credential this repo
+  needs. `.env` and `.env.*` are gitignored; `.env.example` is the only one
+  tracked and it holds placeholders.
 - **Correctness bugs with financial consequence.** A decoder that misattributes a
   sale, or a handler that credits the wrong wallet, feeds scoring downstream.
   Report these as security issues, not just bugs.
-- **The public endpoint.** Rate limiting is per-IP at the Caddy gateway
-  (`Caddyfile`), with a 50KB request-body cap as a coarse query-complexity
-  guard. Precise GraphQL depth/cost limiting is not implemented.
+- **The public endpoint.** Rate limiting and query-cost limiting are whatever the
+  host provides. The self-hosted Caddy gateway that did per-IP limiting and
+  capped request bodies at 50KB was removed with the rest of the Railway stack
+  (see MIGRATION.md), and nothing in this repo replaces it.
 
 Out of scope: dependency CVEs with no exploit path here (report upstream),
 social engineering, and denial of service against the public read endpoint.
