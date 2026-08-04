@@ -44,13 +44,6 @@ const HEADER = `# yaml-language-server: $schema=./node_modules/envio/evm.schema.
 # GENERATED FILE — do not edit by hand.
 # Source of truth: src/registry/contracts.ts. Regenerate with \`pnpm gen:config\`.
 # test/contract-registry.test.ts fails if this file drifts from the registry.
-#
-# Runtime env vars (read by handlers, not by envio):
-#   NATS_URL                  — JetStream connection URI (TLS-only)
-#   NATS_TLS_CA               — path to CA bundle for the cluster's NATS instance
-#   SONAR_SIGNING_SEED_HEX    — 32-byte (64 hex chars) Ed25519 seed for the
-#                               events-pillar signer. Absent → publish layer
-#                               stays disabled (fail-soft).
 name: thj-indexer
 contracts:
 `;
