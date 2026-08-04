@@ -21,9 +21,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # No `version:` here on purpose. package.json's `packageManager` field is
+      # the single source of pnpm's version, and action-setup@v4 hard-ERRORS when
+      # given both ("Multiple versions of pnpm specified"). That collision landed
+      # in 08c51665 and made every run since 2026-07-31 fail at this step, ~10s
+      # in — before the config-drift check, before codegen, before the tests. Red
+      # CI that never reached a real check reads exactly like red CI that did.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10.11.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
