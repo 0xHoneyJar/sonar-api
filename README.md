@@ -1,6 +1,6 @@
 # freeside-sonar — THJ onchain indexer
 
-> ERC-721 holders and marketplace sales across 6 EVM chains, served over one GraphQL endpoint.
+> Token holders and marketplace sales across 6 EVM chains, served over one GraphQL endpoint.
 
 ![Framework](https://img.shields.io/badge/built%20with-Envio%20HyperIndex-orange)
 ![Chains](https://img.shields.io/badge/chains-6%20EVM-blue)
@@ -21,22 +21,24 @@ curl -s -X POST https://sonar.0xhoneyjar.xyz/v1/graphql \
 
 A self-hosted Envio HyperIndex belt. Downstream products need consistent
 cross-chain holder truth; querying RPC per product is slow and re-derives the
-same work, and hosted indexers charge per deployment so every contract addition
-is a billable reindex. This syncs from genesis off the open data lake and serves
-reads through Hasura behind a rate-limited gateway.
+same work. This syncs from genesis off the open data lake and serves reads
+through Hasura behind a rate-limited gateway.
 
-Eight source files, ~1,080 lines:
+Fourteen source files, ~1,810 lines:
 
 ```
-src/registry/contracts.ts     THE registry — one entry per contract
-src/handlers/tracked-erc721.ts  Transfer  → holders
-src/handlers/seaport.ts         OrderFulfilled → sales
-src/handlers/tracked-nft-contracts.ts  sale-eligibility, read from the registry
-src/lib/{actions,mint-detection,token-ownership}.ts   what both handlers share
-src/EventHandlers.ts          registers the two handlers
+src/registry/contracts.ts        THE contracts registry — one entry per contract
+src/registry/marketplaces.ts     THE marketplace registry — one entry per deployment
+src/handlers/tracked-erc721.ts   Transfer                 → holders, per-token owner
+src/handlers/tracked-erc1155.ts  TransferSingle/Batch     → per-tokenId balances
+src/handlers/tracked-erc20.ts    Transfer                 → token balances
+src/handlers/marketplaces/       Seaport, Blur, Blur v2   → sales
+src/lib/                         what the lanes share — Action rows, mint
+                                 detection, ownership writes, recordSale()
+src/EventHandlers.ts             registers all six lanes
 ```
 
-`config.yaml` is **generated** from the registry and never hand-edited.
+`config.yaml` is **generated** from the registries and never hand-edited.
 See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Adding a community
@@ -58,9 +60,15 @@ pnpm gen:config   # regenerates config.yaml
 pnpm test         # contract-registry.test.ts asserts byte-identity
 ```
 
-That is the whole procedure. There is no second declaration site, no handler
-code, and no per-community special case — CI fails if `config.yaml` drifts from
-what the registry generates.
+`standard` takes `erc721`, `erc1155`, or `erc20` — it is a field, so any of the
+three is the same one-entry procedure. There is no second declaration site, no
+handler code, and no per-community special case; CI fails if `config.yaml`
+drifts from what the registry generates.
+
+A staking vault or escrow gets `custodial: true` instead. It is not indexed —
+the entry exists so the ERC-721 lane recognises the counterparty and leaves
+holder credit with the wallet that deposited. Without it the vault ranks as the
+top holder and every staker silently loses credit.
 
 ## Develop
 
@@ -75,12 +83,19 @@ Requires Node >= 22 and `ENVIO_API_TOKEN` (see `.env.example`).
 
 ## Entities
 
-`Action`, `TrackedHolder`, `Token`, `MintActivity` — all of `schema.graphql`.
-score-api reads `Action` and `MintActivity`; `scripts/verify-belt-contract.mjs`
-runs daily in CI to catch drift on that wire before a consumer does.
+`Action`, `MintActivity`, `TrackedHolder`, `Token`, `TrackedHolder1155`,
+`TrackedTokenBalance` — all of `schema.graphql`. score-api reads `Action` and
+`MintActivity`; `scripts/verify-belt-contract.mjs` runs daily in CI to catch
+drift on that wire before a consumer does.
+
+Every `hold*` action carries `numeric1` as the wallet's **running balance after
+the event**, not a delta. That is what lets score-api rebuild daily holder counts
+and any as-of holders list from `Action` alone, so the belt stores no history of
+its own.
 
 ## Scope
 
-ERC-721 on EVM. ERC-1155 and Solana are deliberately out — `PARKED.md` records
-why Solana was not ported onto Envio's SVM support, and what would have to change
-for it to be.
+EVM only. All three token lanes exist and are tested; the registry currently
+declares 74 ERC-721 contracts and no ERC-1155 or ERC-20 ones, so those two are
+wired and idle. Solana is deliberately out — `PARKED.md` records why it was not
+ported onto Envio's SVM support, and what would have to change for it to be.

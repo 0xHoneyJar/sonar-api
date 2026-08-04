@@ -13,7 +13,7 @@
  * self-registers as a module-load side effect (`indexer.onEvent(...)`), so
  * importing the module for its side effect performs the registration.
  *
- * All four are imported unconditionally, including lanes with no registered
+ * All six are imported unconditionally, including lanes with no registered
  * contracts yet. gen-config.ts declares every lane in the top-level `contracts:`
  * block for exactly this reason — an onEvent call site with no matching config
  * pair is an orphan that never fires, and check-onevent-bijection.mjs fails it.
