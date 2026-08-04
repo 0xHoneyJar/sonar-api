@@ -5,24 +5,27 @@
 ![Framework](https://img.shields.io/badge/built%20with-Envio%20HyperIndex-orange)
 ![Chains](https://img.shields.io/badge/chains-6%20EVM-blue)
 ![Runtime](https://img.shields.io/badge/node-22%2B-green)
-![Deploy](https://img.shields.io/badge/deploy-self--hosted%20(Railway)-8A2BE2)
+![Deploy](https://img.shields.io/badge/deploy-Envio%20Cloud-8A2BE2)
 
-Repo `0xHoneyJar/thj-envio` · config name `thj-indexer` · maintainer **zerker**.
+Repo `0xHoneyJar/sonar-api` · config name `thj-indexer` · maintainer **zerker**.
 
-Query live production (no auth for reads):
+Check any deployment's sync progress (no auth for reads):
 
 ```bash
-curl -s -X POST https://sonar.0xhoneyjar.xyz/v1/graphql \
+curl -s -X POST <ENDPOINT>/v1/graphql \
   -H 'content-type: application/json' \
   -d '{"query":"{ chain_metadata { chain_id latest_processed_block } }"}'
 ```
 
 ## What it is
 
-A self-hosted Envio HyperIndex belt. Downstream products need consistent
-cross-chain holder truth; querying RPC per product is slow and re-derives the
-same work. This syncs from genesis off the open data lake and serves reads
-through Hasura behind a rate-limited gateway.
+An Envio HyperIndex belt. Downstream products need consistent cross-chain holder
+truth; querying RPC per product is slow and re-derives the same work. This syncs
+from genesis off the open data lake and serves it over one GraphQL endpoint.
+
+Deployment is Envio Cloud via their GitHub App — the repo carries no Dockerfile,
+no proxy config, and no host-specific build step. See
+[MIGRATION.md](MIGRATION.md) for why the self-hosted stack was dropped.
 
 Fourteen source files, ~1,810 lines:
 
