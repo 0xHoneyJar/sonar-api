@@ -26,9 +26,16 @@ the registry entry, so no lane needs a per-community case.
 | `src/handlers/tracked-erc721.ts` | `Transfer(address,address,uint256)` | `TrackedHolder`, `Token`, `Action` |
 | `src/handlers/tracked-erc1155.ts` | `TransferSingle`, `TransferBatch` | `TrackedHolder1155`, `Action` |
 | `src/handlers/tracked-erc20.ts` | `Transfer(address,address,uint256)` | `TrackedTokenBalance`, `Action` |
-| `src/handlers/marketplaces/seaport.ts` | `OrderFulfilled(...)` | `MintActivity`, `Action` |
-| `src/handlers/marketplaces/blur.ts` | `OrdersMatched(...)` | `MintActivity`, `Action` |
-| `src/handlers/marketplaces/blur-v2.ts` | `Execution721Packed(...)` | `MintActivity`, `Action` |
+| `src/handlers/marketplaces/seaport.ts` | `OrderFulfilled(...)` | `MintActivity` |
+| `src/handlers/marketplaces/blur.ts` | `OrdersMatched(...)` | `MintActivity` |
+| `src/handlers/marketplaces/blur-v2.ts` | `Execution721Packed(...)` | `MintActivity` |
+
+The marketplace lanes write **only** `MintActivity` — they never call
+`recordAction`. The belt does not assert that a Transfer *was* a sale: the token
+lane records the movement, the marketplace lane records the settlement, and the
+two are joined downstream on `(chainId, txHash, contract, tokenId)`. Absence of a
+sale row means UNKNOWN, not "not a sale" — inferring the flag from the transfer
+alone scored ~29% precision on 409 sampled transfers.
 
 ERC-721 and ERC-20 share a topic0 and differ only in whether the third argument
 is indexed, so a contract registered under the wrong `standard` decodes garbage
@@ -48,14 +55,22 @@ identity), `mint-detection.ts` (zero-address and burn checks), `token-ownership.
 ## The ledger contract
 
 Every `hold*` action carries `numeric1` as the wallet's **running balance after
-the event** — not a delta — plus `direction` (`in`/`out`) in `context` and an
-exact `logIndex`. That holds for `hold721`, `hold1155`, and `hold20` alike.
+the event** — not a delta — plus `direction` (`in`/`out`) in `context`. That
+holds for `hold721`, `hold1155`, and `hold20` alike.
 
 This is what lets score-api reconstruct daily holder counts and any as-of holders
 list from `Action` alone, so the belt stores no snapshots and no history. The
 indexer does the accounting; the consumer does the time travel. Changing
 `numeric1` to a delta on any lane silently breaks every historical curve
 downstream.
+
+`Action.id` is part of that contract, not an opaque key. There is no `logIndex`
+column; score-api parses it out of the id, which must stay
+`<txHash>_<logIndex>[_<suffix>...]`. Same-block events tie on `timestamp`, so
+losing the log index costs intra-block ordering — measured, that put azuki's
+summed supply at 12,636 against a true 10,000. `test/action-id-format.test.ts`
+runs the consumer's own parser over every id all three lanes emit, because the
+schema guard sees types and not values and so cannot catch a format change.
 
 ## Chains
 
