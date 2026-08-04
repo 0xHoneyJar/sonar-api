@@ -79,7 +79,9 @@ pnpm dev          # local indexer
 pnpm test
 ```
 
-Requires Node >= 22 and `ENVIO_API_TOKEN` (see `.env.example`).
+Requires **Node >= 22** (`.nvmrc` pins it — `nvm use`) and `ENVIO_API_TOKEN`
+(see `.env.example`). Node 20 runs the tests fine but `pnpm dev` fails: envio's
+handler autoload uses `fs.promises.glob`, which landed in 22.
 
 ## Entities
 
