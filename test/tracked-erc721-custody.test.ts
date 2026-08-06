@@ -111,6 +111,34 @@ describe("custodial counterparties leave holder credit with the user", () => {
     expect(ctx.tokens.get(`${MIBERA}_${BERACHAIN}_42`)?.owner).toBe(STAKER);
   });
 
+  it("moves credit when a token exits custody to a DIFFERENT wallet (in-custody sale)", async () => {
+    // paddlefi trades/liquidations change ownership while the vault holds the
+    // token. The withdrawal then goes to the new owner, not the depositor.
+    // Measured 2026-08-06: skipping this credited nobody, and the receiver's
+    // next sale floored a nonexistent row while the buyer's +1 landed —
+    // TrackedHolder summed 10,057 against an on-chain totalSupply of 10,000.
+    const ctx = mockContext([{ address: STAKER, tokenCount: 3 }]);
+    // deposit records STAKER as effective owner on the Token entity
+    await handleTrackedErc721Transfer(transfer(STAKER, PADDLEFI, 7n, 0), ctx as any);
+    // vault pays out to BUYER — the in-custody sale
+    await handleTrackedErc721Transfer(transfer(PADDLEFI, BUYER, 7n, 1), ctx as any);
+    expect(holderCount(ctx, STAKER)).toBe(2);
+    expect(holderCount(ctx, BUYER)).toBe(1);
+    expect(holderCount(ctx, PADDLEFI)).toBeUndefined();
+    // and the receiver can now sell without inflating the total
+    await handleTrackedErc721Transfer(transfer(BUYER, STAKER, 7n, 2), ctx as any);
+    expect(holderCount(ctx, BUYER)).toBeUndefined();
+    expect(holderCount(ctx, STAKER)).toBe(3);
+  });
+
+  it("still skips both counts when the withdrawal returns to the depositor", async () => {
+    const ctx = mockContext([{ address: STAKER, tokenCount: 3 }]);
+    await handleTrackedErc721Transfer(transfer(STAKER, JIKO, 9n, 0), ctx as any);
+    await handleTrackedErc721Transfer(transfer(JIKO, STAKER, 9n, 1), ctx as any);
+    expect(holderCount(ctx, STAKER)).toBe(3);
+    expect(holderCount(ctx, JIKO)).toBeUndefined();
+  });
+
   it("still moves credit on an ordinary transfer between two wallets", async () => {
     // Guard against over-correction: only registered custody addresses pass through.
     const ctx = mockContext([{ address: STAKER, tokenCount: 2 }]);

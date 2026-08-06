@@ -59,6 +59,13 @@ export async function handleTrackedErc721Transfer(
   const depositToCustody = isCustodialAddress(chainId, to) && from !== ZERO;
   const withdrawFromCustody = isCustodialAddress(chainId, from) && to !== ZERO;
 
+  // On a withdrawal the pre-transfer effective owner must be read BEFORE
+  // updateTokenOwnership overwrites it — it decides below whether the token is
+  // returning to its depositor or changed hands inside custody.
+  const preWithdrawOwner = withdrawFromCustody
+    ? (await context.Token.get(`${contractAddress}_${chainId}_${tokenId}`))?.owner?.toLowerCase()
+    : undefined;
+
   // Per-token current ownership (Token entity) — FR-2 / #153 (ported from
   // cycle/sonar-belt-factory e58a51c). Mirrors the TrackedHolder count below
   // so Token{owner} reconciles with TrackedHolder.tokenCount (EVANS I-3): on a
@@ -154,10 +161,58 @@ export async function handleTrackedErc721Transfer(
     });
   }
 
-  // Custody move — leave both counts alone. Decrementing the depositor would
-  // strip credit for an NFT they still own, and incrementing the vault would
-  // make it the collection's top "holder" (462 staked Mibera on 2026-07-28).
-  if (depositToCustody || withdrawFromCustody) return;
+  // Custody move — usually leave both counts alone. Decrementing the depositor
+  // would strip credit for an NFT they still own, and incrementing the vault
+  // would make it the collection's top "holder" (462 staked Mibera on
+  // 2026-07-28).
+  //
+  // EXCEPT: a withdrawal to someone other than the recorded effective owner
+  // means the token changed hands INSIDE custody (paddlefi trades/liquidations
+  // do this). Skipping that too leaves the old owner with phantom credit and
+  // the receiver with none — and the receiver's next sale decrements a row
+  // that doesn't exist while the buyer's increment lands, inflating the total.
+  // Measured 2026-08-06 on a full sync: TrackedHolder summed 10,057 against
+  // mibera's on-chain totalSupply of 10,000. Token.owner is the source of
+  // truth (it was exact on the same sync), so move the credit when they
+  // disagree.
+  if (depositToCustody || withdrawFromCustody) {
+    if (
+      withdrawFromCustody &&
+      preWithdrawOwner &&
+      preWithdrawOwner !== to &&
+      preWithdrawOwner !== ZERO
+    ) {
+      await adjustHolder({
+        context,
+        contractAddress,
+        collectionKey,
+        chainId,
+        holderAddress: preWithdrawOwner,
+        delta: -1,
+        txHash,
+        logIndex,
+        timestamp,
+        blockNumber,
+        transactionIndex,
+        direction: "out",
+      });
+      await adjustHolder({
+        context,
+        contractAddress,
+        collectionKey,
+        chainId,
+        holderAddress: to,
+        delta: 1,
+        txHash,
+        logIndex,
+        timestamp,
+        blockNumber,
+        transactionIndex,
+        direction: "in",
+      });
+    }
+    return;
+  }
 
   // Normal transfer handling
   await adjustHolder({
