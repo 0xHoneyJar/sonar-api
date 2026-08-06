@@ -1,28 +1,21 @@
 # Railway → Envio Cloud
 
-Status: **repo side done, deployment not yet created.**
-
-The five Railway files are deleted, so this repo can no longer build the
-self-hosted stack. The Railway services are still *running* — deleting source
-files does not stop a container that is already up — and score-api still reads
-them. So there is a live belt, and no way to rebuild it from this tree.
-
-That is deliberate. There are no users, the deployment is the point of the
-migration, and `git revert <the deletion commit>` brings every file back if
-Envio Cloud does not work out.
+Status: **prepared, not started.** Railway is still the live belt and nothing
+here has been executed. This is the plan and the file list, so the cutover is
+mechanical when you decide to do it.
 
 ## Why
 
 `KF-020` set the provider order: (1) self-hosted indexer against a free data
 lake, (2) metered reads only as a fallback, (3) **managed hosting once
-self-host ops cost more than the fee**. Rung 3 fired. From 2026-07-31 alone: a
-`ca-certificates` line removed from `Dockerfile.belt` took all six chains down
-with TLS failures; Hasura metadata desynced and did not self-heal on resume; the
-re-index needed the KF-013 `ENVIO_RESTART` dance; a sidecar service was still
-pointing at a config deleted three days earlier; ten Railway services to reason
-about. None of that is indexing work.
+self-host ops cost more than the fee**. Rung 3 is what fired. From 2026-07-31
+alone: a `ca-certificates` line removed from `Dockerfile.belt` took all six
+chains down with TLS failures; Hasura metadata desynced and does not self-heal
+on resume; the re-index needs the KF-013 `ENVIO_RESTART` dance; a sidecar
+service was still pointing at a config deleted three days earlier; ten Railway
+services to reason about. None of that is indexing work.
 
-## What the repo satisfies
+## What the repo already satisfies
 
 | requirement | status |
 |---|---|
@@ -30,7 +23,7 @@ about. None of that is indexing work.
 | config file | ✅ `config.yaml` (generated — never hand-edit) |
 | schema | ✅ `schema.graphql` |
 | handlers | ✅ `src/`, registered via `src/EventHandlers.ts` |
-| no build-time host coupling | ✅ no `postinstall`/`prepare`, no Dockerfile |
+| no build-time host coupling | ✅ `postinstall`/`prepare` hooks removed |
 
 Nothing structural needs to change to deploy.
 
@@ -42,34 +35,43 @@ deploy in envio 3.2.1 — `envio` has `dev`/`start`/`codegen`/`local`, not
 `deploy`.
 
 **2. Configure.** Root directory `/`, config file `config.yaml`, and pick a
-deployment branch. `main` means every merge redeploys; a dedicated `deploy`
-branch gives a manual gate. Recommend the latter while migrating.
+deployment branch. Using `main` means every merge redeploys; a dedicated
+`deploy` branch gives you a manual gate. Recommend the latter while migrating.
 
-**3. Push the deployment branch.** Envio builds and starts a full sync from each
-chain's `start_block`. Hours — Ethereum (12,287,507) and Arbitrum (102,894,033)
-are the long poles.
+**3. Push the deployment branch.** Envio builds and starts a full sync from
+each chain's `start_block`. This takes as long as the Railway backfill does —
+plan for hours, and expect Ethereum and Arbitrum to be the long poles.
 
-**4. Verify before pointing anything at it.**
+**4. Wait for parity before cutting over.** Compare against Railway:
 
 ```bash
-curl -s -X POST <NEW_ENDPOINT>/v1/graphql -H 'content-type: application/json' \
+# both endpoints, same query — they should converge
+curl -s -X POST <ENDPOINT>/v1/graphql -H 'content-type: application/json' \
   -d '{"query":"{ chain_metadata { chain_id latest_processed_block } }"}'
-
-BELT_GATEWAY_ENDPOINT=<NEW_ENDPOINT>/v1/graphql node scripts/verify-belt-contract.mjs
 ```
 
-Railway is still up, so the two are comparable until you tear it down.
+Also run the contract guard against the new endpoint before pointing anything
+at it:
+
+```bash
+BELT_GATEWAY_ENDPOINT=<new>/v1/graphql node scripts/verify-belt-contract.mjs
+```
 
 **5. Swap the consumer.** score-api reads `INDEXER_GRAPHQL_URL`
-(`src/bronze/belt-gateway-source.ts:70`, with a hardcoded default fallback). Set
-it in the Trigger.dev production env. Confirm the default fallback is not
-silently used anywhere before relying on it.
+(`src/bronze/belt-gateway-source.ts:70`, with a hardcoded default fallback).
+Set it in the Trigger.dev production env to the Envio Cloud endpoint. Confirm
+the default fallback is not silently used anywhere before you rely on it.
 
-**6. Repoint the guard.** `scripts/belt-contract.json` still carries the Railway
-URL as its default endpoint, and `.github/workflows/belt-contract-guard.yml`
-hits it daily. Once Railway is gone that guard exits 2 — a warning, not a
-failure, by design — so it goes quiet rather than loud. Update the `endpoint`
-field or the drift alarm is dark.
+**6. Then, and only then, strip Railway.** One commit:
+
+```
+Dockerfile.belt        Dockerfile.gateway     Caddyfile
+.railwayignore         .dockerignore
+```
+
+plus the `## Deployment` table in `ARCHITECTURE.md` and the `.env.example`
+entries for `BELT_CONFIG` / `ENVIO_RESTART` (both are Dockerfile concepts that
+Envio Cloud replaces).
 
 **7. Tear down the services.** `belt-indexer-selfhost`, `belt-hasura-selfhost`,
 `belt-gateway`, `Postgres-6J4w` — plus the four already dead or out of scope:
@@ -79,19 +81,20 @@ field or the drift alarm is dark.
 ## Decide before step 3
 
 - **Storage tier.** Envio Cloud dev plans auto-delete deployments over **20 GB**.
-  Six chains from genesis is not obviously under that — Railway was provisioned
-  at 60 G. Confirm the tier, or the deployment can vanish mid-sync.
+  Six chains from genesis is not obviously under that — Ethereum from 12,287,507
+  and Arbitrum from 102,894,033. Confirm your tier, or the deployment can vanish
+  mid-sync.
 - **Endpoint stability.** Railway gave you an operator-owned alias
-  (`sonar.0xhoneyjar.xyz`). Envio Cloud issues its own URL. Keeping the alias as
-  a CNAME preserves the control point KF-020 called out; otherwise every consumer
-  hardcodes a vendor URL.
-- **Re-index cost per change.** Self-hosted, a schema change cost sync time on
-  hardware already paid for. Metered, it may cost more. The one KF-020 tradeoff
-  that does not go away.
+  (`sonar.0xhoneyjar.xyz`). Envio Cloud issues its own static production URL.
+  If you want to keep the alias, plan a CNAME or keep a thin proxy — otherwise
+  every consumer hardcodes a vendor URL, which is the control point KF-020
+  originally called out.
+- **Re-index cost per change.** On Railway a schema change costs you sync time
+  on hardware you already pay for. On a metered plan it may cost more. This is
+  the one KF-020 tradeoff that does *not* go away.
 
 ## Rollback
 
-`git revert` the commit that deleted `Dockerfile.belt`, `Dockerfile.gateway`,
-`Caddyfile`, `.railwayignore`, and `.dockerignore`. The Railway services
-themselves are untouched until step 7, so until then rollback is also just
-leaving `INDEXER_GRAPHQL_URL` where it is.
+Until step 6, rollback is: leave `INDEXER_GRAPHQL_URL` pointed at Railway. The
+Railway stack is untouched by any of the above, so there is no window where both
+are broken.

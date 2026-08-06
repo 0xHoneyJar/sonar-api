@@ -1,6 +1,5 @@
 {
   "_purpose": "The live GraphQL contract the belt-gateway PROMISES its consumers. Producer-side guard: CI introspects the live schema daily and fails the moment a consumer-depended field drifts or disappears. This catches the class of break where a consumer was built against an ASSUMED schema and only finds out in production — e.g. the Action_bool_exp input-type rename that froze purupuru's sync for 19 days in 2026-06, invisible because every consumer test mocks the wire.",
-  "_endpointStatus": "STALE ONCE RAILWAY IS TORN DOWN. This is the self-hosted gateway, whose Dockerfiles were deleted from this repo (see MIGRATION.md). The service still runs, so the guard still passes, but when Railway goes away verify-belt-contract.mjs exits 2 — a WARNING, not a failure, by design — and the daily drift alarm goes quiet rather than loud. Replace this endpoint with the Envio Cloud URL at MIGRATION.md step 6, or the guard is dark.",
   "endpoint": "https://belt-gateway-production.up.railway.app/v1/graphql",
   "endpointEnv": "BELT_GATEWAY_ENDPOINT",
   "_typeMapping": "Hasura serves Envio BigInt as `numeric`, Int as `Int`, ID/String as `String`. Verified against the live endpoint 2026-07-31.",

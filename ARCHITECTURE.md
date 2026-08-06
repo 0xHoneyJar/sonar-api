@@ -98,26 +98,17 @@ fails on drift in what score-api depends on.
 
 ## Deployment
 
-**Envio Cloud, connected through the GitHub App.** The repo carries no
-deployment files: no Dockerfile, no proxy config, no host-specific build step.
-Envio reads `package.json`, `config.yaml`, `schema.graphql`, and `src/`, and
-that is the whole interface.
+| service | built from | what it is |
+|---|---|---|
+| `belt-indexer-selfhost` | `Dockerfile.belt` | `pnpm envio start` |
+| `belt-hasura-selfhost` | (Hasura image) | GraphQL over the indexed Postgres |
+| `belt-gateway` | `Dockerfile.gateway` + `Caddyfile` | public URL, per-IP rate limit; reverse-proxies Hasura |
 
-The self-hosted Railway stack that preceded it — an indexer container, a Hasura
-service, and a Caddy gateway, five files and ten services — was deleted rather
-than kept running in parallel: there are no users to keep up, and `git revert`
-restores it if Envio Cloud does not work out. [MIGRATION.md](MIGRATION.md) has
-the cutover steps and what it cost to run.
+The gateway is a stable indirection: belt recovery swaps `BELT_UPSTREAM`, and
+the public GraphQL URL never changes.
 
-What that removed, and is worth not rebuilding: the `ENVIO_RESTART` re-init
-dance (a fresh init crashes envio's persisted-state upsert, so seeding a new
-chain took a deploy-crash-redeploy sequence), and a `ca-certificates` line in a
-Dockerfile whose removal silently took all six chains down with TLS failures.
-
-One thing the gateway did that Envio Cloud does not: it owned the public URL, so
-belt recovery was an upstream swap and consumers never changed. On Envio Cloud
-the endpoint is the vendor's. Putting `sonar.0xhoneyjar.xyz` in front of it as a
-CNAME is what keeps that control point.
+Migrating this to Envio Cloud is staged in [MIGRATION.md](MIGRATION.md) — planned,
+not executed. Railway is still the live belt.
 
 ## Scope
 
