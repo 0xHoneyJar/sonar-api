@@ -2,7 +2,7 @@
  * tracked-erc20.test.ts — the ERC-20 lane.
  *
  * Same delete-at-zero rule as the other lanes, and the same preload discipline.
- * The lane is deliberately plain — balances plus an Action stream — so these
+ * The lane is deliberately plain — balances only, no Action stream — so these
  * tests are mostly about the boundaries: zero-value transfers, burns, and the
  * fact that a fully-drained wallet leaves no row behind.
  */
@@ -72,7 +72,6 @@ describe("ERC-20 lane", () => {
     const ctx = makeContext();
     await captured.handler({ event: ev(ZERO, ALICE, 1000n), context: ctx });
     expect(balances(ctx)).toEqual({ [ALICE]: 1000n });
-    expect(ctx.actions.some((a) => a.actionType === "mint20")).toBe(true);
   });
 
   it("moves balance from sender to recipient", async () => {
@@ -97,7 +96,6 @@ describe("ERC-20 lane", () => {
     await captured.handler({ event: ev(ZERO, ALICE, 100n, 0), context: ctx });
     await captured.handler({ event: ev(ALICE, DEAD, 40n, 1), context: ctx });
     expect(balances(ctx)).toEqual({ [ALICE]: 60n });
-    expect(ctx.actions.some((a) => a.actionType === "burn20")).toBe(true);
   });
 
   it("ignores a zero-value transfer", async () => {
@@ -114,14 +112,16 @@ describe("ERC-20 lane", () => {
     expect(ctx.actions.length).toBe(0);
   });
 
-  it("stamps exact event identity on every Action", async () => {
+  it("emits NO Action rows — the erc20 lane is balances-only (2026-08-06)", async () => {
+    // Per-event rows were ~3 per Transfer and 44 GB of a 44 GB database, with
+    // no consumer: score-api ingests erc20 communities as holdings snapshots
+    // off TrackedTokenBalance. If an Action write reappears here, it must be a
+    // deliberate product decision, not a regression.
     const ctx = makeContext();
-    await captured.handler({ event: ev(ZERO, ALICE, 1000n), context: ctx });
-    expect(ctx.actions.length).toBeGreaterThan(0);
-    for (const a of ctx.actions) {
-      expect(a.blockNumber).toBe(2_000_000n);
-      expect(a.transactionIndex).toBe(9);
-    }
+    await captured.handler({ event: ev(ZERO, ALICE, 1000n, 0), context: ctx });
+    await captured.handler({ event: ev(ALICE, BOB, 400n, 1), context: ctx });
+    await captured.handler({ event: ev(ALICE, DEAD, 100n, 2), context: ctx });
+    expect(ctx.actions.length).toBe(0);
   });
 
   it("never stores a negative balance", async () => {

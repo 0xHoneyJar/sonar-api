@@ -2,11 +2,14 @@
  * The ERC-20 lane. One handler, one binding, every chain — balance per
  * (wallet, token, chain).
  *
- * Deliberately plain: balances and an Action stream, nothing else. The handler
- * this replaces carried per-token feature flags (burn-source attribution, holder
- * stats) that were specific to one token and made up ~80% of its size. Those are
- * product features, not indexer infrastructure; if they come back they come back
- * as their own thing, not as branches here.
+ * Deliberately plain: balances ONLY, no Action stream. The per-event rows
+ * (transfer20/hold20/mint20) were removed 2026-08-06: at 24% of a full sync
+ * they were ~3 rows per Transfer and 44 GB of a 44 GB database, and their only
+ * would-be consumer (score-api) ingests erc20 communities as holdings
+ * snapshots off TrackedTokenBalance, never as bronze events. Balances lose no
+ * accuracy — every transfer is still processed, just not persisted as a row.
+ * If per-transfer history is ever needed, restore the recordAction calls
+ * (git history at 52e5e189^) and re-index; the chain is the archive.
  *
  * WARNING: ERC-20's Transfer shares a topic0 with ERC-721's. The two differ only
  * in whether the third argument is indexed, so a contract registered under the
@@ -15,7 +18,6 @@
  */
 import { indexer, type EvmOnEventContext, type TrackedTokenBalance } from "envio";
 
-import { eventIdentity, recordAction } from "../lib/actions";
 import { ZERO_ADDRESS, isBurnAddress } from "../lib/mint-detection";
 import { collectionKeys } from "../registry/contracts";
 
@@ -36,11 +38,6 @@ interface AdjustArgs {
   chainId: number;
   delta: bigint;
   timestamp: bigint;
-  txHash: string;
-  logIndex: number;
-  blockNumber: bigint;
-  transactionIndex: number | undefined;
-  direction: "in" | "out";
 }
 
 async function adjustBalance(a: AdjustArgs): Promise<void> {
@@ -49,30 +46,9 @@ async function adjustBalance(a: AdjustArgs): Promise<void> {
   const id = balanceId(a.address, a.token, a.chainId);
   const existing = await a.context.TrackedTokenBalance.get(id);
   const raw = (existing?.balance ?? 0n) + a.delta;
+
   // A balance at or below zero deletes the row: an absent row and a zero row
   // must not both mean "holds none", or holder counts double-count.
-  const stored = raw > 0n ? raw : 0n;
-
-  recordAction(a.context, {
-    id: `${a.txHash}_${a.logIndex}_${a.direction}`,
-    actionType: "hold20",
-    actor: a.address,
-    primaryCollection: a.tokenKey,
-    timestamp: a.timestamp,
-    chainId: a.chainId,
-    txHash: a.txHash,
-    logIndex: a.logIndex,
-    blockNumber: a.blockNumber,
-    transactionIndex: a.transactionIndex,
-    numeric1: stored,
-    context: {
-      token: a.token,
-      tokenKey: a.tokenKey,
-      balance: stored.toString(),
-      direction: a.direction,
-    },
-  });
-
   if (raw <= 0n) {
     if (existing) a.context.TrackedTokenBalance.deleteUnsafe(id);
     return;
@@ -84,7 +60,7 @@ async function adjustBalance(a: AdjustArgs): Promise<void> {
     tokenAddress: a.token,
     tokenKey: a.tokenKey,
     chainId: a.chainId,
-    balance: stored,
+    balance: raw,
     lastUpdated: a.timestamp,
   };
   a.context.TrackedTokenBalance.set(row);
@@ -111,44 +87,17 @@ indexer.onEvent(
     if (amount === 0n) return;
 
     const tokenKey = (TOKEN_KEYS[token] ?? token).toLowerCase();
-    const { txHash, logIndex, timestamp, blockNumber, transactionIndex } =
-      eventIdentity(event);
+    const timestamp = BigInt(event.block.timestamp);
 
     const isMint = fromLower === ZERO;
     const isBurn = isBurnAddress(toLower) && !isMint;
 
-    const actionType = isMint ? "mint20" : isBurn ? "burn20" : "transfer20";
-    recordAction(context, {
-      id: `${txHash}_${logIndex}_${actionType}`,
-      actionType,
-      actor: isBurn ? fromLower : toLower,
-      primaryCollection: tokenKey,
-      timestamp,
-      chainId,
-      txHash,
-      logIndex,
-      blockNumber,
-      transactionIndex,
-      numeric1: amount,
-      context: { token, from: fromLower, to: toLower, amount: amount.toString() },
-    });
-
-    const common = {
-      context,
-      token,
-      tokenKey,
-      chainId,
-      timestamp,
-      txHash,
-      logIndex,
-      blockNumber,
-      transactionIndex,
-    };
+    const common = { context, token, tokenKey, chainId, timestamp };
     if (!isMint) {
-      await adjustBalance({ ...common, address: fromLower, delta: -amount, direction: "out" });
+      await adjustBalance({ ...common, address: fromLower, delta: -amount });
     }
     if (!isBurn && toLower !== ZERO) {
-      await adjustBalance({ ...common, address: toLower, delta: amount, direction: "in" });
+      await adjustBalance({ ...common, address: toLower, delta: amount });
     }
   },
 );

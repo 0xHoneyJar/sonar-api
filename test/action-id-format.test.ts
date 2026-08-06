@@ -249,15 +249,19 @@ describe("Action.id keeps the logIndex where score-api looks for it", () => {
       transaction: { hash: TX, transactionIndex: 9 },
     });
 
+    // The erc20 lane emits no Actions at all since 2026-08-06 (balances-only;
+    // score-api reads TrackedTokenBalance snapshots, never erc20 bronze). The
+    // id-format contract therefore has nothing to hold there — this guards
+    // that no erc20 Action sneaks back in without touching this suite.
     it.each([
       ["a mint", ZERO, ALICE],
       ["a transfer", ALICE, BOB],
       ["a burn", ALICE, DEAD],
-    ])("stays parseable through %s", async (_label, from, to) => {
+    ])("emits no Action rows through %s", async (_label, from, to) => {
       await import("../src/handlers/tracked-erc20");
       const c = ctx();
       await captured.erc20({ event: ev(from, to, 1000n), context: c });
-      expectParseable(c.actions, TX, LOG_INDEX);
+      expect(c.actions.length).toBe(0);
     });
   });
 });
