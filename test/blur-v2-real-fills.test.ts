@@ -25,6 +25,16 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// The fixtures here are real captured fills for collections the lean MVP
+// registry no longer tracks (2026-08-05 Berachain-only cut). These tests prove
+// DECODE correctness against chain truth, not eligibility, so trackedness is
+// stubbed true; eligibility is contract-registry.test.ts's job.
+vi.mock("../src/registry/contracts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/registry/contracts")>();
+  return { ...actual, isTrackedContract: () => true };
+});
+
+
 const { captured } = vi.hoisted(() => ({
   captured: { handler: null as null | ((arg: unknown) => Promise<void>) },
 }));
