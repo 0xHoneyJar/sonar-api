@@ -1,0 +1,36 @@
+# Dockerfile.belt — the Envio HyperIndex belt, for Railway.
+#
+# Bypasses Nixpacks deliberately: its auto-build would run `pnpm build`
+# (= `tsc --build`), which is structurally incompatible with belt-scoped
+# codegen (DISS-002). This image runs codegen and nothing else.
+#
+# Runtime config (belt Postgres + Hasura endpoint) is injected as Railway env
+# vars: ENVIO_PG_* and HASURA_GRAPHQL_*. Data comes from HyperSync on all six
+# chains; ENVIO_API_TOKEN is required.
+#
+# Node >=22: envio's handler autoload uses fs.promises.glob.
+FROM node:22-bookworm-slim
+# ca-certificates is REQUIRED, not incidental: envio's HyperSync client is Rust and
+# uses the system trust store, so without it every chain fails at startup with
+# "invalid peer certificate: UnknownIssuer" and nothing indexes. Dropping it while
+# removing `git` took the belt down on 2026-07-31.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && corepack enable && corepack prepare pnpm@10.11.0 --activate
+WORKDIR /app
+COPY . .
+ARG BELT_CONFIG=config.yaml
+ENV BELT_CONFIG=${BELT_CONFIG}
+RUN pnpm install --frozen-lockfile && \
+    pnpm envio codegen --config "${BELT_CONFIG}"
+ENV TUI_OFF=true
+# Env-gated re-init: steady state RESUMES from the last checkpoint (safe default).
+# STRICT gate — only the literal ENVIO_RESTART=1 forces a fresh init. ENVIO_RESTART=false/0
+# do NOT wipe (the old `${VAR:+--restart}` form triggered on ANY non-empty value, a
+# destructive footgun). New chains/contracts MUST be seeded via --restart: Envio's
+# isInitialized() checks table existence, not the config hash, so a plain resume silently
+# skips new chains. NOTE the re-init dance (KF-013): a true fresh init crashes the Rust-CLI
+# persisted_state upsert (envio 28P01 bug), so the working sequence is — set ENVIO_RESTART=1
+# → deploy (JS seeds schema + chain_metadata, then crashes) → DELETE ENVIO_RESTART →
+# redeploy → RESUME backfills the seeded chains (resume skips the fatal upsert).
+CMD ["sh", "-c", "if [ \"$ENVIO_RESTART\" = \"1\" ]; then exec pnpm envio start --config \"$BELT_CONFIG\" --restart; else exec pnpm envio start --config \"$BELT_CONFIG\"; fi"]
