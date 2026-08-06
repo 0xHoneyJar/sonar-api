@@ -196,7 +196,7 @@ chains:
 
   # Berachain Mainnet
   - id: 80094
-    start_block: 887123
+    start_block: 233064
     hypersync_config:
       url: https://berachain.hypersync.xyz
     contracts:
@@ -233,7 +233,23 @@ chains:
           - "0x048327a187b944ddac61c6e202bfccd20d17c008" # mibera_vm_mibera_shadows
           - "0x230945e0ed56ef4de871a6c0695de265de23d8d8" # mibera_gif
           - "0x6666397dfe9a8c469bf65dc744cb1c733416c420" # mibera_collection
-        start_block: 887123
+          - "0x1790b94e9394f817b3161d8f883317fcca233dfa" # beraborrow
+          - "0xcb86b75ee6133d179a12d550b09fb3cdb1e141d4" # dolomite
+        start_block: 811704
+      - name: TrackedErc20
+        address:
+          - "0xc0d1ac00a30fa4e30e44afc7313d6312c87e21df" # kodiak
+          - "0x040ea7d4b559357425407fdfc3c774c5dfc04677" # kodiak
+          - "0xb7e448e5677d212b8c8da7d6312e8afc49800466" # goldilocks
+          - "0xbf2e152f460090ace91a456e3dee5acf703f27ad" # goldilocks
+          - "0x1ce0a25d13ce4d52071ae7e02cf1f6606f4c79d3" # beraborrow
+          - "0x597877ccf65be938bd214c4c46907669e3e62128" # beraborrow
+          - "0xc99e948e9d183848a6c4f5e6c1d225f02f171d79" # beraborrow
+          - "0x0f81001ef0a83ecce5ccebf63eb302c70a39a654" # dolomite
+          - "0xac03caba51e17c86c921e1f6cbfbdc91f8bb2e6b" # infrared
+          - "0x9b6761bf2397bb5a6624a856cc84a3a14dcd3fe5" # infrared
+          - "0xa1b644aec990ad6023811ced36e6a2d6d128c7c9" # infrared
+        start_block: 233064
       - name: Seaport
         address:
           - "0x0000000000000068f116a894984e2db1123eb395" # Seaport v1.6

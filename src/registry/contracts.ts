@@ -137,6 +137,25 @@ export const CONTRACTS: readonly ContractEntry[] = [
   { community: "mibera_gif", address: "0x230945e0ed56ef4de871a6c0695de265de23d8d8", chain: 80094, standard: "erc721", startBlock: 4130866 }, // mibera_gif
   { community: "mibera_collection", address: "0x6666397dfe9a8c469bf65dc744cb1c733416c420", chain: 80094, standard: "erc721", startBlock: 3837808 }, // Mibera Collection
 
+  // Bera DeFi communities (2026-08-05). Every address verified on-chain against
+  // rpc.berachain.com (name/symbol/ERC-165) and startBlock = exact deploy block
+  // found by binary search on eth_getCode. Escrow tokens (xKDK, sNECT) are
+  // tracked so stakers keep membership credit — the wallet swaps KDK→xKDK /
+  // NECT→sNECT, and without the wrapper the most committed holders vanish.
+  { community: "kodiak", address: "0xc0d1ac00a30fa4e30e44afc7313d6312c87e21df", chain: 80094, standard: "erc20", startBlock: 14478505 }, // Kodiak token (KDK)
+  { community: "kodiak", address: "0x040ea7d4b559357425407fdfc3c774c5dfc04677", chain: 80094, standard: "erc20", startBlock: 14698332 }, // Kodiak escrowed token (xKDK, non-transferable)
+  { community: "goldilocks", address: "0xb7e448e5677d212b8c8da7d6312e8afc49800466", chain: 80094, standard: "erc20", startBlock: 801948 }, // Locks (LOCKS)
+  { community: "goldilocks", address: "0xbf2e152f460090ace91a456e3dee5acf703f27ad", chain: 80094, standard: "erc20", startBlock: 801948 }, // Porridge (PRG)
+  { community: "beraborrow", address: "0x1ce0a25d13ce4d52071ae7e02cf1f6606f4c79d3", chain: 80094, standard: "erc20", startBlock: 233064 }, // Nectar (NECT)
+  { community: "beraborrow", address: "0x597877ccf65be938bd214c4c46907669e3e62128", chain: 80094, standard: "erc20", startBlock: 1134927 }, // Staked Nectar (sNECT, LSP share)
+  { community: "beraborrow", address: "0xc99e948e9d183848a6c4f5e6c1d225f02f171d79", chain: 80094, standard: "erc20", startBlock: 3040689 }, // POLLEN
+  { community: "beraborrow", address: "0x1790b94e9394f817b3161d8f883317fcca233dfa", chain: 80094, standard: "erc721", startBlock: 811704 }, // Big Fat Beras (BFB, genesis NFT)
+  { community: "dolomite", address: "0x0f81001ef0a83ecce5ccebf63eb302c70a39a654", chain: 80094, standard: "erc20", startBlock: 2925727 }, // Dolomite (DOLO)
+  { community: "dolomite", address: "0xcb86b75ee6133d179a12d550b09fb3cdb1e141d4", chain: 80094, standard: "erc721", startBlock: 2926448 }, // veDOLO (locked-DOLO position NFTs)
+  { community: "infrared", address: "0xac03caba51e17c86c921e1f6cbfbdc91f8bb2e6b", chain: 80094, standard: "erc20", startBlock: 562093 }, // Infrared BGT (iBGT)
+  { community: "infrared", address: "0x9b6761bf2397bb5a6624a856cc84a3a14dcd3fe5", chain: 80094, standard: "erc20", startBlock: 562092 }, // Infrared BERA (iBERA)
+  { community: "infrared", address: "0xa1b644aec990ad6023811ced36e6a2d6d128c7c9", chain: 80094, standard: "erc20", startBlock: 13058310 }, // Infrared Governance Token (IR)
+
   // Custody addresses — not indexed. A vault or escrow holds tokens on a user's
   // behalf, so crediting it as the holder strips the depositor.
   //
