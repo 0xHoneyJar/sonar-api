@@ -56,8 +56,10 @@ const declaredVenues = declaredAll.filter((d) => !d.lane.startsWith("Tracked"));
 
 describe("contracts registry ↔ config.yaml", () => {
   it("finds contracts to check (guards against a silently empty parse)", () => {
-    expect(declared.length).toBeGreaterThan(50);
-    expect(CONTRACTS.length).toBeGreaterThan(50);
+    // Lean MVP belt (2026-08-05): 14 indexed + 2 custodial. The floor guards
+    // against an empty parse, not a particular fleet size.
+    expect(declared.length).toBeGreaterThan(10);
+    expect(CONTRACTS.length).toBeGreaterThan(10);
   });
 
   it("resolves every contract declared in config.yaml", () => {
@@ -155,17 +157,20 @@ describe("contracts registry ↔ config.yaml", () => {
     }
   });
 
-  it("registers Blur Blend as custodial", () => {
-    // Blend is Blur's lending escrow: a loan-funded purchase parks the NFT there
-    // for the life of the loan. Measured 2026-07-31 it took custody of 382 tokens
-    // from this registry's collections in 55k blocks. Without this entry it ranks
-    // as a top holder of five tracked collections and every borrower loses credit.
-    const blend = CONTRACTS.find(
-      (c) => c.address === "0x29469395eaf6f95920e59f858042f0e28d98a20b",
-    );
-    expect(blend, "Blur Blend missing from registry").toBeDefined();
-    expect(blend?.custodial).toBe(true);
-    expect(isCustodialAddress(1, "0x29469395eAf6f95920E59F858042f0e28D98a20B")).toBe(true);
+  it("registers the mibera staking vaults as custodial", () => {
+    // paddlefi + jiko held 462 miberas on 2026-07-28. Without these entries the
+    // vault indexes as the #1 mibera holder and 462 stakers lose credit.
+    // (Blur Blend served this role for the Ethereum fleet until the 2026-08-05
+    // Berachain-only cut removed chain 1.)
+    for (const addr of [
+      "0x242b7126f3c4e4f8cbd7f62571293e63e9b0a4e1", // paddlefi vault
+      "0x8778ca41cf0b5cd2f9967ae06b691daff11db246", // jiko staking
+    ]) {
+      const vault = CONTRACTS.find((c) => c.address === addr);
+      expect(vault, `${addr} missing from registry`).toBeDefined();
+      expect(vault?.custodial).toBe(true);
+      expect(isCustodialAddress(80094, addr.toUpperCase().replace("0X", "0x"))).toBe(true);
+    }
   });
 
   it("registers the Mibera staking vaults as custodial", () => {
@@ -211,29 +216,28 @@ describe("contracts registry ↔ config.yaml", () => {
     expect(conflicts).toEqual([]);
   });
 
-  it("covers the in-scope MVP communities on Base", () => {
+  it("covers the in-scope MVP communities on Berachain", () => {
+    // Lean MVP belt (2026-08-05): mibera + the five Bera DeFi communities,
+    // one representative contract each. Every address verified on-chain
+    // against rpc.berachain.com before registration.
     const mvp = [
-      ["warplets", "0x699727f9e01a822efdcf7333073f0461e5914b4e"],
-      ["kemonokaki", "0xee7d1b184be8185adc7052635329152a4d0cdefa"],
-      ["based_onchain_punks", "0x9e7a06c281355f60570e47a12650c89fe1d36ff3"],
-      ["based_punks", "0xcb28749c24af4797808364d71d71539bc01e76d4"],
-      ["lil_bangers", "0x1260f90e0b1c482b38b88f26dee17c57615d670b"],
-      ["nodes_by_hunter", "0x95bc4c2e01c2e2d9e537e7a9fe58187e88dd8019"],
-      ["veecon_2024_tickets", "0x20fd75eccd7bb9c4eb9e3bb4c09c6b382e15d63e"],
+      ["mibera_collection", "0x6666397dfe9a8c469bf65dc744cb1c733416c420", "erc721"],
+      ["kodiak", "0xc0d1ac00a30fa4e30e44afc7313d6312c87e21df", "erc20"],
+      ["goldilocks", "0xb7e448e5677d212b8c8da7d6312e8afc49800466", "erc20"],
+      ["beraborrow", "0x1ce0a25d13ce4d52071ae7e02cf1f6606f4c79d3", "erc20"],
+      ["beraborrow", "0x1790b94e9394f817b3161d8f883317fcca233dfa", "erc721"],
+      ["dolomite", "0x0f81001ef0a83ecce5ccebf63eb302c70a39a654", "erc20"],
+      ["dolomite", "0xcb86b75ee6133d179a12d550b09fb3cdb1e141d4", "erc721"],
+      ["infrared", "0xac03caba51e17c86c921e1f6cbfbdc91f8bb2e6b", "erc20"],
     ] as const;
-    for (const [community, address] of mvp) {
-      const entry = findContract(8453, address);
+    for (const [community, address, standard] of mvp) {
+      const entry = findContract(80094, address);
       expect(entry, `${community} missing from registry`).toBeDefined();
       expect(entry?.community).toBe(community);
-      expect(entry?.standard).toBe("erc721");
+      expect(entry?.standard).toBe(standard);
     }
-    // azuki is the chain-1 in-scope community; mibera is the Berachain one.
-    expect(findContract(1, "0xed5af388653567af2f388e6224dc7c4b3241c544")?.community).toBe(
-      "azuki",
-    );
-    expect(findContract(80094, "0x6666397dfe9a8c469bf65dc744cb1c733416c420")?.community).toBe(
-      "mibera_collection",
-    );
+    // The belt is deliberately single-chain: nothing outside Berachain.
+    expect(CONTRACTS.filter((c) => c.chain !== 80094)).toEqual([]);
   });
 
   it("covers every NFT-bearing chain with at least one marketplace", () => {

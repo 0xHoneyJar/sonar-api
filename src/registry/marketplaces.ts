@@ -51,38 +51,13 @@ export interface MarketplaceDeployment {
  */
 // prettier-ignore
 export const MARKETPLACES: readonly MarketplaceDeployment[] = [
-  // ---- Ethereum ----
-  { marketplace: "seaport", label: "Seaport v1.1", address: "0x00000000006c3852cbef3e08e8df289169ede581", chain: 1, startBlock: 14162194 },
-  { marketplace: "seaport", label: "Seaport v1.4", address: "0x00000000000001ad428e4906ae43d8f9852d0dd6", chain: 1, startBlock: 14162194 },
-  { marketplace: "seaport", label: "Seaport v1.5", address: "0x00000000000000adc04c56bf30ac9d3c0aaf14dc", chain: 1, startBlock: 14162194 },
-  { marketplace: "seaport", label: "Seaport v1.6", address: "0x0000000000000068f116a894984e2db1123eb395", chain: 1, startBlock: 14162194 },
-  { marketplace: "blur",    label: "BlurExchange v1",   address: "0x000000000000ad05ccc4f10045630fb830b95127", chain: 1, startBlock: 15779200 },
-  { marketplace: "blur_v2", label: "BlurExchangeV2",    address: "0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5", chain: 1, startBlock: 17603892 },
-
-  // ---- Optimism ----
-  { marketplace: "seaport", label: "Seaport v1.1", address: "0x00000000006c3852cbef3e08e8df289169ede581", chain: 10, startBlock: 107558369 },
-  { marketplace: "seaport", label: "Seaport v1.4", address: "0x00000000000001ad428e4906ae43d8f9852d0dd6", chain: 10, startBlock: 107558369 },
-  { marketplace: "seaport", label: "Seaport v1.5", address: "0x00000000000000adc04c56bf30ac9d3c0aaf14dc", chain: 10, startBlock: 107558369 },
-  { marketplace: "seaport", label: "Seaport v1.6", address: "0x0000000000000068f116a894984e2db1123eb395", chain: 10, startBlock: 107558369 },
-
-  // ---- Base ----
-  { marketplace: "seaport", label: "Seaport v1.1", address: "0x00000000006c3852cbef3e08e8df289169ede581", chain: 8453, startBlock: 2883449 },
-  { marketplace: "seaport", label: "Seaport v1.4", address: "0x00000000000001ad428e4906ae43d8f9852d0dd6", chain: 8453, startBlock: 2883449 },
-  { marketplace: "seaport", label: "Seaport v1.5", address: "0x00000000000000adc04c56bf30ac9d3c0aaf14dc", chain: 8453, startBlock: 2883449 },
-  { marketplace: "seaport", label: "Seaport v1.6", address: "0x0000000000000068f116a894984e2db1123eb395", chain: 8453, startBlock: 2883449 },
-
-  // ---- Arbitrum ----
-  { marketplace: "seaport", label: "Seaport v1.1", address: "0x00000000006c3852cbef3e08e8df289169ede581", chain: 42161, startBlock: 102894033 },
-  { marketplace: "seaport", label: "Seaport v1.4", address: "0x00000000000001ad428e4906ae43d8f9852d0dd6", chain: 42161, startBlock: 102894033 },
-  { marketplace: "seaport", label: "Seaport v1.5", address: "0x00000000000000adc04c56bf30ac9d3c0aaf14dc", chain: 42161, startBlock: 102894033 },
-  { marketplace: "seaport", label: "Seaport v1.6", address: "0x0000000000000068f116a894984e2db1123eb395", chain: 42161, startBlock: 102894033 },
-
-  // ---- Zora ----
-  { marketplace: "seaport", label: "Seaport v1.5", address: "0x00000000000000adc04c56bf30ac9d3c0aaf14dc", chain: 7777777, startBlock: 18071873 },
-  { marketplace: "seaport", label: "Seaport v1.6", address: "0x0000000000000068f116a894984e2db1123eb395", chain: 7777777, startBlock: 18071873 },
-
   // ---- Berachain ----
-  { marketplace: "seaport", label: "Seaport v1.6", address: "0x0000000000000068f116a894984e2db1123eb395", chain: 80094, startBlock: 3837808 },
+  // MVP belt (2026-08-05): Berachain is the only indexed chain, so this is the
+  // only live deployment. The Ethereum (incl. Blur v1/v2), Optimism, Base,
+  // Arbitrum and Zora rows were cut with their chains — git history is the
+  // archive. start block covers the earliest tracked NFT (Big Fat Beras,
+  // deploy 811704), not just mibera.
+  { marketplace: "seaport", label: "Seaport v1.6", address: "0x0000000000000068f116a894984e2db1123eb395", chain: 80094, startBlock: 811704 },
 ];
 
 /** Deployments of one marketplace, in registry order. */
