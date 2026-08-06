@@ -78,3 +78,5 @@ Refs: docs.envio.dev/docs/HyperIndex/solana, docs.envio.dev/docs/HyperSync/solan
 
 2026-08-05 — Bera DeFi derivative tokens deliberately not registered with the 5 new communities: sPOLLEN/vePOLLEN escrows (Beraborrow), oDOLO (Dolomite reward option), sIR + wiBGT (Infrared, single-source addresses), pre-TGE xKDK (legacy). Each is one registry line + `pnpm gen:config` away if score-api wants them — sonar
 2026-08-05 — erc20 lane has no custody mechanism: `custodial: true` is only consumed by the ERC-721 handler, so DEX pools and staking vaults will rank as top erc20 holders (mitigated for KDK/NECT by tracking xKDK/sNECT directly). If erc20 holder rankings ever feed scoring, custody needs an erc20-side answer — sonar
+
+2026-08-06 — erc20 Action rows (~3 per Transfer) are the storage cost driver; ecosystem-squid precedent stored balances+holders only. If NECT churn outgrows the 50GB volume, next lever is dropping Action writes for erc20 in tracked-erc20.ts (keep TrackedTokenBalance) — needs score-api holdings-based scoring first — sonar
