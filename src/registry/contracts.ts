@@ -85,8 +85,10 @@ export const CONTRACTS: readonly ContractEntry[] = [
   { community: "beraborrow", address: "0x1790b94e9394f817b3161d8f883317fcca233dfa", chain: 80094, standard: "erc721", startBlock: 811704 }, // Big Fat Beras (BFB, genesis NFT)
   { community: "dolomite", address: "0x0f81001ef0a83ecce5ccebf63eb302c70a39a654", chain: 80094, standard: "erc20", startBlock: 2925727 }, // Dolomite (DOLO)
   { community: "dolomite", address: "0xcb86b75ee6133d179a12d550b09fb3cdb1e141d4", chain: 80094, standard: "erc721", startBlock: 2926448 }, // veDOLO (locked-DOLO position NFTs)
-  { community: "infrared", address: "0xac03caba51e17c86c921e1f6cbfbdc91f8bb2e6b", chain: 80094, standard: "erc20", startBlock: 562093 }, // Infrared BGT (iBGT)
-  { community: "infrared", address: "0x9b6761bf2397bb5a6624a856cc84a3a14dcd3fe5", chain: 80094, standard: "erc20", startBlock: 562092 }, // Infrared BERA (iBERA)
+  // infrared is IR only, DELIBERATELY. iBGT/iBERA are liquid-staking products
+  // touched by half of Bera DeFi — measured 2026-08-06 at 24% of a full sync
+  // their transfer churn was ~88% of a 44 GB Action table (the whole DB) and
+  // blew the 50 GB volume. Weak membership signal, dominant storage cost.
   { community: "infrared", address: "0xa1b644aec990ad6023811ced36e6a2d6d128c7c9", chain: 80094, standard: "erc20", startBlock: 13058310 }, // Infrared Governance Token (IR)
 
   // Custody addresses — not indexed. A vault or escrow holds tokens on a user's

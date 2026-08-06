@@ -92,8 +92,6 @@ chains:
           - "0x597877ccf65be938bd214c4c46907669e3e62128" # beraborrow
           - "0xc99e948e9d183848a6c4f5e6c1d225f02f171d79" # beraborrow
           - "0x0f81001ef0a83ecce5ccebf63eb302c70a39a654" # dolomite
-          - "0xac03caba51e17c86c921e1f6cbfbdc91f8bb2e6b" # infrared
-          - "0x9b6761bf2397bb5a6624a856cc84a3a14dcd3fe5" # infrared
           - "0xa1b644aec990ad6023811ced36e6a2d6d128c7c9" # infrared
         start_block: 233064
       - name: Seaport

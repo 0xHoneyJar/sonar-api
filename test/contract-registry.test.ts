@@ -228,7 +228,7 @@ describe("contracts registry ↔ config.yaml", () => {
       ["beraborrow", "0x1790b94e9394f817b3161d8f883317fcca233dfa", "erc721"],
       ["dolomite", "0x0f81001ef0a83ecce5ccebf63eb302c70a39a654", "erc20"],
       ["dolomite", "0xcb86b75ee6133d179a12d550b09fb3cdb1e141d4", "erc721"],
-      ["infrared", "0xac03caba51e17c86c921e1f6cbfbdc91f8bb2e6b", "erc20"],
+      ["infrared", "0xa1b644aec990ad6023811ced36e6a2d6d128c7c9", "erc20"],
     ] as const;
     for (const [community, address, standard] of mvp) {
       const entry = findContract(80094, address);
