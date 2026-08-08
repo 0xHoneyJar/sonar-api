@@ -58,16 +58,25 @@ export interface ContractEntry {
    * here and nothing else changes.
    */
   readonly custodial?: boolean;
+  /**
+   * ERC-1155 only: the token IDs that belong to this community, for contracts
+   * shared with other projects (a Zora editions contract carries every edition
+   * the creator ever minted). A leg for any other token ID is ignored entirely —
+   * no Action, no holder row. Omit for the common case where the whole contract
+   * is the community's.
+   */
+  readonly tokenIds?: readonly bigint[];
 }
 
 // prettier-ignore
 export const CONTRACTS: readonly ContractEntry[] = [
-  // MVP belt (2026-08-05): Berachain only. Everything else — 4 chains, the
-  // Ethereum blue chips, the HoneyJar gens, the Mibera satellites, the Base
-  // fleet — was cut deliberately to keep the belt lean and cheap while there
-  // are no consumers for it; git history at feat/mvp-berachain-only^ is the
-  // archive, and any of it comes back as one line here + pnpm gen:config +
-  // a re-index.
+  // MVP belt (2026-08-05): Berachain, plus the four Purupuru ERC-1155s on Base
+  // (re-added 2026-08-08 for onboarding — the one Base exception). Everything
+  // else — 4 chains, the Ethereum blue chips, the HoneyJar gens, the Mibera
+  // satellites, the rest of the Base fleet — was cut deliberately to keep the
+  // belt lean and cheap while there are no consumers for it; git history at
+  // feat/mvp-berachain-only^ is the archive, and any of it comes back as one
+  // line here + pnpm gen:config + a re-index.
   { community: "mibera_collection", address: "0x6666397dfe9a8c469bf65dc744cb1c733416c420", chain: 80094, standard: "erc721", startBlock: 3837808 }, // Mibera Collection
 
   // Bera DeFi communities (2026-08-05). Every address verified on-chain against
@@ -90,6 +99,21 @@ export const CONTRACTS: readonly ContractEntry[] = [
   // their transfer churn was ~88% of a 44 GB Action table (the whole DB) and
   // blew the 50 GB volume. Weak membership signal, dominant storage cost.
   { community: "infrared", address: "0xa1b644aec990ad6023811ced36e6a2d6d128c7c9", chain: 80094, standard: "erc20", startBlock: 13058310 }, // Infrared Governance Token (IR)
+
+  // Purupuru (THJ APAC) — four ERC-1155s, ALL on Base (Kizuna included: it has
+  // code on 8453 and none on 80094, eth_getCode verified 2026-08-08). Every
+  // address checked ERC-165 supportsInterface(0xd9b67a26) = true, and each
+  // startBlock is the exact deploy block found by binary search on eth_getCode.
+  //
+  // Apiculture Szn 0 is a Zora editions contract shared across THJ APAC drops:
+  // token 4 ("Edition Three: おはベラ！ oha-bera") is the ONLY Purupuru edition —
+  // tokens 1-3 and 5-6 are other drops (verified against uri() metadata
+  // 2026-08-08), hence the tokenIds allowlist. The party.app three are wholly
+  // Purupuru's, so they track every token ID.
+  { community: "apiculture_szn_0", address: "0x6cfb9280767a3596ee6af887d900014a755ffc75", chain: 8453, standard: "erc1155", startBlock: 13803165, tokenIds: [4n] }, // Apiculture Szn 0 (Zora)
+  { community: "puru_elemental_jani", address: "0xcd3ab1b6e95cdb40a19286d863690eb407335b21", chain: 8453, standard: "erc1155", startBlock: 21538228 }, // Puru Elemental Jani (party.app)
+  { community: "puru_boarding_passes", address: "0x154a563ab6c037bd0f041ac91600ffa9fe2f5fa0", chain: 8453, standard: "erc1155", startBlock: 20521993 }, // Puru Boarding Passes (party.app)
+  { community: "puru_introducing_kizuna", address: "0x85a72eee14dcaa1ccc5616df39acde212280dccb", chain: 8453, standard: "erc1155", startBlock: 23800071 }, // Puru Introducing Kizuna (party.app)
 
   // Custody addresses — not indexed. A vault or escrow holds tokens on a user's
   // behalf, so crediting it as the holder strips the depositor.
@@ -158,4 +182,19 @@ export function collectionKeys(standard: TokenStandard): Record<string, string> 
 /** `collectionKeys("erc721")`. Kept as a name because the invariant above is about ERC-721. */
 export function erc721CollectionKeys(): Record<string, string> {
   return collectionKeys("erc721");
+}
+
+/**
+ * `chain:address` → the token IDs tracked for that ERC-1155 contract, for the
+ * entries that declare a `tokenIds` allowlist. A contract absent from this map
+ * tracks every token ID.
+ */
+export function erc1155TokenAllowlists(): ReadonlyMap<string, ReadonlySet<bigint>> {
+  const out = new Map<string, ReadonlySet<bigint>>();
+  for (const c of TRACKED_CONTRACTS) {
+    if (c.standard === "erc1155" && c.tokenIds) {
+      out.set(`${c.chain}:${c.address}`, new Set(c.tokenIds));
+    }
+  }
+  return out;
 }

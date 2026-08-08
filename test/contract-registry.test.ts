@@ -236,8 +236,17 @@ describe("contracts registry ↔ config.yaml", () => {
       expect(entry?.community).toBe(community);
       expect(entry?.standard).toBe(standard);
     }
-    // The belt is deliberately single-chain: nothing outside Berachain.
-    expect(CONTRACTS.filter((c) => c.chain !== 80094)).toEqual([]);
+    // The belt is Berachain plus ONE deliberate exception: the four Purupuru
+    // ERC-1155s on Base (re-added 2026-08-08 for onboarding). Anything else
+    // off-Berachain is a regression.
+    const offBerachain = CONTRACTS.filter((c) => c.chain !== 80094);
+    expect(offBerachain.every((c) => c.chain === 8453 && c.standard === "erc1155")).toBe(true);
+    expect(offBerachain.map((c) => c.community).sort()).toEqual([
+      "apiculture_szn_0",
+      "puru_boarding_passes",
+      "puru_elemental_jani",
+      "puru_introducing_kizuna",
+    ]);
   });
 
   it("covers every NFT-bearing chain with at least one marketplace", () => {
@@ -245,8 +254,12 @@ describe("contracts registry ↔ config.yaml", () => {
     // so a community added to any chain already has a venue decoding its sales.
     // Optimism, Arbitrum and Zora were uncovered until 2026-07-31 — 11 collections
     // produced holder data that could never produce a sale row.
+    // ERC-721 chains only: the Seaport decoder requires itemType === 2 (see
+    // test/seaport-registry-sale.test.ts F3), so an ERC-1155 fill cannot decode
+    // yet — binding a marketplace on a chain with only ERC-1155s would index
+    // its whole order flow and record nothing. PARKED until 1155 support.
     const nftChains = new Set(
-      CONTRACTS.filter((c) => c.standard !== "erc20").map((c) => c.chain),
+      CONTRACTS.filter((c) => c.standard === "erc721").map((c) => c.chain),
     );
     const covered = new Set(MARKETPLACES.map((m) => m.chain));
     const uncovered = [...nftChains].filter((id) => !covered.has(id)).sort((a, b) => a - b);

@@ -70,6 +70,18 @@ contracts:
             - from
 chains:
 
+  # Base
+  - id: 8453
+    start_block: 13803165
+    contracts:
+      - name: TrackedErc1155
+        address:
+          - "0x6cfb9280767a3596ee6af887d900014a755ffc75" # apiculture_szn_0
+          - "0xcd3ab1b6e95cdb40a19286d863690eb407335b21" # puru_elemental_jani
+          - "0x154a563ab6c037bd0f041ac91600ffa9fe2f5fa0" # puru_boarding_passes
+          - "0x85a72eee14dcaa1ccc5616df39acde212280dccb" # puru_introducing_kizuna
+        start_block: 13803165
+
   # Berachain Mainnet
   - id: 80094
     start_block: 233064

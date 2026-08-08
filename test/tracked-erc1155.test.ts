@@ -172,4 +172,45 @@ describe("ERC-1155 lane", () => {
     const ids = ctx.actions.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  // Apiculture Szn 0 is a shared Zora editions contract: only token 4 is
+  // Purupuru's, declared via the registry's tokenIds allowlist. These pin the
+  // filter to the REAL registry entry so deleting the allowlist fails a test,
+  // not just pollutes production rows.
+  describe("registry tokenIds allowlist (Apiculture Szn 0)", () => {
+    const APICULTURE = "0x6cfb9280767a3596ee6af887d900014a755ffc75";
+    const at = (e: any) => ({ ...e, srcAddress: APICULTURE });
+
+    it("tracks the allowlisted token ID", async () => {
+      const ctx = makeContext();
+      await captured.single({ event: at(single(ZERO, ALICE, 4n, 2n)), context: ctx });
+      expect(balances(ctx)).toEqual({ [`${ALICE}:4`]: 2n });
+      expect(ctx.actions.some((a) => a.actionType === "mint1155")).toBe(true);
+    });
+
+    it("drops a leg for a token ID outside the allowlist — no Action, no row", async () => {
+      const ctx = makeContext();
+      await captured.single({ event: at(single(ZERO, ALICE, 1n, 5n)), context: ctx });
+      expect(ctx.store.size).toBe(0);
+      expect(ctx.actions.length).toBe(0);
+    });
+
+    it("keeps allowlisted legs of a mixed TransferBatch and drops the rest", async () => {
+      const ctx = makeContext();
+      await captured.batch({
+        event: at(batch(ZERO, ALICE, [1n, 4n, 5n], [10n, 3n, 10n])),
+        context: ctx,
+      });
+      expect(balances(ctx)).toEqual({ [`${ALICE}:4`]: 3n });
+      expect(ctx.actions.length).toBeGreaterThan(0);
+      expect(ctx.actions.every((a) => JSON.parse(a.context).tokenId === "4")).toBe(true);
+    });
+
+    it("does not filter a contract with no allowlist", async () => {
+      // CONTRACT is not in the registry at all — every token ID tracks.
+      const ctx = makeContext();
+      await captured.single({ event: single(ZERO, ALICE, 999n, 1n), context: ctx });
+      expect(balances(ctx)).toEqual({ [`${ALICE}:999`]: 1n });
+    });
+  });
 });

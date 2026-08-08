@@ -14,7 +14,11 @@ import { indexer, type EvmOnEventContext, type TrackedHolder1155 } from "envio";
 
 import { eventIdentity, recordAction } from "../lib/actions";
 import { ZERO_ADDRESS, isBurnAddress } from "../lib/mint-detection";
-import { collectionKeys, isCustodialAddress } from "../registry/contracts";
+import {
+  collectionKeys,
+  erc1155TokenAllowlists,
+  isCustodialAddress,
+} from "../registry/contracts";
 import {
   aggregateBatchDeltas,
   erc1155HolderId,
@@ -24,6 +28,19 @@ import {
 const ZERO = ZERO_ADDRESS.toLowerCase();
 
 const COLLECTION_KEYS: Record<string, string> = collectionKeys("erc1155");
+
+const TOKEN_ALLOWLISTS = erc1155TokenAllowlists();
+
+/**
+ * A contract shared with other projects (Apiculture Szn 0 is a Zora editions
+ * contract) declares in the registry which token IDs are the community's; a
+ * leg for any other ID is dropped before it writes anything. No allowlist
+ * means the whole contract is tracked.
+ */
+function isTrackedTokenId(chainId: number, contractAddress: string, tokenId: bigint): boolean {
+  const allow = TOKEN_ALLOWLISTS.get(`${chainId}:${contractAddress}`);
+  return allow === undefined || allow.has(tokenId);
+}
 
 /** Fields both TransferSingle and TransferBatch carry. */
 interface TransferMeta {
@@ -72,6 +89,7 @@ async function applyLeg(
   seq: number,
 ): Promise<void> {
   if (quantity <= 0n) return;
+  if (!isTrackedTokenId(m.chainId, m.contractAddress, tokenId)) return;
 
   const isMint = m.from === ZERO;
   const isBurn = isBurnAddress(m.to) && !isMint;
@@ -169,6 +187,7 @@ indexer.onEvent(
   async ({ event, context }) => {
     const { from, to, id, value } = event.params;
     const m = meta(event as unknown as Erc1155Event, from, to);
+    if (!isTrackedTokenId(m.chainId, m.contractAddress, BigInt(id.toString()))) return;
     if (m.from !== ZERO && m.to !== ZERO) {
       await Promise.all([
         context.TrackedHolder1155.get(
@@ -196,7 +215,9 @@ indexer.onEvent(
 
     if (m.from !== ZERO && m.to !== ZERO) {
       await Promise.all(
-        [...deltas.keys()].flatMap((tokenId) => [
+        [...deltas.keys()]
+          .filter((tokenId) => isTrackedTokenId(m.chainId, m.contractAddress, tokenId))
+          .flatMap((tokenId) => [
           context.TrackedHolder1155.get(
             erc1155HolderId(m.contractAddress, m.chainId, tokenId, m.from),
           ),
