@@ -162,6 +162,7 @@ function contractsBlock(): string {
 const CHAIN_NAMES: Record<number, string> = {
   1: "Ethereum Mainnet",
   10: "Optimism",
+  4663: "Robinhood Chain Mainnet",
   8453: "Base",
   42161: "Arbitrum",
   80094: "Berachain Mainnet",
@@ -170,11 +171,14 @@ const CHAIN_NAMES: Record<number, string> = {
 
 /** Chain-level extras that are not derivable from the registry. */
 const CHAIN_EXTRAS: Record<number, string> = {
+  // Auto-discovery misses Robinhood Chain; explicit HyperSync also keeps the
+  // RPC source path out — that path fataled on multi-filter in 2026-07 (#234).
+  4663: "    hypersync_config:\n      url: https://4663.hypersync.xyz\n",
   // Auto-discovery misses Berachain; managed Cloud bundles HyperSync.
   80094: "    hypersync_config:\n      url: https://berachain.hypersync.xyz\n",
 };
 
-const ORDER = [1, 42161, 7777777, 10, 8453, 80094];
+const ORDER = [1, 42161, 7777777, 10, 4663, 8453, 80094];
 
 // A chain appears in config.yaml if EITHER registry places something on it.
 const CHAIN_IDS = [

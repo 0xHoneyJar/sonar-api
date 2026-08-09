@@ -70,10 +70,52 @@ contracts:
             - from
 chains:
 
+  # Ethereum Mainnet
+  - id: 1
+    start_block: 12287507
+    contracts:
+      - name: TrackedErc721
+        address:
+          - "0xed5af388653567af2f388e6224dc7c4b3241c544" # azuki
+          - "0x306b1ea3ecdf94ab739f1910bbda052ed4a9f949" # beanz
+          - "0xb6a37b5d14d502c3ab0ae6f3a0e058bc9517786e" # elementals
+          - "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d" # bayc
+          - "0x60e4d786628fea6478f785a6d7e704777c86a7c6" # mayc
+          - "0xba30e5f9bb24c19c9002c35c7098ad4a0f7ff53b" # bakc
+          - "0xbd3531da5cf5857e7cfaa92426877b022e612cf8" # pudgy_penguins
+          - "0x524cab2ec69124574082676e6f654a18df49a048" # lil_pudgys
+          - "0x5af0d9827e0c53e4799bb226655a1de152a425a5" # milady
+          - "0xd3d9ddd0cf0a5f0bfb8f7fceae075df687eaebab" # remilio
+          - "0x8a90cab2b38dba80c64b7734e58ee1db38b8992e" # doodles
+          - "0x23581767a106ae21c074b2276d25e5c3e136a68b" # moonbirds
+          - "0x9c8ff314c9bc7f6e59a9d9225fb22946427edc03" # nouns
+          - "0x79fcdef22feed20eddacbb2587640e45491b757f" # mfers
+        start_block: 12287507
+
+  # Robinhood Chain Mainnet
+  - id: 4663
+    start_block: 6209712
+    hypersync_config:
+      url: https://4663.hypersync.xyz
+    contracts:
+      - name: TrackedErc721
+        address:
+          - "0x9ec6c5b9f572a9b02138e553bc5f5882da735f45" # onchain_hoodies
+          - "0x08dc7cb3f4ccc8eea782e2924d151e2130f22b28" # pyopyopyopyo
+          - "0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0" # stonk_brokers
+          - "0xa34d46ab695e4751bfbb620bb3c78ff71793618b" # slobos
+        start_block: 6209712
+
   # Base
   - id: 8453
-    start_block: 13803165
+    start_block: 2883449
     contracts:
+      - name: TrackedErc721
+        address:
+          - "0x699727f9e01a822efdcf7333073f0461e5914b4e" # warplets
+          - "0x1260f90e0b1c482b38b88f26dee17c57615d670b" # lil_bangers
+          - "0xcb28749c24af4797808364d71d71539bc01e76d4" # based_punks
+        start_block: 2883449
       - name: TrackedErc1155
         address:
           - "0x6cfb9280767a3596ee6af887d900014a755ffc75" # apiculture_szn_0

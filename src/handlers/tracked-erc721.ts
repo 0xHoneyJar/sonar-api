@@ -6,7 +6,11 @@ import {
 
 import { eventIdentity, recordAction } from "../lib/actions";
 import { ZERO_ADDRESS, isBurnAddress } from "../lib/mint-detection";
-import { erc721CollectionKeys, isCustodialAddress } from "../registry/contracts";
+import {
+  erc721CollectionKeys,
+  isBalancesOnlyContract,
+  isCustodialAddress,
+} from "../registry/contracts";
 import { writeTokenOwnership } from "../lib/token-ownership";
 
 const ZERO = ZERO_ADDRESS.toLowerCase();
@@ -38,6 +42,9 @@ export async function handleTrackedErc721Transfer(
   const chainId = event.chainId;
   const { txHash, logIndex, timestamp, blockNumber, transactionIndex } =
     eventIdentity(event);
+  // Balances-only collections keep TrackedHolder + Token exact and skip every
+  // Action write below — the erc20 lever (4632be59), per-collection.
+  const balancesOnly = isBalancesOnlyContract(chainId, contractAddress);
 
   // Preload: prime holder reads for from and to
   if (from !== ZERO && to !== ZERO) {
@@ -82,7 +89,7 @@ export async function handleTrackedErc721Transfer(
   });
 
   // If this is a mint (from zero address), also create a mint action
-  if (from === ZERO) {
+  if (from === ZERO && !balancesOnly) {
     const mintActionId = `${txHash}_${logIndex}`;
     recordAction(context, {
       id: mintActionId,
@@ -104,7 +111,7 @@ export async function handleTrackedErc721Transfer(
   }
 
   // If this is a burn (to zero or dead address), create a burn action
-  if (isBurnAddress(to) && from !== ZERO) {
+  if (isBurnAddress(to) && from !== ZERO && !balancesOnly) {
     const burnActionId = `${txHash}_${logIndex}_burn`;
     recordAction(context, {
       id: burnActionId,
@@ -130,7 +137,7 @@ export async function handleTrackedErc721Transfer(
   // for addresses bound in config.yaml, so arrival already proves the collection
   // is tracked. A hand-maintained allowlist here once drifted from the config and
   // emitted transfer history for 1 of 9 bound collections on chain 1.
-  if (from !== ZERO && !isBurnAddress(to)) {
+  if (from !== ZERO && !isBurnAddress(to) && !balancesOnly) {
     const transferActionId = `${txHash}_${logIndex}_transfer`;
     recordAction(context, {
       id: transferActionId,
@@ -195,6 +202,7 @@ export async function handleTrackedErc721Transfer(
         blockNumber,
         transactionIndex,
         direction: "out",
+        balancesOnly,
       });
       await adjustHolder({
         context,
@@ -209,6 +217,7 @@ export async function handleTrackedErc721Transfer(
         blockNumber,
         transactionIndex,
         direction: "in",
+        balancesOnly,
       });
     }
     return;
@@ -228,6 +237,7 @@ export async function handleTrackedErc721Transfer(
     blockNumber,
     transactionIndex,
     direction: "out",
+    balancesOnly,
   });
 
   await adjustHolder({
@@ -243,6 +253,7 @@ export async function handleTrackedErc721Transfer(
     blockNumber,
     transactionIndex,
     direction: "in",
+    balancesOnly,
   });
 }
 
@@ -264,6 +275,7 @@ interface AdjustHolderArgs {
   blockNumber: bigint;
   transactionIndex: number | undefined;
   direction: "in" | "out";
+  balancesOnly: boolean;
 }
 
 async function adjustHolder({
@@ -279,6 +291,7 @@ async function adjustHolder({
   blockNumber,
   transactionIndex,
   direction,
+  balancesOnly,
 }: AdjustHolderArgs) {
   if (delta === 0) {
     return;
@@ -298,25 +311,27 @@ async function adjustHolder({
   const normalizedCollection = collectionKey.toLowerCase();
   const tokenCount = Math.max(0, nextCount);
 
-  recordAction(context, {
-    id: actionId,
-    actionType: "hold721",
-    actor: address,
-    primaryCollection: normalizedCollection,
-    timestamp,
-    chainId,
-    txHash,
-    logIndex,
-    blockNumber,
-    transactionIndex,
-    numeric1: BigInt(tokenCount),
-    context: {
-      contract: contractAddress,
-      collectionKey: normalizedCollection,
-      tokenCount,
-      direction,
-    },
-  });
+  if (!balancesOnly) {
+    recordAction(context, {
+      id: actionId,
+      actionType: "hold721",
+      actor: address,
+      primaryCollection: normalizedCollection,
+      timestamp,
+      chainId,
+      txHash,
+      logIndex,
+      blockNumber,
+      transactionIndex,
+      numeric1: BigInt(tokenCount),
+      context: {
+        contract: contractAddress,
+        collectionKey: normalizedCollection,
+        tokenCount,
+        direction,
+      },
+    });
+  }
 
   if (nextCount <= 0) {
     if (existing) {

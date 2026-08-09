@@ -66,6 +66,16 @@ export interface ContractEntry {
    * is the community's.
    */
   readonly tokenIds?: readonly bigint[];
+  /**
+   * ERC-721 only: index balances, skip the Action stream. TrackedHolder and
+   * Token stay exact (every Transfer is still processed, custody rules
+   * included) — only per-event row persistence is dropped, the same lever the
+   * erc20 lane pulled wholesale in 4632be59. For a snapshot-served community
+   * the Action rows have no consumer and are the storage cost driver; if
+   * per-transfer history is ever needed, clear the flag and re-index — the
+   * chain is the archive.
+   */
+  readonly balancesOnly?: boolean;
 }
 
 // prettier-ignore
@@ -115,6 +125,43 @@ export const CONTRACTS: readonly ContractEntry[] = [
   { community: "puru_boarding_passes", address: "0x154a563ab6c037bd0f041ac91600ffa9fe2f5fa0", chain: 8453, standard: "erc1155", startBlock: 20521993 }, // Puru Boarding Passes (party.app)
   { community: "puru_introducing_kizuna", address: "0x85a72eee14dcaa1ccc5616df39acde212280dccb", chain: 8453, standard: "erc1155", startBlock: 23800071 }, // Puru Introducing Kizuna (party.app)
 
+  // Snapshot fleet (2026-08-09) — the ERC-721 showcase batch, ALL balancesOnly.
+  // TrackedHolder + Token stay exact; no Action rows, so the belt cost is
+  // O(holders + tokens), not O(transfers), and score-api serves these from
+  // holder snapshots (no event bronze — the free-tier 500 MB cap rules there).
+  // Addresses and startBlocks recovered from the pre-lean registry
+  // (git show 6b2c614e^); community keys are NEW, chosen equal to the score-api
+  // community ids on purpose — the category_key seam matches by construction.
+  //
+  // Ethereum blue chips:
+  { community: "azuki", address: "0xed5af388653567af2f388e6224dc7c4b3241c544", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // Azuki
+  { community: "beanz", address: "0x306b1ea3ecdf94ab739f1910bbda052ed4a9f949", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // BEANZ Official
+  { community: "elementals", address: "0xb6a37b5d14d502c3ab0ae6f3a0e058bc9517786e", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // Azuki Elementals
+  { community: "bayc", address: "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // Bored Ape Yacht Club
+  { community: "mayc", address: "0x60e4d786628fea6478f785a6d7e704777c86a7c6", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // Mutant Ape Yacht Club
+  { community: "bakc", address: "0xba30e5f9bb24c19c9002c35c7098ad4a0f7ff53b", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // Bored Ape Kennel Club
+  { community: "pudgy_penguins", address: "0xbd3531da5cf5857e7cfaa92426877b022e612cf8", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // Pudgy Penguins
+  { community: "lil_pudgys", address: "0x524cab2ec69124574082676e6f654a18df49a048", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // Lil Pudgys
+  { community: "milady", address: "0x5af0d9827e0c53e4799bb226655a1de152a425a5", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // Milady Maker
+  { community: "remilio", address: "0xd3d9ddd0cf0a5f0bfb8f7fceae075df687eaebab", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // Redacted Remilio Babies
+  { community: "doodles", address: "0x8a90cab2b38dba80c64b7734e58ee1db38b8992e", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // Doodles
+  { community: "moonbirds", address: "0x23581767a106ae21c074b2276d25e5c3e136a68b", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // Moonbirds
+  { community: "nouns", address: "0x9c8ff314c9bc7f6e59a9d9225fb22946427edc03", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // Nouns
+  { community: "mfers", address: "0x79fcdef22feed20eddacbb2587640e45491b757f", chain: 1, standard: "erc721", startBlock: 12287507, balancesOnly: true }, // mfers
+  // Base:
+  { community: "warplets", address: "0x699727f9e01a822efdcf7333073f0461e5914b4e", chain: 8453, standard: "erc721", startBlock: 2883449, balancesOnly: true }, // Warplets
+  { community: "lil_bangers", address: "0x1260f90e0b1c482b38b88f26dee17c57615d670b", chain: 8453, standard: "erc721", startBlock: 2883449, balancesOnly: true }, // Lil Bangers
+  { community: "based_punks", address: "0xcb28749c24af4797808364d71d71539bc01e76d4", chain: 8453, standard: "erc721", startBlock: 2883449, balancesOnly: true }, // Based Punks
+  // Robinhood Chain (eip155:4663) — HyperSync-only (4663.hypersync.xyz, live,
+  // probed 2026-08-09). The 2026-07-19 monobelt stall was the RPC source path
+  // fataling on multi-filter; there was no HyperSync for 4663 then. There is
+  // now, so these bind like any other chain — the sidecar is not coming back.
+  // startBlocks = first Transfer / deploy, from the retired sidecar config.
+  { community: "onchain_hoodies", address: "0x9ec6c5b9f572a9b02138e553bc5f5882da735f45", chain: 4663, standard: "erc721", startBlock: 6209712, balancesOnly: true }, // OnChainHoodies
+  { community: "pyopyopyopyo", address: "0x08dc7cb3f4ccc8eea782e2924d151e2130f22b28", chain: 4663, standard: "erc721", startBlock: 8740203, balancesOnly: true }, // pyopyopyopyo
+  { community: "stonk_brokers", address: "0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0", chain: 4663, standard: "erc721", startBlock: 12493793, balancesOnly: true }, // StonkBrokers
+  { community: "slobos", address: "0xa34d46ab695e4751bfbb620bb3c78ff71793618b", chain: 4663, standard: "erc721", startBlock: 13949155, balancesOnly: true }, // Slobos
+
   // Custody addresses — not indexed. A vault or escrow holds tokens on a user's
   // behalf, so crediting it as the holder strips the depositor.
   //
@@ -148,6 +195,20 @@ const custodialKeys: ReadonlySet<string> = new Set(
  */
 export function isCustodialAddress(chain: number, address: string): boolean {
   return custodialKeys.has(`${chain}:${address.toLowerCase()}`);
+}
+
+const balancesOnlyKeys: ReadonlySet<string> = new Set(
+  TRACKED_CONTRACTS.filter((c) => c.balancesOnly).map(
+    (c) => `${c.chain}:${c.address}`,
+  ),
+);
+
+/**
+ * True when `address` on `chain` is indexed balances-only: TrackedHolder +
+ * Token are maintained, no Action rows are written.
+ */
+export function isBalancesOnlyContract(chain: number, address: string): boolean {
+  return balancesOnlyKeys.has(`${chain}:${address.toLowerCase()}`);
 }
 
 /** The entry for `address` on `chain`, or undefined if it is not tracked. */

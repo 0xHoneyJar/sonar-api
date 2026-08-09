@@ -236,12 +236,20 @@ describe("contracts registry ↔ config.yaml", () => {
       expect(entry?.community).toBe(community);
       expect(entry?.standard).toBe(standard);
     }
-    // The belt is Berachain plus ONE deliberate exception: the four Purupuru
-    // ERC-1155s on Base (re-added 2026-08-08 for onboarding). Anything else
-    // off-Berachain is a regression.
+    // The belt is Berachain plus TWO deliberate exceptions: the four Purupuru
+    // ERC-1155s on Base (2026-08-08), and the balancesOnly ERC-721 snapshot
+    // fleet (2026-08-09) — holder counts only, no Action stream, so its belt
+    // cost is O(holders), not O(transfers). Any off-Berachain entry that is
+    // neither is a regression.
     const offBerachain = CONTRACTS.filter((c) => c.chain !== 80094);
-    expect(offBerachain.every((c) => c.chain === 8453 && c.standard === "erc1155")).toBe(true);
-    expect(offBerachain.map((c) => c.community).sort()).toEqual([
+    const isPurupuru = (c: (typeof CONTRACTS)[number]) =>
+      c.chain === 8453 && c.standard === "erc1155";
+    const isSnapshotFleet = (c: (typeof CONTRACTS)[number]) =>
+      c.standard === "erc721" && c.balancesOnly === true;
+    expect(
+      offBerachain.filter((c) => !isPurupuru(c) && !isSnapshotFleet(c)),
+    ).toEqual([]);
+    expect(offBerachain.filter(isPurupuru).map((c) => c.community).sort()).toEqual([
       "apiculture_szn_0",
       "puru_boarding_passes",
       "puru_elemental_jani",
@@ -258,8 +266,12 @@ describe("contracts registry ↔ config.yaml", () => {
     // test/seaport-registry-sale.test.ts F3), so an ERC-1155 fill cannot decode
     // yet — binding a marketplace on a chain with only ERC-1155s would index
     // its whole order flow and record nothing. PARKED until 1155 support.
+    // balancesOnly collections are excluded: they write no Action rows, so a
+    // sale row would join against nothing — venue coverage buys them nothing.
     const nftChains = new Set(
-      CONTRACTS.filter((c) => c.standard === "erc721").map((c) => c.chain),
+      CONTRACTS.filter((c) => c.standard === "erc721" && !c.balancesOnly).map(
+        (c) => c.chain,
+      ),
     );
     const covered = new Set(MARKETPLACES.map((m) => m.chain));
     const uncovered = [...nftChains].filter((id) => !covered.has(id)).sort((a, b) => a - b);

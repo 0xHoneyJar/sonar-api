@@ -33,10 +33,13 @@ const HOLDER_A = "0x1111111111111111111111111111111111111111";
 const HOLDER_B = "0x2222222222222222222222222222222222222222";
 
 /**
- * A collection bound in config.yaml chain 1 (EthTrackedErc721) that is absent
- * from TRANSFER_TRACKED_COLLECTIONS: Bored Ape Yacht Club (config.yaml:620).
+ * A config-bound, full-fat (NOT balancesOnly) collection that never appeared in
+ * the old hardcoded TRANSFER_TRACKED_COLLECTIONS set: Big Fat Beras on
+ * Berachain. (BAYC, the original probe, is back in the registry since
+ * 2026-08-09 but as balancesOnly — it legitimately emits no Actions now.)
  */
-const BAYC = "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d";
+const BFB = "0x1790b94e9394f817b3161d8f883317fcca233dfa";
+const BFB_CHAIN = 80094;
 
 /** A hypothetical freshly Kitchen-onboarded contract — in no TS constant at all. */
 const NEWLY_ONBOARDED = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd";
@@ -57,10 +60,15 @@ function mockContext() {
   };
 }
 
-function transferEvent(contract: string, tokenId: bigint, logIndex = 0) {
+function transferEvent(
+  contract: string,
+  tokenId: bigint,
+  logIndex = 0,
+  chainId = 1,
+) {
   return {
     srcAddress: contract,
-    chainId: 1,
+    chainId,
     logIndex,
     params: { from: HOLDER_A, to: HOLDER_B, tokenId },
     transaction: { hash: "0xcafebabe" },
@@ -80,14 +88,17 @@ beforeEach(() => {
 describe("F1 — transfer Actions are gated on a hardcoded collection set", () => {
   it("records a transfer for a config-bound collection missing from TRANSFER_TRACKED_COLLECTIONS", async () => {
     const ctx = mockContext();
-    await handleTrackedErc721Transfer(transferEvent(BAYC, 1234n) as never, ctx as never);
+    await handleTrackedErc721Transfer(
+      transferEvent(BFB, 1234n, 0, BFB_CHAIN) as never,
+      ctx as never,
+    );
 
-    // RED: BAYC is bound in config.yaml but absent from the hardcoded set, so no
+    // RED: bound in config.yaml but absent from the old hardcoded set, so no
     // transfer Action is recorded — the collection is invisible to scoring.
     const actions = transferActions(ctx);
     expect(actions).toHaveLength(1);
     expect(actions[0].actor).toBe(HOLDER_B);
-    expect(actions[0].chainId).toBe(1);
+    expect(actions[0].chainId).toBe(BFB_CHAIN);
   });
 
   it("records a transfer for a freshly onboarded contract with no TS constant entry", async () => {
@@ -105,7 +116,7 @@ describe("F1 — transfer Actions are gated on a hardcoded collection set", () =
     const ctx = mockContext();
     await handleTrackedErc721Transfer(
       {
-        ...transferEvent(BAYC, 5n),
+        ...transferEvent(BFB, 5n, 0, BFB_CHAIN),
         params: { from: ZERO, to: HOLDER_B, tokenId: 5n },
       } as never,
       ctx as never,
