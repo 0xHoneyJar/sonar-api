@@ -11,6 +11,7 @@ import {
   collectionKeys,
 } from "../src/registry/contracts";
 import { MARKETPLACES } from "../src/registry/marketplaces";
+import { PROTOCOLS, protocolBindingPlan } from "../src/registry/protocols";
 
 /**
  * The registry invariant (bd-dwq5.1, bd-dwq5.3): src/registry/contracts.ts is
@@ -50,9 +51,13 @@ function declaredInConfig(configText: string): Declared[] {
 
 const declaredAll = declaredInConfig(readFileSync("config.yaml", "utf8"));
 
-/** Token-lane addresses only — marketplace lanes resolve against MARKETPLACES, not CONTRACTS. */
+/** Three buckets, one registry each: token lanes → CONTRACTS, the standalone
+ *  ProtocolEvents lane → PROTOCOLS, everything else → MARKETPLACES. */
 const declared = declaredAll.filter((d) => d.lane.startsWith("Tracked"));
-const declaredVenues = declaredAll.filter((d) => !d.lane.startsWith("Tracked"));
+const declaredProtocols = declaredAll.filter((d) => d.lane === "ProtocolEvents");
+const declaredVenues = declaredAll.filter(
+  (d) => !d.lane.startsWith("Tracked") && d.lane !== "ProtocolEvents",
+);
 
 describe("contracts registry ↔ config.yaml", () => {
   it("finds contracts to check (guards against a silently empty parse)", () => {
@@ -99,6 +104,7 @@ describe("contracts registry ↔ config.yaml", () => {
     expect([...names].sort()).toEqual([
       "Blur",
       "BlurV2",
+      "ProtocolEvents",
       "Seaport",
       "TrackedErc1155",
       "TrackedErc20",
@@ -114,8 +120,30 @@ describe("contracts registry ↔ config.yaml", () => {
       CONFIG_YAML.indexOf("contracts:"),
       CONFIG_YAML.indexOf("chains:"),
     );
-    for (const lane of ["TrackedErc721", "TrackedErc1155", "TrackedErc20", "Seaport", "Blur", "BlurV2"]) {
+    for (const lane of ["TrackedErc721", "TrackedErc1155", "TrackedErc20", "ProtocolEvents", "Seaport", "Blur", "BlurV2"]) {
       expect(topLevel).toContain(`- name: ${lane}`);
+    }
+  });
+
+  it("resolves every ProtocolEvents address against the protocol registry", () => {
+    // Standalone binding = protocol contracts that are NOT tracked tokens.
+    // Token-tracked protocol contracts merge their events into the token lane
+    // instead (Envio allows one binding per address) and are asserted below.
+    const plan = protocolBindingPlan();
+    const standalone = new Set(plan.standalone.map((p) => `${p.chain}:${p.address}`));
+    const declaredKeys = new Set(declaredProtocols.map((d) => `${d.chain}:${d.address}`));
+    expect([...declaredKeys].sort()).toEqual([...standalone].sort());
+    // Merged entries must sit under their token lane's binding in config.
+    const tokenDeclared = new Set(declared.map((d) => `${d.chain}:${d.address}`));
+    for (const p of PROTOCOLS) {
+      const key = `${p.chain}:${p.address}`;
+      if (!standalone.has(key)) {
+        expect(tokenDeclared.has(key), `${key} merged but not under its token lane`).toBe(true);
+      }
+    }
+    // Merged protocol event signatures appear in the token lane's event list.
+    for (const [, sigs] of plan.merged) {
+      for (const sig of sigs) expect(CONFIG_YAML).toContain(`- event: ${sig}`);
     }
   });
 

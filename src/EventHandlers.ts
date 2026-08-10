@@ -23,6 +23,7 @@
 import "./handlers/tracked-erc721";
 import "./handlers/tracked-erc1155";
 import "./handlers/tracked-erc20";
+import "./handlers/protocol-events";
 import "./handlers/marketplaces/seaport";
 import "./handlers/marketplaces/blur";
 import "./handlers/marketplaces/blur-v2";

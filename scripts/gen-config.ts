@@ -38,6 +38,15 @@ import {
   type TokenStandard,
 } from "../src/registry/contracts";
 import { MARKETPLACES, type Marketplace } from "../src/registry/marketplaces";
+import { protocolBindingPlan, protocolEventUnion } from "../src/registry/protocols";
+
+/**
+ * Protocol events (src/registry/protocols.ts). Envio refuses one address under
+ * two contract definitions, so a protocol contract that is ALSO a tracked token
+ * merges its events into that token's lane; only untracked addresses get the
+ * standalone ProtocolEvents binding. See protocolBindingPlan.
+ */
+const PROTOCOL_PLAN = protocolBindingPlan();
 
 const HEADER = `# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
 #
@@ -80,6 +89,21 @@ const marketLane = (marketplace: Marketplace) => (chainId: number) =>
     startBlock: m.startBlock,
   }));
 
+const protocolLane = () => (chainId: number) =>
+  PROTOCOL_PLAN.standalone
+    .filter((p) => p.chain === chainId)
+    .map((p) => ({
+      address: p.address,
+      label: p.label,
+      startBlock: p.startBlock,
+    }));
+
+/** A token lane's events plus any protocol events merged onto it. */
+const tokenLaneEvents = (standard: TokenStandard, base: readonly string[]): readonly string[] => [
+  ...base,
+  ...(PROTOCOL_PLAN.merged.get(standard) ?? []),
+];
+
 const LANES: readonly Lane[] = [
   {
     name: "TrackedErc721",
@@ -105,8 +129,18 @@ const LANES: readonly Lane[] = [
     name: "TrackedErc20",
     addresses: tokenLane("erc20"),
     comment:
-      "Every tracked ERC-20. Same topic0 as ERC-721's Transfer — the third arg is\n  # un-indexed here, so a contract registered under the wrong standard decodes garbage.",
-    events: ["Transfer(address indexed from, address indexed to, uint256 value)"],
+      "Every tracked ERC-20. Same topic0 as ERC-721's Transfer — the third arg is\n  # un-indexed here, so a contract registered under the wrong standard decodes garbage.\n  # Non-Transfer events are protocol events merged from src/registry/protocols.ts\n  # (an address cannot sit under two bindings); handled in protocol-events.ts.",
+    events: tokenLaneEvents("erc20", [
+      "Transfer(address indexed from, address indexed to, uint256 value)",
+    ]),
+    txFields: ["hash", "transactionIndex"],
+  },
+  {
+    name: "ProtocolEvents",
+    addresses: protocolLane(),
+    comment:
+      "Protocol contracts (src/registry/protocols.ts) that are NOT tracked tokens —\n  # NAMED member behaviors (vote, delegate, …) as Action rows. Protocol events of\n  # addresses that ARE tracked tokens ride that token's lane instead (Envio allows\n  # one binding per address); the handler dispatch is registry-keyed either way.",
+    events: protocolEventUnion(),
     txFields: ["hash", "transactionIndex"],
   },
   {
@@ -180,9 +214,14 @@ const CHAIN_EXTRAS: Record<number, string> = {
 
 const ORDER = [1, 42161, 7777777, 10, 4663, 8453, 80094];
 
-// A chain appears in config.yaml if EITHER registry places something on it.
+// A chain appears in config.yaml if ANY registry places something on it.
 const CHAIN_IDS = [
-  ...new Set([...TRACKED_CONTRACTS.map((c) => c.chain), ...MARKETPLACES.map((m) => m.chain)]),
+  ...new Set([
+    ...TRACKED_CONTRACTS.map((c) => c.chain),
+    ...MARKETPLACES.map((m) => m.chain),
+    // merged protocol entries share a token contract's chain by definition
+    ...PROTOCOL_PLAN.standalone.map((p) => p.chain),
+  ]),
 ];
 
 const unordered = CHAIN_IDS.filter((id) => !ORDER.includes(id));
