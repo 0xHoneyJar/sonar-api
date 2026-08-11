@@ -151,11 +151,13 @@ export interface EventIdentity {
  *
  * transactionIndex is optional because it depends on config.yaml selecting it in
  * `field_selection.transaction_fields` — a lane that forgets gets undefined, not
- * a crash, and the column stays null rather than silently reading as 0.
+ * a crash, and the column stays null rather than silently reading as 0. Since
+ * envio 3.6 an unselected field is typed as a branded `FieldNotSelected` rather
+ * than absent, so the param accepts `unknown` and narrows at runtime.
  */
 export function eventIdentity(event: {
   logIndex: number | bigint;
-  transaction: { hash: string; transactionIndex?: number | bigint };
+  transaction: { hash: string; transactionIndex?: unknown };
   block: { timestamp: number | bigint; number: number | bigint };
 }): EventIdentity {
   const txIndex = event.transaction.transactionIndex;
@@ -164,6 +166,9 @@ export function eventIdentity(event: {
     logIndex: Number(event.logIndex),
     timestamp: BigInt(event.block.timestamp),
     blockNumber: BigInt(event.block.number),
-    transactionIndex: txIndex === undefined ? undefined : Number(txIndex),
+    transactionIndex:
+      typeof txIndex === "number" || typeof txIndex === "bigint"
+        ? Number(txIndex)
+        : undefined,
   };
 }

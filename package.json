@@ -20,7 +20,7 @@
     "yaml": "^2.8.1"
   },
   "dependencies": {
-    "envio": "3.2.1"
+    "envio": "3.6.1"
   },
   "optionalDependencies": {
     "generated": "./generated"
