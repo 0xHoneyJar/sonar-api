@@ -1,100 +1,89 @@
-# Railway → Envio Cloud
+# Railway → Envio Hosted Service
 
-Status: **prepared, not started.** Railway is still the live belt and nothing
-here has been executed. This is the plan and the file list, so the cutover is
-mechanical when you decide to do it.
+Status: **in progress** (started 2026-08-11). Railway is still the live belt
+until step 4 below passes; until then rollback is "do nothing" — nothing on
+the Railway side is touched by steps 1–3.
+
+Decisions already made (2026-08-11): consumers point **directly at the Envio
+hosted URL** (no `sonar.0xhoneyjar.xyz` proxy survives the cutover); **paid
+production tier**; deployment branch **`main`** (every merge deploys; Envio
+keeps deployment versions with one-click rollback).
 
 ## Why
 
-`KF-020` set the provider order: (1) self-hosted indexer against a free data
-lake, (2) metered reads only as a fallback, (3) **managed hosting once
-self-host ops cost more than the fee**. Rung 3 is what fired. From 2026-07-31
-alone: a `ca-certificates` line removed from `Dockerfile.belt` took all six
-chains down with TLS failures; Hasura metadata desynced and does not self-heal
-on resume; the re-index needs the KF-013 `ENVIO_RESTART` dance; a sidecar
-service was still pointing at a config deleted three days earlier; ten Railway
+Self-host ops cost more than the fee (KF-020 rung 3): the KF-013
+`ENVIO_RESTART` dance for every new contract, the ca-certificates TLS outage
+of 2026-07-31, Hasura metadata desync that doesn't self-heal, and ~ten Railway
 services to reason about. None of that is indexing work.
 
 ## What the repo already satisfies
 
 | requirement | status |
 |---|---|
-| `package.json` at root with envio pinned | ✅ `"envio": "3.2.1"` |
-| config file | ✅ `config.yaml` (generated — never hand-edit) |
-| schema | ✅ `schema.graphql` |
-| handlers | ✅ `src/`, registered via `src/EventHandlers.ts` |
-| no build-time host coupling | ✅ `postinstall`/`prepare` hooks removed |
+| envio pinned at root | ✅ `"envio": "3.6.1"` (hosted requires ≥ 2.21.5) |
+| config file | ✅ `config.yaml` at repo root (generated — never hand-edit) |
+| schema + handlers | ✅ `schema.graphql`, `src/` via `src/EventHandlers.ts` |
+| no build-time host coupling | ✅ no `postinstall`/`prepare` hooks |
+| repo size | ✅ well under the 100 MB limit |
 
-Nothing structural needs to change to deploy.
+Nothing structural needs to change to deploy. Live chains: Robinhood (4663),
+Base (8453), Berachain (80094).
 
-## Steps
+## Step 1 — dashboard (zerker, ~10 minutes)
 
-**1. Connect (dashboard — needs you).** Log into the Envio app with GitHub,
-install the *Envio Deployments* GitHub App, grant it this repo. There is no CLI
-deploy in envio 3.2.1 — `envio` has `dev`/`start`/`codegen`/`local`, not
-`deploy`.
+1. Log in at https://envio.dev/app/login with GitHub (the `0xHoneyJar` org).
+2. Install the **Envio Deployments** GitHub App; grant it `0xHoneyJar/sonar-api`.
+3. **Add Indexer** →
+   - Config file path: `config.yaml`
+   - Root directory: `/` (standalone repo)
+   - Deployment branch: `main`
+4. Plans & Billing tab → pick the **paid production tier**. The free dev plan
+   soft-limits at 100k events / 5 GB / 7-day inactivity and hard-deletes at
+   20 GB or 30 days of age — unusable for a score-api production dependency.
+5. Environment Variables tab → nothing required. HyperSync access is bundled
+   with hosting; `ENVIO_API_TOKEN` stays a local-dev/CI concern only.
+6. Push (or re-deliver) `main` and watch the sync in the dashboard.
+7. Report back the deployment's GraphQL endpoint URL.
 
-**2. Configure.** Root directory `/`, config file `config.yaml`, and pick a
-deployment branch. Using `main` means every merge redeploys; a dedicated
-`deploy` branch gives you a manual gate. Recommend the latter while migrating.
+If the build fails on toolchain versions: hosted recommends Node 24 and pnpm
+10.32.x; the repo pins Node 22 / `pnpm@10.11.0`. Bumping `.nvmrc`,
+`engines.node`, and `packageManager` is the fix — don't pre-empt it.
 
-**3. Push the deployment branch.** Envio builds and starts a full sync from
-each chain's `start_block`. This takes as long as the Railway backfill does —
-plan for hours, and expect Ethereum and Arbitrum to be the long poles.
-
-**4. Wait for parity before cutting over.** Compare against Railway:
+## Step 2 — parity (before anything points at it)
 
 ```bash
-# both endpoints, same query — they should converge
+# both endpoints, same query — they should converge per chain
 curl -s -X POST <ENDPOINT>/v1/graphql -H 'content-type: application/json' \
   -d '{"query":"{ chain_metadata { chain_id latest_processed_block } }"}'
-```
 
-Also run the contract guard against the new endpoint before pointing anything
-at it:
-
-```bash
+# contract guard against the new endpoint — must exit 0
 BELT_GATEWAY_ENDPOINT=<new>/v1/graphql node scripts/verify-belt-contract.mjs
+
+# score-api's silent-failure hazard: the Hasura input type name must survive
+curl -s -X POST <new>/v1/graphql -H 'content-type: application/json' \
+  -d '{"query":"{ __type(name: \"Action_bool_exp\") { name } }"}'
 ```
 
-**5. Swap the consumer.** score-api reads `INDEXER_GRAPHQL_URL`
-(`src/bronze/belt-gateway-source.ts:70`, with a hardcoded default fallback).
-Set it in the Trigger.dev production env to the Envio Cloud endpoint. Confirm
-the default fallback is not silently used anywhere before you rely on it.
+## Step 3 — repoint consumers
 
-**6. Then, and only then, strip Railway.** One commit:
+- `scripts/belt-contract.json` `endpoint` → the new URL (the daily
+  `belt-contract-guard.yml` cron reads this default).
+- score-api: `src/bronze/source.ts` `DEFAULT_INDEXER_URL` → the new URL, and
+  set `INDEXER_GRAPHQL_URL` in the Trigger.dev **production** env. The env var
+  falls back to the hardcoded default silently — change both.
+- Smoke: one bronze pull returns rows from the new endpoint.
 
-```
-Dockerfile.belt        Dockerfile.gateway     Caddyfile
-.railwayignore         .dockerignore
-```
+## Step 4 — strip the Railway era (one commit)
 
-plus the `## Deployment` table in `ARCHITECTURE.md` and the `.env.example`
-entries for `BELT_CONFIG` / `ENVIO_RESTART` (both are Dockerfile concepts that
-Envio Cloud replaces).
+`git revert 357cdcaa` re-applies the prepared strip commit (`c540d2d8`):
+deletes `Dockerfile.belt`, `Dockerfile.gateway`, `Caddyfile`,
+`.railwayignore`, `.dockerignore`; fixes README / ARCHITECTURE / SECURITY /
+`.env.example` / `belt-contract.json`. Then hand-fix what drifted since it was
+written (chain count, contract counts, envio version). Delete this file.
 
-**7. Tear down the services.** `belt-indexer-selfhost`, `belt-hasura-selfhost`,
-`belt-gateway`, `Postgres-6J4w` — plus the four already dead or out of scope:
-`kitchen-api`, `svm-webhook`, `svm-backfill-worker`, `belt-indexer-robinhood`
-(see PARKED.md).
+## Step 5 — tear down Railway (zerker, destructive)
 
-## Decide before step 3
-
-- **Storage tier.** Envio Cloud dev plans auto-delete deployments over **20 GB**.
-  Six chains from genesis is not obviously under that — Ethereum from 12,287,507
-  and Arbitrum from 102,894,033. Confirm your tier, or the deployment can vanish
-  mid-sync.
-- **Endpoint stability.** Railway gave you an operator-owned alias
-  (`sonar.0xhoneyjar.xyz`). Envio Cloud issues its own static production URL.
-  If you want to keep the alias, plan a CNAME or keep a thin proxy — otherwise
-  every consumer hardcodes a vendor URL, which is the control point KF-020
-  originally called out.
-- **Re-index cost per change.** On Railway a schema change costs you sync time
-  on hardware you already pay for. On a metered plan it may cost more. This is
-  the one KF-020 tradeoff that does *not* go away.
-
-## Rollback
-
-Until step 6, rollback is: leave `INDEXER_GRAPHQL_URL` pointed at Railway. The
-Railway stack is untouched by any of the above, so there is no window where both
-are broken.
+`belt-indexer-selfhost`, `belt-hasura-selfhost`, `belt-gateway`,
+`Postgres-6J4w` — plus the four already dead or out of scope: `kitchen-api`,
+`svm-webhook`, `svm-backfill-worker`, `belt-indexer-robinhood` (PARKED.md).
+Recommended: scale to zero for a few days first, then delete.
