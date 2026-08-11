@@ -109,10 +109,16 @@ describe("protocol registry invariants", () => {
   it("splits bindings by token-tracking: staking/AMM merged, governance standalone", () => {
     const plan = protocolBindingPlan();
     const standalone = plan.standalone.map((p) => p.address).sort();
-    expect(standalone).toEqual([
+    // Goldilocks governance pair + the whole StonkBrokers ring (none of its
+    // protocol addresses are token-tracked; the two custody vaults are
+    // custodial entries, which TRACKED_CONTRACTS filters out).
+    const goldilocksStandalone = [
       "0x6c00d68dc6bcc3d47d698f4b566ccbe893d34fed", // Goldigovernance
       "0xb9798e0e3ab8b2f2c80684c9d51056538e021dac", // GovLocks
-    ]);
+    ];
+    const stonkStandalone = PROTOCOLS.filter((p) => p.chain === 4663).map((p) => p.address);
+    expect(stonkStandalone).toHaveLength(15); // 6 core contracts + 9 gacha machines
+    expect(standalone).toEqual([...goldilocksStandalone, ...stonkStandalone].sort());
     const mergedErc20 = plan.merged.get("erc20") ?? [];
     expect(mergedErc20.map(eventNameOf).sort()).toEqual([
       "Borrow", "Redeem", "Repay", "Stake", "Stir", "Unstake",

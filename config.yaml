@@ -93,6 +93,56 @@ contracts:
           transaction_fields:
             - hash
             - transactionIndex
+      - event: Activated(uint256 indexed tokenId, address indexed owner, uint8 tier, uint256 feePaid)
+        field_selection:
+          transaction_fields:
+            - hash
+            - transactionIndex
+      - event: ActivationUpgraded(uint256 indexed tokenId, address indexed owner, uint8 fromTier, uint8 toTier, uint256 feePaid)
+        field_selection:
+          transaction_fields:
+            - hash
+            - transactionIndex
+      - event: ElectionSet(uint256 indexed tokenId, address indexed elector, uint32 indexed menuVersion, uint8[] pickIndexes, uint16[] pickBps, bytes32 attestationHash)
+        field_selection:
+          transaction_fields:
+            - hash
+            - transactionIndex
+      - event: NFTBought(address indexed buyer, uint256 indexed tokenId, uint256 tokensIn, uint256 ethFeePaid, uint256 boosterShare, uint256 protocolShare, bool isSpecific)
+        field_selection:
+          transaction_fields:
+            - hash
+            - transactionIndex
+      - event: NFTSold(address indexed seller, uint256 indexed tokenId, uint256 tokensOut, uint256 ethFeePaid, uint256 boosterShare, uint256 protocolShare)
+        field_selection:
+          transaction_fields:
+            - hash
+            - transactionIndex
+      - event: LoanCreated(address indexed borrower, uint256 indexed loanId, uint256 indexed tokenId, uint256 principal, uint256 duration, uint256 ethFeePaid, uint256 boosterShare, uint256 protocolShare)
+        field_selection:
+          transaction_fields:
+            - hash
+            - transactionIndex
+      - event: LoanRepaid(address indexed borrower, uint256 indexed loanId, uint256 principalRepaid, uint256 lateFeeEth)
+        field_selection:
+          transaction_fields:
+            - hash
+            - transactionIndex
+      - event: CertificateBought(uint256 indexed tokenId, address indexed buyer, address indexed recipient, address stockToken, uint256 stockAmount, uint256 spendWei, uint256 feeWei, address wallet)
+        field_selection:
+          transaction_fields:
+            - hash
+            - transactionIndex
+      - event: CertificateRedeemed(uint256 indexed tokenId, address indexed to, address stockToken, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+            - transactionIndex
+      - event: PullSettled(uint256 indexed roundId, address indexed player, uint32 multBps, uint256 wonUsd8, uint256 stockAmount, uint256 certificateId, address deliveredTo)
+        field_selection:
+          transaction_fields:
+            - hash
+            - transactionIndex
   # Seaport (OpenSea) — secondary sales. The OrderFulfilled ABI is stable across
   # versions, so one binding covers v1.1 through v1.6 on every chain.
   - name: Seaport
@@ -133,6 +183,24 @@ chains:
       - name: TrackedErc721
         address:
           - "0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0" # stonk_brokers
+        start_block: 12493793
+      - name: ProtocolEvents
+        address:
+          - "0xacd5ae3c060c1137fe2ee86b0ab2ef697456f664" # ActivationManager — tiered payroll registration
+          - "0x1f12fe622c11947f93f53d63f68f7f46b6d081c9" # DirectedClockInBooster — distribution elections
+          - "0xe302733accf4800146e55fc45b46b4e4ffc032d2" # StonkNFTAMMVault — broker AMM trades
+          - "0xa7b9ac696b252b79568a5a01b2fd02177ef23664" # StonkLoanVault — broker-collateral loans
+          - "0x2599882aaf5c14834562ee59ca7a3d1ffcc229d7" # StonkCertificateCounter — exact-price stock buys
+          - "0xafbc48317dd946e3b9ce570b75e48a285862e6be" # StonkCertificate — certificate redemptions
+          - "0x8f1836209c42d4f6b6caa782c055ee13f8ac95b0" # RingTheBellGacha — GME machine
+          - "0xf9bc0777c087af0fe7214de8a5360be6a71d0d44" # RingTheBellGacha — AAPL machine
+          - "0x2829b754784352dd2beffa5eb26d5b499315b715" # RingTheBellGacha — AMZN machine
+          - "0xc5e3e9c2a835ec9319fd8c1d516fd4323c5758a0" # RingTheBellGacha — NVDA machine
+          - "0xff20b4b8e08beaa4064e3ca4cc5a2e40acac072f" # RingTheBellGacha — GOOGL machine
+          - "0xfc253e0062eef614e20e0726e5f6ff7559c35402" # RingTheBellGacha — MSFT machine
+          - "0x9d2c3355502be065975ad47ef5a902f02c772504" # RingTheBellGacha — SLV machine
+          - "0xf58979d35c3f0ff6a6f7edd909fe8a95a2894609" # RingTheBellGacha — SPCX machine
+          - "0x5b1282b6ad40b3dc294404a2b33ff7657b66c33c" # RingTheBellGacha — USO machine
         start_block: 12493793
 
   # Base

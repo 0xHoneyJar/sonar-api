@@ -105,3 +105,13 @@ indexer.onEvent({ contract: "TrackedErc20", event: "Redeem" }, handle("Redeem"))
 indexer.onEvent({ contract: "ProtocolEvents", event: "ProposalCreated" }, handle("ProposalCreated"));
 indexer.onEvent({ contract: "ProtocolEvents", event: "VoteCast" }, handle("VoteCast"));
 indexer.onEvent({ contract: "ProtocolEvents", event: "DelegateChanged" }, handle("DelegateChanged"));
+indexer.onEvent({ contract: "ProtocolEvents", event: "Activated" }, handle("Activated"));
+indexer.onEvent({ contract: "ProtocolEvents", event: "ActivationUpgraded" }, handle("ActivationUpgraded"));
+indexer.onEvent({ contract: "ProtocolEvents", event: "ElectionSet" }, handle("ElectionSet"));
+indexer.onEvent({ contract: "ProtocolEvents", event: "NFTBought" }, handle("NFTBought"));
+indexer.onEvent({ contract: "ProtocolEvents", event: "NFTSold" }, handle("NFTSold"));
+indexer.onEvent({ contract: "ProtocolEvents", event: "LoanCreated" }, handle("LoanCreated"));
+indexer.onEvent({ contract: "ProtocolEvents", event: "LoanRepaid" }, handle("LoanRepaid"));
+indexer.onEvent({ contract: "ProtocolEvents", event: "CertificateBought" }, handle("CertificateBought"));
+indexer.onEvent({ contract: "ProtocolEvents", event: "CertificateRedeemed" }, handle("CertificateRedeemed"));
+indexer.onEvent({ contract: "ProtocolEvents", event: "PullSettled" }, handle("PullSettled"));

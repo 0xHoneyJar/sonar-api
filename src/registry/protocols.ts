@@ -105,6 +105,98 @@ export const PROTOCOLS: readonly ProtocolEntry[] = [
         verb: "delegate", actorParam: "delegator", contextParams: ["fromDelegate", "toDelegate"] },
     ],
   },
+
+  // StonkBrokers (Robinhood Chain 4663) — second deep-tracking community.
+  // Recon + plan: score-api docs/research/2026-08-10-stonkbrokers-protocol-map.md.
+  // Every signature's topic/data layout verified against a real HyperSync log
+  // 2026-08-10 (indexed-ness from Blockscout-verified source, layout confirmed
+  // per-topic). startBlock = the NFT's deploy block for the whole ring — every
+  // protocol contract deployed after it, and an early startBlock only widens
+  // the (cheap) HyperSync scan, never the result.
+  // DELIBERATELY excluded, per the plan: the Clock In fan-out ring (Delivered/
+  // CreditAccrued/DropCredited — 1.83M rows, sizing), ActivationCleared (no
+  // actor param; state comes from activationOf reads), CertificateMinted
+  // (double-counts CertificateBought + PullSettled), lockers (V3/V4 same-name
+  // different-signature collision, 94 events, protocol-adjacent), LoanLiquidated
+  // (actor = liquidator, not member; 0 events ever).
+  {
+    community: "stonk_brokers", label: "ActivationManager — tiered payroll registration",
+    address: "0xacd5ae3c060c1137fe2ee86b0ab2ef697456f664", chain: 4663, startBlock: 12493793,
+    events: [
+      { signature: "Activated(uint256 indexed tokenId, address indexed owner, uint8 tier, uint256 feePaid)",
+        verb: "activate", actorParam: "owner", amountParam: "feePaid", contextParams: ["tokenId", "tier"] },
+      { signature: "ActivationUpgraded(uint256 indexed tokenId, address indexed owner, uint8 fromTier, uint8 toTier, uint256 feePaid)",
+        verb: "upgrade_activation", actorParam: "owner", amountParam: "feePaid", contextParams: ["tokenId", "fromTier", "toTier"] },
+    ],
+  },
+  {
+    community: "stonk_brokers", label: "DirectedClockInBooster — distribution elections",
+    address: "0x1f12fe622c11947f93f53d63f68f7f46b6d081c9", chain: 4663, startBlock: 12493793,
+    events: [
+      { signature: "ElectionSet(uint256 indexed tokenId, address indexed elector, uint32 indexed menuVersion, uint8[] pickIndexes, uint16[] pickBps, bytes32 attestationHash)",
+        verb: "elect", actorParam: "elector", contextParams: ["tokenId", "menuVersion"] },
+    ],
+  },
+  {
+    community: "stonk_brokers", label: "StonkNFTAMMVault — broker AMM trades",
+    address: "0xe302733accf4800146e55fc45b46b4e4ffc032d2", chain: 4663, startBlock: 12493793,
+    events: [
+      { signature: "NFTBought(address indexed buyer, uint256 indexed tokenId, uint256 tokensIn, uint256 ethFeePaid, uint256 boosterShare, uint256 protocolShare, bool isSpecific)",
+        verb: "buy_broker", actorParam: "buyer", amountParam: "tokensIn", contextParams: ["tokenId"] },
+      { signature: "NFTSold(address indexed seller, uint256 indexed tokenId, uint256 tokensOut, uint256 ethFeePaid, uint256 boosterShare, uint256 protocolShare)",
+        verb: "sell_broker", actorParam: "seller", amountParam: "tokensOut", contextParams: ["tokenId"] },
+    ],
+  },
+  {
+    community: "stonk_brokers", label: "StonkLoanVault — broker-collateral loans",
+    address: "0xa7b9ac696b252b79568a5a01b2fd02177ef23664", chain: 4663, startBlock: 12493793,
+    events: [
+      { signature: "LoanCreated(address indexed borrower, uint256 indexed loanId, uint256 indexed tokenId, uint256 principal, uint256 duration, uint256 ethFeePaid, uint256 boosterShare, uint256 protocolShare)",
+        verb: "borrow", actorParam: "borrower", amountParam: "principal", contextParams: ["tokenId", "loanId"] },
+      { signature: "LoanRepaid(address indexed borrower, uint256 indexed loanId, uint256 principalRepaid, uint256 lateFeeEth)",
+        verb: "repay", actorParam: "borrower", amountParam: "principalRepaid", contextParams: ["loanId"] },
+    ],
+  },
+  {
+    community: "stonk_brokers", label: "StonkCertificateCounter — exact-price stock buys",
+    address: "0x2599882aaf5c14834562ee59ca7a3d1ffcc229d7", chain: 4663, startBlock: 12493793,
+    events: [
+      { signature: "CertificateBought(uint256 indexed tokenId, address indexed buyer, address indexed recipient, address stockToken, uint256 stockAmount, uint256 spendWei, uint256 feeWei, address wallet)",
+        verb: "buy_certificate", actorParam: "buyer", amountParam: "spendWei", contextParams: ["stockToken", "stockAmount"] },
+    ],
+  },
+  {
+    community: "stonk_brokers", label: "StonkCertificate — certificate redemptions",
+    address: "0xafbc48317dd946e3b9ce570b75e48a285862e6be", chain: 4663, startBlock: 12493793,
+    events: [
+      { signature: "CertificateRedeemed(uint256 indexed tokenId, address indexed to, address stockToken, uint256 amount)",
+        verb: "redeem_certificate", actorParam: "to", amountParam: "amount", contextParams: ["stockToken"] },
+    ],
+  },
+  // RingTheBellGacha ×9 (one per stock machine, all launched by
+  // RingTheBellFactory 0x278d…d226). Bytecode differs per machine (constructor
+  // immutables: stock token + USD feed), but all nine are Blockscout-verified
+  // RingTheBellGacha with the IDENTICAL PullSettled signature (checked per
+  // machine 2026-08-10). wonUsd8 (the outcome) is the amount; stockAmount and
+  // multBps ride context.
+  ...[
+    ["0x8f1836209c42d4f6b6caa782c055ee13f8ac95b0", "GME"],
+    ["0xf9bc0777c087af0fe7214de8a5360be6a71d0d44", "AAPL"],
+    ["0x2829b754784352dd2beffa5eb26d5b499315b715", "AMZN"],
+    ["0xc5e3e9c2a835ec9319fd8c1d516fd4323c5758a0", "NVDA"],
+    ["0xff20b4b8e08beaa4064e3ca4cc5a2e40acac072f", "GOOGL"],
+    ["0xfc253e0062eef614e20e0726e5f6ff7559c35402", "MSFT"],
+    ["0x9d2c3355502be065975ad47ef5a902f02c772504", "SLV"],
+    ["0xf58979d35c3f0ff6a6f7edd909fe8a95a2894609", "SPCX"],
+    ["0x5b1282b6ad40b3dc294404a2b33ff7657b66c33c", "USO"],
+  ].map(([address, stock]): ProtocolEntry => ({
+    community: "stonk_brokers", label: `RingTheBellGacha — ${stock} machine`,
+    address, chain: 4663, startBlock: 12493793,
+    events: [
+      { signature: "PullSettled(uint256 indexed roundId, address indexed player, uint32 multBps, uint256 wonUsd8, uint256 stockAmount, uint256 certificateId, address deliveredTo)",
+        verb: "gacha_pull", actorParam: "player", amountParam: "wonUsd8", contextParams: ["multBps", "stockAmount"] },
+    ],
+  })),
 ];
 
 /** Event name from a signature: "Stake(address user, …)" → "Stake". */

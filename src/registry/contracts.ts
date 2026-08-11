@@ -140,7 +140,13 @@ export const CONTRACTS: readonly ContractEntry[] = [
   // probed 2026-08-09). The 2026-07-19 monobelt stall was the RPC source path
   // fataling on multi-filter; there was no HyperSync for 4663 then. There is
   // now, so it binds like any other chain — the sidecar is not coming back.
-  { community: "stonk_brokers", address: "0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0", chain: 4663, standard: "erc721", startBlock: 12493793, balancesOnly: true }, // StonkBrokers
+  //
+  // Flipped off balancesOnly 2026-08-10 for the deep-tracking lane (score-api
+  // docs/plans/2026-08-10-stonkbrokers-deep-tracking.md): full Transfer history
+  // (9,027 events at recon) + the protocols.ts ring. Every broker also owns an
+  // ERC-6551 wallet (WalletCreated ×4,444) — those TBAs hold stock tokens, are
+  // NOT members, and are read by score-api's wealth sweep, not indexed here.
+  { community: "stonk_brokers", address: "0x539cdd042c2f3d93ebc5be7dfff0c79f3b4fabf0", chain: 4663, standard: "erc721", startBlock: 12493793 }, // StonkBrokers
 
   // Custody addresses — not indexed. A vault or escrow holds tokens on a user's
   // behalf, so crediting it as the holder strips the depositor.
@@ -150,6 +156,12 @@ export const CONTRACTS: readonly ContractEntry[] = [
   // #1 mibera holder and 462 stakers lose credit.
   { community: "mibera_collection", address: "0x242b7126f3c4e4f8cbd7f62571293e63e9b0a4e1", chain: 80094, standard: "erc721", startBlock: 3837808, custodial: true }, // paddlefi vault
   { community: "mibera_collection", address: "0x8778ca41cf0b5cd2f9967ae06b691daff11db246", chain: 80094, standard: "erc721", startBlock: 3837808, custodial: true }, // jiko staking
+
+  // StonkBrokers custody (2026-08-10): the AMM vault holds the tradeable broker
+  // inventory (nobody's tokens) and the LoanVault holds loan collateral (the
+  // borrower's broker). Crediting either as a holder is wrong per construction.
+  { community: "stonk_brokers", address: "0xe302733accf4800146e55fc45b46b4e4ffc032d2", chain: 4663, standard: "erc721", startBlock: 12493793, custodial: true }, // StonkNFTAMMVault
+  { community: "stonk_brokers", address: "0xa7b9ac696b252b79568a5a01b2fd02177ef23664", chain: 4663, standard: "erc721", startBlock: 12493793, custodial: true }, // StonkLoanVault
 ];
 
 /**

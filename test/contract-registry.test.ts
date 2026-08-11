@@ -264,18 +264,22 @@ describe("contracts registry ↔ config.yaml", () => {
       expect(entry?.community).toBe(community);
       expect(entry?.standard).toBe(standard);
     }
-    // The belt is Berachain plus TWO deliberate exceptions: the four Purupuru
-    // ERC-1155s on Base (2026-08-08), and the balancesOnly ERC-721 snapshot
+    // The belt is Berachain plus THREE deliberate exceptions: the four Purupuru
+    // ERC-1155s on Base (2026-08-08), the balancesOnly ERC-721 snapshot
     // fleet (2026-08-09) — holder counts only, no Action stream, so its belt
-    // cost is O(holders), not O(transfers). Any off-Berachain entry that is
-    // neither is a regression.
+    // cost is O(holders), not O(transfers) — and the StonkBrokers deep-tracking
+    // ring on Robinhood Chain 4663 (2026-08-10): the NFT flipped to the event
+    // lane plus its two custody vaults (AMM inventory, loan collateral). Any
+    // off-Berachain entry that is none of these is a regression.
     const offBerachain = CONTRACTS.filter((c) => c.chain !== 80094);
     const isPurupuru = (c: (typeof CONTRACTS)[number]) =>
       c.chain === 8453 && c.standard === "erc1155";
     const isSnapshotFleet = (c: (typeof CONTRACTS)[number]) =>
       c.standard === "erc721" && c.balancesOnly === true;
+    const isStonkRing = (c: (typeof CONTRACTS)[number]) =>
+      c.chain === 4663 && c.community === "stonk_brokers";
     expect(
-      offBerachain.filter((c) => !isPurupuru(c) && !isSnapshotFleet(c)),
+      offBerachain.filter((c) => !isPurupuru(c) && !isSnapshotFleet(c) && !isStonkRing(c)),
     ).toEqual([]);
     expect(offBerachain.filter(isPurupuru).map((c) => c.community).sort()).toEqual([
       "apiculture_szn_0",
@@ -296,12 +300,19 @@ describe("contracts registry ↔ config.yaml", () => {
     // its whole order flow and record nothing. PARKED until 1155 support.
     // balancesOnly collections are excluded: they write no Action rows, so a
     // sale row would join against nothing — venue coverage buys them nothing.
+    // Robinhood Chain (4663) is covered by the PROTOCOL lane, not this registry:
+    // its only venue is StonkBrokers' in-house AMM, whose NFTBought/NFTSold are
+    // registered in protocols.ts (buy_broker/sell_broker) — and an address
+    // cannot sit under two Envio bindings, so it can never ALSO be a
+    // marketplaces.ts entry. The protocol verbs carry richer settlement data
+    // (price in $STONKBROKER + tokenId) than the generic sale path would.
     const nftChains = new Set(
       CONTRACTS.filter((c) => c.standard === "erc721" && !c.balancesOnly).map(
         (c) => c.chain,
       ),
     );
-    const covered = new Set(MARKETPLACES.map((m) => m.chain));
+    const protocolVenueChains = new Set([4663]);
+    const covered = new Set([...MARKETPLACES.map((m) => m.chain), ...protocolVenueChains]);
     const uncovered = [...nftChains].filter((id) => !covered.has(id)).sort((a, b) => a - b);
     expect(uncovered).toEqual([]);
   });
