@@ -1,0 +1,114 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+#
+# Runtime env vars (read by handlers, not by envio):
+#   NATS_URL                  — JetStream connection URI (TLS-only)
+#   NATS_TLS_CA               — path to CA bundle for the cluster's NATS instance
+#   SONAR_SIGNING_SEED_HEX    — 32-byte (64 hex chars) Ed25519 seed for the
+#                               events-pillar signer. Absent → publish layer
+#                               stays disabled (fail-soft); the indexer still
+#                               writes Envio entities as before.
+# See src/lib/events-publisher.ts and the cluster-events-pillar-v1 build doc.
+name: thj-indexer-1
+# Cache-bust: Path ε rpc-fix deploy 2026-05-27 (Railway BuildKit cache evicted by content change)
+contracts:
+  - name: HoneyJar
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: HoneyJar2Eth
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: HoneyJar3Eth
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: HoneyJar4Eth
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: HoneyJar5Eth
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  - name: Honeycomb
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Static ERC721 collections for holder tracking
+  - name: TrackedErc721
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  # MiladyCollection - Milady NFT burn tracking on Ethereum mainnet
+  - name: MiladyCollection
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+chains:
+  - id: 1
+    start_block: 13090020 # Earliest block - Milady contract deployment
+    contracts:
+      # Native HoneyJar contracts on Ethereum
+      - name: HoneyJar
+        address:
+          - '0xa20cf9b0874c3e46b344deaeea9c2e0c3e1db37d' # HoneyJar1
+          - '0x98dc31a9648f04e23e4e36b0456d1951531c2a05' # HoneyJar6
+        start_block: 17085858 # HoneyJar1 deployment (HoneyJar6 deployed later at 21642710)
+      # Honeycomb on Ethereum
+      - name: Honeycomb
+        address:
+          - '0xcb0477d1af5b8b05795d89d59f4667b59eae9244'
+        start_block: 16751283 # Honeycomb deployment
+      # Layer Zero reminted HoneyJar contracts on Ethereum
+      - name: HoneyJar2Eth
+        address:
+          - '0x3f4dd25ba6fb6441bfd1a869cbda6a511966456d' # HoneyJar2 L0 remint
+        start_block: 17516342 # HoneyJar2 L0 remint deployment
+      - name: HoneyJar3Eth
+        address:
+          - '0x49f3915a52e137e597d6bf11c73e78c68b082297' # HoneyJar3 L0 remint (was missing!)
+        start_block: 20463444 # HoneyJar3 L0 remint deployment
+      - name: HoneyJar4Eth
+        address:
+          - '0x0b820623485dcfb1c40a70c55755160f6a42186d' # HoneyJar4 L0 remint (was missing!)
+        start_block: 20814248 # HoneyJar4 L0 remint deployment
+      - name: HoneyJar5Eth
+        address:
+          - '0x39eb35a84752b4bd3459083834af1267d276a54c' # HoneyJar5 L0 remint (was missing!)
+        start_block: 21327296 # HoneyJar5 L0 remint deployment
+      # Milady NFT collection on Ethereum (burn tracking)
+      - name: MiladyCollection
+        address:
+          - '0x5af0d9827e0c53e4799bb226655a1de152a425a5' # Milady Maker
+      # Community onboarding — Azuki (kitchen order 6ddc06f5)
+      - name: TrackedErc721
+        address:
+          - '0xed5af388653567af2f388e6224dcc93746104133' # azuki_kitchen_e2e
+        start_block: 14162194 # Azuki collection deployment
+
+# V3: unordered multichain and preload are now defaults (removed deprecated flags)

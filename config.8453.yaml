@@ -1,0 +1,107 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+#
+# Runtime env vars (read by handlers, not by envio):
+#   NATS_URL                  — JetStream connection URI (TLS-only)
+#   NATS_TLS_CA               — path to CA bundle for the cluster's NATS instance
+#   SONAR_SIGNING_SEED_HEX    — 32-byte (64 hex chars) Ed25519 seed for the
+#                               events-pillar signer. Absent → publish layer
+#                               stays disabled (fail-soft); the indexer still
+#                               writes Envio entities as before.
+# See src/lib/events-publisher.ts and the cluster-events-pillar-v1 build doc.
+name: thj-indexer-8453
+# Cache-bust: Path ε rpc-fix deploy 2026-05-27 (Railway BuildKit cache evicted by content change)
+contracts:
+  - name: HoneyJar
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Static ERC721 collections for holder tracking
+  - name: TrackedErc721
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+        field_selection:
+          transaction_fields:
+            - hash
+  # PuruApiculture1155 - ERC1155 collection on Base (Zora platform, Purupuru edition)
+  - name: PuruApiculture1155
+    handler: src/EventHandlers.ts
+    events:
+      - event: TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+      - event: TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)
+        field_selection:
+          transaction_fields:
+            - hash
+  # FriendtechShares - friend.tech key trading on Base (tracking Mibera-related subjects)
+  - name: FriendtechShares
+    handler: src/EventHandlers.ts
+    events:
+      - event: Trade(address trader, address subject, bool isBuy, uint256 shareAmount, uint256 ethAmount, uint256 protocolEthAmount, uint256 subjectEthAmount, uint256 supply)
+        field_selection:
+          transaction_fields:
+            - hash
+  # Tracked ERC-20 tokens for balance + burn tracking (HENLO + HENLOCKED tiers)
+  - name: TrackedErc20
+    handler: src/EventHandlers.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from # Required for burn tracking
+            - to # Required for source detection
+chains:
+  
+  # Base
+  - id: 8453
+    start_block: 2430439 # friend.tech start block (earliest contract)
+    contracts:
+      - name: HoneyJar
+        address:
+          - '0xbad7b49d985bbfd3a22706c447fb625a28f048b4' # HoneyJar5
+        start_block: 23252723 # HoneyJar5 Base deployment (verified via Base Blockscout)
+      # friend.tech shares trading (Mibera-related subjects: jani key, charlotte fang key)
+      - name: FriendtechShares
+        address:
+          - '0xCF205808Ed36593aa40a44F10c7f7C2F67d4A4d4'
+      # MiberaMaker ERC-20 token trades
+      - name: TrackedErc20
+        address:
+          - '0x120756ccc6f0cefb43a753e1f2534377c2694bb4' # MiberaMaker333
+        start_block: 33657372 # MiberaMaker333 deployment
+      # THJ APAC / Purupuru ERC-1155 collections (party.app mints + Zora)
+      - name: PuruApiculture1155
+        address:
+          - '0x6cfb9280767a3596ee6af887d900014a755ffc75' # Apiculture Szn 0 (Zora, token ID 4 = Purupuru edition)
+          - '0xcd3ab1B6E95cdB40A19286d863690Eb407335B21' # puru_elemental_jani
+          - '0x154a563ab6c037bd0f041ac91600ffa9fe2f5fa0' # puru_boarding_passes
+          - '0x85A72EEe14dcaA1CCC5616DF39AcdE212280DcCB' # puru_introducing_kizuna
+        start_block: 13803165 # Apiculture Szn 0 deployment (earliest of the 4)
+      # Community onboarding — Base batch 1 (top-10 ramp, #121; deploy blocks verified via eth_getCode binary search 2026-07-05)
+      - name: TrackedErc721
+        address:
+          - '0xcb28749c24af4797808364d71d71539bc01e76d4' # based_punks (deploy 12774442)
+          - '0x3319197b0d0f8ccd1087f2d2e47a8fb7c0710171' # hypio (deploy 24834458)
+          - '0xee7d1b184be8185adc7052635329152a4d0cdefa' # kemonokaki (deploy 16046941)
+          - '0x699727f9e01a822efdcf7333073f0461e5914b4e' # warplets (deploy 37366750)
+          - '0x1260f90e0b1c482b38b88f26dee17c57615d670b' # lil_bangers (deploy 33642811)
+          - '0x9e7a06c281355f60570e47a12650c89fe1d36ff3' # based_onchain_punks (deploy 2883449)
+          - '0x95bc4c2e01c2e2d9e537e7a9fe58187e88dd8019' # nodes_by_hunter (deploy 33916538)
+          - '0x20fd75eccd7bb9c4eb9e3bb4c09c6b382e15d63e' # veecon_2024_tickets (deploy 14459222)
+        start_block: 2883449 # earliest deploy in the batch (based_onchain_punks)
+      # Seaport on Base — DEFERRED until downstream repos add chainId filters
+      # See: grimoires/loa/NOTES.md for required downstream changes
+      # - name: Seaport
+      #   address:
+      #     - "0x0000000000000068F116a894984e2DB1123eB395" # Seaport v1.6
+      #   start_block: 20521993 # puru_boarding_passes deployment
+
+      # Berachain Mainnet (DO NOT CHANGE THIS ID)
+
+# V3: unordered multichain and preload are now defaults (removed deprecated flags)
